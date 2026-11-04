@@ -118,6 +118,7 @@ Buildkite's organization picker and pipeline discovery include organizations fro
 - Add a public Prow Deck such as prow.k8s.io with No auth. Pipedash reads its jobs, runs and logs without credentials and turns off starting and stopping runs.
 - Trigger a workflow with the inputs Pipedash loads from the provider, or rerun a past run with the same inputs.
 - Cancel one run or several at once. On GitHub, approve deployment reviews and rerun only the failed jobs.
+- On GitHub, Force cancel stops a run that ignores normal cancellation after you confirm its repository, branch and run number. GitHub bypasses conditions such as `always()`.
 - See when GitHub disables a workflow and why: after 60 days without repository activity, by hand or in a fork. Enable it again from its row menu with a token that can trigger workflows.
 - Get a notification when a pipeline fails, a run takes far longer than usual or a provider has an outage. Choose which alerts each device gets, turn off providers and mute single pipelines. Watch a pipeline to hear about every run that finishes, or get one notification when the run you started finishes.
 - Connect a phone or another computer to a Pipedash server, or to a desktop app that shares itself on your network, instead of adding providers on every device. Scan the QR code or enter the address and pairing code from Settings → Devices. The connected app shows the host's pipelines and updates live, and you remove a device at any time.

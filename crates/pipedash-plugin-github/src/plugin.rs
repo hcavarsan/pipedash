@@ -558,6 +558,29 @@ impl Plugin for GitHubPlugin {
         client.cancel_run(owner, repo, run_id_u64).await
     }
 
+    async fn force_cancel_run(&self, pipeline_id: &str, run_number: i64) -> PluginResult<()> {
+        let parts: Vec<&str> = pipeline_id.split("__").collect();
+        if parts.len() != 5 {
+            return Err(PluginError::InvalidConfig(format!(
+                "Invalid pipeline ID format: {} (expected 5 parts, got {})",
+                pipeline_id,
+                parts.len()
+            )));
+        }
+
+        let owner = parts[2];
+        let repo = parts[3];
+        let workflow_id: u64 = parts[4].parse().map_err(|_| {
+            PluginError::InvalidConfig(format!("Invalid workflow ID: {}", parts[4]))
+        })?;
+        let client = self.client()?;
+        let run = client
+            .fetch_run_by_number(owner, repo, workflow_id, run_number)
+            .await?;
+
+        client.force_cancel_run(owner, repo, run.id.0).await
+    }
+
     async fn review_run(
         &self, pipeline_id: &str, run_number: i64, decision: ReviewDecision,
     ) -> PluginResult<()> {
@@ -1117,6 +1140,90 @@ mod tests {
         assert!(matches!(error, PluginError::PermissionDenied(_)), "{error}");
         assert!(error.to_string().contains("over a month ago"), "{error}");
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn force_cancel_resolves_the_selected_run_and_preserves_normal_cancel() {
+        let (plugin, recorded, server) = serve(&[], |method, path| match (method, path) {
+            ("GET", "/api/v3/repos/acme/app/actions/workflows/42/runs") => ok(serde_json::json!({
+                "total_count": 2,
+                "workflow_runs": [
+                    finished_run(9002, 8, "in_progress", None),
+                    finished_run(9001, 7, "in_progress", None),
+                ]
+            })),
+            ("POST", "/api/v3/repos/acme/app/actions/runs/9001/cancel")
+            | ("POST", "/api/v3/repos/acme/app/actions/runs/9001/force-cancel") => Reply {
+                status: 202,
+                headers: Vec::new(),
+                body: serde_json::json!({}),
+            },
+            (method, path) => panic!("Unexpected stub request: {method} {path}"),
+        })
+        .await;
+
+        plugin.cancel_run(PIPELINE_ID, 7).await.unwrap();
+        plugin.force_cancel_run(PIPELINE_ID, 7).await.unwrap();
+
+        let posted: Vec<String> = recorded
+            .lock()
+            .await
+            .iter()
+            .filter(|(method, _, _)| method == "POST")
+            .map(|(_, path, _)| path.clone())
+            .collect();
+        assert_eq!(
+            posted,
+            [
+                "/api/v3/repos/acme/app/actions/runs/9001/cancel",
+                "/api/v3/repos/acme/app/actions/runs/9001/force-cancel"
+            ]
+        );
+        assert!(plugin.metadata().capabilities.force_cancel);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn force_cancel_propagates_lookup_and_action_rejections_without_other_posts() {
+        for (lookup_status, action_status) in [(403, 202), (200, 403), (200, 409)] {
+            let (plugin, recorded, server) = serve(&[], move |method, path| match (method, path) {
+                ("GET", "/api/v3/repos/acme/app/actions/workflows/42/runs") => {
+                    if lookup_status != 200 {
+                        return failure(lookup_status, "Lookup denied", &[]);
+                    }
+                    ok(serde_json::json!({
+                        "total_count": 1,
+                        "workflow_runs": [finished_run(9001, 7, "in_progress", None)]
+                    }))
+                }
+                ("POST", "/api/v3/repos/acme/app/actions/runs/9001/force-cancel") => {
+                    failure(action_status, "Force cancellation denied", &[])
+                }
+                (method, path) => panic!("Unexpected stub request: {method} {path}"),
+            })
+            .await;
+
+            let error = plugin.force_cancel_run(PIPELINE_ID, 7).await.unwrap_err();
+            if lookup_status == 403 || action_status == 403 {
+                assert!(matches!(error, PluginError::PermissionDenied(_)), "{error}");
+            }
+            let message = if lookup_status != 200 {
+                "Lookup denied"
+            } else {
+                "Force cancellation denied"
+            };
+            assert!(error.to_string().contains(message), "{error}");
+            assert_eq!(
+                recorded
+                    .lock()
+                    .await
+                    .iter()
+                    .filter(|(method, _, _)| method == "POST")
+                    .count(),
+                usize::from(lookup_status == 200)
+            );
+            server.abort();
+        }
     }
 
     #[test]

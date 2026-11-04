@@ -512,6 +512,10 @@ class ApiClient {
     await this.requestVoid('POST', `/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/cancel`)
   }
 
+  async forceCancelPipelineRun(pipelineId: string, runNumber: number): Promise<void> {
+    await this.requestVoid('POST', `/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/force-cancel`)
+  }
+
   async reviewPipelineRun(pipelineId: string, runNumber: number, decision: ReviewDecision): Promise<void> {
     await this.requestVoid('POST', `/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/review`, {
       decision,

@@ -20,6 +20,7 @@ const fluxPlugin = {
     pipeline_runs: true,
     trigger: true,
     cancel: false,
+    force_cancel: false,
     agents: false,
     artifacts: false,
     queues: false,

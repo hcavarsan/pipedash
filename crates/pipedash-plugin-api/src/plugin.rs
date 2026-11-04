@@ -54,6 +54,8 @@ pub struct PluginCapabilities {
     pub pipeline_runs: bool,
     pub trigger: bool,
     pub cancel: bool,
+    #[serde(default)]
+    pub force_cancel: bool,
     pub agents: bool,
     pub artifacts: bool,
     pub queues: bool,
@@ -210,6 +212,12 @@ pub trait Plugin: Send + Sync {
         ))
     }
 
+    async fn force_cancel_run(&self, _pipeline_id: &str, _run_number: i64) -> PluginResult<()> {
+        Err(crate::error::PluginError::NotSupported(
+            "Force cancellation not supported by this provider".to_string(),
+        ))
+    }
+
     async fn review_run(
         &self, _pipeline_id: &str, _run_number: i64, _decision: ReviewDecision,
     ) -> PluginResult<()> {
@@ -334,5 +342,21 @@ pub trait Plugin: Send + Sync {
                 }
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn force_cancellation_defaults_to_unsupported_for_existing_capabilities() {
+        let capabilities = PluginCapabilities::default();
+        assert!(!capabilities.force_cancel);
+
+        let mut serialized = serde_json::to_value(capabilities).unwrap();
+        serialized.as_object_mut().unwrap().remove("force_cancel");
+        let restored: PluginCapabilities = serde_json::from_value(serialized).unwrap();
+        assert!(!restored.force_cancel);
     }
 }
