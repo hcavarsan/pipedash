@@ -13,6 +13,9 @@ import { showSystemNotification, systemDeliveryEnabled } from '../utils/systemNo
 const alertTitle = (pipeline: Pipeline) =>
   pipeline.status === 'degraded' ? `${pipeline.name} is degraded` : `${pipeline.name} failed`
 
+const isOlderObservation = (pipeline: Pipeline, previous: Pipeline | undefined): boolean =>
+  previous !== undefined && Date.parse(pipeline.last_updated) < Date.parse(previous.last_updated)
+
 const notify = (
   pipeline: Pipeline,
   tone: CenterNotificationTone,
@@ -65,6 +68,10 @@ export function useFailureNotifications(): void {
           const providers = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list())
 
           for (const pipeline of pipelines) {
+            if (isOlderObservation(pipeline, lastPipelines.get(pipeline.id))) {
+              continue
+            }
+            lastPipelines.set(pipeline.id, pipeline)
             if (pipeline.status === 'failed') {
               failedPipelines.add(pipeline.id)
             }
@@ -104,6 +111,9 @@ export function useFailureNotifications(): void {
 
       for (const pipeline of pipelines) {
         const previous = lastPipelines.get(pipeline.id)
+        if (isOlderObservation(pipeline, previous)) {
+          continue
+        }
         const overdueRun = pipeline.overdue_run
         const newOverdueRun =
           previous !== undefined && !!overdueRun && notifiedOverdueRuns.get(pipeline.id) !== overdueRun

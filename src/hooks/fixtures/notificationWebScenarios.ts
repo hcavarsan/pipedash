@@ -41,12 +41,13 @@ function Screen() {
   useQuery({
     queryKey: queryKeys.pipelines.list(),
     queryFn: async () => {
+      const response = backend
       await gate?.promise
       if (failNext) {
         throw new Error('backend unavailable')
       }
 
-      return backend
+      return response
     },
   })
   return null
@@ -230,4 +231,32 @@ test('loading and refreshing passing pipelines stays silent', async () => {
   })
   assert.deepEqual(useNotificationCenterStore.getState().items, [])
   assert.deepEqual(delivered, [])
+})
+
+test('a delayed successful list cannot replace a newer failure or consume its recovery', async () => {
+  const socket = await mount({ ...baseline, status: 'success' })
+  gate = Promise.withResolvers<void>()
+  const refetch = client.invalidateQueries({ queryKey: queryKeys.pipelines.list() })
+  const failed: Pipeline = { ...baseline, status: 'failed', last_updated: '2026-10-26T12:02:00Z' }
+  backend = [failed]
+  await act(async () => {
+    socket.emit('pipelines-updated', { pipelines: backend, providerId: 1, timestamp: Date.now() })
+  })
+  await waitFor(() => assert.equal(delivered.length, 1))
+  const [failure] = useNotificationCenterStore.getState().items
+  assert.ok(failure)
+  useNotificationCenterStore.getState().markRead(failure.key)
+  await act(async () => {
+    gate?.resolve()
+    await refetch
+  })
+  assert.equal(useNotificationCenterStore.getState().items[0]?.title, 'Build failed')
+  assert.equal(useNotificationCenterStore.getState().items[0]?.read, true)
+  assert.equal(delivered.length, 1)
+  backend = [{ ...failed, status: 'success', last_updated: '2026-10-26T12:03:00Z' }]
+  await act(async () => {
+    socket.emit('pipelines-updated', { pipelines: backend, providerId: 1, timestamp: Date.now() })
+  })
+  await waitFor(() => assert.equal(delivered.length, 2))
+  assert.equal(useNotificationCenterStore.getState().items[0]?.title, 'Build passed again')
 })

@@ -141,3 +141,17 @@ test('desktop recovery alerts deliver once with the existing notification flag',
   assert.equal(useNotificationCenterStore.getState().items[0]?.tone, 'success')
   assert.deepEqual(native.calls, [])
 })
+
+test('a native failure keeps its recovery pending when an older successful list arrives', async () => {
+  await mount(true)
+  const success: Pipeline = { ...pipeline, status: 'success' }
+  client.setQueryData(queryKeys.pipelines.list(), [success])
+  const failed: Pipeline = { ...pipeline, last_updated: '2026-10-26T12:02:00Z' }
+  await publish('pipelines-failed', { pipelines: [failed] })
+  client.setQueryData(queryKeys.pipelines.list(), [success])
+  await waitFor(() => assert.equal(delivered.length, 1))
+  assert.equal(useNotificationCenterStore.getState().items[0]?.title, 'Build failed')
+  client.setQueryData(queryKeys.pipelines.list(), [{ ...success, last_updated: '2026-10-26T12:03:00Z' }])
+  await waitFor(() => assert.equal(delivered.length, 2))
+  assert.equal(delivered[1]?.title, 'Build passed again')
+})
