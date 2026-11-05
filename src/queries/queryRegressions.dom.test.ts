@@ -122,7 +122,7 @@ test('run history with a different page size is fetched separately', async (cont
 
 test('aggregated metrics with a different limit are fetched separately', async (context) => {
   const query = stub(context, 'queryAggregatedMetrics', async () => metrics)
-  const params = { metricType: 'run_duration', aggregationPeriod: 'daily', pipelineId: 'p1' } as const
+  const params = { metricType: 'run_duration', aggregationPeriod: 'daily', pipelineId: 'p1', dateRange: '24h' } as const
 
   const first = renderHook(() => useAggregatedMetrics({ ...params, limit: 10 }), { wrapper })
   await waitFor(() => assert.equal(first.result.current.isSuccess, true))
