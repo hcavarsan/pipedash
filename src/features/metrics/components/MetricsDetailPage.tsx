@@ -23,7 +23,6 @@ import {
   isAggregationPeriod,
   isAggregationType,
   METRIC_CONFIG,
-  useMetricsWindow,
 } from '../lib/metricsUtils'
 import { useAggregatedMetrics } from '../queries/useMetricsQueries'
 import { LazyMetricsChart } from './LazyMetricsChart'
@@ -143,15 +142,12 @@ export const MetricsDetailPage = ({
     setAggregationType(getDefaultAggregationType(metricType))
   }
 
-  const { startDate, endDate } = useMetricsWindow(dateRange)
-
   const metricsQuery = useAggregatedMetrics({
     metricType,
     aggregationPeriod,
     aggregationType,
     pipelineId,
-    startDate,
-    endDate,
+    dateRange,
   })
   const { data, refetch } = metricsQuery
 

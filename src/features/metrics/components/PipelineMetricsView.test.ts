@@ -110,3 +110,81 @@ test('saving a new retention re-reads run history without deleting the cached ru
   assert.equal(config.retention_days, 14)
   assert.deepEqual(requests, [])
 })
+
+test('refreshing the mounted metrics page advances both time bounds without creating new cache entries', async (context) => {
+  context.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-01T12:00:00Z').getTime() })
+  const pipelineId = 'github__1__build'
+  const listeners = new Map<string, (payload: unknown) => void>()
+  const observations = [
+    { timestamp: '2026-10-31T12:05:00Z', value: 120 },
+    { timestamp: '2026-11-01T12:05:00Z', value: 60 },
+  ]
+  context.mock.method(events, 'listen', async (name: string, handler: (payload: unknown) => void) => {
+    listeners.set(name, handler)
+
+    return () => listeners.delete(name)
+  })
+  context.mock.method(apiService, 'getPipelineMetricsConfig', async () => ({
+    pipeline_id: pipelineId,
+    enabled: true,
+    retention_days: 7,
+    created_at: '',
+    updated_at: '',
+  }))
+  context.mock.method(apiService, 'fetchRunHistory', async () => ({
+    runs: [],
+    total_count: 0,
+    has_more: false,
+    is_complete: true,
+    page: 1,
+    page_size: 50,
+    total_pages: 0,
+  }))
+  context.mock.method(
+    apiService,
+    'queryAggregatedMetrics',
+    async (...args: Parameters<typeof apiService.queryAggregatedMetrics>) => {
+      const [metricType, period, , , start, end] = args
+      const metrics = observations
+        .filter(
+          ({ timestamp }) =>
+            (!start || new Date(timestamp) >= new Date(start)) && (!end || new Date(timestamp) <= new Date(end))
+        )
+        .map(({ timestamp, value }) => ({ timestamp, value, count: 1, min: value, max: value, avg: value }))
+
+      return { metric_type: metricType, aggregation_period: period, total_count: metrics.length, metrics }
+    }
+  )
+  notifyManager.setNotifyFunction((callback) => act(callback))
+  render(
+    createElement(
+      MantineProvider,
+      { env: 'test' },
+      createElement(
+        QueryClientProvider,
+        { client },
+        createElement(MemoryRouter, null, createElement(PipelineMetricsView, { pipelineId, pipelineName: 'Build' }))
+      )
+    )
+  )
+
+  await view().findByRole('button', { name: /Expand .*duration.*Latest 2m, average 2m/ })
+  await waitFor(() => assert.ok(listeners.has('metrics-generated')))
+  const hashes = client
+    .getQueryCache()
+    .findAll({ predicate: (query) => query.queryKey.includes('aggregated') })
+    .map((query) => query.queryHash)
+  await act(async () => {
+    context.mock.timers.tick(10 * 60_000)
+    listeners.get('metrics-generated')?.(pipelineId)
+  })
+
+  await view().findByRole('button', { name: /Expand .*duration.*Latest 1m, average 1m/ })
+  assert.deepEqual(
+    client
+      .getQueryCache()
+      .findAll({ predicate: (query) => query.queryKey.includes('aggregated') })
+      .map((query) => query.queryHash),
+    hashes
+  )
+})

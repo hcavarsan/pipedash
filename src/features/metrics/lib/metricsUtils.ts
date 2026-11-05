@@ -1,5 +1,3 @@
-import { useMemo } from 'react'
-
 import type {
   AggregatedMetric,
   AggregatedMetrics,
@@ -89,18 +87,6 @@ export const getRangeOptions = (retentionDays: number): RangeOption[] => {
 
 export const getWidestRange = (retentionDays: number): DateRange =>
   getRangeOptions(retentionDays).findLast((option) => !option.disabled)?.value ?? '24h'
-
-interface MetricsWindowResult {
-  startDate: string | undefined
-  endDate: string
-}
-
-export const useMetricsWindow = (range: DateRange): MetricsWindowResult =>
-  useMemo(() => {
-    const now = new Date()
-
-    return { startDate: getDateRangeStart(range, now)?.toISOString(), endDate: now.toISOString() }
-  }, [range])
 
 export const hasObservation = (metric: AggregatedMetric, metricType: MetricType): boolean =>
   metricType === 'run_frequency' || metric.count > 0
