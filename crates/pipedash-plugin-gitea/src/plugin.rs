@@ -636,7 +636,7 @@ mod tests {
 
     #[tokio::test]
     async fn capped_run_pages_preserve_workflow_history() {
-        let (plugin, server, _) = stub_gitea_with_run_cap(20, true).await;
+        let (plugin, server, requests) = stub_gitea_with_run_cap(20, true).await;
         let runs = plugin
             .fetch_run_history("gitea__1__claude/smoke__ci/lint.yaml", 20)
             .await
@@ -645,6 +645,7 @@ mod tests {
 
         assert_eq!(runs.iter().map(|r| r.run_number).collect::<Vec<_>>(), [3]);
         assert_eq!(runs[0].status, PipelineStatus::Failed);
+        assert_eq!(requests.load(Ordering::SeqCst), 3);
     }
 
     #[tokio::test]
@@ -662,7 +663,7 @@ mod tests {
 
     #[tokio::test]
     async fn capped_run_pages_without_total_preserve_history_until_empty_page() {
-        let (plugin, server, _) = stub_gitea_with_run_cap(20, false).await;
+        let (plugin, server, requests) = stub_gitea_with_run_cap(20, false).await;
         let runs = plugin
             .fetch_run_history("gitea__1__claude/smoke__ci/build__test.yaml", 100)
             .await
@@ -674,6 +675,7 @@ mod tests {
             runs.iter().map(|r| r.run_number).collect::<Vec<_>>(),
             expected
         );
+        assert_eq!(requests.load(Ordering::SeqCst), 4);
     }
 
     #[tokio::test]
