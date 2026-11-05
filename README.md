@@ -133,6 +133,8 @@ To install the self-hosted web app on iPhone, open it in Safari and choose Share
 
 When you move storage with "Transfer data", Pipedash keeps retained run history, including archived FluxCD reconciliations.
 
+Run history loads beyond 1000 runs when the provider can return older pages.
+
 Clear cached run history in Settings. If the database rejects the delete, Pipedash reports the error instead of success.
 
 - [Configuration](https://pipedash.app/docs/configuration): `config.toml`, environment variables and secrets.
