@@ -135,6 +135,8 @@ When you move storage with "Transfer data", Pipedash keeps retained run history,
 
 Clear cached run history in Settings. If the database rejects the delete, Pipedash reports the error instead of success.
 
+The config editor expands environment references for validation and keeps them unchanged when you save.
+
 - [Configuration](https://pipedash.app/docs/configuration): `config.toml`, environment variables and secrets.
 - [Storage and tokens](https://pipedash.app/docs/configuration/storage-backends): SQLite, PostgreSQL and token encryption.
 - [REST API](https://pipedash.app/docs/deployment/rest-api): routes, authentication and WebSocket events.
