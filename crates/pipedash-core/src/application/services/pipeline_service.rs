@@ -910,7 +910,7 @@ impl PipelineService {
 
         let cached_count = self.repository.get_cached_run_count(pipeline_id).await?;
 
-        if !bounded_history && cached_count >= end_idx {
+        if !bounded_history && cached_count > end_idx {
             let runs = self
                 .repository
                 .get_paginated_runs(pipeline_id, page, page_size)
@@ -944,7 +944,7 @@ impl PipelineService {
         let fetch_limit = if bounded_history {
             usize::MAX
         } else {
-            github_pages_needed.min(10) * 100
+            github_pages_needed.saturating_mul(100)
         };
 
         tracing::debug!(
@@ -2453,7 +2453,10 @@ mod tests {
         let h = Harness::with_metrics().await;
         let (_, pipeline_id) = run_history_fixture(&h, None).await;
         h.repository
-            .cache_run_history(&pipeline_id, &[stub_run(&pipeline_id, 1, 60)])
+            .cache_run_history(
+                &pipeline_id,
+                &[stub_run(&pipeline_id, 2, 60), stub_run(&pipeline_id, 1, 60)],
+            )
             .await
             .unwrap();
 
@@ -2513,7 +2516,10 @@ mod tests {
         let h = Harness::with_metrics().await;
         let (id, pipeline_id) = run_history_fixture(&h, None).await;
         h.repository
-            .cache_run_history(&pipeline_id, &[stub_run(&pipeline_id, 1, 60)])
+            .cache_run_history(
+                &pipeline_id,
+                &[stub_run(&pipeline_id, 2, 60), stub_run(&pipeline_id, 1, 60)],
+            )
             .await
             .unwrap();
         let lock = h.provider_service.commit_lock(id);
@@ -2577,5 +2583,64 @@ mod tests {
         assert!(first.has_more, "page 1 has_more={}", first.has_more);
         assert_eq!(last.runs.len(), 15);
         assert!(!last.has_more, "page 2 has_more={}", last.has_more);
+    }
+
+    #[tokio::test]
+    async fn history_pagination_passes_a_thousand_runs_and_stops_on_the_last_page() {
+        let h = Harness::new().await;
+        let started = Utc::now() - chrono::Duration::minutes(1100);
+        let (id, _) = h
+            .add_stub(|id| {
+                let pipeline_id = format!("github__{id}__web");
+                let runs = (1..=1100)
+                    .rev()
+                    .map(|number| {
+                        let mut run = stub_run(&pipeline_id, number, 60);
+                        run.started_at = started + chrono::Duration::minutes(number);
+                        run
+                    })
+                    .collect();
+                StubProvider::new(id).with_runs(runs)
+            })
+            .await;
+        h.fetch_directly(id).await;
+        let pipeline_id = format!("github__{id}__web");
+
+        for (page, newest, oldest, has_more) in [
+            (1, 1100, 1081, true),
+            (50, 120, 101, true),
+            (51, 100, 81, true),
+            (55, 20, 1, false),
+        ] {
+            let history = h
+                .pipeline_service
+                .fetch_run_history_paginated(&pipeline_id, page, 20)
+                .await
+                .unwrap();
+            h.pipeline_service.settle().await;
+            let numbers: Vec<_> = history.runs.iter().map(|run| run.run_number).collect();
+            assert_eq!(
+                numbers,
+                (oldest..=newest).rev().collect::<Vec<_>>(),
+                "page {page}"
+            );
+            assert_eq!(history.has_more, has_more, "page {page}");
+            if !has_more {
+                assert!(history.is_complete);
+                assert_eq!(history.total_count, 1100);
+                assert_eq!(history.total_pages, 55);
+            }
+        }
+
+        let past_end = h
+            .pipeline_service
+            .fetch_run_history_paginated(&pipeline_id, 56, 20)
+            .await
+            .unwrap();
+        h.pipeline_service.settle().await;
+        assert!(past_end.runs.is_empty());
+        assert!(!past_end.has_more);
+        assert!(past_end.is_complete);
+        assert_eq!(past_end.total_count, 1100);
     }
 }

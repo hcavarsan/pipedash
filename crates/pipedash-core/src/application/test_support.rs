@@ -371,13 +371,20 @@ impl Provider for StubProvider {
     }
 
     async fn fetch_run_history(
-        &self, _pipeline_id: &str, _limit: usize,
+        &self, _pipeline_id: &str, limit: usize,
     ) -> DomainResult<Vec<PipelineRun>> {
         self.history_fetches.fetch_add(1, Ordering::SeqCst);
         if let Some(gate) = &self.run_gate {
             gate.pass().await;
         }
-        Ok(self.runs.lock().unwrap().clone())
+        Ok(self
+            .runs
+            .lock()
+            .unwrap()
+            .iter()
+            .take(limit)
+            .cloned()
+            .collect())
     }
 
     async fn fetch_recent_runs(
