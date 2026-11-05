@@ -37,6 +37,8 @@ use crate::{
     types,
 };
 
+const RUN_HISTORY_PAGE_SIZE: usize = 100;
+
 pub(crate) fn map_octocrab_error(context: &str, error: octocrab::Error) -> PluginError {
     match error {
         octocrab::Error::GitHub { source, .. } => {
@@ -614,32 +616,36 @@ impl GitHubClient {
             .await
     }
 
+    async fn fetch_run_page(&self, route: &str, page: usize) -> PluginResult<Vec<types::Run>> {
+        let response: octocrab::Page<types::Run> = self
+            .retry_policy
+            .retry(|| async {
+                self.octocrab
+                    .get(
+                        route,
+                        Some(&[("per_page", RUN_HISTORY_PAGE_SIZE), ("page", page)]),
+                    )
+                    .await
+                    .map_err(|e| {
+                        map_octocrab_error(&format!("Failed to fetch run history page {page}"), e)
+                    })
+            })
+            .await?;
+
+        Ok(response.items)
+    }
+
     pub async fn fetch_run_history(
         &self, owner: &str, repo: &str, workflow_id: u64, limit: usize,
     ) -> PluginResult<Vec<types::Run>> {
-        const PAGE_SIZE: usize = 100;
-
         let route = format!("/repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs");
         let mut all_runs = Vec::new();
         let mut page = 1usize;
 
         while all_runs.len() < limit {
-            let runs: octocrab::Page<types::Run> = self
-                .retry_policy
-                .retry(|| async {
-                    self.octocrab
-                        .get(&route, Some(&[("per_page", PAGE_SIZE), ("page", page)]))
-                        .await
-                        .map_err(|e| {
-                            map_octocrab_error(
-                                &format!("Failed to fetch run history page {page}"),
-                                e,
-                            )
-                        })
-                })
-                .await?;
-            let short_page = runs.items.len() < PAGE_SIZE;
-            all_runs.extend(runs.items.into_iter().take(limit - all_runs.len()));
+            let runs = self.fetch_run_page(&route, page).await?;
+            let short_page = runs.len() < RUN_HISTORY_PAGE_SIZE;
+            all_runs.extend(runs.into_iter().take(limit - all_runs.len()));
             if short_page {
                 break;
             }
@@ -652,31 +658,18 @@ impl GitHubClient {
     pub async fn fetch_run_by_number(
         &self, owner: &str, repo: &str, workflow_id: u64, run_number: i64,
     ) -> PluginResult<types::Run> {
-        let mut page = 1u32;
+        let route = format!("/repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs");
+        let mut page = 1usize;
 
         loop {
-            let runs = self
-                .retry_policy
-                .retry(|| async {
-                    self.octocrab
-                        .workflows(owner, repo)
-                        .list_runs(workflow_id.to_string())
-                        .per_page(100)
-                        .page(page.min(255) as u8)
-                        .send()
-                        .await
-                        .map_err(|e| map_octocrab_error("Failed to fetch runs", e))
-                })
-                .await?;
-
-            if let Some(run) = runs.items.into_iter().find(|r| r.run_number == run_number) {
+            let runs = self.fetch_run_page(&route, page).await?;
+            let short_page = runs.len() < RUN_HISTORY_PAGE_SIZE;
+            if let Some(run) = runs.into_iter().find(|run| run.run_number == run_number) {
                 return Ok(run);
             }
-
-            if page >= 10 {
+            if short_page {
                 break;
             }
-
             page += 1;
         }
 
@@ -967,7 +960,11 @@ mod tests {
         })
     }
 
-    async fn assert_history_pages(limit: usize, expected: usize, last_page: usize) {
+    async fn history_fixture() -> (
+        GitHubClient,
+        Arc<Mutex<Vec<usize>>>,
+        tokio::task::JoinHandle<()>,
+    ) {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base_url = format!("http://{}", listener.local_addr().unwrap());
@@ -1016,6 +1013,11 @@ mod tests {
             .unwrap();
         let client =
             GitHubClient::new(octocrab, http_client, "ghp_stub".into(), &base_url).unwrap();
+        (client, pages, server)
+    }
+
+    async fn assert_history_pages(limit: usize, expected: usize, last_page: usize) {
+        let (client, pages, server) = history_fixture().await;
         let result = tokio::time::timeout(
             Duration::from_secs(10),
             client.fetch_run_history("acme", "app", 42, limit),
@@ -1048,5 +1050,38 @@ mod tests {
     #[tokio::test]
     async fn history_zero_limit_sends_no_requests() {
         assert_history_pages(0, 0, 0).await;
+    }
+
+    #[tokio::test]
+    async fn older_run_details_search_past_page_ten() {
+        let (client, pages, server) = history_fixture().await;
+        let result = tokio::time::timeout(
+            Duration::from_secs(10),
+            client.fetch_run_by_number("acme", "app", 42, 1),
+        )
+        .await;
+        server.abort();
+
+        let run = result.unwrap().unwrap();
+        assert_eq!(run.id.0, 1);
+        assert_eq!(run.run_number, 1);
+        assert_eq!(*pages.lock().await, (1..=11).collect::<Vec<_>>());
+    }
+
+    #[tokio::test]
+    async fn missing_run_details_stop_after_the_partial_final_page() {
+        let (client, pages, server) = history_fixture().await;
+        let result = tokio::time::timeout(
+            Duration::from_secs(10),
+            client.fetch_run_by_number("acme", "app", 42, 0),
+        )
+        .await;
+        server.abort();
+
+        assert!(matches!(
+            result.unwrap(),
+            Err(PluginError::PipelineNotFound(_))
+        ));
+        assert_eq!(*pages.lock().await, (1..=11).collect::<Vec<_>>());
     }
 }
