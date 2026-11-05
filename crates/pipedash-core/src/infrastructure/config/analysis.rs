@@ -59,8 +59,9 @@ pub async fn analyze_config(
     new_content: &str, storage_manager: &StorageManager, event_bus: Option<Arc<dyn EventBus>>,
     target_token_store: Option<Arc<dyn TokenStore>>,
 ) -> DomainResult<ConfigAnalysis> {
-    let new_config =
-        ConfigLoader::parse(new_content).map_err(|e| DomainError::InvalidConfig(e.to_string()))?;
+    let new_config = ConfigLoader::parse(new_content).map_err(|_| {
+        DomainError::InvalidConfig("Invalid config fields or environment references".to_string())
+    })?;
 
     let validation = new_config.validate();
 
@@ -281,6 +282,21 @@ mod tests {
         assert!(analysis.valid);
         assert!(analysis.migration_plan.is_none());
         assert!(analysis.postgres_connection.is_none());
+    }
+
+    #[tokio::test]
+    async fn analysis_parse_errors_do_not_include_expanded_values() {
+        let data_dir = TempDir::new().unwrap();
+        let manager = sqlite_manager(&data_dir).await;
+        let content =
+            "[storage]\nbackend = \"${PIPEDASH_ANALYSIS_TEST_SECRET:-editor-secret-value}\"\n";
+
+        let error = analyze_config(content, &manager, None, None)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, DomainError::InvalidConfig(_)));
+        assert!(!error.to_string().contains("editor-secret-value"));
     }
 
     #[tokio::test]

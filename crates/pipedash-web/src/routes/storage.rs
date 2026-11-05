@@ -178,8 +178,8 @@ async fn save_config_content(
 ) -> ApiResult<Json<serde_json::Value>> {
     use pipedash_core::infrastructure::config::ConfigLoader;
 
-    let config =
-        ConfigLoader::parse(&req.content).map_err(|e| AppError::bad_request(e.to_string()))?;
+    let config = ConfigLoader::parse(&req.content)
+        .map_err(|_| AppError::bad_request("Invalid config fields or environment references"))?;
 
     validate_config(&config)?;
 
@@ -557,6 +557,7 @@ mod tests {
                 .env(CHILD, "1")
                 .env("PIPEDASH_CONFIG_PATH", root.join("config.toml"))
                 .env("PIPEDASH_EDITOR_TEST_BACKEND", "sqlite")
+                .env("PIPEDASH_EDITOR_TEST_SECRET", "editor-secret-value")
                 .output()
                 .unwrap();
             std::fs::remove_dir_all(&root).unwrap();
@@ -621,6 +622,34 @@ mod tests {
             pipedash_core::infrastructure::config::StorageBackend::Sqlite
         );
         assert!(saved.general.status_pages_enabled);
+
+        let invalid = "[storage]\nbackend = \"${PIPEDASH_EDITOR_TEST_SECRET}\"\n";
+        for (method, uri, body) in [
+            (
+                "POST",
+                "/config/analyze",
+                serde_json::json!({"new_content": invalid}),
+            ),
+            (
+                "PUT",
+                "/config/content",
+                serde_json::json!({"content": invalid}),
+            ),
+        ] {
+            let request = Request::builder()
+                .method(method)
+                .uri(uri)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap();
+            let response = app.clone().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            assert!(!String::from_utf8_lossy(&body).contains("editor-secret-value"));
+        }
+        assert_eq!(std::fs::read_to_string(&config_path).unwrap(), edited);
     }
 
     #[tokio::test]
