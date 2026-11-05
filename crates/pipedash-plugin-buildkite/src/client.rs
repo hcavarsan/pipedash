@@ -198,24 +198,19 @@ impl BuildkiteClient {
         &self, org: &str, slug: &str, limit: usize,
     ) -> PluginResult<Vec<types::Build>> {
         let per_page = 100;
-        let total_pages = limit.div_ceil(100);
+        let total_pages = limit.div_ceil(per_page);
         let mut all_builds = Vec::new();
 
-        for page in 1..=total_pages.min(10) {
+        for page in 1..=total_pages {
             let builds: Vec<types::Build> = self
                 .get_json(&format!(
                     "{}/organizations/{org}/pipelines/{slug}/builds?per_page={}&page={}",
                     self.base_url, per_page, page
                 ))
                 .await?;
-
-            if builds.is_empty() {
-                break;
-            }
-
+            let is_last_page = builds.len() < per_page;
             all_builds.extend(builds);
-
-            if all_builds.len() >= limit {
+            if is_last_page {
                 break;
             }
         }
@@ -729,6 +724,70 @@ mod tests {
         let client = BuildkiteClient::new(Arc::new(http_client), "token".to_string())
             .with_base_url(base_url);
         (client, requests)
+    }
+
+    fn build_history_page(path: &str) -> Reply {
+        static PAGES: std::sync::LazyLock<Vec<String>> = std::sync::LazyLock::new(|| {
+            (0..11)
+                .map(|page| {
+                    serde_json::to_string(
+                        &(page * 100 + 1..=((page + 1) * 100).min(1025))
+                            .map(|number| {
+                                serde_json::json!({
+                                    "id": format!("build-{number}"),
+                                    "number": number,
+                                    "state": "passed",
+                                    "web_url": format!("https://buildkite.com/acme/app/{number}"),
+                                    "created_at": "2026-01-01T00:00:00Z"
+                                })
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                    .unwrap()
+                })
+                .collect()
+        });
+        let page = path
+            .strip_prefix("/organizations/acme/pipelines/app/builds?per_page=100&page=")
+            .unwrap()
+            .parse::<usize>()
+            .unwrap();
+        assert!((1..=11).contains(&page), "Unexpected build page: {page}");
+        Reply {
+            status: "200 OK",
+            headers: "Content-Type: application/json\r\n",
+            body: &PAGES[page - 1],
+        }
+    }
+
+    #[tokio::test]
+    async fn build_history_includes_page_eleven_and_stops_after_a_short_page() {
+        let (client, requests) = client_for(build_history_page, Duration::ZERO).await;
+
+        let builds = client.fetch_builds("acme", "app", 1200).await.unwrap();
+
+        assert_eq!(builds.len(), 1025);
+        for (index, build) in builds.iter().enumerate() {
+            let number = index + 1;
+            assert_eq!(build.id, format!("build-{number}"));
+            assert_eq!(build.number, number as i64);
+        }
+        assert_eq!(requests.load(Ordering::SeqCst), 11);
+    }
+
+    #[tokio::test]
+    async fn build_history_preserves_the_requested_limit_on_page_eleven() {
+        let (client, requests) = client_for(build_history_page, Duration::ZERO).await;
+
+        let builds = client.fetch_builds("acme", "app", 1010).await.unwrap();
+
+        assert_eq!(builds.len(), 1010);
+        for (index, build) in builds.iter().enumerate() {
+            let number = index + 1;
+            assert_eq!(build.id, format!("build-{number}"));
+            assert_eq!(build.number, number as i64);
+        }
+        assert_eq!(requests.load(Ordering::SeqCst), 11);
     }
 
     fn organization_page(path: &str) -> Reply {
