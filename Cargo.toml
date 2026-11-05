@@ -9,6 +9,7 @@ members = [
   "crates/pipedash-plugin-azure-devops",
   "crates/pipedash-plugin-bitbucket",
   "crates/pipedash-plugin-buildkite",
+  "crates/pipedash-plugin-coolify",
   "crates/pipedash-plugin-fluxcd",
   "crates/pipedash-plugin-github",
   "crates/pipedash-plugin-gitea",
@@ -72,6 +73,7 @@ pipedash-plugin-argocd = { version = "0.10.0", path = "crates/pipedash-plugin-ar
 pipedash-plugin-azure-devops = { version = "0.10.0", path = "crates/pipedash-plugin-azure-devops" }
 pipedash-plugin-bitbucket = { version = "0.10.0", path = "crates/pipedash-plugin-bitbucket" }
 pipedash-plugin-buildkite = { version = "0.10.0", path = "crates/pipedash-plugin-buildkite" }
+pipedash-plugin-coolify = { version = "0.10.0", path = "crates/pipedash-plugin-coolify" }
 pipedash-plugin-fluxcd = { version = "0.10.0", path = "crates/pipedash-plugin-fluxcd" }
 pipedash-plugin-github = { version = "0.10.0", path = "crates/pipedash-plugin-github" }
 pipedash-plugin-gitea = { version = "0.10.0", path = "crates/pipedash-plugin-gitea" }
@@ -150,6 +152,7 @@ pipedash-plugin-argocd = { path = "crates/pipedash-plugin-argocd" }
 pipedash-plugin-azure-devops = { path = "crates/pipedash-plugin-azure-devops" }
 pipedash-plugin-bitbucket = { path = "crates/pipedash-plugin-bitbucket" }
 pipedash-plugin-buildkite = { path = "crates/pipedash-plugin-buildkite" }
+pipedash-plugin-coolify = { path = "crates/pipedash-plugin-coolify" }
 pipedash-plugin-fluxcd = { path = "crates/pipedash-plugin-fluxcd" }
 pipedash-plugin-github = { path = "crates/pipedash-plugin-github" }
 pipedash-plugin-gitea = { path = "crates/pipedash-plugin-gitea" }

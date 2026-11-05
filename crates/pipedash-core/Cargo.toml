@@ -31,6 +31,7 @@ pipedash-plugin-argocd.workspace = true
 pipedash-plugin-azure-devops.workspace = true
 pipedash-plugin-bitbucket.workspace = true
 pipedash-plugin-buildkite.workspace = true
+pipedash-plugin-coolify.workspace = true
 pipedash-plugin-fluxcd.workspace = true
 pipedash-plugin-github.workspace = true
 pipedash-plugin-gitea.workspace = true

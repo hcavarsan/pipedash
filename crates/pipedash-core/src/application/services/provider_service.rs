@@ -1528,7 +1528,7 @@ fn configured_repositories(config: &ProviderConfig) -> Vec<String> {
         .map(|items| {
             if matches!(
                 config.provider_type.as_str(),
-                "argocd" | "fluxcd" | "komodo" | "prow"
+                "argocd" | "fluxcd" | "komodo" | "prow" | "coolify"
             ) {
                 return Vec::new();
             }
