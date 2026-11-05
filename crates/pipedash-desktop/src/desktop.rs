@@ -284,6 +284,26 @@ pub fn tray_changed<R: Runtime>(app: &AppHandle<R>) {
     menu::schedule_render(app);
 }
 
+pub fn fit_main_window_to_monitor<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or(tauri::Error::WindowNotFound)?;
+    let monitor = window.current_monitor()?.or(window.primary_monitor()?);
+    let Some(monitor) = monitor else {
+        return Ok(());
+    };
+    if window_is_larger_than_monitor(window.outer_size()?, *monitor.size()) {
+        window.maximize()?;
+    }
+    Ok(())
+}
+
+fn window_is_larger_than_monitor(
+    window: tauri::PhysicalSize<u32>, monitor: tauri::PhysicalSize<u32>,
+) -> bool {
+    window.width > monitor.width || window.height > monitor.height
+}
+
 pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let window = app
         .get_webview_window("main")

@@ -397,6 +397,10 @@ pub fn run() {
             install_app_menu(app.handle())?;
             #[cfg(any(target_os = "windows", target_os = "linux"))]
             app.remove_menu()?;
+            #[cfg(desktop)]
+            if let Err(error) = desktop::fit_main_window_to_monitor(app.handle()) {
+                tracing::warn!(%error, "Couldn't fit the main window to the screen");
+            }
 
             let app_data_dir = match app.path().app_data_dir() {
                 Ok(dir) => dir,

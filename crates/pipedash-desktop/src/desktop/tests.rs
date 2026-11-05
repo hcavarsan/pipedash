@@ -19,6 +19,21 @@ fn notice(key: &str) -> DesktopNotice {
 }
 
 #[test]
+fn a_window_larger_than_the_monitor_is_fitted_to_it() {
+    let monitor = tauri::PhysicalSize::new(1470, 924);
+
+    assert!(window_is_larger_than_monitor(
+        tauri::PhysicalSize::new(1700, 1000),
+        monitor
+    ));
+    assert!(!window_is_larger_than_monitor(
+        tauri::PhysicalSize::new(1280, 800),
+        monitor
+    ));
+    assert!(!window_is_larger_than_monitor(monitor, monitor));
+}
+
+#[test]
 fn menu_read_failure_reports_the_error_and_recovery_clears_it() {
     let mut inner = Inner::default();
     inner.apply_menu_result(Err(DomainError::DatabaseError(
