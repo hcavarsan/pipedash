@@ -139,7 +139,7 @@ The config editor expands environment references for validation and keeps them u
 
 - [Configuration](https://pipedash.app/docs/configuration): `config.toml`, environment variables and secrets.
 - [Storage and tokens](https://pipedash.app/docs/configuration/storage-backends): SQLite, PostgreSQL and token encryption.
-- [REST API](https://pipedash.app/docs/deployment/rest-api): routes, authentication and WebSocket events.
+- [REST API](https://pipedash.app/docs/deployment/rest-api): routes, authentication and WebSocket events. Metrics queries reject invalid types and require RFC 3339 dates with a timezone.
 - [Architecture](https://pipedash.app/docs/resources/architecture): crates, refresh loop and plugin system.
 - [Security](https://pipedash.app/docs/resources/security): encryption, API authentication and vulnerability reports.
 - [Releases](https://github.com/hcavarsan/pipedash/releases): changes and release assets.
