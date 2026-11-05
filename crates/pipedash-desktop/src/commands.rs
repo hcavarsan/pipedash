@@ -1663,8 +1663,8 @@ pub async fn save_config_content(
     maybe_core: State<'_, crate::MaybeCoreContext>, app_data_dir: State<'_, AppDataDir>,
     content: String,
 ) -> Result<(), ErrorResponse> {
-    let config: PipedashConfig = toml::from_str(&content).map_err(|e| ErrorResponse {
-        error: format!("Invalid TOML syntax: {}", e),
+    let config = ConfigLoader::parse(&content).map_err(|_| ErrorResponse {
+        error: "Invalid config fields or environment references".to_string(),
         details: None,
         code: None,
     })?;
