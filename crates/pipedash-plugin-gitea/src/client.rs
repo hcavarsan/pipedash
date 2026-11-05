@@ -204,17 +204,15 @@ impl GiteaClient {
         Ok(list.workflows)
     }
 
-    pub async fn list_runs(&self, owner: &str, repo: &str, page: usize) -> PluginResult<Vec<Run>> {
-        let list: RunList = self
-            .get(
-                &format!("/repos/{owner}/{repo}/actions/runs"),
-                &[
-                    ("page", page.to_string()),
-                    ("limit", RUNS_PAGE_SIZE.to_string()),
-                ],
-            )
-            .await?;
-        Ok(list.workflow_runs)
+    async fn list_runs(&self, owner: &str, repo: &str, page: usize) -> PluginResult<RunList> {
+        self.get(
+            &format!("/repos/{owner}/{repo}/actions/runs"),
+            &[
+                ("page", page.to_string()),
+                ("limit", RUNS_PAGE_SIZE.to_string()),
+            ],
+        )
+        .await
     }
 
     pub async fn list_run_jobs(
@@ -305,10 +303,12 @@ impl GiteaClient {
         &self, owner: &str, repo: &str, workflows: &[String],
     ) -> PluginResult<HashMap<String, Run>> {
         let mut latest = HashMap::new();
+        let mut received = 0;
         for page in 1..=MAX_RUN_PAGES {
             let batch = self.list_runs(owner, repo, page).await?;
-            let last_page = batch.len() < RUNS_PAGE_SIZE;
-            for run in batch {
+            received += batch.workflow_runs.len();
+            let last_page = batch.is_last_page(received);
+            for run in batch.workflow_runs {
                 let workflow = run.workflow_file().to_string();
                 if workflows.contains(&workflow) {
                     latest.entry(workflow).or_insert(run);
@@ -325,11 +325,14 @@ impl GiteaClient {
         &self, owner: &str, repo: &str, workflow: &str, limit: usize,
     ) -> PluginResult<Vec<Run>> {
         let mut runs = Vec::new();
+        let mut received = 0;
         for page in 1..=MAX_RUN_PAGES {
             let batch = self.list_runs(owner, repo, page).await?;
-            let last_page = batch.len() < RUNS_PAGE_SIZE;
+            received += batch.workflow_runs.len();
+            let last_page = batch.is_last_page(received);
             runs.extend(
                 batch
+                    .workflow_runs
                     .into_iter()
                     .filter(|run| run.workflow_file() == workflow),
             );
@@ -344,10 +347,13 @@ impl GiteaClient {
     pub async fn find_run(
         &self, owner: &str, repo: &str, workflow: &str, run_number: i64,
     ) -> PluginResult<Run> {
+        let mut received = 0;
         for page in 1..=MAX_RUN_PAGES {
             let batch = self.list_runs(owner, repo, page).await?;
-            let last_page = batch.len() < RUNS_PAGE_SIZE;
+            received += batch.workflow_runs.len();
+            let last_page = batch.is_last_page(received);
             if let Some(run) = batch
+                .workflow_runs
                 .into_iter()
                 .find(|run| run.run_number == run_number && run.workflow_file() == workflow)
             {
