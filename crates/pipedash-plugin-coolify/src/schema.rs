@@ -20,7 +20,7 @@ fn create_pipelines_table() -> schema::TableDefinition {
             ..metadata_column(
                 "state",
                 "State",
-                "Live state of the Coolify application (Running, Unhealthy, Exited, ...)",
+                "Live state of the Coolify application (Up, Unhealthy, Exited, ...)",
                 schema::CellRenderer::Badge,
                 true,
             )

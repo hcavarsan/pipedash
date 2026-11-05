@@ -52,6 +52,11 @@ test('shows the current state block for a non-Flux pipeline with a resource stat
   assert.ok(view().getByText('Waiting for rollout'))
 })
 
+test('omits the current state block without a state message', () => {
+  mount({ status: 'success', resource_state: { label: 'Up' } })
+  assert.equal(view().queryByText('Up'), null)
+})
+
 test('omits the current state block without a resource state', () => {
   mount({ status: 'success' })
   assert.equal(view().queryByText('Success'), null)

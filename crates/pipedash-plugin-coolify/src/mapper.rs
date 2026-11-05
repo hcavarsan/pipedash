@@ -37,7 +37,7 @@ pub(crate) fn map_app_state(status: &str) -> (PipelineStatus, ResourceState) {
     let (state, health) = status.split_once(':').unwrap_or((status, ""));
     let (status, label) = match (state, health) {
         ("running", "unhealthy") => (PipelineStatus::Degraded, "Unhealthy"),
-        ("running", _) => (PipelineStatus::Success, "Running"),
+        ("running", _) => (PipelineStatus::Success, "Up"),
         ("degraded", _) => (PipelineStatus::Degraded, "Degraded"),
         ("restarting", _) => (PipelineStatus::Degraded, "Restarting"),
         ("starting", _) => (PipelineStatus::Running, "Starting"),
@@ -276,8 +276,8 @@ mod tests {
     #[test]
     fn app_state_maps_every_state_and_health() {
         let cases = [
-            ("running:healthy", PipelineStatus::Success, "Running"),
-            ("running:unknown", PipelineStatus::Success, "Running"),
+            ("running:healthy", PipelineStatus::Success, "Up"),
+            ("running:unknown", PipelineStatus::Success, "Up"),
             ("running:unhealthy", PipelineStatus::Degraded, "Unhealthy"),
             ("degraded:unhealthy", PipelineStatus::Degraded, "Degraded"),
             ("restarting:unknown", PipelineStatus::Degraded, "Restarting"),
@@ -305,7 +305,7 @@ mod tests {
 
         let failed = map_pipeline(&healthy, 1, Some(&deployment(json!({"status": "failed"}))));
         assert_eq!(failed.status, PipelineStatus::Failed);
-        assert_eq!(failed.resource_state.unwrap().label, "Running");
+        assert_eq!(failed.resource_state.unwrap().label, "Up");
 
         let finished = map_pipeline(&unhealthy, 1, Some(&deployment(json!({}))));
         assert_eq!(finished.status, PipelineStatus::Degraded);

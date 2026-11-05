@@ -835,7 +835,7 @@ mod tests {
         assert_eq!(
             summary,
             [
-                ("web", PipelineStatus::Failed, "Running"),
+                ("web", PipelineStatus::Failed, "Up"),
                 ("api", PipelineStatus::Degraded, "Unhealthy"),
                 ("img", PipelineStatus::Cancelled, "Exited"),
             ]
