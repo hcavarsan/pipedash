@@ -413,6 +413,12 @@ mod tests {
     }
 
     async fn stub_gitea_counting() -> (GiteaPlugin, tokio::task::JoinHandle<()>, Arc<AtomicUsize>) {
+        stub_gitea_with_run_cap(50, false).await
+    }
+
+    async fn stub_gitea_with_run_cap(
+        run_cap: usize, include_run_total: bool,
+    ) -> (GiteaPlugin, tokio::task::JoinHandle<()>, Arc<AtomicUsize>) {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let requests = Arc::new(AtomicUsize::new(0));
         let counter = requests.clone();
@@ -474,8 +480,13 @@ mod tests {
                             .find(|(key, _)| key == "page")
                             .map(|(_, value)| value.parse().unwrap())
                             .unwrap();
-                        let runs: Vec<_> = if page == 1 {
-                            (0..50)
+                        let limit = url
+                            .query_pairs()
+                            .find(|(key, _)| key == "limit")
+                            .map(|(_, value)| value.parse::<usize>().unwrap())
+                            .unwrap()
+                            .min(run_cap);
+                        let runs = (0..50)
                             .map(|i| {
                                 serde_json::json!({
                                     "id": 100 - i, "run_number": 100 - i, "status": "queued",
@@ -483,9 +494,7 @@ mod tests {
                                     "html_url": format!("http://g/claude/smoke__ci/actions/runs/{}", 100 - i)
                                 })
                             })
-                            .collect()
-                        } else {
-                            vec![
+                            .chain([
                                 serde_json::json!({"id": 3, "run_number": 3, "status": "completed", "conclusion": "failure",
                              "path": "lint.yaml@refs/heads/main", "head_branch": "main",
                              "html_url": "http://g/claude/smoke__ci/actions/runs/3"}),
@@ -495,9 +504,15 @@ mod tests {
                                 serde_json::json!({"id": 1, "run_number": 1, "status": "completed", "conclusion": "success",
                              "path": "build__test.yaml@refs/heads/main", "head_branch": "main",
                              "html_url": "http://g/claude/smoke__ci/actions/runs/1"}),
-                            ]
-                        };
-                        (200, serde_json::json!({"workflow_runs": runs}))
+                            ])
+                            .skip((page - 1) * limit)
+                            .take(limit)
+                            .collect::<Vec<_>>();
+                        let mut body = serde_json::json!({"workflow_runs": runs});
+                        if include_run_total {
+                            body["total_count"] = serde_json::json!(53);
+                        }
+                        (200, body)
                     }
                     ("POST", "/api/v1/repos/claude/smoke__ci/actions/runs/2/cancel") => {
                         (404, serde_json::json!({"message": "not found"}))
@@ -607,6 +622,60 @@ mod tests {
             ]
         );
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn capped_run_pages_preserve_latest_workflow_status() {
+        let (plugin, server, _) = stub_gitea_with_run_cap(20, true).await;
+        let pipelines = plugin.fetch_pipelines().await.unwrap();
+        server.abort();
+
+        let lint = pipelines.iter().find(|p| p.name == "Lint").unwrap();
+        assert_eq!(lint.status, PipelineStatus::Failed);
+    }
+
+    #[tokio::test]
+    async fn capped_run_pages_preserve_workflow_history() {
+        let (plugin, server, requests) = stub_gitea_with_run_cap(20, true).await;
+        let runs = plugin
+            .fetch_run_history("gitea__1__claude/smoke__ci/lint.yaml", 20)
+            .await
+            .unwrap();
+        server.abort();
+
+        assert_eq!(runs.iter().map(|r| r.run_number).collect::<Vec<_>>(), [3]);
+        assert_eq!(runs[0].status, PipelineStatus::Failed);
+        assert_eq!(requests.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn capped_run_pages_preserve_run_details() {
+        let (plugin, server, _) = stub_gitea_with_run_cap(20, true).await;
+        let result = plugin
+            .fetch_run_details("gitea__1__claude/smoke__ci/lint.yaml", 3)
+            .await;
+        server.abort();
+
+        let run = result.unwrap();
+        assert_eq!(run.run_number, 3);
+        assert_eq!(run.status, PipelineStatus::Failed);
+    }
+
+    #[tokio::test]
+    async fn capped_run_pages_without_total_preserve_history_until_empty_page() {
+        let (plugin, server, requests) = stub_gitea_with_run_cap(20, false).await;
+        let runs = plugin
+            .fetch_run_history("gitea__1__claude/smoke__ci/build__test.yaml", 100)
+            .await
+            .unwrap();
+        server.abort();
+
+        let expected: Vec<_> = (51..=100).rev().chain([2, 1]).collect();
+        assert_eq!(
+            runs.iter().map(|r| r.run_number).collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(requests.load(Ordering::SeqCst), 4);
     }
 
     #[tokio::test]
