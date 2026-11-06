@@ -105,10 +105,10 @@ export function buildRunActions(value: RunActionsValue, run: PipelineRun): RunAc
 
     actions.push({
       id: 'cancel',
-      label: run.status === 'pending' ? `Cancel unavailable for pending run #${number}` : `Cancel run #${number}`,
+      label: `Cancel run #${number}`,
       icon: <IconSquare size={16} aria-hidden />,
       color: 'red',
-      disabled: cancelling || run.status === 'pending',
+      disabled: cancelling,
       pending: cancelling,
       swipe: { label: 'Cancel', tone: 'red', primary: true },
       execute: () => value.cancel(run),

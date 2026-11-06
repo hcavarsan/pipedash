@@ -53,6 +53,25 @@ const context = (overrides: Partial<RunActionsValue> = {}): RunActionsValue => (
 const swipeKeys = (value: RunActionsValue, target: PipelineRun) =>
   swipeActionsOf(buildRunActions(value, target)).map((action) => action.key)
 
+test('a queued Azure run can be cancelled from history', async () => {
+  let cancelled: PipelineRun | undefined
+  const pending = run({ id: 'run-9001', run_number: 9001, status: 'pending' })
+  const value = context({
+    pipeline: pipelineFixture({ id: 'p1', provider_type: 'azure-devops' }),
+    canCancel: true,
+    cancel: async (target) => {
+      cancelled = target
+    },
+  })
+  const cancel = buildRunActions(value, pending).find((action) => action.id === 'cancel')
+
+  assert.equal(cancel?.label, 'Cancel run #9001')
+  assert.equal(cancel?.disabled, false)
+  assert.ok(swipeKeys(value, pending).includes('cancel'))
+  await cancel?.execute()
+  assert.equal(cancelled, pending)
+})
+
 test('an idle finished run offers rerun on every surface', () => {
   const actions = buildRunActions(context(), run())
   assert.equal(actions.find((action) => action.id === 'rerun')?.disabled, false)
