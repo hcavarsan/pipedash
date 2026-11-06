@@ -1225,6 +1225,14 @@ impl PipelineService {
     }
 
     pub async fn invalidate_run_cache(&self, pipeline_id: &str) {
+        if pipeline_id
+            .split_once("__")
+            .is_some_and(|(provider_type, _)| {
+                self.provider_service.retains_run_history(provider_type)
+            })
+        {
+            return;
+        }
         let _ = self.repository.clear_cached_run_history(pipeline_id).await;
     }
 
@@ -1365,6 +1373,84 @@ mod tests {
             "logs_url": "", "metadata": { "uid": "resource-1", "record_source": "status.history", "release_version": 1 }
         })).unwrap();
         (pipeline, run)
+    }
+
+    #[tokio::test]
+    async fn action_invalidation_keeps_archived_history_and_details() {
+        let h = Harness::new().await;
+        let (provider_id, _) = h
+            .add_stub(|id| StubProvider::new(id).retaining_run_history())
+            .await;
+        let (mut pipeline, archived_run) = history_fixture();
+        pipeline.provider_id = provider_id;
+        h.repository
+            .update_pipelines_cache(provider_id, std::slice::from_ref(&pipeline))
+            .await
+            .unwrap();
+        let service = &h.pipeline_service;
+        service
+            .merge_run_cache(&pipeline, std::slice::from_ref(&archived_run))
+            .await
+            .unwrap();
+        service.merge_run_cache(&pipeline, &[]).await.unwrap();
+
+        service.invalidate_run_cache(&pipeline.id).await;
+
+        let history = service
+            .fetch_run_history_paginated(&pipeline.id, 1, 20)
+            .await
+            .unwrap();
+        assert_eq!(history.total_count, 1);
+        assert_eq!(history.runs[0].id, archived_run.id);
+        assert_eq!(history.runs[0].metadata["archived"], json!(true));
+        let details = service
+            .fetch_run_details(&pipeline.id, archived_run.run_number)
+            .await
+            .unwrap();
+        assert_eq!(details.id, archived_run.id);
+        assert_eq!(details.metadata["archived"], json!(true));
+        service.settle().await;
+    }
+
+    #[tokio::test]
+    async fn action_invalidation_clears_history_for_non_retaining_providers() {
+        let h = Harness::new().await;
+        let (provider_id, _) = h
+            .add_stub(|id| {
+                StubProvider::new(id).with_runs(vec![stub_run(
+                    &format!("github__{id}__web"),
+                    2,
+                    60,
+                )])
+            })
+            .await;
+        let pipeline = pipeline(provider_id, "web", PipelineStatus::Success);
+        let old_run = stub_run(&pipeline.id, 1, 60);
+        h.repository
+            .update_pipelines_cache(provider_id, std::slice::from_ref(&pipeline))
+            .await
+            .unwrap();
+        h.repository
+            .cache_run_history(&pipeline.id, &[old_run])
+            .await
+            .unwrap();
+
+        h.pipeline_service.invalidate_run_cache(&pipeline.id).await;
+
+        assert_eq!(
+            h.repository
+                .get_cached_run_count(&pipeline.id)
+                .await
+                .unwrap(),
+            0
+        );
+        let history = h
+            .pipeline_service
+            .fetch_run_history_paginated(&pipeline.id, 1, 20)
+            .await
+            .unwrap();
+        assert_eq!(history.runs[0].run_number, 2);
+        h.pipeline_service.settle().await;
     }
 
     #[test]

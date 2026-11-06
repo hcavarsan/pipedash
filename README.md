@@ -135,6 +135,8 @@ When you move storage with "Transfer data", Pipedash keeps retained run history,
 
 Run history loads beyond 1000 runs when the provider can return older pages.
 
+Request a [FluxCD reconciliation](https://pipedash.app/docs/providers/fluxcd#reconcile) without losing archived runs from history or details.
+
 Clear cached run history in Settings. If the database rejects the delete, Pipedash reports the error instead of success.
 
 The config editor expands environment references for validation and keeps them unchanged when you save.
