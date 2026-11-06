@@ -21,6 +21,7 @@ pub fn create_plugin_registry() -> PluginRegistry {
     registry.register(Box::new(pipedash_plugin_fluxcd::FluxcdPlugin::new()));
     registry.register(Box::new(pipedash_plugin_komodo::KomodoPlugin::new()));
     registry.register(Box::new(pipedash_plugin_prow::ProwPlugin::new()));
+    registry.register(Box::new(pipedash_plugin_coolify::CoolifyPlugin::new()));
 
     registry
 }
@@ -51,6 +52,7 @@ pub fn create_plugin(provider_type: &str) -> Option<Box<dyn PluginTrait>> {
         "fluxcd" => Some(Box::new(pipedash_plugin_fluxcd::FluxcdPlugin::new())),
         "komodo" => Some(Box::new(pipedash_plugin_komodo::KomodoPlugin::new())),
         "prow" => Some(Box::new(pipedash_plugin_prow::ProwPlugin::new())),
+        "coolify" => Some(Box::new(pipedash_plugin_coolify::CoolifyPlugin::new())),
         _ => None,
     }
 }

@@ -544,6 +544,16 @@ jobs:
         run: |
           "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-prow wait
 
+      - name: Authenticate to crates.io (pipedash-plugin-coolify)
+        id: auth-plugin-coolify
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+
+      - name: Publish pipedash-plugin-coolify
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-coolify.outputs.token }}
+        run: |
+          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-coolify wait
+
       - name: Authenticate to crates.io (pipedash-core)
         id: auth-core
         uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
