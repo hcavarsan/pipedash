@@ -23,6 +23,7 @@ pub fn create_plugin_registry() -> PluginRegistry {
     registry.register(Box::new(pipedash_plugin_prow::ProwPlugin::new()));
     registry.register(Box::new(pipedash_plugin_coolify::CoolifyPlugin::new()));
     registry.register(Box::new(pipedash_plugin_circleci::CircleCIPlugin::new()));
+    registry.register(Box::new(pipedash_plugin_woodpecker::WoodpeckerPlugin::new()));
 
     registry
 }
@@ -55,6 +56,7 @@ pub fn create_plugin(provider_type: &str) -> Option<Box<dyn PluginTrait>> {
         "prow" => Some(Box::new(pipedash_plugin_prow::ProwPlugin::new())),
         "coolify" => Some(Box::new(pipedash_plugin_coolify::CoolifyPlugin::new())),
         "circleci" => Some(Box::new(pipedash_plugin_circleci::CircleCIPlugin::new())),
+        "woodpecker" => Some(Box::new(pipedash_plugin_woodpecker::WoodpeckerPlugin::new())),
         _ => None,
     }
 }

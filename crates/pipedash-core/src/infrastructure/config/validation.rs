@@ -185,6 +185,7 @@ impl ConfigValidator {
                     "prow",
                     "coolify",
                     "circleci",
+                    "woodpecker",
                 ];
                 if !valid_types.contains(&provider.provider_type.as_str()) {
                     result.add_warning(ConfigWarning {

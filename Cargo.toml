@@ -19,6 +19,7 @@ members = [
   "crates/pipedash-plugin-komodo",
   "crates/pipedash-plugin-prow",
   "crates/pipedash-plugin-tekton",
+  "crates/pipedash-plugin-woodpecker",
   "crates/pipedash-push-relay",
   "crates/pipedash-web",
   "crates/tauri-plugin-pipedash-native",
@@ -84,6 +85,7 @@ pipedash-plugin-jenkins = { version = "0.10.0", path = "crates/pipedash-plugin-j
 pipedash-plugin-komodo = { version = "0.10.0", path = "crates/pipedash-plugin-komodo" }
 pipedash-plugin-prow = { version = "0.10.0", path = "crates/pipedash-plugin-prow" }
 pipedash-plugin-tekton = { version = "0.10.0", path = "crates/pipedash-plugin-tekton" }
+pipedash-plugin-woodpecker = { version = "0.10.0", path = "crates/pipedash-plugin-woodpecker" }
 pipedash-web = { version = "0.10.0", path = "crates/pipedash-web", default-features = false }
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 rand = "0.10"
@@ -164,3 +166,4 @@ pipedash-plugin-jenkins = { path = "crates/pipedash-plugin-jenkins" }
 pipedash-plugin-komodo = { path = "crates/pipedash-plugin-komodo" }
 pipedash-plugin-prow = { path = "crates/pipedash-plugin-prow" }
 pipedash-plugin-tekton = { path = "crates/pipedash-plugin-tekton" }
+pipedash-plugin-woodpecker = { path = "crates/pipedash-plugin-woodpecker" }

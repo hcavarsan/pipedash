@@ -92,7 +92,7 @@ flowchart LR
     GH[GitHub Actions]
     GL[GitLab CI]
     K8S[Tekton, ArgoCD, FluxCD, Prow]
-    More[Gitea, Bitbucket, Buildkite, CircleCI, Jenkins, Azure DevOps, Komodo, Coolify]
+    More[Gitea, Bitbucket, Buildkite, CircleCI, Jenkins, Azure DevOps, Woodpecker, Komodo, Coolify]
   end
   Providers -- API polling --> Core[pipedash-core]
   Core <--> DB[(SQLite or PostgreSQL)]
@@ -103,7 +103,7 @@ flowchart LR
 
 ## Supported providers
 
-GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, CircleCI, Jenkins, Azure DevOps Pipelines, Tekton CD, ArgoCD, FluxCD, Prow, Komodo Stacks and Coolify applications. Each one is a plugin crate. The [providers guide](https://pipedash.app/docs/providers) lists the token and permissions each provider needs.
+GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, CircleCI, Jenkins, Azure DevOps Pipelines, Woodpecker CI, Tekton CD, ArgoCD, FluxCD, Prow, Komodo Stacks and Coolify applications. Each one is a plugin crate. The [providers guide](https://pipedash.app/docs/providers) lists the token and permissions each provider needs.
 
 Buildkite's organization picker and pipeline discovery include organizations from every API page.
 
