@@ -45,6 +45,8 @@ const DEFAULT_PAGE_SIZE: usize = 100;
 const CONCURRENCY: usize = 8;
 const LOG_CHUNK_BYTES: usize = 64 * 1024;
 const FAILED_STEP_STATUSES: [&str; 4] = ["failed", "timedout", "infrastructure_fail", "canceled"];
+const STEP_OUTPUT_LIMIT: usize = 32 * 1024 * 1024;
+const JOB_OUTPUT_LIMIT: usize = 128 * 1024 * 1024;
 
 pub struct CircleCIPlugin {
     metadata: PluginMetadata,
@@ -52,6 +54,8 @@ pub struct CircleCIPlugin {
     provider_id: Option<i64>,
     config: HashMap<String, String>,
     base_url: String,
+    step_output_limit: usize,
+    job_output_limit: usize,
 }
 
 impl Default for CircleCIPlugin {
@@ -68,6 +72,8 @@ impl CircleCIPlugin {
             provider_id: None,
             config: HashMap::new(),
             base_url: config::DEFAULT_BASE_URL.to_string(),
+            step_output_limit: STEP_OUTPUT_LIMIT,
+            job_output_limit: JOB_OUTPUT_LIMIT,
         }
     }
 
@@ -187,15 +193,28 @@ impl CircleCIPlugin {
             .iter()
             .map(|(_, action, _)| async move {
                 match action.output_url.as_deref().filter(|url| !url.is_empty()) {
-                    Some(url) => client.fetch_step_output(url).await,
-                    None => Ok(Vec::new()),
+                    Some(url) => client.fetch_step_output(url, self.step_output_limit).await,
+                    None => Ok(Some(Vec::new())),
                 }
             })
             .collect();
-        let outputs: Vec<_> = stream::iter(requests)
-            .buffered(CONCURRENCY)
-            .try_collect()
-            .await?;
+        let mut downloads = stream::iter(requests).buffered(CONCURRENCY);
+        let mut outputs = Vec::with_capacity(actions.len());
+        let mut total = 0usize;
+        while let Some(output) = downloads.next().await {
+            let output = output?;
+            total += output
+                .iter()
+                .flatten()
+                .map(|message| message.message.len())
+                .sum::<usize>();
+            if total > self.job_output_limit {
+                break;
+            }
+            outputs.push(output);
+        }
+        drop(downloads);
+        outputs.resize_with(actions.len(), || None);
         let sections: Vec<Section<'_>> = actions
             .iter()
             .zip(&outputs)
@@ -211,7 +230,7 @@ impl CircleCIPlugin {
                         .as_deref()
                         .is_some_and(|status| FAILED_STEP_STATUSES.contains(&status)),
                 started_at: action.start_time,
-                output,
+                output: output.as_deref(),
             })
             .collect();
         Ok(log_dialect::render(&sections))
@@ -1138,6 +1157,22 @@ mod tests {
             read(&stub.plugin, "workflow:wf-build-2", None).await,
             Err(PluginError::InvalidConfig(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn job_output_past_the_budget_is_left_out_in_step_order() {
+        let mut stub = stub(&[]).await;
+        stub.plugin.job_output_limit = "Starting container\r\n".len();
+
+        let (output, _, _) = read(&stub.plugin, "102", None).await.unwrap();
+
+        let omitted = format!(".- {}\n", log_dialect::OMITTED);
+        assert_eq!(
+            output,
+            format!(
+                "#2026-11-01T10:05:00Z Spin up environment\n.2026-11-01T10:05:01Z Starting container\n#2026-11-01T10:05:00Z Run tests (container 0)\n{omitted}#2026-11-01T10:05:00Z Run tests (container 1)\n{omitted}"
+            )
+        );
     }
 
     #[tokio::test]

@@ -57,8 +57,11 @@ pub(crate) struct Section<'a> {
     pub name: String,
     pub failed: bool,
     pub started_at: Option<DateTime<Utc>>,
-    pub output: &'a [OutputMessage],
+    pub output: Option<&'a [OutputMessage]>,
 }
+
+pub(crate) const OMITTED: &str =
+    "This step printed more output than Pipedash loads. Open the job in CircleCI to see it.";
 
 pub(crate) fn render(sections: &[Section<'_>]) -> Vec<u8> {
     let mut out = Vec::new();
@@ -67,9 +70,13 @@ pub(crate) fn render(sections: &[Section<'_>]) -> Vec<u8> {
             open: section.failed,
         };
         push_line(&mut out, marker, section.started_at, &section.name);
+        let Some(output) = section.output else {
+            push_line(&mut out, LineMarker::Plain, None, OMITTED);
+            continue;
+        };
         let mut line = String::new();
         let mut line_at = None;
-        for message in section.output {
+        for message in output {
             for piece in message.message.split_inclusive('\n') {
                 if line.is_empty() {
                     line_at = message.time;
@@ -149,13 +156,19 @@ mod tests {
                 name: "Checkout code".into(),
                 failed: false,
                 started_at: started,
-                output: &output,
+                output: Some(&output),
             },
             Section {
                 name: "Run tests".into(),
                 failed: true,
                 started_at: None,
-                output: &[],
+                output: Some(&[]),
+            },
+            Section {
+                name: "Huge step".into(),
+                failed: false,
+                started_at: None,
+                output: None,
             },
         ]);
 
@@ -186,6 +199,12 @@ mod tests {
                     None,
                     "Run tests".to_string()
                 ),
+                (
+                    LineMarker::SectionStart { open: false },
+                    None,
+                    "Huge step".to_string()
+                ),
+                (LineMarker::Plain, None, OMITTED.to_string()),
             ]
         );
     }
@@ -197,7 +216,7 @@ mod tests {
             name: "Download".into(),
             failed: false,
             started_at: None,
-            output: &output,
+            output: Some(&output),
         }]);
 
         assert_eq!(rendered, b"#- Download\n.- 10%\r.- 55%\r.- 100%\n");
@@ -210,7 +229,7 @@ mod tests {
             name: "Run".into(),
             failed: false,
             started_at: None,
-            output: &output,
+            output: Some(&output),
         }]);
 
         assert_eq!(

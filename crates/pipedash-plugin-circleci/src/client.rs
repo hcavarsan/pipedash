@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 
 use pipedash_plugin_api::{
     http,
@@ -9,6 +10,7 @@ use pipedash_plugin_api::{
 };
 use reqwest::{
     header::HeaderValue,
+    redirect,
     Method,
     Url,
 };
@@ -33,8 +35,12 @@ use crate::types::{
     Workflow,
 };
 
+const OUTPUT_TIMEOUT: Duration = Duration::from_secs(120);
+const OUTPUT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
 pub struct CircleCIClient {
     client: Arc<reqwest::Client>,
+    output_client: reqwest::Client,
     token: HeaderValue,
     base_url: Url,
     retry_policy: RetryPolicy,
@@ -114,8 +120,17 @@ impl CircleCIClient {
         let mut token = HeaderValue::from_str(&token)
             .map_err(|_| PluginError::InvalidConfig("Invalid CircleCI token header".into()))?;
         token.set_sensitive(true);
+        let output_client = reqwest::Client::builder()
+            .redirect(redirect::Policy::none())
+            .timeout(OUTPUT_TIMEOUT)
+            .connect_timeout(OUTPUT_CONNECT_TIMEOUT)
+            .build()
+            .map_err(|e| {
+                PluginError::Internal(format!("Failed to create the step output client: {e}"))
+            })?;
         Ok(Self {
             client,
+            output_client,
             token,
             base_url,
             retry_policy: RetryPolicy::default(),
@@ -312,19 +327,28 @@ impl CircleCIClient {
         self.get(self.url(&segments)?).await
     }
 
-    pub async fn fetch_step_output(&self, output_url: &str) -> PluginResult<Vec<OutputMessage>> {
-        let url = Url::parse(output_url)
+    fn output_url(&self, output_url: &str) -> PluginResult<Url> {
+        Url::parse(output_url)
             .ok()
-            .filter(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
-            .ok_or_else(|| {
-                PluginError::ApiError("CircleCI sent an invalid step output URL".into())
-            })?;
+            .filter(|url| {
+                url.host_str().is_some()
+                    && url.username().is_empty()
+                    && url.password().is_none()
+                    && (url.scheme() == "https" || url.origin() == self.base_url.origin())
+            })
+            .ok_or_else(|| PluginError::ApiError("CircleCI sent an invalid step output URL".into()))
+    }
+
+    pub async fn fetch_step_output(
+        &self, output_url: &str, limit: usize,
+    ) -> PluginResult<Option<Vec<OutputMessage>>> {
+        let url = self.output_url(output_url)?;
         let mut shown = url.clone();
         shown.set_query(None);
         self.retry_policy
             .retry(|| async {
                 let response = self
-                    .client
+                    .output_client
                     .get(url.clone())
                     .send()
                     .await
@@ -332,7 +356,15 @@ impl CircleCIClient {
                 if !response.status().is_success() {
                     return Err(error_for(&response, "CircleCI step output"));
                 }
-                Self::decode(response).await
+                let body = http::read_prefix(response, limit.saturating_add(1))
+                    .await
+                    .map_err(|err| http::map_send_error(err.without_url(), &shown))?;
+                if body.len() > limit {
+                    return Ok(None);
+                }
+                serde_json::from_slice(&body).map(Some).map_err(|_| {
+                    PluginError::SerializationError("Invalid CircleCI step output".into())
+                })
             })
             .await
     }
@@ -649,8 +681,9 @@ mod tests {
         )]);
         let origin = client.base_url.clone();
         let output = client
-            .fetch_step_output(&format!("{origin}output/step?X-Amz-Signature=secret"))
+            .fetch_step_output(&format!("{origin}output/step?X-Amz-Signature=secret"), 1024)
             .await
+            .unwrap()
             .unwrap();
         assert_eq!(output[0].message, "hello\r\n");
         let request = handle.join().unwrap().remove(0);
@@ -663,15 +696,62 @@ mod tests {
         let (client, handle) = server(vec![(403, json!({"message": "expired"}))]);
         let origin = client.base_url.clone();
         let error = client
-            .fetch_step_output(&format!("{origin}output?X-Amz-Signature=secret"))
+            .fetch_step_output(&format!("{origin}output?X-Amz-Signature=secret"), 1024)
             .await
             .unwrap_err();
         assert!(!error.to_string().contains("secret"), "{error}");
         handle.join().unwrap();
+        for url in [
+            "file:///etc/passwd".to_string(),
+            "http://169.254.169.254/latest".to_string(),
+            format!("http://user:pw@{}/out", origin.host_str().unwrap()),
+        ] {
+            assert!(client.fetch_step_output(&url, 1024).await.is_err(), "{url}");
+        }
+    }
+
+    #[tokio::test]
+    async fn step_output_larger_than_the_limit_is_left_out_unread() {
+        let big = json!([{"message": "x".repeat(4096)}]);
+        let (client, handle) = server(vec![(200, big)]);
+        let origin = client.base_url.clone();
         assert!(client
-            .fetch_step_output("file:///etc/passwd")
+            .fetch_step_output(&format!("{origin}out"), 1024)
             .await
-            .is_err());
+            .unwrap()
+            .is_none());
+        handle.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn step_output_redirects_are_never_followed() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let internal = TcpListener::bind("127.0.0.1:0").unwrap();
+        internal.set_nonblocking(true).unwrap();
+        let target = format!("http://{}/secret", internal.local_addr().unwrap());
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0; 4096];
+            let _ = stream.read(&mut buffer).unwrap();
+            write!(
+                stream,
+                "HTTP/1.1 302 Found\r\nLocation: {target}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .unwrap();
+        });
+        let client =
+            CircleCIClient::new(Arc::new(reqwest::Client::new()), "t".into(), &origin).unwrap();
+
+        let error = client
+            .fetch_step_output(&format!("{origin}/out"), 1024)
+            .await
+            .unwrap_err();
+
+        handle.join().unwrap();
+        assert!(matches!(error, PluginError::ApiError(_)), "{error:?}");
+        assert!(internal.accept().is_err());
     }
 
     #[tokio::test]
