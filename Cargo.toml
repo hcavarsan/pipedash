@@ -9,6 +9,7 @@ members = [
   "crates/pipedash-plugin-azure-devops",
   "crates/pipedash-plugin-bitbucket",
   "crates/pipedash-plugin-buildkite",
+  "crates/pipedash-plugin-coolify",
   "crates/pipedash-plugin-fluxcd",
   "crates/pipedash-plugin-github",
   "crates/pipedash-plugin-gitea",
@@ -17,6 +18,7 @@ members = [
   "crates/pipedash-plugin-komodo",
   "crates/pipedash-plugin-prow",
   "crates/pipedash-plugin-tekton",
+  "crates/pipedash-plugin-woodpecker",
   "crates/pipedash-push-relay",
   "crates/pipedash-web",
   "crates/tauri-plugin-pipedash-native",
@@ -72,6 +74,7 @@ pipedash-plugin-argocd = { version = "0.10.0", path = "crates/pipedash-plugin-ar
 pipedash-plugin-azure-devops = { version = "0.10.0", path = "crates/pipedash-plugin-azure-devops" }
 pipedash-plugin-bitbucket = { version = "0.10.0", path = "crates/pipedash-plugin-bitbucket" }
 pipedash-plugin-buildkite = { version = "0.10.0", path = "crates/pipedash-plugin-buildkite" }
+pipedash-plugin-coolify = { version = "0.10.0", path = "crates/pipedash-plugin-coolify" }
 pipedash-plugin-fluxcd = { version = "0.10.0", path = "crates/pipedash-plugin-fluxcd" }
 pipedash-plugin-github = { version = "0.10.0", path = "crates/pipedash-plugin-github" }
 pipedash-plugin-gitea = { version = "0.10.0", path = "crates/pipedash-plugin-gitea" }
@@ -80,6 +83,7 @@ pipedash-plugin-jenkins = { version = "0.10.0", path = "crates/pipedash-plugin-j
 pipedash-plugin-komodo = { version = "0.10.0", path = "crates/pipedash-plugin-komodo" }
 pipedash-plugin-prow = { version = "0.10.0", path = "crates/pipedash-plugin-prow" }
 pipedash-plugin-tekton = { version = "0.10.0", path = "crates/pipedash-plugin-tekton" }
+pipedash-plugin-woodpecker = { version = "0.10.0", path = "crates/pipedash-plugin-woodpecker" }
 pipedash-web = { version = "0.10.0", path = "crates/pipedash-web", default-features = false }
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 rand = "0.10"
@@ -150,6 +154,7 @@ pipedash-plugin-argocd = { path = "crates/pipedash-plugin-argocd" }
 pipedash-plugin-azure-devops = { path = "crates/pipedash-plugin-azure-devops" }
 pipedash-plugin-bitbucket = { path = "crates/pipedash-plugin-bitbucket" }
 pipedash-plugin-buildkite = { path = "crates/pipedash-plugin-buildkite" }
+pipedash-plugin-coolify = { path = "crates/pipedash-plugin-coolify" }
 pipedash-plugin-fluxcd = { path = "crates/pipedash-plugin-fluxcd" }
 pipedash-plugin-github = { path = "crates/pipedash-plugin-github" }
 pipedash-plugin-gitea = { path = "crates/pipedash-plugin-gitea" }
@@ -158,3 +163,4 @@ pipedash-plugin-jenkins = { path = "crates/pipedash-plugin-jenkins" }
 pipedash-plugin-komodo = { path = "crates/pipedash-plugin-komodo" }
 pipedash-plugin-prow = { path = "crates/pipedash-plugin-prow" }
 pipedash-plugin-tekton = { path = "crates/pipedash-plugin-tekton" }
+pipedash-plugin-woodpecker = { path = "crates/pipedash-plugin-woodpecker" }

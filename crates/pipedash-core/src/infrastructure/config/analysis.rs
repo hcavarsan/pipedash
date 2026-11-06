@@ -3,6 +3,7 @@ use std::sync::Arc;
 use serde::Serialize;
 
 use super::{
+    ConfigLoader,
     PipedashConfig,
     StorageBackend,
     StorageManager,
@@ -58,8 +59,9 @@ pub async fn analyze_config(
     new_content: &str, storage_manager: &StorageManager, event_bus: Option<Arc<dyn EventBus>>,
     target_token_store: Option<Arc<dyn TokenStore>>,
 ) -> DomainResult<ConfigAnalysis> {
-    let new_config: PipedashConfig = toml::from_str(new_content)
-        .map_err(|e| DomainError::InvalidConfig(format!("Invalid TOML syntax: {}", e)))?;
+    let new_config = ConfigLoader::parse(new_content).map_err(|_| {
+        DomainError::InvalidConfig("Invalid config fields or environment references".to_string())
+    })?;
 
     let validation = new_config.validate();
 
@@ -262,6 +264,39 @@ mod tests {
         assert!(analysis.valid);
         assert!(analysis.migration_plan.is_none());
         assert!(analysis.postgres_connection.is_none());
+    }
+
+    #[tokio::test]
+    async fn analysis_expands_backend_references_before_validation() {
+        let data_dir = TempDir::new().unwrap();
+        let manager = sqlite_manager(&data_dir).await;
+        let content = format!(
+            "[storage]\ndata_dir = {:?}\nbackend = \"${{PIPEDASH_ANALYSIS_TEST_BACKEND:-sqlite}}\"\n",
+            data_dir.path().to_string_lossy()
+        );
+
+        let analysis = analyze_config(&content, &manager, None, None)
+            .await
+            .unwrap();
+
+        assert!(analysis.valid);
+        assert!(analysis.migration_plan.is_none());
+        assert!(analysis.postgres_connection.is_none());
+    }
+
+    #[tokio::test]
+    async fn analysis_parse_errors_do_not_include_expanded_values() {
+        let data_dir = TempDir::new().unwrap();
+        let manager = sqlite_manager(&data_dir).await;
+        let content =
+            "[storage]\nbackend = \"${PIPEDASH_ANALYSIS_TEST_SECRET:-editor-secret-value}\"\n";
+
+        let error = analyze_config(content, &manager, None, None)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, DomainError::InvalidConfig(_)));
+        assert!(!error.to_string().contains("editor-secret-value"));
     }
 
     #[tokio::test]

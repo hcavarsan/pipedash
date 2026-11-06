@@ -23,7 +23,6 @@ import {
   isAggregationPeriod,
   METRIC_CONFIG,
   METRIC_TYPES,
-  useMetricsWindow,
 } from '../lib/metricsUtils'
 import {
   useAggregatedMetrics,
@@ -57,8 +56,7 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository }: Pi
   const isMetricsEnabled = pipelineConfig.data?.enabled ?? false
   const retentionDays = pipelineConfig.data?.retention_days ?? 7
 
-  const { startDate, endDate } = useMetricsWindow(dateRange)
-  const queryParams = { aggregationPeriod, pipelineId, startDate, endDate, enabled: isMetricsEnabled }
+  const queryParams = { aggregationPeriod, pipelineId, dateRange, enabled: isMetricsEnabled }
 
   const durationQuery = useAggregatedMetrics({
     ...queryParams,

@@ -148,6 +148,22 @@ async fn update_pipeline_metrics_config(
     Ok(())
 }
 
+fn parse_date_filter(
+    value: Option<&str>, field: &str,
+) -> ApiResult<Option<chrono::DateTime<chrono::Utc>>> {
+    value
+        .map(|value| {
+            chrono::DateTime::parse_from_rfc3339(value)
+                .map(|date| date.with_timezone(&chrono::Utc))
+                .map_err(|_| {
+                    AppError::bad_request(format!(
+                        "Invalid {field}: expected an RFC 3339 date with a timezone"
+                    ))
+                })
+        })
+        .transpose()
+}
+
 async fn query_pipeline_metrics(
     State(state): State<AppState>, Path(pipeline_id): Path<String>,
     Json(params): Json<MetricsQueryParams>,
@@ -161,15 +177,14 @@ async fn query_pipeline_metrics(
 
     let parsed_metric_type = params
         .metric_type
-        .and_then(|t| t.parse::<MetricType>().ok());
-    let parsed_start_date = params
-        .start_date
-        .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
-        .map(|dt| dt.with_timezone(&chrono::Utc));
-    let parsed_end_date = params
-        .end_date
-        .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
-        .map(|dt| dt.with_timezone(&chrono::Utc));
+        .map(|value| {
+            value
+                .parse::<MetricType>()
+                .map_err(|_| AppError::bad_request(format!("Invalid metric type: {value}")))
+        })
+        .transpose()?;
+    let parsed_start_date = parse_date_filter(params.start_date.as_deref(), "start_date")?;
+    let parsed_end_date = parse_date_filter(params.end_date.as_deref(), "end_date")?;
 
     let query = MetricsQuery {
         pipeline_id: Some(pipeline_id),
@@ -229,14 +244,8 @@ async fn query_aggregated_metrics(
         })
         .transpose()?;
 
-    let parsed_start_date = params
-        .start_date
-        .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
-        .map(|dt| dt.with_timezone(&chrono::Utc));
-    let parsed_end_date = params
-        .end_date
-        .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
-        .map(|dt| dt.with_timezone(&chrono::Utc));
+    let parsed_start_date = parse_date_filter(params.start_date.as_deref(), "start_date")?;
+    let parsed_end_date = parse_date_filter(params.end_date.as_deref(), "end_date")?;
 
     let query = MetricsQuery {
         pipeline_id: params.pipeline_id,
@@ -276,4 +285,184 @@ async fn flush_pipeline_metrics(
         .flush_metrics(req.pipeline_id.as_deref(), false)
         .await?;
     Ok(Json(FlushMetricsResponse { flushed }))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use axum::body::Body;
+    use axum::http::{
+        header,
+        Request,
+        StatusCode,
+    };
+    use pipedash_core::infrastructure::database::MetricsRepository;
+    use pipedash_core::infrastructure::token_store::MemoryTokenStore;
+    use pipedash_core::infrastructure::{
+        ConfigLoader,
+        StorageManager,
+    };
+    use pipedash_core::CoreContext;
+    use serde_json::json;
+    use tower::ServiceExt;
+
+    use super::*;
+    use crate::ws::WebSocketEventBus;
+
+    async fn query(
+        app: &Router, uri: &str, body: serde_json::Value,
+    ) -> (StatusCode, serde_json::Value) {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(uri)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        (status, serde_json::from_slice(&body).unwrap())
+    }
+
+    #[tokio::test]
+    async fn metrics_filters_reject_invalid_values_and_preserve_optional_bounds() {
+        const CHILD: &str = "PIPEDASH_METRICS_FILTER_TEST_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let root = std::env::temp_dir()
+                .join(format!("pipedash-metrics-filters-{}", std::process::id()));
+            std::fs::create_dir_all(&root).unwrap();
+            let config_path = root.join("config.toml");
+            std::fs::write(&config_path, format!(
+                "[general]\nmetrics_enabled = true\nstatus_pages_enabled = false\n[storage]\nbackend = \"sqlite\"\ndata_dir = {:?}\n",
+                root.to_string_lossy()
+            )).unwrap();
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "routes::metrics::tests::metrics_filters_reject_invalid_values_and_preserve_optional_bounds", "--nocapture"])
+                .env(CHILD, "1")
+                .env("PIPEDASH_CONFIG_PATH", config_path)
+                .output().unwrap();
+            std::fs::remove_dir_all(&root).unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let config = ConfigLoader::load_default().unwrap();
+        let manager =
+            StorageManager::with_token_store(config, Arc::new(MemoryTokenStore::new()), true)
+                .await
+                .unwrap();
+        let bus = Arc::new(WebSocketEventBus::new());
+        let core = CoreContext::with_storage_manager(&manager, bus.clone())
+            .await
+            .unwrap();
+        let repository = MetricsRepository::new_from_pool(manager.database_pool());
+        let timestamp = "2026-11-02T00:01:00Z"
+            .parse::<chrono::DateTime<chrono::Utc>>()
+            .unwrap();
+        let entries = [
+            (MetricType::RunDuration, 60.0, "duration"),
+            (MetricType::SuccessRate, 100.0, "success"),
+        ]
+        .into_iter()
+        .map(|(metric_type, value, hash)| MetricEntry {
+            id: 0,
+            pipeline_id: "example".to_string(),
+            run_number: 1,
+            timestamp,
+            metric_type,
+            value,
+            metadata: None,
+            created_at: timestamp,
+            run_hash: Some(hash.to_string()),
+        })
+        .collect();
+        repository.insert_metrics_batch(entries).await.unwrap();
+        let state = AppState::initialized(bus, core.clone(), manager);
+        let app = router().with_state(state);
+
+        for (uri, base) in [
+            ("/pipelines/example/query", json!({})),
+            (
+                "/aggregated",
+                json!({"pipeline_id": "example", "metric_type": "run_duration", "aggregation_period": "daily"}),
+            ),
+        ] {
+            for (field, value) in [
+                ("metric_type", "run_duraton"),
+                ("start_date", "2026-11-02T00:02:00"),
+                ("end_date", "2026-11-02T00:00:00"),
+                ("start_date", ""),
+            ] {
+                let mut body = base.clone();
+                body[field] = json!(value);
+                let (status, error) = query(&app, uri, body).await;
+                assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}: {field}: {error}");
+                assert_eq!(error["code"], "BAD_REQUEST");
+            }
+
+            for body in [base.clone(), {
+                let mut body = base.clone();
+                body["start_date"] = json!("2026-11-01T21:01:00-03:00");
+                body["end_date"] = json!("2026-11-02T00:01:00Z");
+                body
+            }] {
+                let (status, result) = query(&app, uri, body).await;
+                assert_eq!(status, StatusCode::OK);
+                if uri == "/aggregated" {
+                    assert_eq!(result["metrics"][0]["value"], 60.0);
+                    assert_eq!(result["metrics"][0]["count"], 1);
+                } else {
+                    let types: std::collections::BTreeSet<_> = result
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|row| row["metric_type"].as_str().unwrap())
+                        .collect();
+                    assert_eq!(types, ["run_duration", "success_rate"].into());
+                }
+            }
+            for (field, value) in [
+                ("start_date", "2026-11-02T00:02:00Z"),
+                ("end_date", "2026-11-02T00:00:00Z"),
+            ] {
+                let mut body = base.clone();
+                body[field] = json!(value);
+                let (status, result) = query(&app, uri, body).await;
+                assert_eq!(status, StatusCode::OK);
+                if uri == "/aggregated" {
+                    assert_eq!(result["metrics"], json!([]));
+                } else {
+                    assert_eq!(result, json!([]));
+                }
+            }
+        }
+        let (status, result) = query(
+            &app,
+            "/pipelines/example/query",
+            json!({"metric_type": "run_duration"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            result
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| (&row["metric_type"], &row["value"]))
+                .collect::<Vec<_>>(),
+            vec![(&json!("run_duration"), &json!(60.0))]
+        );
+        core.shutdown().await;
+    }
 }

@@ -4229,6 +4229,7 @@ dependencies = [
  "pipedash-plugin-azure-devops",
  "pipedash-plugin-bitbucket",
  "pipedash-plugin-buildkite",
+ "pipedash-plugin-coolify",
  "pipedash-plugin-fluxcd",
  "pipedash-plugin-gitea",
  "pipedash-plugin-github",
@@ -4237,6 +4238,7 @@ dependencies = [
  "pipedash-plugin-komodo",
  "pipedash-plugin-prow",
  "pipedash-plugin-tekton",
+ "pipedash-plugin-woodpecker",
  "rand 0.10.3",
  "rcgen",
  "regex",
@@ -4281,6 +4283,7 @@ dependencies = [
  "pipedash-plugin-azure-devops",
  "pipedash-plugin-bitbucket",
  "pipedash-plugin-buildkite",
+ "pipedash-plugin-coolify",
  "pipedash-plugin-fluxcd",
  "pipedash-plugin-gitea",
  "pipedash-plugin-github",
@@ -4289,6 +4292,7 @@ dependencies = [
  "pipedash-plugin-komodo",
  "pipedash-plugin-prow",
  "pipedash-plugin-tekton",
+ "pipedash-plugin-woodpecker",
  "pipedash-web",
  "rand 0.10.3",
  "reqwest",
@@ -4402,6 +4406,23 @@ name = "pipedash-plugin-buildkite"
 version = "0.10.0"
 dependencies = [
  "async-trait",
+ "chrono",
+ "futures",
+ "pipedash-plugin-api",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "pipedash-plugin-coolify"
+version = "0.10.0"
+dependencies = [
+ "async-trait",
+ "bytes",
  "chrono",
  "futures",
  "pipedash-plugin-api",
@@ -4560,6 +4581,22 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "pipedash-plugin-woodpecker"
+version = "0.10.0"
+dependencies = [
+ "async-trait",
+ "base64 0.23.1",
+ "chrono",
+ "futures",
+ "pipedash-plugin-api",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

@@ -19,6 +19,7 @@ import type {
   MetricsStats,
   MetricType,
 } from '../../../types/domain'
+import { type DateRange, getDateRangeStart } from '../../../utils/dateRange'
 import { errorMessage } from '../../../utils/errorDisplay'
 
 const advancePeriod = (date: Date, period: AggregationPeriod): Date => {
@@ -101,8 +102,7 @@ export function useAggregatedMetrics(params: {
   aggregationPeriod: AggregationPeriod
   aggregationType?: AggregationType | undefined
   pipelineId?: string | undefined
-  startDate?: string | undefined
-  endDate?: string | undefined
+  dateRange: DateRange
   limit?: number | undefined
   enabled?: boolean | undefined
 }): UseQueryResult<AggregatedMetrics, Error> {
@@ -116,20 +116,22 @@ export function useAggregatedMetrics(params: {
         pipelineId: queryParams.pipelineId,
       }),
       queryParams.aggregationType,
-      queryParams.startDate,
-      queryParams.endDate,
+      queryParams.dateRange,
       queryParams.limit,
     ],
-    queryFn: () =>
-      service.queryAggregatedMetrics(
+    queryFn: () => {
+      const now = new Date()
+
+      return service.queryAggregatedMetrics(
         queryParams.metricType,
         queryParams.aggregationPeriod,
         queryParams.aggregationType,
         queryParams.pipelineId,
-        queryParams.startDate,
-        queryParams.endDate,
+        getDateRangeStart(queryParams.dateRange, now)?.toISOString(),
+        now.toISOString(),
         queryParams.limit
-      ),
+      )
+    },
     select: fillMissingPeriods,
     staleTime: STALE_TIMES.MODERATE,
     gcTime: GC_TIMES.SHORT,
