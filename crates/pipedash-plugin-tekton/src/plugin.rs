@@ -622,6 +622,10 @@ impl Plugin for TektonPlugin {
         &TektonLogDialect
     }
 
+    fn log_tree_version(&self) -> u32 {
+        1
+    }
+
     async fn fetch_workflow_parameters(
         &self, workflow_id: &str,
     ) -> PluginResult<Vec<WorkflowParameter>> {

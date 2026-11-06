@@ -190,6 +190,7 @@ pub(crate) struct StubProvider {
     pub(crate) log_nodes_gate: Option<Arc<Gate>>,
     pub(crate) log_reads: AtomicUsize,
     pub(crate) log_node_fetches: AtomicUsize,
+    pub(crate) log_tree_version: u32,
     pub(crate) log_mode: Mutex<StubLogMode>,
     pub(crate) log_epoch: AtomicU64,
     pub(crate) log_requests: Mutex<Vec<Option<LogCursor>>>,
@@ -230,6 +231,7 @@ impl StubProvider {
             log_nodes_gate: None,
             log_reads: AtomicUsize::new(0),
             log_node_fetches: AtomicUsize::new(0),
+            log_tree_version: 0,
             log_mode: Mutex::new(StubLogMode::Snapshot),
             log_epoch: AtomicU64::new(0),
             log_requests: Mutex::new(Vec::new()),
@@ -491,6 +493,10 @@ impl Provider for StubProvider {
             gate.pass().await;
         }
         self.health.lock().unwrap().clone()
+    }
+
+    fn log_tree_version(&self) -> u32 {
+        self.log_tree_version
     }
 
     async fn fetch_log_nodes(&self, _run: &PipelineRun) -> DomainResult<Vec<LogNode>> {

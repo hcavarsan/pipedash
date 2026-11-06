@@ -311,6 +311,67 @@ async fn progress_ticks_never_restart_the_read() {
 }
 
 #[tokio::test]
+async fn reopening_a_legacy_tree_refreshes_only_when_the_provider_version_changes() {
+    for version in [0, 1] {
+        let nodes = vec![
+            job("task", PipelineStatus::Success, LogAvailability::Ready),
+            log_node(
+                "task:sidecar:cache",
+                Some("task"),
+                LogNodeKind::Step,
+                PipelineStatus::Success,
+                Some(LogAvailability::Ready),
+            ),
+        ];
+        let f = Fixture::with_logs(nodes, &["sidecar log\n"], |mut stub| {
+            stub.log_tree_version = version;
+            stub
+        })
+        .await;
+        let (lease, epoch) = f.svc().lease_of(&f.pipeline_id).await.unwrap();
+        let current = f
+            .svc()
+            .build_tree(&lease, epoch, &f.pipeline_id, RUN)
+            .await
+            .unwrap();
+        let legacy: StoredTree = serde_json::from_value(serde_json::json!({
+            "run_status": current.1.status,
+            "run_concluded_at": current.1.concluded_at,
+            "tree": {
+                "nodes": [current.0.nodes[0]],
+                "default_node_id": "task",
+                "complete": true,
+            },
+        }))
+        .unwrap();
+        f.h.log_store
+            .write_tree(f.id, &f.pipeline_id, RUN, &legacy, epoch)
+            .await
+            .unwrap();
+        let reopened = LogService::new(
+            Arc::clone(&f.h.log_store),
+            Arc::clone(&f.h.provider_service),
+            Arc::clone(&f.h.repository),
+            f.h.bus.clone(),
+        );
+        let tree = Arc::new(reopened)
+            .run_log_tree(&f.pipeline_id, RUN)
+            .await
+            .unwrap();
+        assert_eq!(
+            tree.nodes
+                .iter()
+                .any(|node| node.id == "task:sidecar:cache"),
+            version == 1
+        );
+        assert_eq!(
+            f.stub.log_node_fetch_count(),
+            if version == 0 { 1 } else { 2 }
+        );
+    }
+}
+
+#[tokio::test]
 async fn clear_during_an_ingest_publishes_nothing() {
     let gate = Gate::new();
     let f = Fixture::new(gated(&gate)).await;

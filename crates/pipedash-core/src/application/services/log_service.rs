@@ -360,7 +360,10 @@ impl LogService {
                 .read_tree(lease.id, pipeline_id, run_number)
                 .await
             {
-                if stored.run_status == run.status && stored.run_concluded_at == run.concluded_at {
+                if stored.run_status == run.status
+                    && stored.run_concluded_at == run.concluded_at
+                    && stored.log_tree_version == lease.provider.log_tree_version()
+                {
                     return Ok((Arc::new(stored.tree), Arc::new(run)));
                 }
             }
@@ -372,6 +375,7 @@ impl LogService {
         let tree = tree_from_nodes(&run, nodes);
         if tree.complete {
             let stored = StoredTree {
+                log_tree_version: lease.provider.log_tree_version(),
                 run_status: run.status.clone(),
                 run_concluded_at: run.concluded_at,
                 tree: tree.clone(),
