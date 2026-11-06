@@ -4414,6 +4414,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "pipedash-plugin-circleci"
+version = "0.10.0"
+dependencies = [
+ "chrono",
+ "pipedash-plugin-api",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "pipedash-plugin-fluxcd"
 version = "0.10.0"
 dependencies = [
