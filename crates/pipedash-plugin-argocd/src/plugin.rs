@@ -133,6 +133,7 @@ impl Plugin for ArgocdPlugin {
                 .ok()
                 .and_then(|url| reqwest::Url::parse(&url).ok()),
             accept_invalid_certs: config::is_insecure(config),
+            ..ClientOptions::default()
         }
     }
 

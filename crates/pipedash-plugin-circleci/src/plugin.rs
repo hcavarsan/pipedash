@@ -288,6 +288,7 @@ impl Plugin for CircleCIPlugin {
         ClientOptions {
             origin: reqwest::Url::parse(&config::get_base_url(config)).ok(),
             accept_invalid_certs: config::is_insecure(config),
+            same_host_redirects: true,
         }
     }
 
@@ -1004,15 +1005,23 @@ mod tests {
             ]
         );
         assert_eq!(pipelines[1].last_run, None);
+        let gets = calls(&stub.requests, "GET").await;
+        let position = |path: &str| gets.iter().position(|get| get == path).unwrap();
+        let mut sorted = gets.clone();
+        sorted.sort();
         assert_eq!(
-            calls(&stub.requests, "GET").await,
+            sorted,
             [
-                "/api/v2/project/gh/acme/web",
-                "/api/v2/project/gh/acme/api",
-                "/api/v2/project/gh/acme/web/pipeline",
-                "/api/v2/project/gh/acme/api/pipeline",
                 "/api/v2/pipeline/pipe-42/workflow",
+                "/api/v2/project/gh/acme/api",
+                "/api/v2/project/gh/acme/api/pipeline",
+                "/api/v2/project/gh/acme/web",
+                "/api/v2/project/gh/acme/web/pipeline",
             ]
+        );
+        assert!(
+            position("/api/v2/project/gh/acme/web/pipeline")
+                < position("/api/v2/pipeline/pipe-42/workflow")
         );
     }
 

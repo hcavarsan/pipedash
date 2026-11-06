@@ -63,6 +63,7 @@ pub struct StatusSource {
 pub struct ClientOptions {
     pub origin: Option<Url>,
     pub accept_invalid_certs: bool,
+    pub same_host_redirects: bool,
 }
 
 pub fn status_page_field() -> ConfigField {

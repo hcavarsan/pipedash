@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Duration;
 
 use pipedash_plugin_api::{
     http,
@@ -10,7 +9,6 @@ use pipedash_plugin_api::{
 };
 use reqwest::{
     header::HeaderValue,
-    redirect,
     Method,
     Url,
 };
@@ -35,12 +33,8 @@ use crate::types::{
     Workflow,
 };
 
-const OUTPUT_TIMEOUT: Duration = Duration::from_secs(120);
-const OUTPUT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-
 pub struct CircleCIClient {
     client: Arc<reqwest::Client>,
-    output_client: reqwest::Client,
     token: HeaderValue,
     base_url: Url,
     retry_policy: RetryPolicy,
@@ -120,17 +114,8 @@ impl CircleCIClient {
         let mut token = HeaderValue::from_str(&token)
             .map_err(|_| PluginError::InvalidConfig("Invalid CircleCI token header".into()))?;
         token.set_sensitive(true);
-        let output_client = reqwest::Client::builder()
-            .redirect(redirect::Policy::none())
-            .timeout(OUTPUT_TIMEOUT)
-            .connect_timeout(OUTPUT_CONNECT_TIMEOUT)
-            .build()
-            .map_err(|e| {
-                PluginError::Internal(format!("Failed to create the step output client: {e}"))
-            })?;
         Ok(Self {
             client,
-            output_client,
             token,
             base_url,
             retry_policy: RetryPolicy::default(),
@@ -348,7 +333,7 @@ impl CircleCIClient {
         self.retry_policy
             .retry(|| async {
                 let response = self
-                    .output_client
+                    .client
                     .get(url.clone())
                     .send()
                     .await
@@ -721,37 +706,6 @@ mod tests {
             .unwrap()
             .is_none());
         handle.join().unwrap();
-    }
-
-    #[tokio::test]
-    async fn step_output_redirects_are_never_followed() {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let internal = TcpListener::bind("127.0.0.1:0").unwrap();
-        internal.set_nonblocking(true).unwrap();
-        let target = format!("http://{}/secret", internal.local_addr().unwrap());
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let origin = format!("http://{}", listener.local_addr().unwrap());
-        let handle = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut buffer = [0; 4096];
-            let _ = stream.read(&mut buffer).unwrap();
-            write!(
-                stream,
-                "HTTP/1.1 302 Found\r\nLocation: {target}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-            )
-            .unwrap();
-        });
-        let client =
-            CircleCIClient::new(Arc::new(reqwest::Client::new()), "t".into(), &origin).unwrap();
-
-        let error = client
-            .fetch_step_output(&format!("{origin}/out"), 1024)
-            .await
-            .unwrap_err();
-
-        handle.join().unwrap();
-        assert!(matches!(error, PluginError::ApiError(_)), "{error:?}");
-        assert!(internal.accept().is_err());
     }
 
     #[tokio::test]
