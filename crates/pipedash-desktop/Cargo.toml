@@ -34,6 +34,7 @@ pipedash-plugin-jenkins.workspace = true
 pipedash-plugin-komodo.workspace = true
 pipedash-plugin-prow.workspace = true
 pipedash-plugin-tekton.workspace = true
+pipedash-plugin-woodpecker.workspace = true
 rand.workspace = true
 reqwest.workspace = true
 rustls.workspace = true

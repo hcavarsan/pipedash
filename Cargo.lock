@@ -4238,6 +4238,7 @@ dependencies = [
  "pipedash-plugin-komodo",
  "pipedash-plugin-prow",
  "pipedash-plugin-tekton",
+ "pipedash-plugin-woodpecker",
  "rand 0.10.3",
  "rcgen",
  "regex",
@@ -4291,6 +4292,7 @@ dependencies = [
  "pipedash-plugin-komodo",
  "pipedash-plugin-prow",
  "pipedash-plugin-tekton",
+ "pipedash-plugin-woodpecker",
  "pipedash-web",
  "rand 0.10.3",
  "reqwest",
@@ -4579,6 +4581,22 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "pipedash-plugin-woodpecker"
+version = "0.10.0"
+dependencies = [
+ "async-trait",
+ "base64 0.23.1",
+ "chrono",
+ "futures",
+ "pipedash-plugin-api",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
