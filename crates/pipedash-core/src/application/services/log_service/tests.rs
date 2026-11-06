@@ -652,6 +652,7 @@ async fn expired_live_reads_release_permits_for_another_job() {
     until("the live task to stop", || f.svc().lives.is_empty()).await;
     let permits_after_expiry = f.svc().ingest_permits.available_permits();
     f.open("3").await;
+    until("the third job to read", || f.stub.log_read_count() >= 3).await;
     f.settle().await;
     let reads_after_opening_third = f.stub.log_read_count();
     f.svc().shutdown().await;

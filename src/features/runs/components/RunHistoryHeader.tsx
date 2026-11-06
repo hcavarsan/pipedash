@@ -72,7 +72,7 @@ export function RunHistoryHeader(props: RunHistoryHeaderProps): ReactNode {
   const { pipeline, isLoadingPipeline, onBack } = props
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
-  const state = pipeline?.resource_state && pipeline
+  const state = pipeline?.resource_state?.message ? pipeline : null
 
   return (
     <>
