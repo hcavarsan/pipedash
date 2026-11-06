@@ -27,7 +27,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.11.0"
+version = "0.12.0"
 authors = ["Pipedash Team"]
 edition = "2021"
 
@@ -68,25 +68,25 @@ octocrab = { version = "0.54.8", default-features = false, features = [
   "timeout",
   "tracing",
 ] }
-pipedash-core = { version = "0.11.0", path = "crates/pipedash-core" }
-pipedash-plugin-actions = { version = "0.11.0", path = "crates/pipedash-plugin-actions" }
-pipedash-plugin-api = { version = "0.11.0", path = "crates/pipedash-plugin-api" }
-pipedash-plugin-argocd = { version = "0.11.0", path = "crates/pipedash-plugin-argocd" }
-pipedash-plugin-azure-devops = { version = "0.11.0", path = "crates/pipedash-plugin-azure-devops" }
-pipedash-plugin-bitbucket = { version = "0.11.0", path = "crates/pipedash-plugin-bitbucket" }
-pipedash-plugin-buildkite = { version = "0.11.0", path = "crates/pipedash-plugin-buildkite" }
-pipedash-plugin-circleci = { version = "0.11.0", path = "crates/pipedash-plugin-circleci" }
-pipedash-plugin-coolify = { version = "0.11.0", path = "crates/pipedash-plugin-coolify" }
-pipedash-plugin-fluxcd = { version = "0.11.0", path = "crates/pipedash-plugin-fluxcd" }
-pipedash-plugin-github = { version = "0.11.0", path = "crates/pipedash-plugin-github" }
-pipedash-plugin-gitea = { version = "0.11.0", path = "crates/pipedash-plugin-gitea" }
-pipedash-plugin-gitlab = { version = "0.11.0", path = "crates/pipedash-plugin-gitlab" }
-pipedash-plugin-jenkins = { version = "0.11.0", path = "crates/pipedash-plugin-jenkins" }
-pipedash-plugin-komodo = { version = "0.11.0", path = "crates/pipedash-plugin-komodo" }
-pipedash-plugin-prow = { version = "0.11.0", path = "crates/pipedash-plugin-prow" }
-pipedash-plugin-tekton = { version = "0.11.0", path = "crates/pipedash-plugin-tekton" }
-pipedash-plugin-woodpecker = { version = "0.11.0", path = "crates/pipedash-plugin-woodpecker" }
-pipedash-web = { version = "0.11.0", path = "crates/pipedash-web", default-features = false }
+pipedash-core = { version = "0.12.0", path = "crates/pipedash-core" }
+pipedash-plugin-actions = { version = "0.12.0", path = "crates/pipedash-plugin-actions" }
+pipedash-plugin-api = { version = "0.12.0", path = "crates/pipedash-plugin-api" }
+pipedash-plugin-argocd = { version = "0.12.0", path = "crates/pipedash-plugin-argocd" }
+pipedash-plugin-azure-devops = { version = "0.12.0", path = "crates/pipedash-plugin-azure-devops" }
+pipedash-plugin-bitbucket = { version = "0.12.0", path = "crates/pipedash-plugin-bitbucket" }
+pipedash-plugin-buildkite = { version = "0.12.0", path = "crates/pipedash-plugin-buildkite" }
+pipedash-plugin-circleci = { version = "0.12.0", path = "crates/pipedash-plugin-circleci" }
+pipedash-plugin-coolify = { version = "0.12.0", path = "crates/pipedash-plugin-coolify" }
+pipedash-plugin-fluxcd = { version = "0.12.0", path = "crates/pipedash-plugin-fluxcd" }
+pipedash-plugin-github = { version = "0.12.0", path = "crates/pipedash-plugin-github" }
+pipedash-plugin-gitea = { version = "0.12.0", path = "crates/pipedash-plugin-gitea" }
+pipedash-plugin-gitlab = { version = "0.12.0", path = "crates/pipedash-plugin-gitlab" }
+pipedash-plugin-jenkins = { version = "0.12.0", path = "crates/pipedash-plugin-jenkins" }
+pipedash-plugin-komodo = { version = "0.12.0", path = "crates/pipedash-plugin-komodo" }
+pipedash-plugin-prow = { version = "0.12.0", path = "crates/pipedash-plugin-prow" }
+pipedash-plugin-tekton = { version = "0.12.0", path = "crates/pipedash-plugin-tekton" }
+pipedash-plugin-woodpecker = { version = "0.12.0", path = "crates/pipedash-plugin-woodpecker" }
+pipedash-web = { version = "0.12.0", path = "crates/pipedash-web", default-features = false }
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 rand = "0.10"
 rcgen = { version = "0.14", default-features = false, features = ["ring"] }
