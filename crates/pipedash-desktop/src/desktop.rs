@@ -292,16 +292,16 @@ pub fn fit_main_window_to_monitor<R: Runtime>(app: &AppHandle<R>) -> tauri::Resu
     let Some(monitor) = monitor else {
         return Ok(());
     };
-    if window_is_larger_than_monitor(window.outer_size()?, *monitor.size()) {
+    if window_exceeds_work_area(window.outer_size()?, monitor.work_area().size) {
         window.maximize()?;
     }
     Ok(())
 }
 
-fn window_is_larger_than_monitor(
-    window: tauri::PhysicalSize<u32>, monitor: tauri::PhysicalSize<u32>,
+fn window_exceeds_work_area(
+    window: tauri::PhysicalSize<u32>, work_area: tauri::PhysicalSize<u32>,
 ) -> bool {
-    window.width > monitor.width || window.height > monitor.height
+    window.width > work_area.width || window.height > work_area.height
 }
 
 pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {

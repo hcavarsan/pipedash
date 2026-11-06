@@ -19,18 +19,20 @@ fn notice(key: &str) -> DesktopNotice {
 }
 
 #[test]
-fn a_window_larger_than_the_monitor_is_fitted_to_it() {
-    let monitor = tauri::PhysicalSize::new(1470, 924);
+fn a_window_larger_than_the_work_area_is_fitted_to_it() {
+    let work_area = tauri::PhysicalSize::new(1470, 924);
+    let window = tauri::PhysicalSize::new(1700, 1000);
 
-    assert!(window_is_larger_than_monitor(
-        tauri::PhysicalSize::new(1700, 1000),
-        monitor
+    assert!(window_exceeds_work_area(window, work_area));
+    assert!(window_exceeds_work_area(
+        window,
+        tauri::PhysicalSize::new(1920, 985)
     ));
-    assert!(!window_is_larger_than_monitor(
+    assert!(!window_exceeds_work_area(
         tauri::PhysicalSize::new(1280, 800),
-        monitor
+        work_area
     ));
-    assert!(!window_is_larger_than_monitor(monitor, monitor));
+    assert!(!window_exceeds_work_area(work_area, work_area));
 }
 
 #[test]
