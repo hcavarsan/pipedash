@@ -77,7 +77,7 @@ const isDynamicGitHubWorkflow = (pipeline: Pick<Pipeline, 'provider_type' | 'wor
   pipeline.provider_type === 'github' && pipeline.workflow_file?.startsWith('dynamic/') === true
 
 export const canRerunInPlace = (pipeline: Pick<Pipeline, 'provider_type'>): boolean =>
-  pipeline.provider_type === 'github'
+  pipeline.provider_type === 'github' || pipeline.provider_type === 'circleci'
 
 export const READ_ONLY_REASON =
   'This provider connects without credentials, so it is read-only. Edit it and choose an access token or single sign-on to start or stop runs.'

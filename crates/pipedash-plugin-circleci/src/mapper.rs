@@ -2,16 +2,103 @@ use std::collections::HashMap;
 
 use chrono::Utc;
 use pipedash_plugin_api::{
+    AvailablePipeline,
+    LogAvailability,
+    LogNode,
+    LogNodeKind,
     Pipeline,
     PipelineRun,
     PipelineStatus,
 };
 
+use crate::config;
 use crate::types::{
     CirclePipeline,
+    Job,
     Project,
     Workflow,
 };
+
+pub(crate) fn pipeline_url(base_url: &str, project_slug: &str, number: i64) -> String {
+    let base_url = match base_url.trim_end_matches('/') {
+        config::DEFAULT_BASE_URL => "https://app.circleci.com",
+        other => other,
+    };
+    let (vcs_slug, project) = project_slug.split_once('/').unwrap_or(("", project_slug));
+    let vcs_slug = match vcs_slug {
+        "gh" => "github",
+        "bb" => "bitbucket",
+        other => other,
+    };
+    format!("{base_url}/pipelines/{vcs_slug}/{project}/{number}")
+}
+
+pub(crate) fn job_status(status: &str) -> PipelineStatus {
+    match status {
+        "success" => PipelineStatus::Success,
+        "failed" | "infrastructure_fail" | "timedout" | "terminated-unknown" | "unauthorized" => {
+            PipelineStatus::Failed
+        }
+        "running" => PipelineStatus::Running,
+        "canceled" => PipelineStatus::Cancelled,
+        "not_run" | "retried" => PipelineStatus::Skipped,
+        _ => PipelineStatus::Pending,
+    }
+}
+
+fn job_log(job: &Job) -> Option<LogAvailability> {
+    job.job_number?;
+    if job.job_type.as_deref() == Some("approval") {
+        return None;
+    }
+    match job_status(&job.status) {
+        PipelineStatus::Running => Some(LogAvailability::Partial),
+        PipelineStatus::Pending => Some(LogAvailability::Pending),
+        PipelineStatus::Skipped => None,
+        _ => job.started_at.map(|_| LogAvailability::Ready),
+    }
+}
+
+pub(crate) fn log_nodes(
+    base_url: &str, project_slug: &str, number: i64, workflows: &[(&Workflow, Vec<Job>)],
+) -> Vec<LogNode> {
+    let run_url = pipeline_url(base_url, project_slug, number);
+    let mut nodes = Vec::new();
+    for (workflow, jobs) in workflows {
+        let workflow_id = format!("workflow:{}", workflow.id);
+        let workflow_url = format!("{run_url}/workflows/{}", workflow.id);
+        nodes.push(LogNode {
+            id: workflow_id.clone(),
+            parent_id: None,
+            kind: LogNodeKind::Stage,
+            name: workflow.name.clone(),
+            status: workflow_status(&workflow.status),
+            started_at: workflow.started_at.or(workflow.created_at),
+            finished_at: workflow.stopped_at.filter(|_| !is_active(&workflow.status)),
+            log: None,
+            web_url: Some(workflow_url.clone()),
+        });
+        nodes.extend(jobs.iter().map(|job| LogNode {
+            id: match (job.job_number, &job.id) {
+                (Some(number), _) => number.to_string(),
+                (None, Some(id)) => format!("job:{id}"),
+                (None, None) => format!("job:{}:{}", workflow.id, job.name),
+            },
+            parent_id: Some(workflow_id.clone()),
+            kind: LogNodeKind::Job,
+            name: job.name.clone(),
+            status: job_status(&job.status),
+            started_at: job.started_at,
+            finished_at: job.stopped_at,
+            log: job_log(job),
+            web_url: Some(match job.job_number {
+                Some(number) => format!("{workflow_url}/jobs/{number}"),
+                None => workflow_url.clone(),
+            }),
+        }));
+    }
+    nodes
+}
 
 pub fn is_active(status: &str) -> bool {
     matches!(
@@ -88,16 +175,6 @@ pub fn to_run(
             .max()
             .or(pipeline.updated_at)
     };
-    let base_url = match base_url.trim_end_matches('/') {
-        "https://circleci.com" => "https://app.circleci.com",
-        other => other,
-    };
-    let (vcs_slug, project) = project_slug.split_once('/').unwrap_or(("", project_slug));
-    let vcs_slug = match vcs_slug {
-        "gh" => "github",
-        "bb" => "bitbucket",
-        other => other,
-    };
     let vcs = pipeline.vcs.as_ref();
     let metadata = HashMap::from([
         (
@@ -126,17 +203,14 @@ pub fn to_run(
         ),
     ]);
     PipelineRun {
-        id: pipeline.number.to_string(),
+        id: format!("{pipeline_id}__{}", pipeline.id),
         pipeline_id: pipeline_id.into(),
         run_number: pipeline.number,
         status,
         started_at,
         concluded_at,
         duration_seconds: concluded_at.map(|end| (end - started_at).num_seconds().max(0)),
-        logs_url: format!(
-            "{base_url}/pipelines/{vcs_slug}/{project}/{}",
-            pipeline.number
-        ),
+        logs_url: pipeline_url(base_url, project_slug, pipeline.number),
         commit_sha: vcs.and_then(|vcs| vcs.revision.clone()),
         commit_message: vcs
             .and_then(|vcs| vcs.commit.as_ref())
@@ -153,21 +227,53 @@ pub fn to_run(
 }
 
 pub fn to_pipeline(provider_id: i64, project: &Project, latest: Option<&PipelineRun>) -> Pipeline {
+    let mut metadata = HashMap::from([("project_slug".into(), serde_json::json!(project.slug))]);
+    if let Some(branch) = project.default_branch.as_deref().filter(|b| !b.is_empty()) {
+        metadata.insert("default_branch".into(), serde_json::json!(branch));
+    }
+    if !project.repository_url.is_empty() {
+        metadata.insert(
+            "repository_url".into(),
+            serde_json::json!(project.repository_url),
+        );
+    }
     Pipeline {
-        id: format!("circleci__{provider_id}__{}", project.slug),
+        id: config::build_pipeline_id(provider_id, &project.slug),
         provider_id,
         provider_type: "circleci".into(),
         name: project.name.clone(),
         status: latest.map_or(PipelineStatus::Pending, |run| run.status),
         last_run: latest.map(|run| run.started_at),
         last_updated: Utc::now(),
-        repository: project.repository_url.clone(),
+        repository: repository(project),
         branch: latest
             .and_then(|run| run.branch.clone())
             .or_else(|| project.default_branch.clone()),
         workflow_file: None,
         resource_state: None,
-        metadata: HashMap::from([("project_slug".into(), serde_json::json!(project.slug))]),
+        metadata,
+    }
+}
+
+fn repository(project: &Project) -> String {
+    if project.organization.is_empty() {
+        project.name.clone()
+    } else {
+        format!("{}/{}", project.organization, project.name)
+    }
+}
+
+pub(crate) fn to_available_pipeline(project: &Project) -> AvailablePipeline {
+    let mut details = vec![format!("Project: {}", project.slug)];
+    if let Some(branch) = project.default_branch.as_deref().filter(|b| !b.is_empty()) {
+        details.push(format!("Default branch: {branch}"));
+    }
+    AvailablePipeline {
+        id: project.slug.clone(),
+        name: project.name.clone(),
+        description: Some(details.join(" | ")),
+        organization: Some(project.organization.clone()).filter(|org| !org.is_empty()),
+        repository: Some(repository(project)),
     }
 }
 
@@ -320,7 +426,7 @@ mod tests {
             "https://circleci.com",
             "gh/org/repo",
         );
-        assert_eq!(run.id, "42");
+        assert_eq!(run.id, "circleci__1__gh/org/repo__pipeline-id");
         assert_eq!(run.duration_seconds, Some(40));
         assert_eq!(
             run.logs_url,
@@ -333,6 +439,7 @@ mod tests {
         assert_eq!(run.metadata["circleci_pipeline_id"], "pipeline-id");
         let project = Project {
             slug: "gh/org/repo".into(),
+            id: None,
             name: "repo".into(),
             organization: "org".into(),
             repository_url: "https://github.com/org/repo".into(),
@@ -341,5 +448,93 @@ mod tests {
         let mapped = to_pipeline(1, &project, Some(&run));
         assert_eq!(mapped.id, run.pipeline_id);
         assert_eq!(mapped.status, PipelineStatus::Success);
+        assert_eq!(mapped.repository, "org/repo");
+        assert_eq!(
+            pipeline_url("https://circleci.acme.dev/", "circleci/o/p", 3),
+            "https://circleci.acme.dev/pipelines/circleci/o/p/3"
+        );
+    }
+
+    fn job(number: Option<i64>, status: &str, kind: &str, started: bool) -> Job {
+        serde_json::from_value(json!({
+            "id": format!("job-{status}"), "name": status, "job_number": number,
+            "status": status, "type": kind,
+            "started_at": started.then_some("2026-01-01T00:00:10Z"),
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn workflows_hold_their_jobs_and_only_jobs_with_numbers_have_logs() {
+        let build = workflow("failed");
+        let jobs = vec![
+            job(Some(11), "success", "build", true),
+            job(Some(12), "running", "build", true),
+            job(Some(13), "queued", "build", false),
+            job(Some(14), "canceled", "build", false),
+            job(Some(15), "infrastructure_fail", "build", true),
+            job(None, "on_hold", "approval", false),
+            job(Some(16), "not_run", "build", false),
+        ];
+        let nodes = log_nodes("https://circleci.com", "gh/org/repo", 42, &[(&build, jobs)]);
+
+        let summary: Vec<_> = nodes
+            .iter()
+            .map(|node| {
+                (
+                    node.id.as_str(),
+                    node.parent_id.as_deref(),
+                    node.status,
+                    node.log,
+                )
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                ("workflow:failed", None, PipelineStatus::Failed, None),
+                (
+                    "11",
+                    Some("workflow:failed"),
+                    PipelineStatus::Success,
+                    Some(LogAvailability::Ready)
+                ),
+                (
+                    "12",
+                    Some("workflow:failed"),
+                    PipelineStatus::Running,
+                    Some(LogAvailability::Partial)
+                ),
+                (
+                    "13",
+                    Some("workflow:failed"),
+                    PipelineStatus::Pending,
+                    Some(LogAvailability::Pending)
+                ),
+                (
+                    "14",
+                    Some("workflow:failed"),
+                    PipelineStatus::Cancelled,
+                    None
+                ),
+                (
+                    "15",
+                    Some("workflow:failed"),
+                    PipelineStatus::Failed,
+                    Some(LogAvailability::Ready)
+                ),
+                (
+                    "job:job-on_hold",
+                    Some("workflow:failed"),
+                    PipelineStatus::Pending,
+                    None
+                ),
+                ("16", Some("workflow:failed"), PipelineStatus::Skipped, None),
+            ]
+        );
+        assert_eq!(
+            nodes[1].web_url.as_deref(),
+            Some("https://app.circleci.com/pipelines/github/org/repo/42/workflows/failed/jobs/11")
+        );
     }
 }

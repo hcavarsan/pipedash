@@ -7,6 +7,7 @@ use serde::Deserialize;
 #[derive(Debug, Clone)]
 pub struct Project {
     pub slug: String,
+    pub id: Option<String>,
     pub name: String,
     pub organization: String,
     pub repository_url: String,
@@ -67,6 +68,7 @@ pub(crate) struct Page<T> {
 #[derive(Deserialize)]
 pub(crate) struct ProjectResponse {
     pub slug: String,
+    pub id: Option<String>,
     pub name: String,
     pub organization_name: String,
     pub vcs_info: Option<ProjectVcs>,
@@ -85,4 +87,64 @@ pub(crate) struct FollowedProject {
     pub reponame: String,
     pub vcs_url: String,
     pub default_branch: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Job {
+    pub id: Option<String>,
+    pub name: String,
+    pub job_number: Option<i64>,
+    pub status: String,
+    #[serde(rename = "type", default)]
+    pub job_type: Option<String>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub stopped_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct JobSteps {
+    #[serde(default)]
+    pub steps: Vec<Step>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Step {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub actions: Vec<Action>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Action {
+    #[serde(default)]
+    pub index: i64,
+    pub status: Option<String>,
+    pub failed: Option<bool>,
+    pub output_url: Option<String>,
+    pub start_time: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OutputMessage {
+    #[serde(default)]
+    pub message: String,
+    pub time: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PipelineDefinition {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct PipelineConfig {
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct PipelineCreation {
+    pub number: Option<i64>,
+    pub message: Option<String>,
 }

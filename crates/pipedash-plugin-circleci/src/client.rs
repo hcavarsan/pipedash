@@ -5,6 +5,7 @@ use pipedash_plugin_api::{
     http,
     PluginError,
     PluginResult,
+    RetryPolicy,
 };
 use reqwest::{
     header::HeaderValue,
@@ -20,7 +21,13 @@ use serde_json::{
 use crate::types::{
     CirclePipeline,
     FollowedProject,
+    Job,
+    JobSteps,
+    OutputMessage,
     Page,
+    PipelineConfig,
+    PipelineCreation,
+    PipelineDefinition,
     Project,
     ProjectResponse,
     Workflow,
@@ -30,6 +37,7 @@ pub struct CircleCIClient {
     client: Arc<reqwest::Client>,
     token: HeaderValue,
     base_url: Url,
+    retry_policy: RetryPolicy,
 }
 
 pub fn validate_project_slug(slug: &str) -> PluginResult<()> {
@@ -52,6 +60,39 @@ pub fn validate_project_slug(slug: &str) -> PluginResult<()> {
                 .into(),
         ))
     }
+}
+
+fn error_for(response: &reqwest::Response, what: &str) -> PluginError {
+    let status = response.status();
+    let retry_after = http::retry_after(response.headers(), chrono::Utc::now());
+    let exhausted = response
+        .headers()
+        .get("x-ratelimit-remaining")
+        .is_some_and(|value| value == "0");
+    let code = if status.as_u16() == 403
+        && (exhausted || response.headers().contains_key("retry-after"))
+    {
+        429
+    } else {
+        status.as_u16()
+    };
+    http::from_status(
+        code,
+        format!("{what} returned HTTP {}", status.as_u16()),
+        retry_after,
+    )
+}
+
+fn created_number(creation: PipelineCreation) -> PluginResult<i64> {
+    if let Some(number) = creation.number.filter(|number| *number > 0) {
+        return Ok(number);
+    }
+    Err(PluginError::ApiError(match creation.message {
+        Some(message) if !message.is_empty() => {
+            format!("CircleCI did not start a pipeline: {message}")
+        }
+        _ => "CircleCI trigger response has no pipeline number".into(),
+    }))
 }
 
 impl CircleCIClient {
@@ -77,6 +118,7 @@ impl CircleCIClient {
             client,
             token,
             base_url,
+            retry_policy: RetryPolicy::default(),
         })
     }
 
@@ -106,7 +148,7 @@ impl CircleCIClient {
     }
 
     async fn request(
-        &self, method: Method, url: Url, body: Option<Value>,
+        &self, method: Method, url: Url, body: Option<&Value>,
     ) -> PluginResult<reqwest::Response> {
         let mut request = self
             .client
@@ -114,37 +156,29 @@ impl CircleCIClient {
             .header("Circle-Token", self.token.clone())
             .header(reqwest::header::ACCEPT, "application/json");
         if let Some(body) = body {
-            request = request.json(&body);
+            request = request.json(body);
         }
         let response = request
             .send()
             .await
             .map_err(|err| http::map_send_error(err, &url))?;
-        let status = response.status();
-        if status.is_success() {
-            return Ok(response);
-        }
-        let retry_after = http::retry_after(response.headers(), chrono::Utc::now());
-        let exhausted = response
-            .headers()
-            .get("x-ratelimit-remaining")
-            .is_some_and(|value| value == "0");
-        let code = if status.as_u16() == 403
-            && (exhausted || response.headers().contains_key("retry-after"))
-        {
-            429
+        if response.status().is_success() {
+            Ok(response)
         } else {
-            status.as_u16()
-        };
-        Err(http::from_status(
-            code,
-            format!("CircleCI returned HTTP {}", status.as_u16()),
-            retry_after,
-        ))
+            Err(error_for(&response, "CircleCI"))
+        }
     }
 
     async fn get<T: DeserializeOwned>(&self, url: Url) -> PluginResult<T> {
-        Self::decode(self.request(Method::GET, url, None).await?).await
+        self.retry_policy
+            .retry(|| async {
+                Self::decode(self.request(Method::GET, url.clone(), None).await?).await
+            })
+            .await
+    }
+
+    async fn post<T: DeserializeOwned>(&self, url: Url, body: Option<&Value>) -> PluginResult<T> {
+        Self::decode(self.request(Method::POST, url, body).await?).await
     }
 
     async fn decode<T: DeserializeOwned>(response: reqwest::Response) -> PluginResult<T> {
@@ -208,6 +242,7 @@ impl CircleCIClient {
                 validate_project_slug(&slug)?;
                 Ok(Project {
                     slug,
+                    id: None,
                     name: project.reponame,
                     organization: project.username,
                     repository_url: project.vcs_url,
@@ -226,6 +261,7 @@ impl CircleCIClient {
             .unwrap_or_default();
         Ok(Project {
             slug: project.slug,
+            id: project.id,
             name: project.name,
             organization: project.organization_name,
             repository_url,
@@ -253,24 +289,84 @@ impl CircleCIClient {
         .await
     }
 
-    pub async fn trigger(&self, slug: &str, body: Value) -> PluginResult<String> {
-        let url = self.project_url(slug, &["pipeline"])?;
+    pub async fn fetch_jobs(&self, workflow_id: &str) -> PluginResult<Vec<Job>> {
+        self.pages(
+            self.url(&["api", "v2", "workflow", workflow_id, "job"])?,
+            usize::MAX,
+        )
+        .await
+    }
+
+    pub async fn fetch_job_steps(&self, slug: &str, job_number: i64) -> PluginResult<JobSteps> {
+        validate_project_slug(slug)?;
+        let mut parts = slug.split('/');
+        let vcs = match parts.next() {
+            Some("gh") => "github",
+            Some("bb") => "bitbucket",
+            _ => "circleci",
+        };
+        let number = job_number.to_string();
+        let mut segments = vec!["api", "v1.1", "project", vcs];
+        segments.extend(parts);
+        segments.push(&number);
+        self.get(self.url(&segments)?).await
+    }
+
+    pub async fn fetch_step_output(&self, output_url: &str) -> PluginResult<Vec<OutputMessage>> {
+        let url = Url::parse(output_url)
+            .ok()
+            .filter(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
+            .ok_or_else(|| {
+                PluginError::ApiError("CircleCI sent an invalid step output URL".into())
+            })?;
+        let mut shown = url.clone();
+        shown.set_query(None);
+        self.retry_policy
+            .retry(|| async {
+                let response = self
+                    .client
+                    .get(url.clone())
+                    .send()
+                    .await
+                    .map_err(|err| http::map_send_error(err.without_url(), &shown))?;
+                if !response.status().is_success() {
+                    return Err(error_for(&response, "CircleCI step output"));
+                }
+                Self::decode(response).await
+            })
+            .await
+    }
+
+    pub async fn fetch_pipeline_config(&self, pipeline_id: &str) -> PluginResult<Option<String>> {
+        let config: PipelineConfig = self
+            .get(self.url(&["api", "v2", "pipeline", pipeline_id, "config"])?)
+            .await?;
+        Ok(config.source)
+    }
+
+    pub async fn fetch_definitions(
+        &self, project_id: &str,
+    ) -> PluginResult<Vec<PipelineDefinition>> {
+        self.pages(
+            self.url(&["api", "v2", "projects", project_id, "pipeline-definitions"])?,
+            usize::MAX,
+        )
+        .await
+    }
+
+    pub async fn trigger(&self, slug: &str, body: &Value) -> PluginResult<i64> {
         if slug.starts_with("circleci/") {
             return Err(PluginError::NotSupported(
-                "CircleCI App projects require pipeline definitions. Trigger them in CircleCI"
-                    .into(),
+                "CircleCI App projects require a pipeline definition".into(),
             ));
         }
-        let response: Value =
-            Self::decode(self.request(Method::POST, url, Some(body)).await?).await?;
-        response
-            .get("number")
-            .and_then(Value::as_i64)
-            .filter(|number| *number > 0)
-            .map(|number| number.to_string())
-            .ok_or_else(|| {
-                PluginError::ApiError("CircleCI trigger response has no pipeline number".into())
-            })
+        let url = self.project_url(slug, &["pipeline"])?;
+        created_number(self.post(url, Some(body)).await?)
+    }
+
+    pub async fn run_pipeline(&self, slug: &str, body: &Value) -> PluginResult<i64> {
+        let url = self.project_url(slug, &["pipeline", "run"])?;
+        created_number(self.post(url, Some(body)).await?)
     }
 
     pub async fn cancel(&self, workflow_id: &str) -> PluginResult<()> {
@@ -287,7 +383,7 @@ impl CircleCIClient {
         self.request(
             Method::POST,
             self.url(&["api", "v2", "workflow", workflow_id, "rerun"])?,
-            Some(json!({"from_failed": failed_only})),
+            Some(&json!({"from_failed": failed_only})),
         )
         .await?;
         Ok(())
@@ -451,16 +547,10 @@ mod tests {
             (201, json!({"number": 43})),
         ]);
         let body = json!({"branch": "release/next", "parameters": {"deploy": true, "count": 3, "name": "ship"}});
-        assert_eq!(
-            client.trigger("gh/org/repo", body.clone()).await.unwrap(),
-            "42"
-        );
-        assert_eq!(
-            client.trigger("bb/org/repo", json!({})).await.unwrap(),
-            "43"
-        );
+        assert_eq!(client.trigger("gh/org/repo", &body).await.unwrap(), 42);
+        assert_eq!(client.trigger("bb/org/repo", &json!({})).await.unwrap(), 43);
         assert!(matches!(
-            client.trigger("circleci/org/project", body.clone()).await,
+            client.trigger("circleci/org/project", &body).await,
             Err(PluginError::NotSupported(_))
         ));
         let requests = handle.join().unwrap();
@@ -481,7 +571,7 @@ mod tests {
             (202, json!({"workflow_id": "new"})),
         ]);
         assert!(matches!(
-            client.trigger("gh/org/repo", json!({})).await,
+            client.trigger("gh/org/repo", &json!({})).await,
             Err(PluginError::ApiError(_))
         ));
         assert!(matches!(
@@ -497,6 +587,91 @@ mod tests {
             serde_json::from_str::<Value>(requests[3].split_once("\r\n\r\n").unwrap().1).unwrap(),
             json!({"from_failed": true})
         );
+    }
+
+    #[tokio::test]
+    async fn app_pipelines_run_by_definition_and_report_skipped_triggers() {
+        let (client, handle) = server(vec![
+            (
+                200,
+                json!({"items": [{"id": "def-1", "name": "build"}], "next_page_token": null}),
+            ),
+            (201, json!({"number": 7, "id": "p", "state": "created"})),
+            (
+                200,
+                json!({"message": "Ignoring pipeline due to CI skip in the commit"}),
+            ),
+        ]);
+        let definitions = client.fetch_definitions("project-uuid").await.unwrap();
+        assert_eq!(definitions[0].id, "def-1");
+        let body = json!({"definition_id": "def-1", "config": {"branch": "main"}, "checkout": {"branch": "main"}});
+        assert_eq!(
+            client
+                .run_pipeline("circleci/org/project", &body)
+                .await
+                .unwrap(),
+            7
+        );
+        match client.run_pipeline("circleci/org/project", &body).await {
+            Err(PluginError::ApiError(message)) => assert!(message.contains("CI skip")),
+            other => panic!("{other:?}"),
+        }
+        let requests = handle.join().unwrap();
+        assert!(
+            requests[0].starts_with("GET /api/v2/projects/project-uuid/pipeline-definitions HTTP")
+        );
+        assert!(requests[1].starts_with("POST /api/v2/project/circleci/org/project/pipeline/run "));
+    }
+
+    #[tokio::test]
+    async fn job_steps_use_the_v1_project_path_and_step_output_goes_without_the_token() {
+        let (client, handle) = server(vec![
+            (
+                200,
+                json!({"steps": [{"name": "Checkout code", "actions": [{"index": 0, "status": "success",
+                "output_url": "https://example.invalid/out?sig=1"}]}]}),
+            ),
+            (200, json!({"steps": []})),
+        ]);
+        let steps = client.fetch_job_steps("gh/org/repo", 12).await.unwrap();
+        assert_eq!(steps.steps[0].name, "Checkout code");
+        client
+            .fetch_job_steps("circleci/org-id/project-id", 13)
+            .await
+            .unwrap();
+        let requests = handle.join().unwrap();
+        assert!(requests[0].starts_with("GET /api/v1.1/project/github/org/repo/12 "));
+        assert!(requests[1].starts_with("GET /api/v1.1/project/circleci/org-id/project-id/13 "));
+
+        let (client, handle) = server(vec![(
+            200,
+            json!([{"message": "hello\r\n", "time": "2026-01-01T00:00:00Z", "type": "out"}]),
+        )]);
+        let origin = client.base_url.clone();
+        let output = client
+            .fetch_step_output(&format!("{origin}output/step?X-Amz-Signature=secret"))
+            .await
+            .unwrap();
+        assert_eq!(output[0].message, "hello\r\n");
+        let request = handle.join().unwrap().remove(0);
+        assert!(request.starts_with("GET /output/step?X-Amz-Signature=secret "));
+        assert!(!request.to_lowercase().contains("circle-token"));
+    }
+
+    #[tokio::test]
+    async fn expired_step_output_errors_hide_the_signed_query() {
+        let (client, handle) = server(vec![(403, json!({"message": "expired"}))]);
+        let origin = client.base_url.clone();
+        let error = client
+            .fetch_step_output(&format!("{origin}output?X-Amz-Signature=secret"))
+            .await
+            .unwrap_err();
+        assert!(!error.to_string().contains("secret"), "{error}");
+        handle.join().unwrap();
+        assert!(client
+            .fetch_step_output("file:///etc/passwd")
+            .await
+            .is_err());
     }
 
     #[tokio::test]
