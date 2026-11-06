@@ -326,9 +326,9 @@ impl Plugin for WoodpeckerPlugin {
             .create_pipeline(repo_id, branch)
             .await?
             .ok_or_else(|| {
-                PluginError::ApiError(format!(
-                    "Woodpecker started no pipeline on {branch}: no workflow runs on manual events"
-                ))
+                PluginError::ApiError(
+                    "Woodpecker started no pipeline: no workflow runs on manual events".to_string(),
+                )
             })?;
         Ok(serde_json::json!({
             "message": format!("Started pipeline #{} on {branch}", pipeline.number),
@@ -748,13 +748,15 @@ mod tests {
         let plugin = plugin_for(&stub, "acme/web");
 
         let result = plugin
-            .trigger_pipeline(trigger_params(Some(json!({"branch": "main"}))))
+            .trigger_pipeline(trigger_params(Some(json!({"branch": "secret-branch"}))))
             .await;
 
-        assert!(
-            matches!(result, Err(PluginError::ApiError(_))),
-            "{result:?}"
-        );
+        match result {
+            Err(PluginError::ApiError(message)) => {
+                assert!(!message.contains("secret-branch"), "{message}")
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     #[tokio::test]

@@ -4,6 +4,7 @@ use pipedash_plugin_api::{
     PluginError,
     PluginResult,
 };
+use reqwest::Url;
 
 pub(crate) const PROVIDER_TYPE: &str = "woodpecker";
 
@@ -13,10 +14,20 @@ pub(crate) fn get_base_url(config: &HashMap<String, String>) -> PluginResult<Str
         .map(|url| url.trim().trim_end_matches('/'))
         .filter(|url| !url.is_empty())
         .ok_or_else(|| PluginError::InvalidConfig("Missing Woodpecker base URL".to_string()))?;
+    let invalid =
+        |reason: &str| PluginError::InvalidConfig(format!("Invalid Woodpecker URL: {reason}"));
+    let parsed = Url::parse(url).map_err(|e| invalid(&e.to_string()))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(invalid("use http or https"));
+    }
+    if parsed.host_str().is_none_or(str::is_empty) {
+        return Err(invalid("missing host"));
+    }
+    if parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err(invalid("remove the query or fragment"));
+    }
     #[cfg(target_os = "ios")]
-    if !reqwest::Url::parse(url)
-        .is_ok_and(|url| url.scheme() == "https" && url.host_str().is_some())
-    {
+    if parsed.scheme() != "https" {
         return Err(PluginError::InvalidConfig(
             "Woodpecker on iOS requires an HTTPS server URL, such as https://ci.example.com. Enable HTTPS on your server before adding or importing this provider."
                 .to_string(),
@@ -86,9 +97,30 @@ mod tests {
 
     #[cfg(not(target_os = "ios"))]
     #[test]
-    fn base_url_is_required_and_trimmed() {
-        let config = HashMap::from([("base_url".to_string(), " http://ci.local/ ".to_string())]);
-        assert_eq!(get_base_url(&config).unwrap(), "http://ci.local");
+    fn base_url_is_a_plain_http_address() {
+        let url =
+            |raw: &str| get_base_url(&HashMap::from([("base_url".to_string(), raw.to_string())]));
+
+        assert_eq!(url(" http://ci.local/ ").unwrap(), "http://ci.local");
+        assert_eq!(
+            url("https://example.com/woodpecker").unwrap(),
+            "https://example.com/woodpecker"
+        );
         assert!(get_base_url(&HashMap::new()).is_err());
+        for raw in [
+            "",
+            "ci.example.com",
+            "ftp://ci.example.com",
+            "https://user:hunter2@ci.example.com?token=hunter2",
+            "https://ci.example.com#top",
+            "file:///etc/passwd",
+        ] {
+            match url(raw) {
+                Err(PluginError::InvalidConfig(message)) => {
+                    assert!(!message.contains("hunter2"), "{message}")
+                }
+                other => panic!("{raw}: {other:?}"),
+            }
+        }
     }
 }
