@@ -30,8 +30,9 @@ use crate::domain::{
 const USER_AGENT: &str = concat!("pipedash/", env!("CARGO_PKG_VERSION"));
 const STATUS_TIMEOUT: Duration = Duration::from_secs(10);
 const STATUS_MAX_REDIRECTS: usize = 3;
+const MAX_REDIRECTS: usize = 10;
 
-type ClientKey = (Option<String>, bool);
+type ClientKey = (Option<String>, bool, bool);
 
 pub struct HttpClientManager {
     clients: RwLock<Arc<Clients>>,
@@ -46,7 +47,7 @@ struct Clients {
 
 impl Clients {
     fn new(proxy: Option<Url>) -> DomainResult<Self> {
-        let default_client = HttpClientManager::build_client(false, proxy.as_ref())?;
+        let default_client = HttpClientManager::build_client(false, false, proxy.as_ref())?;
         Ok(Self {
             proxy,
             default_client: Arc::new(default_client),
@@ -87,9 +88,15 @@ impl HttpClientManager {
         let key = (
             options.origin.as_ref().map(normalize_origin),
             options.accept_invalid_certs,
+            options.same_host_redirects,
         );
         let entry = clients.by_origin.entry(key).or_try_insert_with(|| {
-            Self::build_client(options.accept_invalid_certs, clients.proxy.as_ref()).map(Arc::new)
+            Self::build_client(
+                options.accept_invalid_certs,
+                options.same_host_redirects,
+                clients.proxy.as_ref(),
+            )
+            .map(Arc::new)
         })?;
         Ok(Arc::clone(entry.value()))
     }
@@ -119,13 +126,28 @@ impl HttpClientManager {
         Ok(builder.proxy(proxy))
     }
 
-    fn build_client(accept_invalid_certs: bool, proxy: Option<&Url>) -> DomainResult<Client> {
+    fn build_client(
+        accept_invalid_certs: bool, same_host_redirects: bool, proxy: Option<&Url>,
+    ) -> DomainResult<Client> {
         let pool_size = std::env::var("PIPEDASH_HTTP_POOL_SIZE")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(10);
 
-        Self::base_builder(proxy)?
+        let mut builder = Self::base_builder(proxy)?;
+        if same_host_redirects {
+            builder = builder.redirect(redirect::Policy::custom(|attempt| {
+                let first = attempt.previous().first();
+                if attempt.previous().len() > MAX_REDIRECTS {
+                    attempt.error("too many redirects")
+                } else if first.is_some_and(|first| stays_on_host(first, attempt.url())) {
+                    attempt.follow()
+                } else {
+                    attempt.error("redirect to another host refused")
+                }
+            }));
+        }
+        builder
             .tls_danger_accept_invalid_certs(accept_invalid_certs)
             .pool_max_idle_per_host(pool_size)
             .pool_idle_timeout(Duration::from_secs(90))
@@ -192,6 +214,10 @@ fn normalize_origin(url: &Url) -> String {
     )
 }
 
+fn stays_on_host(first: &Url, next: &Url) -> bool {
+    first.host_str() == next.host_str() && (first.scheme() != "https" || next.scheme() == "https")
+}
+
 fn is_safe_redirect_target(url: &Url) -> bool {
     if url.scheme() != "https" {
         return false;
@@ -234,6 +260,7 @@ mod tests {
         ClientOptions {
             origin: Some(Url::parse(origin).unwrap()),
             accept_invalid_certs,
+            ..ClientOptions::default()
         }
     }
 
@@ -385,6 +412,86 @@ mod tests {
                 .await
                 .is_err()
         );
+    }
+
+    async fn redirect_stub(location: String) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/start", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let location = location.clone();
+                tokio::spawn(async move {
+                    use tokio::io::{
+                        AsyncReadExt,
+                        AsyncWriteExt,
+                    };
+                    let mut buffer = [0; 4096];
+                    let count = stream.read(&mut buffer).await.unwrap_or(0);
+                    let request = String::from_utf8_lossy(&buffer[..count]);
+                    let response = if request.starts_with("GET /start ") {
+                        format!("HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                    } else {
+                        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+                            .to_string()
+                    };
+                    let _ = stream.write_all(response.as_bytes()).await;
+                });
+            }
+        });
+        url
+    }
+
+    #[tokio::test]
+    async fn same_host_redirect_clients_refuse_redirects_to_another_host() {
+        let manager = HttpClientManager::new().unwrap();
+        let guarded = ClientOptions {
+            same_host_redirects: true,
+            ..ClientOptions::default()
+        };
+        let client = manager.client_for(&guarded).unwrap();
+        assert!(!Arc::ptr_eq(
+            &client,
+            &manager.client_for(&ClientOptions::default()).unwrap()
+        ));
+
+        let same = redirect_stub("/done".to_string()).await;
+        let response = client.get(&same).send().await.unwrap();
+        assert_eq!(response.text().await.unwrap(), "ok");
+
+        let other = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let elsewhere = redirect_stub(format!(
+            "http://localhost:{}/secret",
+            other.local_addr().unwrap().port()
+        ))
+        .await;
+        let error = client.get(&elsewhere).send().await.unwrap_err();
+        assert!(error.is_redirect(), "{error}");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), other.accept())
+                .await
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn redirects_stay_on_the_host_and_never_downgrade() {
+        let url = |value: &str| Url::parse(value).unwrap();
+        assert!(stays_on_host(
+            &url("https://a.example/x"),
+            &url("https://a.example:8443/y")
+        ));
+        assert!(stays_on_host(
+            &url("http://a.example/x"),
+            &url("https://a.example/y")
+        ));
+        assert!(!stays_on_host(
+            &url("https://a.example/x"),
+            &url("http://a.example/y")
+        ));
+        assert!(!stays_on_host(
+            &url("https://a.example/x"),
+            &url("https://169.254.169.254/")
+        ));
     }
 
     #[cfg(target_os = "ios")]

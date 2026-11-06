@@ -1528,7 +1528,7 @@ fn configured_repositories(config: &ProviderConfig) -> Vec<String> {
         .map(|items| {
             if matches!(
                 config.provider_type.as_str(),
-                "argocd" | "fluxcd" | "komodo" | "prow" | "coolify"
+                "argocd" | "fluxcd" | "komodo" | "prow" | "coolify" | "circleci"
             ) {
                 return Vec::new();
             }
@@ -2848,7 +2848,7 @@ type = "travis"
 
         write("[providers.ci-a]\nname = \"CI Broken\"\ntype = \"\"\n");
         let empty = h.provider_service.apply_config_file(&h.config_state).await;
-        write("[providers.ci-a]\nname = \"CI Broken\"\ntype = \"circleci\"\n");
+        write("[providers.ci-a]\nname = \"CI Broken\"\ntype = \"travis\"\n");
         let unknown = h.provider_service.apply_config_file(&h.config_state).await;
 
         assert!(matches!(empty, Err(DomainError::InvalidConfig(_))));

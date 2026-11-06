@@ -355,6 +355,7 @@ impl Plugin for ProwPlugin {
         ClientOptions {
             origin: config::deck_url(config).ok(),
             accept_invalid_certs: config::is_insecure(config),
+            ..ClientOptions::default()
         }
     }
 

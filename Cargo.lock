@@ -4229,6 +4229,7 @@ dependencies = [
  "pipedash-plugin-azure-devops",
  "pipedash-plugin-bitbucket",
  "pipedash-plugin-buildkite",
+ "pipedash-plugin-circleci",
  "pipedash-plugin-coolify",
  "pipedash-plugin-fluxcd",
  "pipedash-plugin-gitea",
@@ -4283,6 +4284,7 @@ dependencies = [
  "pipedash-plugin-azure-devops",
  "pipedash-plugin-bitbucket",
  "pipedash-plugin-buildkite",
+ "pipedash-plugin-circleci",
  "pipedash-plugin-coolify",
  "pipedash-plugin-fluxcd",
  "pipedash-plugin-gitea",
@@ -4412,6 +4414,24 @@ dependencies = [
  "reqwest",
  "rustls",
  "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "pipedash-plugin-circleci"
+version = "0.10.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "chrono",
+ "futures",
+ "pipedash-plugin-api",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde-saphyr 2.1.0",
  "serde_json",
  "tokio",
  "tracing",

@@ -184,6 +184,7 @@ impl ConfigValidator {
                     "komodo",
                     "prow",
                     "coolify",
+                    "circleci",
                     "woodpecker",
                 ];
                 if !valid_types.contains(&provider.provider_type.as_str()) {
