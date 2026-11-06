@@ -107,6 +107,8 @@ GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkin
 
 Buildkite's organization picker and pipeline discovery include organizations from every API page.
 
+View [Gitea](https://pipedash.app/docs/providers) workflow status, history and run details across server-capped API pages.
+
 ## Features
 
 - See the status of every pipeline, grouped by repository and workflow, and pin the ones you watch most. Hide a workflow you don't watch, and it leaves the table and its repository's status until you unhide it under Show hidden.
