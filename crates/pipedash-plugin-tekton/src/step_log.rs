@@ -10,10 +10,7 @@ use serde::{
 };
 
 use crate::log_dialect::TektonLogDialect;
-use crate::types::{
-    StepState,
-    TektonTaskRun,
-};
+use crate::types::StepState;
 
 const MAX_PENDING_LINE_BYTES: usize = 1 << 20;
 
@@ -49,23 +46,27 @@ pub(crate) struct StartedStep<'a> {
     pub container: String,
     pub instance: Instance,
     pub done: bool,
+    pub sidecar: bool,
 }
 
-pub(crate) fn started_steps<'a>(task_run: &'a TektonTaskRun, pod: &Pod) -> Vec<StartedStep<'a>> {
-    let statuses = pod
-        .status
-        .as_ref()
-        .and_then(|status| status.container_statuses.as_deref())
-        .unwrap_or_default();
-    task_run
-        .status
-        .steps
+pub(crate) fn started_steps<'a>(
+    steps: &'a [StepState], pod: &Pod, sidecar: bool,
+) -> Vec<StartedStep<'a>> {
+    let status = pod.status.as_ref();
+    steps
         .iter()
         .filter(|step| step.has_started())
         .map(|step| {
-            let container = step.container_name();
-            let instance = statuses
-                .iter()
+            let container = step.container_name(if sidecar { "sidecar" } else { "step" });
+            let instance = status
+                .into_iter()
+                .flat_map(|status| {
+                    status
+                        .container_statuses
+                        .iter()
+                        .flatten()
+                        .chain(status.init_container_statuses.iter().flatten())
+                })
                 .find(|status| status.name == container)
                 .map(|status| Instance {
                     restarts: status.restart_count,
@@ -80,6 +81,7 @@ pub(crate) fn started_steps<'a>(task_run: &'a TektonTaskRun, pod: &Pod) -> Vec<S
                 container,
                 instance,
                 done: step.terminated.is_some(),
+                sidecar,
             }
         })
         .collect()
@@ -210,6 +212,36 @@ impl StepFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sidecar_cursors_reset_when_a_native_init_container_restarts() {
+        let sidecar: StepState = serde_json::from_str(r#"{"name":"cache","running":{}}"#).unwrap();
+        let mut pod: Pod = serde_json::from_str(r#"{"status":{"initContainerStatuses":[{"name":"sidecar-cache","ready":true,"restartCount":0,"image":"cache","imageID":"cache","containerID":"id-1"}]}}"#).unwrap();
+        let steps = started_steps(std::slice::from_ref(&sidecar), &pod, true);
+        let cursor = TektonCursor {
+            pod: "pod-1".to_string(),
+            containers: vec![ContainerCursor {
+                name: steps[0].container.clone(),
+                instance: steps[0].instance.clone(),
+                done: false,
+                capped: false,
+                last: None,
+            }],
+        };
+        assert_eq!(steps[0].instance.id, "id-1");
+        assert!(cursor.continues("pod-1", &steps));
+        let status = &mut pod
+            .status
+            .as_mut()
+            .unwrap()
+            .init_container_statuses
+            .as_mut()
+            .unwrap()[0];
+        status.restart_count = 1;
+        status.container_id = Some("id-2".to_string());
+        let restarted = started_steps(std::slice::from_ref(&sidecar), &pod, true);
+        assert!(!cursor.continues("pod-1", &restarted));
+    }
 
     fn at(stamp: &str) -> DateTime<Utc> {
         stamp.parse().unwrap()

@@ -239,10 +239,12 @@ async fn pipe_steps(
             continue;
         }
         if before.is_none() {
-            sink.write(
-                log_dialect::step_header(&started.step.name, started.step.started_at()).into(),
-            )
-            .await?;
+            let header = if started.sidecar {
+                log_dialect::sidecar_header(&started.step.name, started.step.started_at())
+            } else {
+                log_dialect::step_header(&started.step.name, started.step.started_at())
+            };
+            sink.write(header.into()).await?;
         }
         let Some(read) = client
             .stream_step_log(
@@ -259,8 +261,10 @@ async fn pipe_steps(
         };
         let capped = before.is_none() && read.lines >= client::STEP_LOG_TAIL_LINES;
         if capped {
-            sink.write(log_dialect::truncation_notice(client::STEP_LOG_TAIL_LINES).into())
-                .await?;
+            sink.write(
+                log_dialect::truncation_notice(client::STEP_LOG_TAIL_LINES, started.sidecar).into(),
+            )
+            .await?;
         }
         containers.push(ContainerCursor {
             name: started.container.clone(),
@@ -523,9 +527,14 @@ impl Plugin for TektonPlugin {
         &self, run: RunRef<'_>, node_id: &str, from: Option<&LogCursor>, sink: &mut LogSink,
     ) -> PluginResult<LogRead> {
         let (namespace, pipelinerun_name) = run_target(&run)?;
-        if !config::is_kube_name(node_id) {
+        let (task_name, sidecar_name) = node_id
+            .split_once(":sidecar:")
+            .map_or((node_id, None), |(task, sidecar)| (task, Some(sidecar)));
+        if !config::is_kube_name(task_name)
+            || sidecar_name.is_some_and(|name| !config::is_kube_name(name))
+        {
             return Err(PluginError::InvalidConfig(format!(
-                "Invalid Tekton TaskRun name: {node_id}"
+                "Invalid Tekton log node: {node_id}"
             )));
         }
         let client = self.client().await?;
@@ -533,14 +542,30 @@ impl Plugin for TektonPlugin {
         let pipelinerun = client.get_pipelinerun(namespace, pipelinerun_name).await?;
         if !mapper::listed_taskruns(&pipelinerun)
             .iter()
-            .any(|(name, _)| *name == node_id)
+            .any(|(name, _)| *name == task_name)
         {
             return Err(PluginError::PipelineNotFound(format!(
-                "PipelineRun {pipelinerun_name} has no TaskRun {node_id}"
+                "PipelineRun {pipelinerun_name} has no TaskRun {task_name}"
             )));
         }
 
-        let task_run = client.get_taskrun(namespace, node_id).await?;
+        let task_run = client.get_taskrun(namespace, task_name).await?;
+        let selected = match sidecar_name {
+            Some(name) => {
+                let sidecar = task_run
+                    .status
+                    .sidecars
+                    .iter()
+                    .find(|sidecar| sidecar.name == name)
+                    .ok_or_else(|| {
+                        PluginError::PipelineNotFound(format!(
+                            "TaskRun {task_name} has no sidecar {name}"
+                        ))
+                    })?;
+                std::slice::from_ref(sidecar)
+            }
+            None => task_run.status.steps.as_slice(),
+        };
         let pod = task_run
             .status
             .pod_name
@@ -567,7 +592,7 @@ impl Plugin for TektonPlugin {
 
         let pod_object = client.get_pod(namespace, pod).await?;
         let uid = pod_object.metadata.uid.as_deref().unwrap_or_default();
-        let steps = step_log::started_steps(&task_run, &pod_object);
+        let steps = step_log::started_steps(selected, &pod_object, sidecar_name.is_some());
 
         let prior = from
             .and_then(|from| from.parse::<TektonCursor>())
@@ -823,6 +848,8 @@ mod tests {
         Arc,
     };
     use std::time::Duration;
+
+    use parking_lot::Mutex;
 
     use super::*;
 
@@ -1950,11 +1977,11 @@ mod tests {
         containers: Vec<(String, String, String)>,
     }
 
-    type LiveState = Arc<std::sync::Mutex<Live>>;
+    type LiveState = Arc<Mutex<Live>>;
     type Change = fn(&LiveState);
 
     fn live(steps: &[&str], logs: &[(&str, &str)]) -> LiveState {
-        let state = Arc::new(std::sync::Mutex::new(Live {
+        let state = Arc::new(Mutex::new(Live {
             uid: "uid-1".to_string(),
             task_run: String::new(),
             containers: Vec::new(),
@@ -1964,7 +1991,7 @@ mod tests {
     }
 
     fn update(state: &LiveState, steps: &[&str], logs: &[(&str, &str)]) {
-        let mut live = state.lock().unwrap();
+        let mut live = state.lock();
         live.task_run = format!(
             r#"{{"metadata":{{"name":"build-1-lint","namespace":"ci"}},"status":{{"podName":"build-1-lint-pod","startTime":"2026-10-28T10:03:00Z","conditions":[{{"type":"Succeeded","status":"Unknown","reason":"Running"}}],"steps":[{}]}}}}"#,
             steps.join(",")
@@ -2011,7 +2038,7 @@ mod tests {
         let server = serve(move |method, target, _| {
             let _ = log.send(format!("{method} {target}"));
             let (path, query) = target.split_once('?').unwrap_or((target, ""));
-            let live = state.lock().unwrap();
+            let live = state.lock();
             let pod = "/api/v1/namespaces/ci/pods/build-1-lint-pod";
 
             if path == "/apis/tekton.dev/v1/namespaces/ci/pipelineruns/build-1" {
@@ -2150,13 +2177,13 @@ mod tests {
     async fn a_changed_pod_container_instance_or_rotated_log_restarts_with_the_whole_log() {
         let cases: [(&str, Change); 3] = [
             ("pod", |state| {
-                state.lock().unwrap().uid = "uid-2".to_string();
+                state.lock().uid = "uid-2".to_string();
             }),
             ("container instance", |state| {
-                state.lock().unwrap().containers[0].1 = "id-restarted".to_string();
+                state.lock().containers[0].1 = "id-restarted".to_string();
             }),
             ("rotated log", |state| {
-                state.lock().unwrap().containers[0].2 = "2026-10-28T10:03:20Z only\n".to_string();
+                state.lock().containers[0].2 = "2026-10-28T10:03:20Z only\n".to_string();
             }),
         ];
         for (name, change) in cases {
@@ -2193,6 +2220,165 @@ mod tests {
         assert_eq!(
             String::from_utf8(bytes).unwrap(),
             format!("{LINT_HEADER}{LINT_LOG}")
+        );
+    }
+
+    const SIDECAR_RUNNING: &str =
+        r#"{"name":"lint","running":{"startedAt":"2026-10-28T10:03:01Z"}}"#;
+    const SIDECAR_DONE: &str = r#"{"name":"lint","terminated":{"exitCode":0,"startedAt":"2026-10-28T10:03:01Z","finishedAt":"2026-10-28T10:03:10Z"}}"#;
+    const SIDECAR_LOG: &str = "2026-10-28T10:03:02Z SIDECAR_ONLY\n";
+
+    fn set_sidecars(state: &LiveState, sidecars: &[&str]) {
+        let mut live = state.lock();
+        let mut task: serde_json::Value = serde_json::from_str(&live.task_run).unwrap();
+        task["status"]["sidecars"] =
+            serde_json::from_str(&format!("[{}]", sidecars.join(","))).unwrap();
+        live.task_run = task.to_string();
+    }
+
+    #[tokio::test]
+    async fn sidecar_reads_append_separately_and_flush_the_final_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = live(
+            &[LINT_RUNNING],
+            &[("step-lint", LINT_LOG), ("sidecar-lint", SIDECAR_LOG)],
+        );
+        set_sidecars(&state, &[SIDECAR_RUNNING]);
+        let (server, requests) = live_stub(state.clone());
+        let plugin = plugin(&server, &dir);
+        let id = "build-1-lint:sidecar:lint";
+
+        let (first, read, restarted) = read_node_from(&plugin, id, None).await.unwrap();
+        assert_eq!(
+            String::from_utf8(first.clone()).unwrap(),
+            format!("\x1e2026-10-28T10:03:01Z Sidecar lint\n{SIDECAR_LOG}")
+        );
+        assert_eq!(read.mode, LogReadMode::Replace);
+        assert!(!restarted);
+        let initial_requests = log_requests(&requests);
+        assert_eq!(initial_requests.len(), 1);
+        assert!(initial_requests[0].contains("container=sidecar-lint"));
+
+        let grown =
+            format!("{SIDECAR_LOG}2026-10-28T10:03:02Z appended\n2026-10-28T10:03:03Z final");
+        state.lock().containers[1].2 = grown;
+        let (second, read, restarted) = read_node_from(&plugin, id, read.cursor.as_ref())
+            .await
+            .unwrap();
+        assert_eq!(second, b"2026-10-28T10:03:02Z appended\n");
+        assert_eq!(read.mode, LogReadMode::Append);
+        assert!(!restarted);
+        let requested = log_requests(&requests);
+        assert_eq!(requested.len(), 1);
+        assert!(requested[0].contains("container=sidecar-lint"));
+        assert!(requested[0].contains("sinceTime="));
+        assert!(!requested[0].contains("tailLines="));
+
+        set_sidecars(&state, &[SIDECAR_DONE]);
+        let (last, read, restarted) = read_node_from(&plugin, id, read.cursor.as_ref())
+            .await
+            .unwrap();
+        assert_eq!(last, b"2026-10-28T10:03:03Z final\n");
+        assert_eq!(read.mode, LogReadMode::Append);
+        assert!(!restarted);
+        let (whole, ..) = read_node_from(&plugin, id, None).await.unwrap();
+        assert_eq!([first, second, last].concat(), whole);
+
+        let steps = read_node(&plugin, "build-1-lint").await.unwrap();
+        assert_eq!(
+            String::from_utf8(steps).unwrap(),
+            format!("{LINT_HEADER}{LINT_LOG}")
+        );
+    }
+
+    #[tokio::test]
+    async fn sidecar_reads_use_the_reported_container_and_skip_waiting_sidecars() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = live(&[LINT_RUNNING], &[("sidecar-custom", SIDECAR_LOG)]);
+        set_sidecars(
+            &state,
+            &[
+                r#"{"name":"cache","container":"sidecar-custom","terminated":{"exitCode":1}}"#,
+                r#"{"name":"waiting"}"#,
+            ],
+        );
+        let (server, requests) = live_stub(state);
+        let plugin = plugin(&server, &dir);
+
+        let bytes = read_node(&plugin, "build-1-lint:sidecar:cache")
+            .await
+            .unwrap();
+        assert!(String::from_utf8(bytes).unwrap().contains("SIDECAR_ONLY"));
+        let requested = log_requests(&requests);
+        assert_eq!(requested.len(), 1);
+        assert!(requested[0].contains("container=sidecar-custom"));
+
+        let bytes = read_node(&plugin, "build-1-lint:sidecar:waiting")
+            .await
+            .unwrap();
+        assert!(bytes.is_empty());
+        assert!(log_requests(&requests).is_empty());
+    }
+
+    #[tokio::test]
+    async fn sidecar_reads_reject_injected_containers_and_foreign_taskruns() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = live(&[LINT_RUNNING], &[("sidecar-injected", SIDECAR_LOG)]);
+        set_sidecars(&state, &[SIDECAR_RUNNING]);
+        let (server, requests) = live_stub(state);
+        let plugin = plugin(&server, &dir);
+
+        for id in [
+            "build-1-lint:sidecar:injected",
+            "build-1-stray:sidecar:lint",
+        ] {
+            let error = read_node(&plugin, id).await.unwrap_err();
+            assert!(
+                matches!(error, PluginError::PipelineNotFound(_)),
+                "{id}: {error:?}"
+            );
+        }
+        assert!(sent(&requests)
+            .iter()
+            .all(|request| !request.contains("/pods/")));
+
+        for id in [
+            "build-1-lint:sidecar:",
+            "build-1-lint:sidecar:../lint",
+            "build-1-lint:sidecar:lint:other",
+            "build-1-lint:sidecar:lint?previous=true",
+        ] {
+            let error = read_node(&plugin, id).await.unwrap_err();
+            assert!(
+                matches!(error, PluginError::InvalidConfig(_)),
+                "{id}: {error:?}"
+            );
+        }
+        assert!(sent(&requests).is_empty());
+    }
+
+    #[tokio::test]
+    async fn sidecar_reads_report_a_pruned_pod() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = live(&[LINT_RUNNING], &[]);
+        set_sidecars(&state, &[SIDECAR_RUNNING]);
+        let server = serve(move |_, target, _| {
+            if target.contains("/pipelineruns/") {
+                (200, LOGGED_RUN.to_string())
+            } else if target.contains("/taskruns/") {
+                (200, state.lock().task_run.clone())
+            } else {
+                status_json(404, "NotFound", 0)
+            }
+        });
+        let plugin = plugin(&server, &dir);
+
+        let error = read_node(&plugin, "build-1-lint:sidecar:lint")
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, PluginError::PipelineNotFound(_)),
+            "{error:?}"
         );
     }
 
