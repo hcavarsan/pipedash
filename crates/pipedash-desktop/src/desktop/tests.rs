@@ -19,6 +19,23 @@ fn notice(key: &str) -> DesktopNotice {
 }
 
 #[test]
+fn a_window_larger_than_the_work_area_is_fitted_to_it() {
+    let work_area = tauri::PhysicalSize::new(1470, 924);
+    let window = tauri::PhysicalSize::new(1700, 1000);
+
+    assert!(window_exceeds_work_area(window, work_area));
+    assert!(window_exceeds_work_area(
+        window,
+        tauri::PhysicalSize::new(1920, 985)
+    ));
+    assert!(!window_exceeds_work_area(
+        tauri::PhysicalSize::new(1280, 800),
+        work_area
+    ));
+    assert!(!window_exceeds_work_area(work_area, work_area));
+}
+
+#[test]
 fn menu_read_failure_reports_the_error_and_recovery_clears_it() {
     let mut inner = Inner::default();
     inner.apply_menu_result(Err(DomainError::DatabaseError(
