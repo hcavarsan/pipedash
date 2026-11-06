@@ -828,16 +828,30 @@ mod tests {
                 (
                     pipeline.name.as_str(),
                     pipeline.status,
-                    pipeline.resource_state.as_ref().unwrap().label.as_str(),
+                    pipeline
+                        .resource_state
+                        .as_ref()
+                        .map(|state| state.label.as_str()),
+                    pipeline.metadata["state"].as_str(),
                 )
             })
             .collect();
         assert_eq!(
             summary,
             [
-                ("web", PipelineStatus::Failed, "Up"),
-                ("api", PipelineStatus::Degraded, "Unhealthy"),
-                ("img", PipelineStatus::Cancelled, "Exited"),
+                ("web", PipelineStatus::Failed, None, Some("Up")),
+                (
+                    "api",
+                    PipelineStatus::Degraded,
+                    Some("Unhealthy"),
+                    Some("Unhealthy")
+                ),
+                (
+                    "img",
+                    PipelineStatus::Cancelled,
+                    Some("Exited"),
+                    Some("Exited")
+                ),
             ]
         );
         assert_eq!(pipelines[0].id, WEB);

@@ -125,12 +125,15 @@ pub(crate) fn map_pipeline(
     app: &Application, provider_id: i64, latest: Option<&Deployment>,
 ) -> Pipeline {
     let (live, state) = map_app_state(&app.status);
-    let status = match latest.map(|deployment| deployment.status.as_str()) {
-        None | Some("finished") => live,
-        Some(other) => map_deployment_status(other),
+    let mut metadata = HashMap::from([
+        ("application_uuid".to_string(), json!(app.uuid)),
+        ("state".to_string(), json!(state.label)),
+    ]);
+    let (status, resource_state) = match latest.map(|deployment| deployment.status.as_str()) {
+        None | Some("finished") => (live, Some(state)),
+        Some(other) => (map_deployment_status(other), None),
     };
 
-    let mut metadata = HashMap::from([("application_uuid".to_string(), json!(app.uuid))]);
     let optional = [
         ("server", app.server_name()),
         ("build_pack", app.build_pack.as_deref()),
@@ -158,7 +161,7 @@ pub(crate) fn map_pipeline(
         repository: repository(app),
         branch: branch(app),
         workflow_file: None,
-        resource_state: Some(state),
+        resource_state,
         metadata,
     }
 }
@@ -305,13 +308,16 @@ mod tests {
 
         let failed = map_pipeline(&healthy, 1, Some(&deployment(json!({"status": "failed"}))));
         assert_eq!(failed.status, PipelineStatus::Failed);
-        assert_eq!(failed.resource_state.unwrap().label, "Up");
+        assert_eq!(failed.resource_state, None);
+        assert_eq!(failed.metadata["state"], json!("Up"));
 
         let finished = map_pipeline(&unhealthy, 1, Some(&deployment(json!({}))));
         assert_eq!(finished.status, PipelineStatus::Degraded);
+        assert_eq!(finished.resource_state.unwrap().label, "Unhealthy");
 
         let never = map_pipeline(&exited, 1, None);
         assert_eq!(never.status, PipelineStatus::Cancelled);
+        assert_eq!(never.resource_state.unwrap().label, "Exited");
         assert_eq!(never.last_run, None);
 
         let running = map_pipeline(
@@ -320,6 +326,8 @@ mod tests {
             Some(&deployment(json!({"status": "in_progress"}))),
         );
         assert_eq!(running.status, PipelineStatus::Running);
+        assert_eq!(running.resource_state, None);
+        assert_eq!(running.metadata["state"], json!("Up"));
     }
 
     #[test]

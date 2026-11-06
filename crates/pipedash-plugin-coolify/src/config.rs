@@ -4,17 +4,30 @@ use pipedash_plugin_api::{
     PluginError,
     PluginResult,
 };
+use reqwest::Url;
 
 const PIPELINE_ID_PREFIX: &str = "coolify";
 const PIPELINE_ID_SEPARATOR: &str = "__";
 
 pub(crate) fn get_server_url(config: &HashMap<String, String>) -> PluginResult<String> {
-    config
+    let url = config
         .get("server_url")
         .map(|url| url.trim().trim_end_matches('/'))
         .filter(|url| !url.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| PluginError::InvalidConfig("Missing server_url in config".to_string()))
+        .ok_or_else(|| PluginError::InvalidConfig("Missing server_url in config".to_string()))?;
+    let invalid =
+        |reason: &str| PluginError::InvalidConfig(format!("Invalid Coolify URL '{url}': {reason}"));
+    let parsed = Url::parse(url).map_err(|e| invalid(&e.to_string()))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(invalid("use http or https"));
+    }
+    if parsed.host_str().is_none_or(str::is_empty) {
+        return Err(invalid("missing host"));
+    }
+    if parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err(invalid("remove the query or fragment"));
+    }
+    Ok(url.to_string())
 }
 
 pub(crate) fn get_credential(config: &HashMap<String, String>, key: &str) -> PluginResult<String> {
@@ -72,6 +85,38 @@ pub(crate) fn parse_pipeline_id(id: &str) -> PluginResult<(i64, &str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn server_urls_must_be_plain_http_addresses() {
+        let url = |raw: &str| {
+            get_server_url(&HashMap::from([(
+                "server_url".to_string(),
+                raw.to_string(),
+            )]))
+        };
+
+        assert_eq!(
+            url(" https://coolify.example.com/ ").unwrap(),
+            "https://coolify.example.com"
+        );
+        assert_eq!(
+            url("http://10.0.0.5:8000/coolify").unwrap(),
+            "http://10.0.0.5:8000/coolify"
+        );
+        for raw in [
+            "",
+            "coolify.example.com",
+            "ftp://coolify.example.com",
+            "https://coolify.example.com?x=1",
+            "https://coolify.example.com#top",
+            "file:///etc/passwd",
+        ] {
+            assert!(
+                matches!(url(raw), Err(PluginError::InvalidConfig(_))),
+                "{raw}"
+            );
+        }
+    }
 
     #[test]
     fn pipeline_ids_round_trip() {

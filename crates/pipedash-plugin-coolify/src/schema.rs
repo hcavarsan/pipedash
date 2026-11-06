@@ -15,16 +15,13 @@ fn create_pipelines_table() -> schema::TableDefinition {
         .unwrap_or(1);
 
     let leading = [
-        schema::ColumnDefinition {
-            field_path: "resource_state.label".to_string(),
-            ..metadata_column(
-                "state",
-                "State",
-                "Live state of the Coolify application (Up, Unhealthy, Exited, ...)",
-                schema::CellRenderer::Badge,
-                true,
-            )
-        },
+        metadata_column(
+            "state",
+            "State",
+            "Live state of the Coolify application (Up, Unhealthy, Exited, ...)",
+            schema::CellRenderer::Badge,
+            true,
+        ),
         metadata_column(
             "server",
             "Server",
