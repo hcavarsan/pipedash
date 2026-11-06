@@ -16,7 +16,7 @@ pub(crate) fn get_server_url(config: &HashMap<String, String>) -> PluginResult<S
         .filter(|url| !url.is_empty())
         .ok_or_else(|| PluginError::InvalidConfig("Missing server_url in config".to_string()))?;
     let invalid =
-        |reason: &str| PluginError::InvalidConfig(format!("Invalid Coolify URL '{url}': {reason}"));
+        |reason: &str| PluginError::InvalidConfig(format!("Invalid Coolify URL: {reason}"));
     let parsed = Url::parse(url).map_err(|e| invalid(&e.to_string()))?;
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err(invalid("use http or https"));
@@ -107,14 +107,16 @@ mod tests {
             "",
             "coolify.example.com",
             "ftp://coolify.example.com",
-            "https://coolify.example.com?x=1",
+            "https://user:hunter2@coolify.example.com?token=hunter2",
             "https://coolify.example.com#top",
             "file:///etc/passwd",
         ] {
-            assert!(
-                matches!(url(raw), Err(PluginError::InvalidConfig(_))),
-                "{raw}"
-            );
+            match url(raw) {
+                Err(PluginError::InvalidConfig(message)) => {
+                    assert!(!message.contains("hunter2"), "{message}")
+                }
+                other => panic!("{raw}: {other:?}"),
+            }
         }
     }
 
