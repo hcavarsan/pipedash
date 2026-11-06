@@ -107,22 +107,24 @@ GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkin
 
 Buildkite's organization picker and pipeline discovery include organizations from every API page.
 
+View [Gitea](https://pipedash.app/docs/providers) workflow status, history and run details across server-capped API pages.
+
 ## Features
 
-- See the status of every pipeline, grouped by repository and workflow, and pin the ones you watch most. Hide a workflow you don't watch, and it leaves the table and its repository's status until you unhide it under Show hidden.
-- Organize pipelines into your own views, shown as tabs and in the sidebar, and nest views up to three levels deep. A parent view lists its sub-views as sections first, then its own pipelines, and you can open any sub-view from its section. Add pipelines by hand or by rules (provider, repository pattern such as `acme/*`, name and status), or define read-only views under `[views.<key>]` in `config.toml`. Each view keeps its own sort, sections and table or card layout. Pin views and repositories to the sidebar. Select several pipelines to pin, hide, add them to a view or create a new view from them at once.
+- See pipeline status across providers and pin or hide workflows in the [dashboard](https://pipedash.app/docs/features/dashboard).
+- Organize pipelines into nested views with rules, layouts and bulk actions in the [views guide](https://pipedash.app/docs/features/views).
 - Open the run history with commits, branches and durations, and track build metrics per pipeline. The run history updates when another connected client discovers new runs. Metrics refreshes advance the selected time range to include runs that finish after you open the page.
-- Read, search and download job logs without leaving Pipedash. Live reads stop after 45 seconds without a viewer, so abandoned requests don't block other logs.
+- Read, search and download [job logs](https://pipedash.app/docs/features/run-logs) without leaving Pipedash.
 - Open an ArgoCD sync to read its per-resource results, the app's recent events and the last 1000 lines of each pod container. A restarted container also shows its previous attempt. Pod logs need the `logs, get` permission in ArgoCD RBAC.
 - Sign in to ArgoCD with its SSO (bundled Dex or an external OIDC provider), or to a Prow Deck behind any OpenID Connect provider, instead of pasting a token. Pipedash renews the session before it expires and asks you to sign in again when the identity provider ends it. In the self-hosted web app, you paste the address of the page the browser opens after sign-in, unless Pipedash runs on the same machine as the browser.
-- Add a public Prow Deck such as prow.k8s.io with No auth. Pipedash reads its jobs, runs and logs without credentials and turns off starting and stopping runs.
-- Trigger a workflow with the inputs Pipedash loads from the provider, or rerun a past run with the same inputs.
-- Cancel one run or several at once. On GitHub, approve deployment reviews and rerun only the failed jobs.
+- Monitor a public Prow Deck without credentials through its [read-only connection](https://pipedash.app/docs/providers/prow).
+- Trigger workflows with provider inputs or rerun past runs through the [trigger guide](https://pipedash.app/docs/features/trigger-and-cancel).
+- Cancel runs, approve GitHub deployment reviews and rerun failed jobs through the [run history guide](https://pipedash.app/docs/features/run-history).
 - On GitHub, Force cancel stops a run that ignores normal cancellation after you confirm its repository, branch and run number. GitHub bypasses conditions such as `always()`.
 - See when GitHub disables a workflow and why: after 60 days without repository activity, by hand or in a fork. Enable it again from its row menu with a token that can trigger workflows.
 - Get a notification when a pipeline fails or passes again, a run takes far longer than usual or a provider has an outage. Choose which alerts each device gets, turn off providers and mute single pipelines. Watch a pipeline to hear about every run that finishes, or get one notification when the run you started finishes.
-- Connect a phone or another computer to a Pipedash server, or to a desktop app that shares itself on your network, instead of adding providers on every device. Scan the QR code or enter the address and pairing code from Settings → Devices. The connected app shows the host's pipelines and updates live, and you remove a device at any time.
-- Phones get alerts from a Pipedash server in the background, connected or standalone, and iPhone and iPad can turn on push alerts. The relay never sees pipeline names.
+- Connect phones and computers to a server or sharing desktop through [Server mode](https://pipedash.app/docs/deployment/server-mode).
+- Get background alerts on phones and push alerts on iPhone and iPad through the [notifications guide](https://pipedash.app/docs/features/notifications).
 - Keep provider tokens in the system keyring or in a database encrypted with AES-256-GCM. Pipedash sends no analytics or telemetry.
 
 ## Get started
@@ -135,7 +137,7 @@ When you move storage with "Transfer data", Pipedash keeps retained run history,
 
 Run history loads beyond 1000 runs when the provider can return older pages.
 
-Clear cached run history in Settings. If the database rejects the delete, Pipedash reports the error instead of success.
+Clear cached run history in Settings with the controls in the [cache guide](https://pipedash.app/docs/features/cache).
 
 The config editor expands environment references for validation and keeps them unchanged when you save.
 

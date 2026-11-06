@@ -95,6 +95,14 @@ impl Run {
 #[derive(Debug, Deserialize)]
 pub(crate) struct RunList {
     pub workflow_runs: Vec<Run>,
+    #[serde(default)]
+    pub total_count: Option<usize>,
+}
+
+impl RunList {
+    pub fn is_last_page(&self, received: usize) -> bool {
+        self.workflow_runs.is_empty() || self.total_count.is_some_and(|total| received >= total)
+    }
 }
 
 #[derive(Debug, Deserialize)]
