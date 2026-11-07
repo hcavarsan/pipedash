@@ -109,6 +109,8 @@ Buildkite's organization picker and pipeline discovery include organizations fro
 
 View [Gitea](https://pipedash.app/docs/providers) workflow status, history and run details across server-capped API pages.
 
+See dead [Coolify](https://pipedash.app/docs/providers) containers as failed with a `Dead` resource label.
+
 ## Features
 
 - See pipeline status across providers and pin or hide workflows in the [dashboard](https://pipedash.app/docs/features/dashboard).
