@@ -16,6 +16,7 @@ ignore:
   - "crates/pipedash-desktop/src/push/stub.rs"
   - "src/testing/**"
   - "src/**/fixtures/**"
+  - "scripts/**"
 
 component_management:
   default_rules:
