@@ -311,6 +311,317 @@ async fn progress_ticks_never_restart_the_read() {
 }
 
 #[tokio::test]
+async fn reopening_a_legacy_tree_refreshes_only_when_the_provider_version_changes() {
+    for version in [0, 1] {
+        let nodes = vec![
+            job("task", PipelineStatus::Success, LogAvailability::Ready),
+            log_node(
+                "task:sidecar:cache",
+                Some("task"),
+                LogNodeKind::Step,
+                PipelineStatus::Success,
+                Some(LogAvailability::Ready),
+            ),
+        ];
+        let f = Fixture::with_logs(nodes, &["sidecar log\n"], |mut stub| {
+            stub.log_tree_version = version;
+            stub
+        })
+        .await;
+        let (lease, epoch) = f.svc().lease_of(&f.pipeline_id).await.unwrap();
+        let current = f
+            .svc()
+            .build_tree(&lease, epoch, &f.pipeline_id, RUN)
+            .await
+            .unwrap();
+        let legacy: StoredTree = serde_json::from_value(serde_json::json!({
+            "run_status": current.1.status,
+            "run_concluded_at": current.1.concluded_at,
+            "tree": {
+                "nodes": [current.0.nodes[0]],
+                "default_node_id": "task",
+                "complete": true,
+            },
+        }))
+        .unwrap();
+        f.h.log_store
+            .write_tree(f.id, &f.pipeline_id, RUN, &legacy, epoch)
+            .await
+            .unwrap();
+        let reopened = LogService::new(
+            Arc::clone(&f.h.log_store),
+            Arc::clone(&f.h.provider_service),
+            Arc::clone(&f.h.repository),
+            f.h.bus.clone(),
+        );
+        let tree = Arc::new(reopened)
+            .run_log_tree(&f.pipeline_id, RUN)
+            .await
+            .unwrap();
+        assert_eq!(
+            tree.nodes
+                .iter()
+                .any(|node| node.id == "task:sidecar:cache"),
+            version == 1
+        );
+        assert_eq!(
+            f.stub.log_node_fetch_count(),
+            if version == 0 { 1 } else { 2 }
+        );
+    }
+}
+
+#[tokio::test]
+async fn upgrading_a_tree_keeps_downloaded_logs_when_tasks_disappear() {
+    for partial_refresh in [false, true] {
+        let f = Fixture::with_logs(
+            vec![
+                job("gone", PipelineStatus::Success, LogAvailability::Ready),
+                step("gone:step", "gone"),
+                job("kept", PipelineStatus::Success, LogAvailability::Ready),
+            ],
+            &["downloaded task output\n"],
+            |mut stub| {
+                stub.log_tree_version = 1;
+                stub
+            },
+        )
+        .await;
+        let meta = f.ready_meta("gone").await;
+        let mut legacy =
+            f.h.log_store
+                .read_tree(f.id, &f.pipeline_id, RUN)
+                .await
+                .unwrap();
+        legacy.log_tree_version = 0;
+        let epoch = f.h.log_store.epoch(f.id);
+        f.h.log_store
+            .write_tree(f.id, &f.pipeline_id, RUN, &legacy, epoch)
+            .await
+            .unwrap();
+        let mut fresh = Vec::new();
+        if partial_refresh {
+            let mut kept = job("kept", PipelineStatus::Success, LogAvailability::Ready);
+            kept.name = "refreshed task".to_string();
+            fresh.push(kept);
+            fresh.push(log_node(
+                "kept:sidecar:cache",
+                Some("kept"),
+                LogNodeKind::Step,
+                PipelineStatus::Success,
+                Some(LogAvailability::Ready),
+            ));
+        }
+        *f.stub.log_nodes.lock().unwrap() = fresh;
+
+        for _ in 0..2 {
+            let reopened = Arc::new(LogService::new(
+                Arc::clone(&f.h.log_store),
+                Arc::clone(&f.h.provider_service),
+                Arc::clone(&f.h.repository),
+                f.h.bus.clone(),
+            ));
+            let tree = reopened.run_log_tree(&f.pipeline_id, RUN).await.unwrap();
+            for saved in &legacy.tree.nodes {
+                let node = tree.nodes.iter().find(|node| node.id == saved.id).unwrap();
+                if partial_refresh && saved.id == "kept" {
+                    assert_eq!(node.name, "refreshed task");
+                } else {
+                    assert_eq!(node, saved);
+                }
+            }
+            if partial_refresh {
+                let sidecar = tree
+                    .nodes
+                    .iter()
+                    .find(|node| node.id == "kept:sidecar:cache")
+                    .unwrap();
+                assert_eq!(sidecar.parent_id.as_deref(), Some("kept"));
+                assert!(sidecar.navigable);
+            }
+            let document = meta_of(
+                reopened
+                    .open_document(&f.pipeline_id, RUN, "gone", false)
+                    .await
+                    .unwrap(),
+            );
+            assert_eq!(document.revision, meta.revision);
+            let page = reopened
+                .read_lines(&f.pipeline_id, RUN, "gone", document.revision, 0, 10, 4096)
+                .await
+                .unwrap();
+            assert_eq!(
+                page.lines
+                    .iter()
+                    .map(|line| line.text.as_str())
+                    .collect::<Vec<_>>(),
+                ["downloaded task output"]
+            );
+            assert_eq!(
+                tree.nodes.iter().filter(|node| node.id == "kept").count(),
+                1
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn failed_tree_upgrades_keep_downloaded_logs_and_retry() {
+    let f = Fixture::new(|mut stub| {
+        stub.log_tree_version = 1;
+        stub
+    })
+    .await;
+    let meta = f.ready_meta("1").await;
+    let mut legacy =
+        f.h.log_store
+            .read_tree(f.id, &f.pipeline_id, RUN)
+            .await
+            .unwrap();
+    legacy.log_tree_version = 0;
+    let epoch = f.h.log_store.epoch(f.id);
+    f.h.log_store
+        .write_tree(f.id, &f.pipeline_id, RUN, &legacy, epoch)
+        .await
+        .unwrap();
+    *f.stub
+        .log_nodes_failure
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = Some(DomainError::ProviderError(
+        "TaskRun listing denied".to_string(),
+    ));
+    let reopened = Arc::new(LogService::new(
+        Arc::clone(&f.h.log_store),
+        Arc::clone(&f.h.provider_service),
+        Arc::clone(&f.h.repository),
+        f.h.bus.clone(),
+    ));
+    let document = meta_of(
+        reopened
+            .open_document(&f.pipeline_id, RUN, "1", false)
+            .await
+            .unwrap(),
+    );
+    assert_eq!(document.revision, meta.revision);
+    let page = reopened
+        .read_lines(&f.pipeline_id, RUN, "1", document.revision, 0, 10, 4096)
+        .await
+        .unwrap();
+    assert_eq!(
+        page.lines
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>(),
+        ["line one", "line two"]
+    );
+    let saved =
+        f.h.log_store
+            .read_tree(f.id, &f.pipeline_id, RUN)
+            .await
+            .unwrap();
+    assert_eq!(saved.log_tree_version, 0);
+    assert_eq!(saved.tree, legacy.tree);
+
+    *f.stub
+        .log_nodes_failure
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = None;
+    f.stub
+        .log_nodes
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .push(log_node(
+            "1:sidecar:cache",
+            Some("1"),
+            LogNodeKind::Step,
+            PipelineStatus::Success,
+            Some(LogAvailability::Ready),
+        ));
+    let upgraded = reopened.run_log_tree(&f.pipeline_id, RUN).await.unwrap();
+    assert!(upgraded
+        .nodes
+        .iter()
+        .any(|node| node.id == "1:sidecar:cache"));
+    let saved =
+        f.h.log_store
+            .read_tree(f.id, &f.pipeline_id, RUN)
+            .await
+            .unwrap();
+    assert_eq!(saved.log_tree_version, 1);
+    assert_eq!(saved.tree, upgraded);
+}
+
+#[tokio::test]
+async fn a_failed_tree_fetch_without_a_saved_tree_returns_the_error() {
+    let f = Fixture::new(|mut stub| {
+        stub.log_tree_version = 1;
+        stub
+    })
+    .await;
+    *f.stub
+        .log_nodes_failure
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = Some(DomainError::ProviderError(
+        "TaskRun listing denied".to_string(),
+    ));
+    assert!(matches!(
+        f.svc().run_log_tree(&f.pipeline_id, RUN).await,
+        Err(DomainError::ProviderError(_))
+    ));
+}
+
+#[tokio::test]
+async fn upgrading_a_tree_does_not_restore_nodes_from_a_different_run_state() {
+    for changed_status in [false, true] {
+        let f = Fixture::new(|mut stub| {
+            stub.log_tree_version = 1;
+            stub
+        })
+        .await;
+        f.svc().run_log_tree(&f.pipeline_id, RUN).await.unwrap();
+        let mut legacy =
+            f.h.log_store
+                .read_tree(f.id, &f.pipeline_id, RUN)
+                .await
+                .unwrap();
+        legacy.log_tree_version = 0;
+        if changed_status {
+            legacy.run_status = PipelineStatus::Failed;
+        } else {
+            legacy.run_concluded_at = Some(Utc::now());
+        }
+        let epoch = f.h.log_store.epoch(f.id);
+        f.h.log_store
+            .write_tree(f.id, &f.pipeline_id, RUN, &legacy, epoch)
+            .await
+            .unwrap();
+        f.stub.log_nodes.lock().unwrap().clear();
+        let (lease, epoch) = f.svc().lease_of(&f.pipeline_id).await.unwrap();
+        let (tree, _) = f
+            .svc()
+            .build_tree(&lease, epoch, &f.pipeline_id, RUN)
+            .await
+            .unwrap();
+        assert!(tree.nodes.is_empty());
+        assert_eq!(tree.default_node_id, None);
+        f.h.log_store
+            .write_tree(f.id, &f.pipeline_id, RUN, &legacy, epoch)
+            .await
+            .unwrap();
+        *f.stub
+            .log_nodes_failure
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(DomainError::ProviderError(
+            "TaskRun listing denied".to_string(),
+        ));
+        assert!(matches!(
+            f.svc().build_tree(&lease, epoch, &f.pipeline_id, RUN).await,
+            Err(DomainError::ProviderError(_))
+        ));
+    }
+}
+
+#[tokio::test]
 async fn clear_during_an_ingest_publishes_nothing() {
     let gate = Gate::new();
     let f = Fixture::new(gated(&gate)).await;

@@ -261,6 +261,10 @@ pub trait Provider: Send + Sync {
         &PlainDialect
     }
 
+    fn log_tree_version(&self) -> u32 {
+        0
+    }
+
     async fn fetch_log_nodes(&self, _run: &PipelineRun) -> DomainResult<Vec<LogNode>> {
         Err(DomainError::NotSupported(
             "Run logs are not supported by this provider".into(),

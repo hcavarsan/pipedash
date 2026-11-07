@@ -24,4 +24,5 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+parking_lot = "0.12"
 tempfile.workspace = true
