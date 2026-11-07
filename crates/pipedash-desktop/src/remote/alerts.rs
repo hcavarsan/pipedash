@@ -265,16 +265,26 @@ async fn plan_catch_up(
 }
 
 async fn take(
-    session: &Session, remote: &RemoteConnection, dir: &Path,
+    session: &Session, remote: &RemoteConnection, dir: &Path, record: impl FnOnce(&[HostAlert]),
 ) -> Result<CatchUp, RemoteError> {
-    take_pages(session, remote, dir, CATCH_UP_LIMIT, CATCH_UP_MAX_PAGES).await
+    take_pages(
+        session,
+        remote,
+        dir,
+        CATCH_UP_LIMIT,
+        CATCH_UP_MAX_PAGES,
+        record,
+    )
+    .await
 }
 
 async fn take_pages(
     session: &Session, remote: &RemoteConnection, dir: &Path, limit: u32, max_pages: usize,
+    record: impl FnOnce(&[HostAlert]),
 ) -> Result<CatchUp, RemoteError> {
     let _gate = session.alerts_gate().await;
     let plan = plan_catch_up(session, remote.alerts_seen(), limit, max_pages).await?;
+    record(&plan.alerts);
     remote.move_alerts_seen(dir, plan.seen, plan.lower);
     if plan.complete {
         session.mark_alerts_synced();
@@ -291,7 +301,11 @@ pub async fn take_missed_alerts(
         return Ok(Vec::new());
     }
     let session = remote.ready_session(session::CONNECT_TIMEOUT).await?;
-    let plan = take(&session, &remote, &app.state::<AppDataDir>().0).await?;
+    let plan = take(&session, &remote, &app.state::<AppDataDir>().0, |_alerts| {
+        #[cfg(desktop)]
+        crate::desktop::notifications::record_missed(&app, _alerts);
+    })
+    .await?;
     if plan.lower {
         local_notifications::reset_alert_host_seq(plan.seen).await;
     } else {
@@ -398,6 +412,46 @@ mod tests {
         session
     }
 
+    #[cfg(desktop)]
+    #[tokio::test]
+    async fn missed_alerts_reach_desktop_history_before_the_cursor_advances() {
+        use crate::desktop::notifications::{
+            DesktopNotice,
+            DesktopNotificationSnapshot,
+        };
+
+        let host = start_host().await;
+        let alert_host = pair(&host).await;
+        let first = record(&host, "pipeline:1", AlertKind::Failed).await;
+        let second = record(&host, "pipeline:2", AlertKind::Recovered).await;
+        let dir = tempfile::tempdir().unwrap();
+        let remote = client_remote(Some(first));
+        let session = bridge(alert_host);
+        let mut history = DesktopNotificationSnapshot::default();
+
+        let taken = take(&session, &remote, dir.path(), |alerts| {
+            assert_eq!(remote.alerts_seen(), Some(first));
+            for alert in alerts {
+                history.push(DesktopNotice::missed(alert).unwrap());
+            }
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(remote.alerts_seen(), Some(second));
+        assert_eq!(history.items.len(), 1);
+        assert_eq!(history.items[0].key, "pipeline:2");
+        assert_eq!(history.items[0].title, "pipeline:2 title");
+        assert_eq!(history.items[0].tone, "success");
+        assert!(!history.items[0].read);
+        assert_eq!(
+            history.items[0].at,
+            chrono::DateTime::parse_from_rfc3339(&taken.alerts[0].created_at)
+                .unwrap()
+                .timestamp_millis()
+        );
+    }
+
     #[tokio::test]
     async fn fetch_returns_the_alerts_after_a_cursor() {
         let host = start_host().await;
@@ -486,7 +540,7 @@ mod tests {
         let remote = client_remote(Some(first));
         let session = bridge(alert_host);
 
-        let taken = take(&session, &remote, dir.path()).await.unwrap();
+        let taken = take(&session, &remote, dir.path(), |_| {}).await.unwrap();
 
         assert_eq!(taken.alerts.len(), 105);
         assert_eq!(taken.alerts[0].seq, first + 1);
@@ -508,7 +562,7 @@ mod tests {
         let remote = client_remote(Some(first));
         let session = bridge(alert_host);
 
-        let taken = take_pages(&session, &remote, dir.path(), 3, 2)
+        let taken = take_pages(&session, &remote, dir.path(), 3, 2, |_| {})
             .await
             .unwrap();
         assert_eq!(taken.alerts.len(), 6);
@@ -518,7 +572,7 @@ mod tests {
         advance_live(&session, &remote, dir.path(), first + 7);
         assert_eq!(remote.alerts_seen(), Some(first + 6));
 
-        let rest = take_pages(&session, &remote, dir.path(), 3, 2)
+        let rest = take_pages(&session, &remote, dir.path(), 3, 2, |_| {})
             .await
             .unwrap();
         assert_eq!(rest.alerts.len(), 1);
@@ -556,7 +610,7 @@ mod tests {
         advance_live(&session, &remote, dir.path(), second);
         assert_eq!(remote.alerts_seen(), Some(first));
 
-        let taken = take(&session, &remote, dir.path()).await.unwrap();
+        let taken = take(&session, &remote, dir.path(), |_| {}).await.unwrap();
         assert_eq!(
             taken.alerts.iter().map(|a| a.seq).collect::<Vec<_>>(),
             [second]
@@ -585,8 +639,8 @@ mod tests {
         let session = bridge(alert_host);
 
         let (a, b) = tokio::join!(
-            take(&session, &remote, dir.path()),
-            take(&session, &remote, dir.path())
+            take(&session, &remote, dir.path(), |_| {}),
+            take(&session, &remote, dir.path(), |_| {})
         );
 
         assert_eq!(a.unwrap().alerts.len() + b.unwrap().alerts.len(), 1);
@@ -601,7 +655,7 @@ mod tests {
         let remote = client_remote(None);
         let session = bridge(alert_host);
 
-        let taken = take(&session, &remote, dir.path()).await.unwrap();
+        let taken = take(&session, &remote, dir.path(), |_| {}).await.unwrap();
 
         assert!(taken.alerts.is_empty());
         assert_eq!(remote.alerts_seen(), Some(latest));
