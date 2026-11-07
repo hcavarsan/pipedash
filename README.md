@@ -122,10 +122,10 @@ See dead [Coolify](https://pipedash.app/docs/providers) containers as failed wit
 - Sign in to ArgoCD with its SSO (bundled Dex or an external OIDC provider), or to a Prow Deck behind any OpenID Connect provider, instead of pasting a token. Pipedash renews the session before it expires and asks you to sign in again when the identity provider ends it. In the self-hosted web app, you paste the address of the page the browser opens after sign-in, unless Pipedash runs on the same machine as the browser.
 - Monitor a public Prow Deck without credentials through its [read-only connection](https://pipedash.app/docs/providers/prow).
 - Trigger workflows with provider inputs or rerun past runs through the [trigger guide](https://pipedash.app/docs/features/trigger-and-cancel).
-- Cancel active runs across history pages, approve GitHub deployment reviews and rerun failed jobs through the [run history guide](https://pipedash.app/docs/features/run-history).
-- On GitHub, Force cancel stops a run that ignores normal cancellation after you confirm its repository, branch and run number. GitHub bypasses conditions such as `always()`.
-- See when GitHub disables a workflow and why: after 60 days without repository activity, by hand or in a fork. Enable it again from its row menu with a token that can trigger workflows.
-- Get a notification when a pipeline fails or passes again, a run takes far longer than usual or a provider has an outage. Choose which alerts each device gets, turn off providers and mute single pipelines. Watch a pipeline to hear about every run that finishes, or get one notification when the run you started finishes.
+- Cancel runs, approve GitHub deployment reviews and rerun failed jobs through the [run history guide](https://pipedash.app/docs/features/run-history).
+- Force cancel stuck GitHub runs through the [trigger guide](https://pipedash.app/docs/features/trigger-and-cancel#force-cancel-on-github).
+- See why GitHub disabled a workflow and enable it again with the [GitHub Actions guide](https://pipedash.app/docs/providers/github-actions#disabled-workflows).
+- Choose per-device alerts, mutes and pipeline watches in the [notifications guide](https://pipedash.app/docs/features/notifications).
 - Connect phones and computers to a server or sharing desktop through [Server mode](https://pipedash.app/docs/deployment/server-mode).
 - Get background alerts on phones and push alerts on iPhone and iPad through the [notifications guide](https://pipedash.app/docs/features/notifications).
 - Keep provider tokens in the system keyring or in a database encrypted with AES-256-GCM. Pipedash sends no analytics or telemetry.
@@ -136,9 +136,9 @@ Download the [desktop app](https://pipedash.app/downloads), install the [iOS app
 
 To install the self-hosted web app on iPhone, open it in Safari and choose Share > Add to Home Screen. Keep "Open as Web App" enabled when available. Its manifest covers the deployment base path and starts the app at that root. After deploying changes to scope, status-bar settings or icon artwork, add a new Home Screen icon to avoid cached installation metadata.
 
-When you move storage with "Transfer data", Pipedash keeps retained run history, including archived FluxCD reconciliations.
+Move storage and retained run history with the [storage guide](https://pipedash.app/docs/configuration/storage-backends).
 
-Run history loads beyond 1000 runs when the provider can return older pages.
+Browse older runs with the [run history guide](https://pipedash.app/docs/features/run-history).
 
 Clear cached run history in Settings with the controls in the [cache guide](https://pipedash.app/docs/features/cache).
 
@@ -171,9 +171,9 @@ Run `mise install` before local checks. Rust is pinned to `nightly-2026-10-31` i
 
 CI runs backend tests on Linux, macOS and Windows, including log-resume checks that preserve the previous revision while truncating and extending a copied checkpoint.
 
-Run `bun run test` for frontend regressions and `cargo nextest run --workspace --all-features` for Rust regressions. The frontend command isolates each test file, and DOM tests unmount React roots and clear React Query clients before unregistering Happy DOM.
+Run `cargo nextest run --workspace --all-features` for Rust regressions and see [development](https://pipedash.app/docs/resources/development) for frontend checks.
 
-Run `mise run icons` to regenerate app icons from `app-icon.png` into `crates/pipedash-desktop/icons` with the Tauri CLI. Run `python3 scripts/test_icons.py` to check icon generation in a temporary checkout without changing tracked icons. CI runs the same check after installing frontend dependencies.
+Regenerate and check app icons with the [development guide](https://pipedash.app/docs/resources/development).
 
 Report bugs or request features through [GitHub issues](https://github.com/hcavarsan/pipedash/issues). For help, see [support](https://pipedash.app/support).
 
