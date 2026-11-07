@@ -4,7 +4,7 @@ import { after, afterEach, mock, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, type ReactNode } from 'react'
 
-import type { PipelineRun } from '../../../types/domain'
+import type { PipelineRun, TriggerParams } from '../../../types/domain'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
@@ -84,3 +84,63 @@ test('a failed rerun rejects so the confirmation dialog can stay open, and only 
   assert.deepEqual(calls, ['rerun_failed_jobs', 'rerun_failed_jobs'])
   client.clear()
 })
+
+for (const scenario of [
+  { name: 'missing inputs', inputs: undefined, branch: 'release/1.0', expected: { ref: 'release/1.0' } },
+  {
+    name: 'unrelated inputs',
+    inputs: { variables: { DEPLOY: 'yes' } },
+    branch: 'release/1.0',
+    expected: { variables: { DEPLOY: 'yes' }, ref: 'release/1.0' },
+  },
+  {
+    name: 'an explicit ref',
+    inputs: { ref: 'release/2.0' },
+    branch: 'release/1.0',
+    expected: { ref: 'release/2.0' },
+  },
+  {
+    name: 'an explicit branch',
+    inputs: { branch: 'release/2.0' },
+    branch: 'release/1.0',
+    expected: { branch: 'release/2.0' },
+  },
+  { name: 'no known branch', inputs: undefined, branch: null, expected: {} },
+]) {
+  test(`rerunning with ${scenario.name} preserves the intended branch`, async () => {
+    const requests: TriggerParams[] = []
+
+    mock.method(apiService, 'triggerPipeline', async (params: TriggerParams) => {
+      requests.push(params)
+
+      return '{}'
+    })
+    mock.method(tauriService, 'triggerPipeline', apiService.triggerPipeline)
+    const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children)
+    const inputs = scenario.inputs ? Object.freeze(scenario.inputs) : undefined
+    const { result } = renderHook(
+      () =>
+        useRunDetailActions({
+          pipelineId: run.pipeline_id,
+          runNumber: run.run_number,
+          pipeline: undefined,
+          run: { ...run, branch: scenario.branch, ...(inputs ? { inputs } : {}) },
+          rerunInPlace: false,
+          onClose: () => undefined,
+          onCancelRequested: () => undefined,
+        }),
+      { wrapper }
+    )
+
+    try {
+      await act(async () => result.current.rerun('all'))
+      assert.deepEqual(
+        requests.map((request) => request.inputs ?? {}),
+        [scenario.expected]
+      )
+    } finally {
+      client.clear()
+    }
+  })
+}

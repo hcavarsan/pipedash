@@ -56,7 +56,12 @@ export function useRunDetailActions({
         return
       }
 
-      const result = await rerunMutation.mutateAsync({ pipelineId, inputs: run.inputs })
+      const existingInputs = run.inputs ?? {}
+      const inputs =
+        run.branch && !existingInputs.branch && !existingInputs.ref
+          ? { ...existingInputs, ref: run.branch }
+          : existingInputs
+      const result = await rerunMutation.mutateAsync({ pipelineId, inputs })
 
       onClose()
 
