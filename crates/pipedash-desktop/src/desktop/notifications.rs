@@ -163,6 +163,29 @@ impl DesktopNotificationSnapshot {
         self.revision += 1;
     }
 
+    fn insert_missed(&mut self, notice: DesktopNotice) -> bool {
+        if self
+            .items
+            .iter()
+            .any(|existing| existing.key == notice.key && existing.at >= notice.at)
+        {
+            return false;
+        }
+        self.items.retain(|existing| existing.key != notice.key);
+        let index = self
+            .items
+            .iter()
+            .position(|existing| existing.at < notice.at)
+            .unwrap_or(self.items.len());
+        if index >= 50 {
+            return false;
+        }
+        self.items.insert(index, notice);
+        self.items.truncate(50);
+        self.revision += 1;
+        true
+    }
+
     pub fn clear(&mut self) {
         self.items.clear();
         self.revision += 1;
@@ -232,8 +255,17 @@ fn record<R: Runtime>(
             return;
         }
         let moved = server.is_some() && inner.adopt_server(server);
+        let mut changed = moved;
         for notice in std::iter::once(first).chain(notices) {
-            inner.history.push(notice);
+            if notify {
+                inner.history.push(notice);
+                changed = true;
+            } else {
+                changed |= inner.history.insert_missed(notice);
+            }
+        }
+        if !changed {
+            return;
         }
         (
             inner.history.clone(),
@@ -273,7 +305,7 @@ pub fn record_missed<R: Runtime>(app: &AppHandle<R>, alerts: &[HostAlert]) {
 }
 
 #[tauri::command]
-pub fn get_desktop_notifications(app: AppHandle) -> DesktopNotificationSnapshot {
+pub fn get_desktop_notifications<R: Runtime>(app: AppHandle<R>) -> DesktopNotificationSnapshot {
     app.state::<DesktopState>().lock().history.clone()
 }
 
@@ -307,6 +339,25 @@ pub fn clear_desktop_notifications(app: AppHandle) -> DesktopNotificationSnapsho
     publish(&app, &snapshot);
     super::tray_changed(&app);
     snapshot
+}
+
+#[cfg(test)]
+pub(crate) fn test_app(
+    remote: RemoteConnection, dir: &std::path::Path,
+) -> tauri::App<tauri::test::MockRuntime> {
+    let app = tauri::test::mock_app();
+    app.manage(DesktopState {
+        inner: super::Inner::default().into(),
+        path: dir.join("desktop.json"),
+        settings_gate: Default::default(),
+        projection_gate: Default::default(),
+        refresh: Default::default(),
+        generations: Default::default(),
+        render: Box::new(|| {}),
+    });
+    app.manage(remote);
+    app.manage(crate::AppDataDir(dir.to_path_buf()));
+    app
 }
 
 #[cfg(test)]
