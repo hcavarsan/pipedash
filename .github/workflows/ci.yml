@@ -27,6 +27,9 @@ jobs:
   biome:
     name: Biome
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write # Codecov OIDC upload, no long-lived CODECOV_TOKEN
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,7 +55,31 @@ jobs:
         run: mise run lint:front
 
       - name: Test frontend
-        run: bun run test
+        run: bun run test --coverage --coverage-reporter=lcov --reporter=junit --reporter-outfile=junit.xml ./scripts/coverage-baseline.ts
+
+      - name: Upload frontend coverage
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: ${{ !github.event.pull_request.head.repo.fork }}
+          files: coverage/lcov.info
+          flags: frontend
+          slug: hcavarsan/pipedash
+
+      - name: Upload frontend test results
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        if: ${{ !cancelled() }}
+        with:
+          use_oidc: ${{ !github.event.pull_request.head.repo.fork }}
+          files: junit.xml
+          flags: frontend
+          slug: hcavarsan/pipedash
+          report_type: test_results
+
+      - name: Build frontend with bundle analysis
+        env:
+          CODECOV_BUNDLE_ANALYSIS: "true"
+          CODECOV_OIDC: ${{ !github.event.pull_request.head.repo.fork }}
+        run: bun run build
 
   zizmor:
     name: zizmor
@@ -127,6 +154,9 @@ jobs:
             os_name: windows
             rust_target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write # Codecov OIDC upload, no long-lived CODECOV_TOKEN
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -168,13 +198,41 @@ jobs:
       - name: Run Clippy
         run: mise run lint:back
 
+      - name: Install cargo-llvm-cov and nextest
+        if: matrix.os_name != 'linux'
+        uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-llvm-cov,cargo-nextest
+
       - name: Run tests
         if: matrix.os_name != 'linux'
-        run: mise run test:back
+        run: cargo llvm-cov nextest --workspace --all-features --profile ci --lcov --output-path lcov.info
+
+      - name: Upload coverage
+        if: matrix.os_name != 'linux'
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: ${{ !github.event.pull_request.head.repo.fork }}
+          files: lcov.info
+          flags: backend
+          slug: hcavarsan/pipedash
+
+      - name: Upload test results
+        if: ${{ matrix.os_name != 'linux' && !cancelled() }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: ${{ !github.event.pull_request.head.repo.fork }}
+          files: target/nextest/ci/junit.xml
+          flags: backend
+          slug: hcavarsan/pipedash
+          report_type: test_results
 
   rust-test:
     name: Tests
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write # Codecov OIDC upload, no long-lived CODECOV_TOKEN
     services:
       postgres:
         image: postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c
@@ -218,11 +276,37 @@ jobs:
       - name: Install mise tools
         run: mise install
 
+      - name: Install cargo-llvm-cov and nextest
+        uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-llvm-cov,cargo-nextest
+
       - name: Run tests
-        run: mise run test:back
+        run: cargo llvm-cov nextest --no-report --workspace --all-features --profile ci
 
       - name: Run PostgreSQL tests
-        run: mise run test:postgres
+        run: cargo llvm-cov nextest --no-report -p pipedash-core --all-features --profile ci-postgres --run-ignored only postgres
+
+      - name: Write coverage report
+        run: cargo llvm-cov report --lcov --output-path lcov.info
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: ${{ !github.event.pull_request.head.repo.fork }}
+          files: lcov.info
+          flags: backend
+          slug: hcavarsan/pipedash
+
+      - name: Upload test results
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        if: ${{ !cancelled() }}
+        with:
+          use_oidc: ${{ !github.event.pull_request.head.repo.fork }}
+          files: target/nextest/ci/junit.xml,target/nextest/ci-postgres/junit.xml
+          flags: backend
+          slug: hcavarsan/pipedash
+          report_type: test_results
 
       - name: Verify plugin packages
         run: cargo package -p pipedash-plugin-api -p pipedash-plugin-actions -p pipedash-plugin-github -p pipedash-plugin-gitea -p pipedash-plugin-fluxcd

@@ -10,6 +10,14 @@ coverage:
 comment:
   layout: "header, diff, flags, components"
 
+ignore:
+  - "crates/**/test_*.rs"
+  - "crates/**/testing.rs"
+  - "crates/pipedash-desktop/src/push/stub.rs"
+  - "src/testing/**"
+  - "src/**/fixtures/**"
+  - "scripts/**"
+
 component_management:
   default_rules:
     statuses:
@@ -17,3 +25,39 @@ component_management:
         target: auto
         threshold: 50%
 
+  individual_components:
+    - component_id: core
+      name: core
+      paths:
+        - "crates/pipedash-core/**"
+
+    - component_id: plugin-api
+      name: plugin-api
+      paths:
+        - "crates/pipedash-plugin-api/**"
+
+    - component_id: providers
+      name: providers
+      paths:
+        - "^crates/pipedash-plugin-(?!api/).*"
+
+    - component_id: desktop
+      name: desktop
+      paths:
+        - "crates/pipedash-desktop/**"
+        - "crates/tauri-plugin-*/**"
+
+    - component_id: web
+      name: web
+      paths:
+        - "crates/pipedash-web/**"
+
+    - component_id: push-relay
+      name: push-relay
+      paths:
+        - "crates/pipedash-push-relay/**"
+
+    - component_id: frontend
+      name: frontend
+      paths:
+        - "src/**"

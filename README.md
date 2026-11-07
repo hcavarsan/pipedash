@@ -16,6 +16,9 @@
   <a href="https://crates.io/crates/pipedash-web">
     <img src="https://img.shields.io/crates/v/pipedash-web?style=for-the-badge&logo=rust" alt="pipedash-web on crates.io">
   </a>
+  <a href="https://codecov.io/gh/hcavarsan/pipedash">
+    <img src="https://img.shields.io/codecov/c/github/hcavarsan/pipedash/main?style=for-the-badge&logo=codecov" alt="Codecov coverage">
+  </a>
   <br>
   <a href="https://apps.apple.com/br/app/pipedash-ci-cd-monitoring/id6757285870?l=en-GB">
     <img src="https://img.shields.io/badge/iOS-App%20Store-0D96F6?style=for-the-badge&logo=apple&logoColor=white" alt="iOS app on the App Store" height="40">

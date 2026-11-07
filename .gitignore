@@ -31,6 +31,8 @@ build_rs*
 lcov.info
 lcov*
 llvm-cov*
+coverage/
+junit.xml
 **/*.snap
 **/snapshots/*
 TASKS.md
