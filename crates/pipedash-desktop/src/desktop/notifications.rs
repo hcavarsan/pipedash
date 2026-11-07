@@ -7,7 +7,10 @@ use pipedash_core::{
         LocalNotification,
         ShownNotification,
     },
-    domain::HealthLevel,
+    domain::{
+        AlertKind,
+        HealthLevel,
+    },
     event::AlertLink,
 };
 use serde::{
@@ -31,6 +34,7 @@ use super::{
     Origin,
 };
 use crate::native::NotificationTarget;
+use crate::remote::alerts::HostAlert;
 use crate::remote::RemoteConnection;
 
 #[derive(Debug, Clone, Serialize)]
@@ -77,6 +81,28 @@ impl DesktopNotice {
         let received = Received::deserialize(payload).ok()?;
 
         Some(Self::shown(received.at, &received.notice))
+    }
+
+    pub fn missed(alert: &HostAlert) -> Option<Self> {
+        Some(Self {
+            key: alert.key.clone(),
+            at: DateTime::parse_from_rfc3339(&alert.created_at)
+                .ok()?
+                .timestamp_millis(),
+            read: false,
+            tone: AlertKind::parse(&alert.kind)?.tone(),
+            level: None,
+            title: alert.title.clone(),
+            body: alert.body.clone(),
+            provider_ids: if alert.provider_ids.is_empty() {
+                alert.provider_id.into_iter().collect()
+            } else {
+                alert.provider_ids.clone()
+            },
+            pipeline_id: alert.pipeline_id.clone(),
+            link: None,
+            run_number: None,
+        })
     }
 
     pub fn watched(watch: &BuildWatchSnapshot) -> Self {
@@ -137,6 +163,29 @@ impl DesktopNotificationSnapshot {
         self.revision += 1;
     }
 
+    fn insert_missed(&mut self, notice: DesktopNotice) -> bool {
+        if self
+            .items
+            .iter()
+            .any(|existing| existing.key == notice.key && existing.at >= notice.at)
+        {
+            return false;
+        }
+        self.items.retain(|existing| existing.key != notice.key);
+        let index = self
+            .items
+            .iter()
+            .position(|existing| existing.at < notice.at)
+            .unwrap_or(self.items.len());
+        if index >= 50 {
+            return false;
+        }
+        self.items.insert(index, notice);
+        self.items.truncate(50);
+        self.revision += 1;
+        true
+    }
+
     pub fn clear(&mut self) {
         self.items.clear();
         self.revision += 1;
@@ -177,7 +226,14 @@ pub(super) fn announce<R: Runtime>(
     }
 }
 
-fn record<R: Runtime>(app: &AppHandle<R>, origin: Origin, notice: &DesktopNotice) {
+fn record<R: Runtime>(
+    app: &AppHandle<R>, origin: Origin, notices: impl IntoIterator<Item = DesktopNotice>,
+    notify: bool,
+) {
+    let mut notices = notices.into_iter();
+    let Some(first) = notices.next() else {
+        return;
+    };
     let Some(state) = app.try_state::<DesktopState>() else {
         return;
     };
@@ -199,10 +255,25 @@ fn record<R: Runtime>(app: &AppHandle<R>, origin: Origin, notice: &DesktopNotice
             return;
         }
         let moved = server.is_some() && inner.adopt_server(server);
-        let (history, deliver) = inner.record(notice);
-        (history, deliver, moved)
+        let mut changed = moved;
+        for notice in std::iter::once(first).chain(notices) {
+            if notify {
+                inner.history.push(notice);
+                changed = true;
+            } else {
+                changed |= inner.history.insert_missed(notice);
+            }
+        }
+        if !changed {
+            return;
+        }
+        (
+            inner.history.clone(),
+            inner.saved.settings.notifications_enabled,
+            moved,
+        )
     };
-    announce(app, notice, &history, deliver);
+    announce(app, &history.items[0], &history, notify && deliver);
     super::tray_changed(app);
     if moved {
         super::wake(app);
@@ -210,17 +281,31 @@ fn record<R: Runtime>(app: &AppHandle<R>, origin: Origin, notice: &DesktopNotice
 }
 
 pub fn record_shown<R: Runtime>(app: &AppHandle<R>, generation: u64, shown: &ShownNotification) {
-    record(app, Origin::Core(generation), &DesktopNotice::from(shown));
+    record(
+        app,
+        Origin::Core(generation),
+        [DesktopNotice::from(shown)],
+        true,
+    );
 }
 
 pub fn record_received<R: Runtime>(app: &AppHandle<R>, payload: &Value) {
     if let Some(notice) = DesktopNotice::received(payload) {
-        record(app, Origin::Server, &notice);
+        record(app, Origin::Server, [notice], true);
     }
 }
 
+pub fn record_missed<R: Runtime>(app: &AppHandle<R>, alerts: &[HostAlert]) {
+    record(
+        app,
+        Origin::Server,
+        alerts.iter().filter_map(DesktopNotice::missed),
+        false,
+    );
+}
+
 #[tauri::command]
-pub fn get_desktop_notifications(app: AppHandle) -> DesktopNotificationSnapshot {
+pub fn get_desktop_notifications<R: Runtime>(app: AppHandle<R>) -> DesktopNotificationSnapshot {
     app.state::<DesktopState>().lock().history.clone()
 }
 
@@ -254,6 +339,25 @@ pub fn clear_desktop_notifications(app: AppHandle) -> DesktopNotificationSnapsho
     publish(&app, &snapshot);
     super::tray_changed(&app);
     snapshot
+}
+
+#[cfg(test)]
+pub(crate) fn test_app(
+    remote: RemoteConnection, dir: &std::path::Path,
+) -> tauri::App<tauri::test::MockRuntime> {
+    let app = tauri::test::mock_app();
+    app.manage(DesktopState {
+        inner: super::Inner::default().into(),
+        path: dir.join("desktop.json"),
+        settings_gate: Default::default(),
+        projection_gate: Default::default(),
+        refresh: Default::default(),
+        generations: Default::default(),
+        render: Box::new(|| {}),
+    });
+    app.manage(remote);
+    app.manage(crate::AppDataDir(dir.to_path_buf()));
+    app
 }
 
 #[cfg(test)]
