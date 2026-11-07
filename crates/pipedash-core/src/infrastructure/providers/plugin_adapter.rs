@@ -312,6 +312,10 @@ impl Provider for PluginAdapter {
         self.plugin.log_dialect()
     }
 
+    fn log_tree_version(&self) -> u32 {
+        self.plugin.log_tree_version()
+    }
+
     async fn fetch_log_nodes(&self, run: &PipelineRun) -> DomainResult<Vec<LogNode>> {
         let nodes = self
             .plugin

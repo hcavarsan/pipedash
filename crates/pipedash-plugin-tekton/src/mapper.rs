@@ -465,16 +465,25 @@ fn step_status(step: &StepState) -> PipelineStatus {
     }
 }
 
-fn step_to_log_node(task_run: &str, step: &StepState) -> LogNode {
+fn step_to_log_node(task_run: &str, step: &StepState, sidecar: bool) -> LogNode {
+    let status = step_status(step);
     LogNode {
-        id: format!("{task_run}:{}", step.name),
+        id: if sidecar {
+            format!("{task_run}:sidecar:{}", step.name)
+        } else {
+            format!("{task_run}:{}", step.name)
+        },
         parent_id: Some(task_run.to_string()),
         kind: LogNodeKind::Step,
-        name: step.name.clone(),
-        status: step_status(step),
+        name: if sidecar {
+            format!("Sidecar: {}", step.name)
+        } else {
+            step.name.clone()
+        },
+        status,
         started_at: step.started_at(),
         finished_at: step.finished_at(),
-        log: None,
+        log: sidecar.then(|| log_availability(status)),
         web_url: None,
     }
 }
@@ -512,7 +521,14 @@ pub(crate) fn taskruns_to_log_nodes(
                 .status
                 .steps
                 .iter()
-                .map(|step| step_to_log_node(name, step)),
+                .map(|step| step_to_log_node(name, step, false)),
+        );
+        nodes.extend(
+            task_run
+                .status
+                .sidecars
+                .iter()
+                .map(|sidecar| step_to_log_node(name, sidecar, true)),
         );
     }
     nodes
@@ -803,5 +819,80 @@ mod tests {
         assert_eq!(nodes[4].started_at, stamp("2026-10-28T10:00:10Z"));
         assert_eq!(nodes[4].finished_at, None);
         assert_eq!(nodes[5].started_at, None);
+    }
+
+    #[test]
+    fn sidecars_have_separate_selectable_logs_under_their_task() {
+        let run = pipeline_run(TWO_CHILDREN);
+        let task = task_run(
+            "build-1-test",
+            r#"{"conditions":[{"type":"Succeeded","status":"False","reason":"Failed"}],"steps":[{"name":"cache","terminated":{"exitCode":1}}],"sidecars":[
+                {"name":"cache","running":{"startedAt":"2026-10-28T10:00:01Z"}},
+                {"name":"database","terminated":{"exitCode":2,"startedAt":"2026-10-28T10:00:02Z","finishedAt":"2026-10-28T10:00:03Z"}},
+                {"name":"proxy","terminated":{"exitCode":0}},
+                {"name":"pending","waiting":{"reason":"ContainerCreating"}}
+            ]}"#,
+        );
+        let nodes = taskruns_to_log_nodes(&run, &[task]);
+        let summary: Vec<_> = nodes[2..]
+            .iter()
+            .map(|node| {
+                (
+                    node.id.as_str(),
+                    node.name.as_str(),
+                    node.parent_id.as_deref(),
+                    node.kind,
+                    node.status,
+                    node.log,
+                )
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                (
+                    "build-1-test:sidecar:cache",
+                    "Sidecar: cache",
+                    Some("build-1-test"),
+                    LogNodeKind::Step,
+                    PipelineStatus::Running,
+                    Some(LogAvailability::Partial)
+                ),
+                (
+                    "build-1-test:sidecar:database",
+                    "Sidecar: database",
+                    Some("build-1-test"),
+                    LogNodeKind::Step,
+                    PipelineStatus::Failed,
+                    Some(LogAvailability::Ready)
+                ),
+                (
+                    "build-1-test:sidecar:proxy",
+                    "Sidecar: proxy",
+                    Some("build-1-test"),
+                    LogNodeKind::Step,
+                    PipelineStatus::Success,
+                    Some(LogAvailability::Ready)
+                ),
+                (
+                    "build-1-test:sidecar:pending",
+                    "Sidecar: pending",
+                    Some("build-1-test"),
+                    LogNodeKind::Step,
+                    PipelineStatus::Pending,
+                    Some(LogAvailability::Pending)
+                ),
+            ]
+        );
+        assert_ne!(nodes[1].id, nodes[2].id);
+        assert_eq!(nodes[1].log, None);
+        assert_eq!(
+            nodes[3].started_at.unwrap().to_rfc3339(),
+            "2026-10-28T10:00:02+00:00"
+        );
+        assert_eq!(
+            nodes[3].finished_at.unwrap().to_rfc3339(),
+            "2026-10-28T10:00:03+00:00"
+        );
     }
 }

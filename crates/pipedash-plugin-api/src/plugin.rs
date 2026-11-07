@@ -116,6 +116,10 @@ pub trait Plugin: Send + Sync {
         &PlainDialect
     }
 
+    fn log_tree_version(&self) -> u32 {
+        0
+    }
+
     async fn fetch_log_nodes(&self, _run: RunRef<'_>) -> PluginResult<Vec<LogNode>> {
         Err(crate::error::PluginError::NotSupported(
             "Run logs not supported by this provider".to_string(),

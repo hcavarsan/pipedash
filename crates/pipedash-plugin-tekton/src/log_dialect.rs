@@ -55,11 +55,16 @@ pub(crate) fn step_header(name: &str, started_at: Option<DateTime<Utc>>) -> Vec<
     tagged_line(STEP_HEADER_TAG, started_at, &format!("Step {name}"))
 }
 
-pub(crate) fn truncation_notice(lines: usize) -> Vec<u8> {
+pub(crate) fn sidecar_header(name: &str, started_at: Option<DateTime<Utc>>) -> Vec<u8> {
+    tagged_line(STEP_HEADER_TAG, started_at, &format!("Sidecar {name}"))
+}
+
+pub(crate) fn truncation_notice(lines: usize, sidecar: bool) -> Vec<u8> {
+    let kind = if sidecar { "sidecar" } else { "step" };
     tagged_line(
         TRUNCATION_TAG,
         None,
-        &format!("Pipedash reads at most the last {lines} lines of a step, so older lines may be missing"),
+        &format!("Pipedash reads at most the last {lines} lines of a {kind}, so older lines may be missing"),
     )
 }
 
@@ -179,7 +184,7 @@ mod tests {
 
     #[test]
     fn truncation_notice_is_a_warning_and_not_a_step_start() {
-        let notice = truncation_notice(10_000);
+        let notice = truncation_notice(10_000, false);
         let parsed = parse(notice.strip_suffix(b"\n").unwrap());
         assert_eq!(parsed.marker, LineMarker::Warning);
         assert_eq!(parsed.timestamp, None);

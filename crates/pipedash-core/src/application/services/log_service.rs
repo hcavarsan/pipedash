@@ -354,6 +354,7 @@ impl LogService {
                 lease.provider.fetch_run_details(pipeline_id, run_number),
             )
             .await?;
+        let mut previous_nodes = Vec::new();
         if run.status.is_terminal() {
             if let Some(stored) = self
                 .store
@@ -361,17 +362,36 @@ impl LogService {
                 .await
             {
                 if stored.run_status == run.status && stored.run_concluded_at == run.concluded_at {
-                    return Ok((Arc::new(stored.tree), Arc::new(run)));
+                    if stored.log_tree_version == lease.provider.log_tree_version() {
+                        return Ok((Arc::new(stored.tree), Arc::new(run)));
+                    }
+                    previous_nodes = stored.tree.nodes;
                 }
             }
         }
 
-        let nodes = self
+        let mut nodes = self
             .provider_call(lease, lease.provider.fetch_log_nodes(&run))
             .await?;
+        if !previous_nodes.is_empty() {
+            let current_ids: HashSet<_> = nodes.iter().map(|node| node.id.as_str()).collect();
+            previous_nodes.retain(|node| !current_ids.contains(node.id.as_str()));
+            nodes.extend(previous_nodes.into_iter().map(|node| LogNode {
+                id: node.id,
+                parent_id: node.parent_id,
+                kind: node.kind,
+                name: node.name,
+                status: node.status,
+                started_at: node.started_at,
+                finished_at: node.finished_at,
+                log: node.log,
+                web_url: node.web_url,
+            }));
+        }
         let tree = tree_from_nodes(&run, nodes);
         if tree.complete {
             let stored = StoredTree {
+                log_tree_version: lease.provider.log_tree_version(),
                 run_status: run.status.clone(),
                 run_concluded_at: run.concluded_at,
                 tree: tree.clone(),
