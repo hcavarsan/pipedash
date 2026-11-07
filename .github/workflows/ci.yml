@@ -257,7 +257,7 @@ jobs:
         run: cargo llvm-cov nextest --no-report --workspace --all-features --profile ci
 
       - name: Run PostgreSQL tests
-        run: cargo llvm-cov nextest --no-report -p pipedash-core --all-features --run-ignored only postgres
+        run: cargo llvm-cov nextest --no-report -p pipedash-core --all-features --profile ci-postgres --run-ignored only postgres
 
       - name: Write coverage report
         run: cargo llvm-cov report --lcov --output-path lcov.info
@@ -275,7 +275,7 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           use_oidc: ${{ !github.event.pull_request.head.repo.fork }}
-          files: target/nextest/ci/junit.xml
+          files: target/nextest/ci/junit.xml,target/nextest/ci-postgres/junit.xml
           flags: backend
           slug: hcavarsan/pipedash
           report_type: test_results
