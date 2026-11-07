@@ -1,0 +1,1 @@
+Now with CircleCI, Woodpecker CI and Coolify: follow every pipeline from one place.

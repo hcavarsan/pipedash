@@ -4206,7 +4206,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "pipedash-core"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -4262,7 +4262,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-desktop"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "aes-gcm",
  "android-native-keyring-store",
@@ -4327,7 +4327,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-actions"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "chrono",
  "pipedash-plugin-api",
@@ -4338,7 +4338,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-api"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -4354,7 +4354,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-argocd"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4370,7 +4370,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-azure-devops"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -4387,7 +4387,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-bitbucket"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -4405,7 +4405,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-buildkite"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4421,7 +4421,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-circleci"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -4439,7 +4439,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-coolify"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -4456,7 +4456,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-fluxcd"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4477,7 +4477,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-gitea"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4494,7 +4494,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-github"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4513,7 +4513,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-gitlab"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4529,7 +4529,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-jenkins"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -4546,7 +4546,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-komodo"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4561,7 +4561,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-prow"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -4584,7 +4584,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-tekton"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4606,7 +4606,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-woodpecker"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -4622,7 +4622,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-push-relay"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4644,7 +4644,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-web"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5540,7 +5540,7 @@ checksum = "7bd22781911de0ca6debda95f073c8f18bec65d1a94f1fa9573f3102e514cea4"
 dependencies = [
  "ahash",
  "annotate-snippets",
- "base64 0.22.1",
+ "base64 0.21.7",
  "encoding_rs_io",
  "getrandom 0.3.4",
  "granit-parser 0.0.7",
@@ -5558,7 +5558,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f4dc2714fc5632417a6e979602d7044bad8f2880c63fc7217087180acec31b6"
 dependencies = [
  "annotate-snippets",
- "base64 0.23.1",
+ "base64 0.21.7",
  "encoding_rs_io",
  "granit-parser 2.1.0",
  "nohash-hasher",
@@ -6659,7 +6659,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-pipedash-native"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -6670,7 +6670,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-pipedash-push"
-version = "0.10.0"
+version = "0.12.0"
 dependencies = [
  "serde",
  "tauri",

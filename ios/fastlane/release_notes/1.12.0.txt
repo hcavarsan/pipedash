@@ -1,0 +1,7 @@
+- Monitor CircleCI, Woodpecker CI and Coolify alongside your other providers.
+- Run history loads past the first thousand runs.
+- Cancel queued Azure DevOps runs from run history.
+- Gitea runs stay visible when the server limits page size.
+- FluxCD runs stay in history after reconciliation.
+- Metrics include runs that finish after the first load.
+- The config editor accepts environment references.
