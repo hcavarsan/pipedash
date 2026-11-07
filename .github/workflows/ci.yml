@@ -154,6 +154,9 @@ jobs:
             os_name: windows
             rust_target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write # Codecov OIDC upload, no long-lived CODECOV_TOKEN
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -195,9 +198,34 @@ jobs:
       - name: Run Clippy
         run: mise run lint:back
 
+      - name: Install cargo-llvm-cov and nextest
+        if: matrix.os_name != 'linux'
+        uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-llvm-cov,cargo-nextest
+
       - name: Run tests
         if: matrix.os_name != 'linux'
-        run: mise run test:back
+        run: cargo llvm-cov nextest --workspace --all-features --profile ci --lcov --output-path lcov.info
+
+      - name: Upload coverage
+        if: matrix.os_name != 'linux'
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: ${{ !github.event.pull_request.head.repo.fork }}
+          files: lcov.info
+          flags: backend
+          slug: hcavarsan/pipedash
+
+      - name: Upload test results
+        if: ${{ matrix.os_name != 'linux' && !cancelled() }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: ${{ !github.event.pull_request.head.repo.fork }}
+          files: target/nextest/ci/junit.xml
+          flags: backend
+          slug: hcavarsan/pipedash
+          report_type: test_results
 
   rust-test:
     name: Tests

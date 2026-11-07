@@ -10,6 +10,13 @@ coverage:
 comment:
   layout: "header, diff, flags, components"
 
+ignore:
+  - "crates/**/test_*.rs"
+  - "crates/**/testing.rs"
+  - "crates/pipedash-desktop/src/push/stub.rs"
+  - "src/testing/**"
+  - "src/**/fixtures/**"
+
 component_management:
   default_rules:
     statuses:
@@ -18,120 +25,36 @@ component_management:
         threshold: 50%
 
   individual_components:
-    - component_id: pipedash-core
-      name: pipedash-core
+    - component_id: core
+      name: core
       paths:
         - "crates/pipedash-core/**"
 
-    - component_id: pipedash-desktop
-      name: pipedash-desktop
-      paths:
-        - "crates/pipedash-desktop/**"
-
-    - component_id: pipedash-plugin-actions
-      name: pipedash-plugin-actions
-      paths:
-        - "crates/pipedash-plugin-actions/**"
-
-    - component_id: pipedash-plugin-api
-      name: pipedash-plugin-api
+    - component_id: plugin-api
+      name: plugin-api
       paths:
         - "crates/pipedash-plugin-api/**"
 
-    - component_id: pipedash-plugin-argocd
-      name: pipedash-plugin-argocd
+    - component_id: providers
+      name: providers
       paths:
-        - "crates/pipedash-plugin-argocd/**"
+        - "^crates/pipedash-plugin-(?!api/).*"
 
-    - component_id: pipedash-plugin-azure-devops
-      name: pipedash-plugin-azure-devops
+    - component_id: desktop
+      name: desktop
       paths:
-        - "crates/pipedash-plugin-azure-devops/**"
+        - "crates/pipedash-desktop/**"
+        - "crates/tauri-plugin-*/**"
 
-    - component_id: pipedash-plugin-bitbucket
-      name: pipedash-plugin-bitbucket
-      paths:
-        - "crates/pipedash-plugin-bitbucket/**"
-
-    - component_id: pipedash-plugin-buildkite
-      name: pipedash-plugin-buildkite
-      paths:
-        - "crates/pipedash-plugin-buildkite/**"
-
-    - component_id: pipedash-plugin-circleci
-      name: pipedash-plugin-circleci
-      paths:
-        - "crates/pipedash-plugin-circleci/**"
-
-    - component_id: pipedash-plugin-coolify
-      name: pipedash-plugin-coolify
-      paths:
-        - "crates/pipedash-plugin-coolify/**"
-
-    - component_id: pipedash-plugin-fluxcd
-      name: pipedash-plugin-fluxcd
-      paths:
-        - "crates/pipedash-plugin-fluxcd/**"
-
-    - component_id: pipedash-plugin-gitea
-      name: pipedash-plugin-gitea
-      paths:
-        - "crates/pipedash-plugin-gitea/**"
-
-    - component_id: pipedash-plugin-github
-      name: pipedash-plugin-github
-      paths:
-        - "crates/pipedash-plugin-github/**"
-
-    - component_id: pipedash-plugin-gitlab
-      name: pipedash-plugin-gitlab
-      paths:
-        - "crates/pipedash-plugin-gitlab/**"
-
-    - component_id: pipedash-plugin-jenkins
-      name: pipedash-plugin-jenkins
-      paths:
-        - "crates/pipedash-plugin-jenkins/**"
-
-    - component_id: pipedash-plugin-komodo
-      name: pipedash-plugin-komodo
-      paths:
-        - "crates/pipedash-plugin-komodo/**"
-
-    - component_id: pipedash-plugin-prow
-      name: pipedash-plugin-prow
-      paths:
-        - "crates/pipedash-plugin-prow/**"
-
-    - component_id: pipedash-plugin-tekton
-      name: pipedash-plugin-tekton
-      paths:
-        - "crates/pipedash-plugin-tekton/**"
-
-    - component_id: pipedash-plugin-woodpecker
-      name: pipedash-plugin-woodpecker
-      paths:
-        - "crates/pipedash-plugin-woodpecker/**"
-
-    - component_id: pipedash-push-relay
-      name: pipedash-push-relay
-      paths:
-        - "crates/pipedash-push-relay/**"
-
-    - component_id: pipedash-web
-      name: pipedash-web
+    - component_id: web
+      name: web
       paths:
         - "crates/pipedash-web/**"
 
-    - component_id: tauri-plugin-pipedash-native
-      name: tauri-plugin-pipedash-native
+    - component_id: push-relay
+      name: push-relay
       paths:
-        - "crates/tauri-plugin-pipedash-native/**"
-
-    - component_id: tauri-plugin-pipedash-push
-      name: tauri-plugin-pipedash-push
-      paths:
-        - "crates/tauri-plugin-pipedash-push/**"
+        - "crates/pipedash-push-relay/**"
 
     - component_id: frontend
       name: frontend
