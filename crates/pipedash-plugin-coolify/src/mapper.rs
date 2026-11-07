@@ -40,6 +40,7 @@ pub(crate) fn map_app_state(status: &str) -> (PipelineStatus, ResourceState) {
         ("running", _) => (PipelineStatus::Success, "Up"),
         ("degraded", _) => (PipelineStatus::Degraded, "Degraded"),
         ("restarting", _) => (PipelineStatus::Degraded, "Restarting"),
+        ("dead", _) => (PipelineStatus::Failed, "Dead"),
         ("starting", _) => (PipelineStatus::Running, "Starting"),
         ("exited", _) => (PipelineStatus::Cancelled, "Exited"),
         ("paused", _) => (PipelineStatus::Cancelled, "Paused"),
@@ -284,6 +285,9 @@ mod tests {
             ("running:unhealthy", PipelineStatus::Degraded, "Unhealthy"),
             ("degraded:unhealthy", PipelineStatus::Degraded, "Degraded"),
             ("restarting:unknown", PipelineStatus::Degraded, "Restarting"),
+            ("dead:unhealthy", PipelineStatus::Failed, "Dead"),
+            ("dead:unknown", PipelineStatus::Failed, "Dead"),
+            ("dead", PipelineStatus::Failed, "Dead"),
             ("starting:unknown", PipelineStatus::Running, "Starting"),
             ("exited:unhealthy", PipelineStatus::Cancelled, "Exited"),
             ("paused:unknown", PipelineStatus::Cancelled, "Paused"),
@@ -298,6 +302,16 @@ mod tests {
                 "{status}"
             );
         }
+    }
+
+    #[test]
+    fn dead_containers_fail_after_a_finished_deployment() {
+        let dead = app(json!({"uuid": "a", "name": "web", "status": "dead:unhealthy"}));
+        let pipeline = map_pipeline(&dead, 1, Some(&deployment(json!({}))));
+
+        assert_eq!(pipeline.status, PipelineStatus::Failed);
+        assert_eq!(pipeline.resource_state.unwrap().label, "Dead");
+        assert_eq!(pipeline.metadata["state"], json!("Dead"));
     }
 
     #[test]

@@ -310,14 +310,13 @@ impl PipelineService {
                 Some(previous)
                     if previous.status == pipeline.status
                         && previous.last_run == pipeline.last_run => {}
-                Some(_) => {
+                _ => {
                     changed_ids.push(pipeline.id.clone());
                     if !retains_run_history {
                         tracing::debug!(pipeline = %pipeline.name, "Pipeline changed, invalidating run cache");
                         self.invalidate_run_cache(&pipeline.id).await;
                     }
                 }
-                None => changed_ids.push(pipeline.id.clone()),
             }
         }
         let current: std::collections::HashSet<&str> = pipelines
@@ -2090,6 +2089,83 @@ mod tests {
         }
 
         assert_eq!(cached, [0, 1]);
+    }
+
+    #[tokio::test]
+    async fn reselected_pipelines_load_new_runs_without_clearing_history_manually() {
+        let h = Harness::new().await;
+        let (id, stub) = h
+            .add_stub(|id| {
+                let pipeline_id = format!("github__{id}__web");
+                StubProvider::new(id).with_runs(
+                    (1..=22)
+                        .rev()
+                        .map(|n| stub_run(&pipeline_id, n, 60))
+                        .collect(),
+                )
+            })
+            .await;
+        let pipeline_id = format!("github__{id}__web");
+        h.fetch_directly(id).await;
+        let cached_runs: Vec<_> = (1..=21)
+            .rev()
+            .map(|n| stub_run(&pipeline_id, n, 60))
+            .collect();
+        h.repository
+            .cache_run_history(&pipeline_id, &cached_runs)
+            .await
+            .unwrap();
+        let initial = h
+            .pipeline_service
+            .fetch_run_history_paginated(&pipeline_id, 1, 20)
+            .await
+            .unwrap();
+        assert_eq!(initial.runs[0].run_number, 21);
+        assert_eq!(initial.total_count, 21);
+
+        stub.set_pipelines(vec![pipeline(id, "api", PipelineStatus::Success)]);
+        h.fetch_directly(id).await;
+        assert_eq!(h.cached_names(id).await, ["api"]);
+        stub.set_pipelines(vec![
+            pipeline(id, "web", PipelineStatus::Success),
+            pipeline(id, "api", PipelineStatus::Success),
+        ]);
+        h.fetch_directly(id).await;
+
+        let restored = h
+            .pipeline_service
+            .fetch_run_history_paginated(&pipeline_id, 1, 20)
+            .await
+            .unwrap();
+        assert_eq!(restored.runs[0].run_number, 22);
+        assert_eq!(restored.total_count, 22);
+        h.pipeline_service.settle().await;
+    }
+
+    #[tokio::test]
+    async fn reappearing_pipelines_keep_retained_history() {
+        let h = Harness::new().await;
+        let (id, stub) = h
+            .add_stub(|id| StubProvider::new(id).retaining_run_history())
+            .await;
+        h.fetch_directly(id).await;
+        let pipeline_id = format!("github__{id}__web");
+        let retained = stub_run(&pipeline_id, 1, 60);
+        h.repository
+            .cache_run_history(&pipeline_id, std::slice::from_ref(&retained))
+            .await
+            .unwrap();
+        stub.set_pipelines(Vec::new());
+        h.fetch_directly(id).await;
+        stub.set_pipelines(vec![pipeline(id, "web", PipelineStatus::Success)]);
+        h.fetch_directly(id).await;
+
+        let history = h
+            .repository
+            .get_cached_run_history(&pipeline_id, 20)
+            .await
+            .unwrap();
+        assert_eq!(history, vec![retained]);
     }
 
     #[tokio::test]
