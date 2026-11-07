@@ -85,6 +85,7 @@ tauri-build.workspace = true
 [dev-dependencies]
 keyring-core = "1"
 tempfile.workspace = true
+tauri = { workspace = true, features = ["test"] }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

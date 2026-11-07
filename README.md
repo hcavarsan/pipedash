@@ -163,6 +163,8 @@ Choose a run from its history to watch that exact run. Pipedash watches 1 run at
 
 Turn on system notifications in Settings > Notifications. Desktop alerts and watch completion notices work without a visible window. The notification center keeps the latest 50 notices for the current session, including notices received while system notifications are off. Locking, changing storage, resetting or quitting clears that history. A watched failure and a general pipeline failure are separate notices.
 
+See alerts missed during a server disconnection in the desktop [notification center](https://pipedash.app/docs/features/notifications) after reconnecting.
+
 The operating system decides whether to display an alert. Do Not Disturb may suppress it. On Windows, install Pipedash for its notification identity. Open a Windows notification while its toast is visible. Action Center cannot reopen Pipedash after that toast disappears, so the app and native menu remain the navigation paths.
 
 ## Contributing

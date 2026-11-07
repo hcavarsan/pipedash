@@ -312,10 +312,6 @@ impl RemoteConnection {
         self.lock().saved.clone()
     }
 
-    fn alerts_seen(&self) -> Option<i64> {
-        self.lock().saved.alerts_seen
-    }
-
     fn update_saved(
         &self, dir: &Path, change: impl FnOnce(&mut SavedConnection) -> Result<bool, RemoteError>,
     ) -> Result<(), RemoteError> {

@@ -265,16 +265,49 @@ async fn plan_catch_up(
 }
 
 async fn take(
-    session: &Session, remote: &RemoteConnection, dir: &Path,
+    session: &Session, remote: &RemoteConnection, dir: &Path, record: impl FnOnce(&[HostAlert]),
 ) -> Result<CatchUp, RemoteError> {
-    take_pages(session, remote, dir, CATCH_UP_LIMIT, CATCH_UP_MAX_PAGES).await
+    take_pages(
+        session,
+        remote,
+        dir,
+        CATCH_UP_LIMIT,
+        CATCH_UP_MAX_PAGES,
+        record,
+    )
+    .await
 }
 
 async fn take_pages(
     session: &Session, remote: &RemoteConnection, dir: &Path, limit: u32, max_pages: usize,
+    record: impl FnOnce(&[HostAlert]),
 ) -> Result<CatchUp, RemoteError> {
     let _gate = session.alerts_gate().await;
-    let plan = plan_catch_up(session, remote.alerts_seen(), limit, max_pages).await?;
+    let (generation, seen) = {
+        let inner = remote.lock();
+        if !inner
+            .session
+            .as_ref()
+            .is_some_and(|current| std::ptr::eq(current.as_ref(), session))
+        {
+            return Err(RemoteError::NotConnected);
+        }
+        (inner.generation, inner.saved.alerts_seen)
+    };
+    let plan = plan_catch_up(session, seen, limit, max_pages).await?;
+    let _op = remote.op.lock().await;
+    {
+        let inner = remote.lock();
+        if inner.generation != generation
+            || !inner
+                .session
+                .as_ref()
+                .is_some_and(|current| std::ptr::eq(current.as_ref(), session))
+        {
+            return Err(RemoteError::NotConnected);
+        }
+    }
+    record(&plan.alerts);
     remote.move_alerts_seen(dir, plan.seen, plan.lower);
     if plan.complete {
         session.mark_alerts_synced();
@@ -284,14 +317,18 @@ async fn take_pages(
 }
 
 #[tauri::command]
-pub async fn take_missed_alerts(
-    app: AppHandle, remote: State<'_, RemoteConnection>,
+pub async fn take_missed_alerts<R: tauri::Runtime>(
+    app: AppHandle<R>, remote: State<'_, RemoteConnection>,
 ) -> Result<Vec<HostAlert>, ErrorResponse> {
     if !remote.is_client() {
         return Ok(Vec::new());
     }
     let session = remote.ready_session(session::CONNECT_TIMEOUT).await?;
-    let plan = take(&session, &remote, &app.state::<AppDataDir>().0).await?;
+    let plan = take(&session, &remote, &app.state::<AppDataDir>().0, |_alerts| {
+        #[cfg(desktop)]
+        crate::desktop::notifications::record_missed(&app, _alerts);
+    })
+    .await?;
     if plan.lower {
         local_notifications::reset_alert_host_seq(plan.seen).await;
     } else {
@@ -398,6 +435,188 @@ mod tests {
         session
     }
 
+    #[cfg(desktop)]
+    #[tokio::test]
+    async fn missed_alerts_reach_desktop_history_before_the_cursor_advances() {
+        use tauri::Listener;
+
+        use crate::desktop::notifications;
+
+        let host = start_host().await;
+        let alert_host = pair(&host).await;
+        let first = record(&host, "pipeline:1", AlertKind::Failed).await;
+        let second = record(&host, "pipeline:2", AlertKind::Recovered).await;
+        let dir = tempfile::tempdir().unwrap();
+        let remote = client_remote(Some(first));
+        store::write(dir.path(), &remote.saved()).unwrap();
+        let session = bridge(alert_host);
+        assert!(remote.attach(0, session));
+        let app = notifications::test_app(remote, dir.path());
+        let (published, mut snapshots) = mpsc::unbounded_channel();
+        let path = dir.path().to_path_buf();
+        app.listen("desktop-notifications-changed", move |event| {
+            let snapshot: Value = serde_json::from_str(event.payload()).unwrap();
+            published
+                .send((snapshot, store::read(&path).unwrap().alerts_seen))
+                .unwrap();
+        });
+
+        let taken = take_missed_alerts(app.handle().clone(), app.state())
+            .await
+            .unwrap();
+        let (published, seen_when_published) = snapshots.try_recv().unwrap();
+        let history = notifications::get_desktop_notifications(app.handle().clone());
+
+        assert_eq!(seen_when_published, Some(first));
+        assert_eq!(
+            app.state::<RemoteConnection>().lock().saved.alerts_seen,
+            Some(second)
+        );
+        assert_eq!(history.items.len(), 1);
+        assert_eq!(history.items[0].key, "pipeline:2");
+        assert_eq!(history.items[0].tone, "success");
+        assert!(!history.items[0].read);
+        assert_eq!(published["items"][0]["key"], "pipeline:2");
+        assert_eq!(published["items"][0]["read"], false);
+        assert_eq!(
+            history.items[0].at,
+            chrono::DateTime::parse_from_rfc3339(&taken[0].created_at)
+                .unwrap()
+                .timestamp_millis()
+        );
+    }
+
+    #[cfg(desktop)]
+    fn missed_alert(key: &str, at: i64, kind: &str) -> HostAlert {
+        HostAlert {
+            id: format!("{key}-{at}"),
+            seq: at,
+            key: key.to_string(),
+            kind: kind.to_string(),
+            tone: AlertKind::parse(kind).unwrap().tone().to_string(),
+            title: format!("{key} {kind}"),
+            body: "body".to_string(),
+            pipeline_id: Some("p".to_string()),
+            provider_id: Some(1),
+            provider_ids: Vec::new(),
+            finish: None,
+            created_at: chrono::DateTime::from_timestamp(1_700_000_000 + at, 0)
+                .unwrap()
+                .to_rfc3339(),
+        }
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn missed_alerts_keep_a_newer_live_recovery_and_its_read_state() {
+        use crate::desktop::notifications;
+
+        let dir = tempfile::tempdir().unwrap();
+        let app = notifications::test_app(client_remote(Some(0)), dir.path());
+        let newer = missed_alert("pipeline:p", 200, "recovered");
+        let live = serde_json::json!({
+            "at": newer.created_at, "key": newer.key, "kind": "recovered",
+            "title": newer.title, "body": newer.body, "provider_id": 1,
+            "provider_ids": [1], "pipeline_id": "p"
+        });
+        notifications::record_received(app.handle(), &live);
+        notifications::mark_read(app.handle(), Some("pipeline:p"));
+
+        notifications::record_missed(app.handle(), &[missed_alert("pipeline:p", 100, "failed")]);
+        let history = notifications::get_desktop_notifications(app.handle().clone());
+        assert_eq!(history.items[0].title, newer.title);
+        assert_eq!(history.items[0].tone, "success");
+        assert!(history.items[0].read);
+
+        notifications::record_missed(app.handle(), &[newer]);
+        let duplicate = notifications::get_desktop_notifications(app.handle().clone());
+        assert!(duplicate.items[0].read);
+        assert_eq!(duplicate.revision, history.revision);
+
+        notifications::record_missed(app.handle(), &[missed_alert("pipeline:p", 300, "failed")]);
+        let later = notifications::get_desktop_notifications(app.handle().clone());
+        assert_eq!(later.items[0].tone, "danger");
+        assert!(!later.items[0].read);
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn older_missed_alerts_do_not_evict_the_fifty_newest_notices() {
+        use crate::desktop::notifications;
+
+        let dir = tempfile::tempdir().unwrap();
+        let app = notifications::test_app(client_remote(Some(0)), dir.path());
+        let newer: Vec<_> = (100..150)
+            .map(|n| missed_alert(&format!("new:{n}"), n, "failed"))
+            .collect();
+        notifications::record_missed(app.handle(), &newer);
+        let older: Vec<_> = (0..50)
+            .map(|n| missed_alert(&format!("old:{n}"), n, "failed"))
+            .collect();
+        notifications::record_missed(app.handle(), &older);
+
+        let history = notifications::get_desktop_notifications(app.handle().clone());
+        assert_eq!(
+            history
+                .items
+                .iter()
+                .map(|notice| notice.key.clone())
+                .collect::<Vec<_>>(),
+            (100..150)
+                .rev()
+                .map(|n| format!("new:{n}"))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[cfg(desktop)]
+    #[tokio::test]
+    async fn changing_servers_discards_an_in_flight_catch_up() {
+        use crate::desktop::notifications;
+
+        let dir = tempfile::tempdir().unwrap();
+        let remote = client_remote(Some(0));
+        let (outgoing, mut requests) = mpsc::channel(1);
+        let session = Arc::new(Session::new("old host", outgoing));
+        assert!(remote.attach(0, Arc::clone(&session)));
+        let app = notifications::test_app(remote, dir.path());
+        let remote = app.state::<RemoteConnection>();
+        let taking = take_missed_alerts(app.handle().clone(), app.state());
+        let switching = async {
+            let Message::Text(request) = requests.recv().await.unwrap() else {
+                panic!("expected alert request")
+            };
+            let request: Value = serde_json::from_str(&request).unwrap();
+            {
+                let _op = remote.op.lock().await;
+                let mut next = remote.saved();
+                next.mode = SavedMode::Client {
+                    server_url: "http://127.0.0.1:2".to_string(),
+                    device_id: "d2".to_string(),
+                    host_kind: store::HostKind::Desktop,
+                    host_name: None,
+                };
+                next.alerts_seen = None;
+                remote.replace(next, None);
+            }
+            let response = serde_json::json!({"alerts": [missed_alert("old:p", 1, "failed")], "latest_seq": 1});
+            session.resolve(
+                request["id"].as_u64().unwrap(),
+                200,
+                serde_json::to_vec(&response).unwrap(),
+            );
+        };
+        let (taken, ()) = tokio::join!(taking, switching);
+
+        assert!(taken.is_err());
+        assert_eq!(remote.lock().saved.alerts_seen, None);
+        assert!(
+            notifications::get_desktop_notifications(app.handle().clone())
+                .items
+                .is_empty()
+        );
+    }
+
     #[tokio::test]
     async fn fetch_returns_the_alerts_after_a_cursor() {
         let host = start_host().await;
@@ -485,14 +704,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let remote = client_remote(Some(first));
         let session = bridge(alert_host);
+        assert!(remote.attach(0, Arc::clone(&session)));
 
-        let taken = take(&session, &remote, dir.path()).await.unwrap();
+        let taken = take(&session, &remote, dir.path(), |_| {}).await.unwrap();
 
         assert_eq!(taken.alerts.len(), 105);
         assert_eq!(taken.alerts[0].seq, first + 1);
         assert_eq!(taken.alerts[104].seq, first + 105);
         assert!(taken.complete);
-        assert_eq!(remote.alerts_seen(), Some(first + 105));
+        assert_eq!(remote.lock().saved.alerts_seen, Some(first + 105));
         assert!(session.alerts_synced());
     }
 
@@ -507,23 +727,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let remote = client_remote(Some(first));
         let session = bridge(alert_host);
+        assert!(remote.attach(0, Arc::clone(&session)));
 
-        let taken = take_pages(&session, &remote, dir.path(), 3, 2)
+        let taken = take_pages(&session, &remote, dir.path(), 3, 2, |_| {})
             .await
             .unwrap();
         assert_eq!(taken.alerts.len(), 6);
         assert!(!taken.complete);
-        assert_eq!(remote.alerts_seen(), Some(first + 6));
+        assert_eq!(remote.lock().saved.alerts_seen, Some(first + 6));
         assert!(!session.alerts_synced());
         advance_live(&session, &remote, dir.path(), first + 7);
-        assert_eq!(remote.alerts_seen(), Some(first + 6));
+        assert_eq!(remote.lock().saved.alerts_seen, Some(first + 6));
 
-        let rest = take_pages(&session, &remote, dir.path(), 3, 2)
+        let rest = take_pages(&session, &remote, dir.path(), 3, 2, |_| {})
             .await
             .unwrap();
         assert_eq!(rest.alerts.len(), 1);
         assert!(rest.complete);
-        assert_eq!(remote.alerts_seen(), Some(first + 7));
+        assert_eq!(remote.lock().saved.alerts_seen, Some(first + 7));
         assert!(session.alerts_synced());
     }
 
@@ -552,26 +773,27 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let remote = client_remote(Some(first));
         let session = bridge(alert_host.clone());
+        assert!(remote.attach(0, Arc::clone(&session)));
 
         advance_live(&session, &remote, dir.path(), second);
-        assert_eq!(remote.alerts_seen(), Some(first));
+        assert_eq!(remote.lock().saved.alerts_seen, Some(first));
 
-        let taken = take(&session, &remote, dir.path()).await.unwrap();
+        let taken = take(&session, &remote, dir.path(), |_| {}).await.unwrap();
         assert_eq!(
             taken.alerts.iter().map(|a| a.seq).collect::<Vec<_>>(),
             [second]
         );
-        assert_eq!(remote.alerts_seen(), Some(second));
+        assert_eq!(remote.lock().saved.alerts_seen, Some(second));
         assert!(session.alerts_synced());
 
         let third = record(&host, "pipeline:3", AlertKind::Failed).await;
         advance_live(&session, &remote, dir.path(), third);
-        assert_eq!(remote.alerts_seen(), Some(third));
+        assert_eq!(remote.lock().saved.alerts_seen, Some(third));
 
         let reconnected = bridge(alert_host);
         assert!(!reconnected.alerts_synced());
         advance_live(&reconnected, &remote, dir.path(), third + 5);
-        assert_eq!(remote.alerts_seen(), Some(third));
+        assert_eq!(remote.lock().saved.alerts_seen, Some(third));
     }
 
     #[tokio::test]
@@ -583,10 +805,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let remote = client_remote(Some(first));
         let session = bridge(alert_host);
+        assert!(remote.attach(0, Arc::clone(&session)));
 
         let (a, b) = tokio::join!(
-            take(&session, &remote, dir.path()),
-            take(&session, &remote, dir.path())
+            take(&session, &remote, dir.path(), |_| {}),
+            take(&session, &remote, dir.path(), |_| {})
         );
 
         assert_eq!(a.unwrap().alerts.len() + b.unwrap().alerts.len(), 1);
@@ -600,11 +823,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let remote = client_remote(None);
         let session = bridge(alert_host);
+        assert!(remote.attach(0, Arc::clone(&session)));
 
-        let taken = take(&session, &remote, dir.path()).await.unwrap();
+        let taken = take(&session, &remote, dir.path(), |_| {}).await.unwrap();
 
         assert!(taken.alerts.is_empty());
-        assert_eq!(remote.alerts_seen(), Some(latest));
+        assert_eq!(remote.lock().saved.alerts_seen, Some(latest));
     }
 
     #[tokio::test]
