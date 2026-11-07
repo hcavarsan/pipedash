@@ -1184,6 +1184,7 @@ mod tests {
 
     #[tokio::test]
     async fn initialize_requires_a_token() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let mut plugin = CoolifyPlugin::new();
 
         let error = plugin
