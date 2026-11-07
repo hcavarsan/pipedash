@@ -119,7 +119,7 @@ See dead [Coolify](https://pipedash.app/docs/providers) containers as failed wit
 - Reselect a pipeline to load its latest [run history](https://pipedash.app/docs/features/run-history) without clearing the cache manually.
 - Read, search and download [job logs](https://pipedash.app/docs/features/run-logs) without leaving Pipedash.
 - Choose a Tekton sidecar under its task to read its [logs](https://pipedash.app/docs/features/run-logs) separately on desktop and web.
-- Downloaded Tekton [task logs](https://pipedash.app/docs/features/run-logs) stay available after upgrades when TaskRuns disappear.
+- Downloaded Tekton [task logs](https://pipedash.app/docs/features/run-logs) stay available after upgrades when TaskRuns disappear or their listing fails.
 - Open an ArgoCD sync to read its per-resource results, the app's recent events and the last 1000 lines of each pod container. A restarted container also shows its previous attempt. Pod logs need the `logs, get` permission in ArgoCD RBAC.
 - Sign in to ArgoCD with its SSO (bundled Dex or an external OIDC provider), or to a Prow Deck behind any OpenID Connect provider, instead of pasting a token. Pipedash renews the session before it expires and asks you to sign in again when the identity provider ends it. In the self-hosted web app, you paste the address of the page the browser opens after sign-in, unless Pipedash runs on the same machine as the browser.
 - Monitor a public Prow Deck without credentials through its [read-only connection](https://pipedash.app/docs/providers/prow).

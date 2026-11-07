@@ -186,6 +186,7 @@ pub(crate) struct StubProvider {
     pub(crate) log_nodes: Mutex<Vec<LogNode>>,
     pub(crate) log_chunks: Mutex<Vec<Bytes>>,
     pub(crate) log_failure: Mutex<Option<DomainError>>,
+    pub(crate) log_nodes_failure: Mutex<Option<DomainError>>,
     pub(crate) log_gate: Option<Arc<Gate>>,
     pub(crate) log_nodes_gate: Option<Arc<Gate>>,
     pub(crate) log_reads: AtomicUsize,
@@ -227,6 +228,7 @@ impl StubProvider {
             log_nodes: Mutex::new(Vec::new()),
             log_chunks: Mutex::new(Vec::new()),
             log_failure: Mutex::new(None),
+            log_nodes_failure: Mutex::new(None),
             log_gate: None,
             log_nodes_gate: None,
             log_reads: AtomicUsize::new(0),
@@ -503,6 +505,14 @@ impl Provider for StubProvider {
         self.log_node_fetches.fetch_add(1, Ordering::SeqCst);
         if let Some(gate) = &self.log_nodes_gate {
             gate.pass().await;
+        }
+        if let Some(failure) = self
+            .log_nodes_failure
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+        {
+            return Err(failure);
         }
         Ok(self.log_nodes.lock().unwrap().clone())
     }

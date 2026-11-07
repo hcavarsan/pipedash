@@ -466,6 +466,111 @@ async fn upgrading_a_tree_keeps_downloaded_logs_when_tasks_disappear() {
 }
 
 #[tokio::test]
+async fn failed_tree_upgrades_keep_downloaded_logs_and_retry() {
+    let f = Fixture::new(|mut stub| {
+        stub.log_tree_version = 1;
+        stub
+    })
+    .await;
+    let meta = f.ready_meta("1").await;
+    let mut legacy =
+        f.h.log_store
+            .read_tree(f.id, &f.pipeline_id, RUN)
+            .await
+            .unwrap();
+    legacy.log_tree_version = 0;
+    let epoch = f.h.log_store.epoch(f.id);
+    f.h.log_store
+        .write_tree(f.id, &f.pipeline_id, RUN, &legacy, epoch)
+        .await
+        .unwrap();
+    *f.stub
+        .log_nodes_failure
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = Some(DomainError::ProviderError(
+        "TaskRun listing denied".to_string(),
+    ));
+    let reopened = Arc::new(LogService::new(
+        Arc::clone(&f.h.log_store),
+        Arc::clone(&f.h.provider_service),
+        Arc::clone(&f.h.repository),
+        f.h.bus.clone(),
+    ));
+    let document = meta_of(
+        reopened
+            .open_document(&f.pipeline_id, RUN, "1", false)
+            .await
+            .unwrap(),
+    );
+    assert_eq!(document.revision, meta.revision);
+    let page = reopened
+        .read_lines(&f.pipeline_id, RUN, "1", document.revision, 0, 10, 4096)
+        .await
+        .unwrap();
+    assert_eq!(
+        page.lines
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>(),
+        ["line one", "line two"]
+    );
+    let saved =
+        f.h.log_store
+            .read_tree(f.id, &f.pipeline_id, RUN)
+            .await
+            .unwrap();
+    assert_eq!(saved.log_tree_version, 0);
+    assert_eq!(saved.tree, legacy.tree);
+
+    *f.stub
+        .log_nodes_failure
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = None;
+    f.stub
+        .log_nodes
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .push(log_node(
+            "1:sidecar:cache",
+            Some("1"),
+            LogNodeKind::Step,
+            PipelineStatus::Success,
+            Some(LogAvailability::Ready),
+        ));
+    let upgraded = reopened.run_log_tree(&f.pipeline_id, RUN).await.unwrap();
+    assert!(upgraded
+        .nodes
+        .iter()
+        .any(|node| node.id == "1:sidecar:cache"));
+    let saved =
+        f.h.log_store
+            .read_tree(f.id, &f.pipeline_id, RUN)
+            .await
+            .unwrap();
+    assert_eq!(saved.log_tree_version, 1);
+    assert_eq!(saved.tree, upgraded);
+}
+
+#[tokio::test]
+async fn a_failed_tree_fetch_without_a_saved_tree_returns_the_error() {
+    let f = Fixture::new(|mut stub| {
+        stub.log_tree_version = 1;
+        stub
+    })
+    .await;
+    *f.stub
+        .log_nodes_failure
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = Some(DomainError::ProviderError(
+        "TaskRun listing denied".to_string(),
+    ));
+    assert!(matches!(
+        f.svc().run_log_tree(&f.pipeline_id, RUN).await,
+        Err(DomainError::ProviderError(_))
+    ));
+}
+
+#[tokio::test]
 async fn upgrading_a_tree_does_not_restore_nodes_from_a_different_run_state() {
     for changed_status in [false, true] {
         let f = Fixture::new(|mut stub| {
@@ -499,6 +604,20 @@ async fn upgrading_a_tree_does_not_restore_nodes_from_a_different_run_state() {
             .unwrap();
         assert!(tree.nodes.is_empty());
         assert_eq!(tree.default_node_id, None);
+        f.h.log_store
+            .write_tree(f.id, &f.pipeline_id, RUN, &legacy, epoch)
+            .await
+            .unwrap();
+        *f.stub
+            .log_nodes_failure
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(DomainError::ProviderError(
+            "TaskRun listing denied".to_string(),
+        ));
+        assert!(matches!(
+            f.svc().build_tree(&lease, epoch, &f.pipeline_id, RUN).await,
+            Err(DomainError::ProviderError(_))
+        ));
     }
 }
 
