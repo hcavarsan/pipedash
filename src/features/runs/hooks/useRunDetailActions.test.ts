@@ -3,7 +3,7 @@ import { after, afterEach, mock, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, type ReactNode } from 'react'
-
+import { pipelineFixture } from '../../../testing/fixtures'
 import type { PipelineRun, TriggerParams } from '../../../types/domain'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
@@ -106,6 +106,22 @@ for (const scenario of [
     expected: { branch: 'release/2.0' },
   },
   { name: 'no known branch', inputs: undefined, branch: null, expected: {} },
+  ...[
+    { providerType: 'gitea', expected: { ref: 'release/1.0' } },
+    { providerType: 'bitbucket', expected: { ref: 'release/1.0' } },
+    { providerType: 'buildkite', expected: { branch: 'release/1.0' } },
+    { providerType: 'azure-devops', expected: { 'source-branch': 'release/1.0' } },
+    { providerType: 'woodpecker', expected: { branch: 'release/1.0' } },
+    { providerType: 'jenkins', expected: {} },
+    { providerType: 'unknown', expected: {} },
+  ].map((scenario) => ({ ...scenario, name: scenario.providerType, inputs: undefined, branch: 'release/1.0' })),
+  {
+    name: 'an explicit Azure branch',
+    providerType: 'azure-devops',
+    inputs: { 'source-branch': 'release/2.0' },
+    branch: 'release/1.0',
+    expected: { 'source-branch': 'release/2.0' },
+  },
 ]) {
   test(`rerunning with ${scenario.name} preserves the intended branch`, async () => {
     const requests: TriggerParams[] = []
@@ -124,7 +140,9 @@ for (const scenario of [
         useRunDetailActions({
           pipelineId: run.pipeline_id,
           runNumber: run.run_number,
-          pipeline: undefined,
+          pipeline: pipelineFixture({
+            provider_type: 'providerType' in scenario ? scenario.providerType : 'gitlab',
+          }),
           run: { ...run, branch: scenario.branch, ...(inputs ? { inputs } : {}) },
           rerunInPlace: false,
           onClose: () => undefined,

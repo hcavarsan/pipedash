@@ -4,6 +4,15 @@ import type { Pipeline, PipelineRun } from '../../../types/domain'
 import type { RerunMode } from '../../../utils/rerunSummary'
 import { useRerunWorkflow } from '../queries/useRunDetailsQuery'
 
+const branchInputs: Partial<Record<string, string>> = {
+  gitlab: 'ref',
+  bitbucket: 'ref',
+  gitea: 'ref',
+  buildkite: 'branch',
+  'azure-devops': 'source-branch',
+  woodpecker: 'branch',
+}
+
 interface UseRunDetailActionsOptions {
   pipelineId: string
   runNumber: number
@@ -57,9 +66,10 @@ export function useRunDetailActions({
       }
 
       const existingInputs = run.inputs ?? {}
+      const branchInput = branchInputs[pipeline?.provider_type ?? '']
       const inputs =
-        run.branch && !existingInputs.branch && !existingInputs.ref
-          ? { ...existingInputs, ref: run.branch }
+        run.branch && branchInput && !existingInputs[branchInput] && !existingInputs.branch && !existingInputs.ref
+          ? { ...existingInputs, [branchInput]: run.branch }
           : existingInputs
       const result = await rerunMutation.mutateAsync({ pipelineId, inputs })
 
