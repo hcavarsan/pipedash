@@ -176,27 +176,31 @@ test('follows the next page while the last one had unfinished runs and has_more'
   )
 })
 
-test('stops after a page without unfinished runs even when more pages exist', async () => {
-  const calls: string[] = []
-  const fetchPage = pagesFor(
-    {
-      a: [
-        pageOf([run(5), run(4, { status: 'success' })], true),
-        pageOf([run(3, { status: 'success' })], true),
-        pageOf([run(2, { status: 'running' })], false),
-      ],
-    },
-    calls
-  )
+for (const status of ['running', 'pending'] as const) {
+  test(`finds an older ${status} run beyond completed-only pages`, async () => {
+    const calls: string[] = []
+    const fetchPage = pagesFor(
+      {
+        a: [
+          pageOf([run(6, { status: 'success' })], true),
+          pageOf([run(5), run(4, { status: 'success' })], true),
+          pageOf([run(3, { status: 'success' })], true),
+          pageOf([run(2, { status })], false),
+        ],
+      },
+      calls
+    )
 
-  const { runs } = await findUnfinishedRuns([pipeline('a')], fetchPage)
+    const { runs, failed } = await findUnfinishedRuns([pipeline('a', { status: 'success' })], fetchPage)
 
-  assert.deepEqual(calls, ['a:1', 'a:2'])
-  assert.deepEqual(
-    runs.a?.map((item) => item.run_number),
-    [5]
-  )
-})
+    assert.deepEqual(
+      runs.a?.map((item) => item.run_number),
+      [5, 2]
+    )
+    assert.deepEqual(calls, ['a:1', 'a:2', 'a:3', 'a:4'])
+    assert.deepEqual(failed, [])
+  })
+}
 
 test('pipelines without unfinished runs are omitted and failed fetches are recorded', async () => {
   const progress: number[] = []

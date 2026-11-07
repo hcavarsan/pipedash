@@ -63,7 +63,7 @@ export const findUnfinishedRuns = async (
           const unfinished = history.runs.filter((run) => isUnfinished(run.status))
 
           found.push(...unfinished)
-          more = history.has_more && unfinished.length > 0
+          more = history.has_more
         }
       } catch {
         result.failed.push(pipeline)
