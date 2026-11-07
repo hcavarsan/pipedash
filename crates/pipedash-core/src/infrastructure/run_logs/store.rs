@@ -165,6 +165,8 @@ impl StoredDocMeta {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoredTree {
+    #[serde(default)]
+    pub log_tree_version: u32,
     pub run_status: PipelineStatus,
     pub run_concluded_at: Option<DateTime<Utc>>,
     pub tree: RunLogTree,
@@ -1627,6 +1629,7 @@ mod tests {
         let key = doc_key();
         let store = LogStore::open(root(&dir), u64::MAX).await.expect("open");
         let tree = StoredTree {
+            log_tree_version: 0,
             run_status: PipelineStatus::Success,
             run_concluded_at: None,
             tree: RunLogTree {
