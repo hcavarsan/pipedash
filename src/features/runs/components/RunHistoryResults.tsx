@@ -142,7 +142,7 @@ export function RunHistoryResults({
   return (
     <>
       <RunHistoryTable data={data} columns={columns} selection={selection} />
-      {data.hasMore && data.runs.length < data.pageSize && (
+      {data.hasMore && (
         <Group justify="center" mt="sm">
           <Button type="button" variant="default" size="sm" loading={data.isFetchingMore} onClick={data.fetchMore}>
             Search older {labels.runs}

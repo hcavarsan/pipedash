@@ -59,6 +59,7 @@ pub struct RunHistoryPage {
     pub runs: Vec<PipelineRun>,
     pub total_count: usize,
     pub has_more: bool,
+    pub can_scan_deeper: bool,
     pub is_complete: bool,
     pub page: usize,
     pub page_size: usize,

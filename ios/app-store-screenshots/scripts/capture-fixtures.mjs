@@ -313,7 +313,7 @@ function mockPost(path, body) {
   if (!pipeline) throw new Error(`Unexpected API request: POST ${path}`)
   if (target[2] === 'trigger/prepare') return triggerDraft(pipeline, body)
   const runs = runsFor(pipeline)
-  return { runs, total_count: runs.length, has_more: false, is_complete: true, page: 1, page_size: 20, total_pages: 1, branches: ['main'], actors: ['alex', 'jordan', 'sam'] }
+  return { runs, total_count: runs.length, has_more: false, can_scan_deeper: false, is_complete: true, page: 1, page_size: 20, total_pages: 1, branches: ['main'], actors: ['alex', 'jordan', 'sam'] }
 }
 export function mockResponse(method, url, body = null) {
   const path = decodeURIComponent(url.pathname.replace('/api/v1', ''))

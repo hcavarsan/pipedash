@@ -66,6 +66,7 @@ const historyOfSize = (size: number): RunHistoryPage => ({
   runs: [],
   total_count: size,
   has_more: false,
+  can_scan_deeper: false,
   is_complete: true,
   page: 1,
   page_size: size,

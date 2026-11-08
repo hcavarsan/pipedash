@@ -16,6 +16,7 @@ use crate::domain::{
     Pipeline,
     PipelineRun,
     PipelineStatus,
+    RunHistoryPage,
     RunHistoryQuery,
     RunTarget,
     SkippedPipeline,
@@ -43,6 +44,19 @@ fn unique<T: Clone + std::hash::Hash + Eq>(items: impl IntoIterator<Item = T>) -
 
 fn is_unfinished(status: &PipelineStatus) -> bool {
     matches!(status, PipelineStatus::Running | PipelineStatus::Pending)
+}
+
+fn next_scan(history: &RunHistoryPage, page: usize, scan_depth: usize) -> Option<(usize, usize)> {
+    if history.has_more {
+        return Some((page + 1, scan_depth));
+    }
+    if !history.can_scan_deeper {
+        return None;
+    }
+    if history.runs.len() < history.page_size {
+        return Some((page, scan_depth + 1));
+    }
+    Some((page + 1, scan_depth + 1))
 }
 
 impl PipelineService {
@@ -148,11 +162,13 @@ impl PipelineService {
 
     async fn unfinished_runs(&self, pipeline: &Pipeline) -> (Vec<PipelineRun>, bool) {
         let mut runs = Vec::new();
-        for page in 1.. {
+        let (mut page, mut scan_depth) = (1, 1);
+        loop {
             let query = RunHistoryQuery {
                 page,
                 page_size: SCAN_PAGE_SIZE,
                 statuses: vec![PipelineStatus::Running, PipelineStatus::Pending],
+                scan_depth,
                 ..RunHistoryQuery::default()
             };
             let history = match self.run_history_page(pipeline, &query).await {
@@ -162,10 +178,17 @@ impl PipelineService {
                     return (runs, false);
                 }
             };
-            runs.extend(history.runs);
-            if !history.has_more {
-                break;
+            let (next_page, next_depth) = match next_scan(&history, page, scan_depth) {
+                Some(next) => next,
+                None => {
+                    runs.extend(history.runs);
+                    break;
+                }
+            };
+            if next_page > page {
+                runs.extend(history.runs);
             }
+            (page, scan_depth) = (next_page, next_depth);
         }
 
         if let Err(error) = self.presenter.runs(pipeline, &mut runs).await {

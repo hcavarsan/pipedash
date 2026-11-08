@@ -116,7 +116,8 @@ impl PipelineService {
                 .take(query.page_size)
                 .collect(),
             total_count,
-            has_more: end < total_count || (capped && !exhausted),
+            has_more: end < total_count,
+            can_scan_deeper: capped && !exhausted,
             is_complete: exhausted,
             page: query.page,
             page_size: query.page_size,

@@ -156,6 +156,50 @@ async fn cancellation_targets_should_find_old_runs_beyond_the_first_pages() {
 }
 
 #[tokio::test]
+async fn cancellation_targets_should_find_an_active_run_past_the_first_scan_budget() {
+    let h = Harness::new().await;
+    let (provider_id, _) = h
+        .add_stub(|id| {
+            let pipeline_id = format!("stub__{id}__deep");
+            StubProvider::new(id).with_runs(
+                (1..=1_200)
+                    .rev()
+                    .map(|number| {
+                        let status = if number == 700 {
+                            PipelineStatus::Running
+                        } else {
+                            PipelineStatus::Success
+                        };
+                        run_as(&pipeline_id, number, status)
+                    })
+                    .collect(),
+            )
+        })
+        .await;
+    let deep = pipeline(provider_id, "deep", PipelineStatus::Running);
+    h.repository
+        .update_pipelines_cache(provider_id, std::slice::from_ref(&deep))
+        .await
+        .unwrap();
+
+    let targets = h
+        .pipeline_service
+        .cancellation_targets(vec![deep.id.clone()])
+        .await
+        .unwrap();
+
+    assert!(targets.failed_pipeline_ids.is_empty());
+    assert_eq!(targets.groups.len(), 1);
+    let numbers: Vec<i64> = targets.groups[0]
+        .runs
+        .iter()
+        .map(|run| run.run_number)
+        .collect();
+    assert_eq!(numbers, [700]);
+    h.pipeline_service.settle().await;
+}
+
+#[tokio::test]
 async fn cancellation_targets_should_report_unreadable_pipelines() {
     let h = Harness::new().await;
 

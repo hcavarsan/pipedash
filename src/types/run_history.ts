@@ -19,6 +19,7 @@ export interface RunHistoryPage {
   runs: PipelineRun[]
   total_count: number
   has_more: boolean
+  can_scan_deeper: boolean
   is_complete: boolean
   page: number
   page_size: number

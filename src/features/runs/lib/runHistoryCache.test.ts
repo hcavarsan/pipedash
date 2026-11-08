@@ -30,6 +30,7 @@ const page = (...runs: PipelineRun[]): RunHistoryPage => ({
   runs,
   total_count: runs.length,
   has_more: false,
+  can_scan_deeper: false,
   is_complete: true,
   page: 1,
   page_size: 20,

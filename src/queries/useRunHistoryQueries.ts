@@ -11,6 +11,11 @@ import {
 import { confirmBody } from '../components/common/ActionTargetRows'
 import { cancelTargetRows } from '../features/runs/lib/cancelTargetRows'
 import { invalidateRunHistory } from '../features/runs/lib/runHistoryCache'
+import {
+  FIRST_RUN_HISTORY_PAGE,
+  nextRunHistoryPage,
+  type RunHistoryPageParam,
+} from '../features/runs/lib/runHistoryPaging'
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { notifications } from '../lib/notifications'
 import { queryKeys } from '../lib/queryKeys'
@@ -41,13 +46,14 @@ export function useRunHistory(
 
 export function useRunHistoryInfinite(
   pipelineId: string,
-  query: Omit<RunHistoryQuery, 'page'>
-): UseInfiniteQueryResult<InfiniteData<RunHistoryPage, number>, Error> {
+  query: Omit<RunHistoryQuery, 'page' | 'scan_depth'>
+): UseInfiniteQueryResult<InfiniteData<RunHistoryPage, RunHistoryPageParam>, Error> {
   return useInfiniteQuery({
     queryKey: queryKeys.runs.infinite(pipelineId, query),
-    queryFn: ({ pageParam }) => service.fetchRunHistory(pipelineId, { ...query, page: pageParam }),
-    initialPageParam: 1,
-    getNextPageParam: (lastPage, _pages, lastPageParam) => (lastPage.has_more ? lastPageParam + 1 : undefined),
+    queryFn: ({ pageParam }) =>
+      service.fetchRunHistory(pipelineId, { ...query, page: pageParam.page, scan_depth: pageParam.scanDepth }),
+    initialPageParam: FIRST_RUN_HISTORY_PAGE,
+    getNextPageParam: (lastPage, _pages, lastPageParam) => nextRunHistoryPage(lastPage, lastPageParam),
     staleTime: STALE_TIMES.FAST_CHANGING,
     gcTime: GC_TIMES.MEDIUM,
     enabled: !!pipelineId,

@@ -110,7 +110,7 @@ export function useRunHistoryPageData(pipeline: Pipeline | null): RunHistoryPage
     refetch: () => active.refetch(),
     totalCount: lastPage?.total_count ?? 0,
     isComplete: lastPage?.is_complete ?? false,
-    hasMore: lastPage?.has_more ?? false,
+    hasMore: isMobile ? infinite.hasNextPage : (lastPage?.can_scan_deeper ?? false),
     isFetchingMore: isMobile ? infinite.isFetchingNextPage : paged.isFetching,
     fetchMore: () => {
       if (!isMobile) {

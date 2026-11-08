@@ -271,7 +271,7 @@ async fn query_run_history_should_refresh_bounded_history_even_when_the_cache_fi
 }
 
 #[tokio::test]
-async fn query_run_history_should_offer_more_pages_when_a_filtered_scan_hits_its_budget() {
+async fn query_run_history_should_scan_deeper_on_the_same_page_instead_of_skipping_matches() {
     let h = Harness::new().await;
     let (provider_id, _) = h
         .add_stub(|id| {
@@ -280,7 +280,7 @@ async fn query_run_history_should_offer_more_pages_when_a_filtered_scan_hits_its
                 (1..=1_200)
                     .rev()
                     .map(|number| {
-                        let status = if number == 1 {
+                        let status = if number == 700 {
                             PipelineStatus::Failed
                         } else {
                             PipelineStatus::Success
@@ -296,37 +296,30 @@ async fn query_run_history_should_offer_more_pages_when_a_filtered_scan_hits_its
         .update_pipelines_cache(provider_id, std::slice::from_ref(&pipeline))
         .await
         .unwrap();
-    let failed = |page| RunHistoryQuery {
-        page,
-        page_size: 10,
+    let failed = |scan_depth| RunHistoryQuery {
         statuses: vec![PipelineStatus::Failed],
-        ..RunHistoryQuery::page(page, 10)
+        scan_depth,
+        ..RunHistoryQuery::page(1, 10)
     };
 
-    let first = h
+    let shallow = h
         .pipeline_service
         .query_run_history(&pipeline.id, failed(1))
         .await
         .unwrap();
-    assert_eq!(first.total_count, 0);
-    assert!(first.has_more);
-    assert!(!first.is_complete);
+    assert!(shallow.runs.is_empty());
+    assert!(!shallow.has_more);
+    assert!(shallow.can_scan_deeper);
+    assert!(!shallow.is_complete);
 
-    let mut page = 2;
-    let last = loop {
-        let next = h
-            .pipeline_service
-            .query_run_history(&pipeline.id, failed(page))
-            .await
-            .unwrap();
-        if !next.has_more {
-            break next;
-        }
-        page += 1;
-    };
-    assert!(last.is_complete);
-    assert_eq!(last.total_count, 1);
-
+    let deeper = h
+        .pipeline_service
+        .query_run_history(&pipeline.id, failed(2))
+        .await
+        .unwrap();
+    let numbers: Vec<i64> = deeper.runs.iter().map(|run| run.run_number).collect();
+    assert_eq!(numbers, [700]);
+    assert!(!deeper.has_more);
     h.pipeline_service.settle().await;
 }
 
