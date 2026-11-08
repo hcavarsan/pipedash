@@ -3,6 +3,7 @@ import { after, afterEach, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, type ReactNode } from 'react'
+import { pluginPresentationFixture } from '../testing/presentation'
 
 GlobalRegistrator.register({ url: 'http://127.0.0.1:8080/', width: 1400, height: 900 })
 
@@ -40,7 +41,12 @@ test('one failed trigger click sends the trigger request once', async (context) 
   const { result } = renderHook(() => useTriggerWorkflow(), { wrapper })
 
   await act(async () => {
-    await result.current.mutateAsync({ workflow_id: 'jenkins__1__deploy', inputs: {} }).catch(() => undefined)
+    await result.current
+      .mutateAsync({
+        params: { workflow_id: 'jenkins__1__deploy', inputs: {} },
+        copy: pluginPresentationFixture().trigger,
+      })
+      .catch(() => undefined)
   })
 
   assert.deepEqual(sent, ['POST /api/v1/pipelines/jenkins__1__deploy/trigger'])

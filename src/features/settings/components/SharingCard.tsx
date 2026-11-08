@@ -11,6 +11,24 @@ import {
   useSharingStatus,
 } from '@/features/connection/queries/useConnectionQueries'
 
+interface SharingRecoveryProps {
+  pending: boolean
+  onReset: () => void
+}
+
+function SharingRecovery({ pending, onReset }: SharingRecoveryProps): ReactNode {
+  return (
+    <>
+      <Button size="xs" variant="default" loading={pending} onClick={onReset}>
+        Use a new port
+      </Button>
+      <Text size="xs" c="dimmed">
+        Paired devices need to pair again.
+      </Text>
+    </>
+  )
+}
+
 export function SharingCard(): ReactNode {
   const { data: status, error, isLoading, isRefetching, refetch } = useSharingStatus({ enabled: true })
   const setSharing = useSetSharing()
@@ -26,6 +44,11 @@ export function SharingCard(): ReactNode {
       />
     )
   }
+
+  const recovery =
+    status?.errorCode === 'PORT_IN_USE' ? (
+      <SharingRecovery pending={resetPort.isPending} onReset={() => resetPort.mutate()} />
+    ) : null
 
   if (isLoading || !status) {
     return <LoadingState message="Loading sharing status" />
@@ -73,16 +96,7 @@ export function SharingCard(): ReactNode {
           <Alert color="orange" title="Couldn't share Pipedash" icon={<IconAlertTriangle size={16} aria-hidden />}>
             <Stack gap="xs" align="flex-start">
               <Text size="sm">{status.error}</Text>
-              {status.errorCode === 'PORT_IN_USE' && (
-                <>
-                  <Button size="xs" variant="default" loading={resetPort.isPending} onClick={() => resetPort.mutate()}>
-                    Use a new port
-                  </Button>
-                  <Text size="xs" c="dimmed">
-                    Paired devices need to pair again.
-                  </Text>
-                </>
-              )}
+              {recovery}
             </Stack>
           </Alert>
         )}

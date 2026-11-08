@@ -1,9 +1,9 @@
 import { useCallback, useMemo, useState } from 'react'
 import { confirmBody } from '../../../components/common/ActionTargetRows'
-import { useCancelRuns } from '../../../queries/useRunHistoryQueries'
-import type { Pipeline, PipelineRun } from '../../../types/domain'
-import { actionTarget } from '../../../utils/actionTarget'
+import type { Pipeline, PipelineRun } from '../../../types/pipelines'
 import { openConfirm } from '../../../utils/confirm'
+import { cancelTargetRows } from '../lib/cancelTargetRows'
+import { useCancelRuns } from '../queries/useCancelRuns'
 
 interface UseBulkCancelRunsOptions {
   pipeline: Pipeline | undefined
@@ -33,7 +33,7 @@ export function useBulkCancelRuns({
   const cancelRunsMutation = useCancelRuns()
 
   const isRunCancellable = useCallback(
-    (run: PipelineRun) => enabled && run.status === 'running' && cancellingRunNumber !== run.run_number,
+    (run: PipelineRun) => enabled && run.actions.cancel.allowed && cancellingRunNumber !== run.run_number,
     [enabled, cancellingRunNumber]
   )
 
@@ -65,12 +65,14 @@ export function useBulkCancelRuns({
       title: cancelLabel,
       children: confirmBody(
         `This cancels ${runNumbers.length === 1 ? 'run' : 'runs'} ${runNumbers.map((runNumber) => `#${runNumber}`).join(', ')}. You can't undo this.`,
-        actionTarget(pipeline, selectedRuns)
+        cancelTargetRows(pipeline, selectedRuns)
       ),
       labels: { confirm: cancelLabel, cancel: 'Keep running' },
       confirmProps: { color: 'red' },
       onConfirm: async () => {
-        await cancelRunsMutation.mutateAsync({ pipelineId, runNumbers })
+        await cancelRunsMutation.mutateAsync(
+          runNumbers.map((runNumber) => ({ pipeline_id: pipelineId, run_number: runNumber }))
+        )
         setSelectedRunNumbers([])
       },
     })

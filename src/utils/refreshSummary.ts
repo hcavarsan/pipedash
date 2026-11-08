@@ -1,4 +1,5 @@
-import type { FailureKind, ProviderSummary, RefreshResult } from '../types/domain'
+import type { FailureKind, RefreshResult } from '../types/health'
+import type { ProviderSummary } from '../types/providers'
 
 const FAILURE_LABELS: Record<FailureKind, string> = {
   network: "can't reach provider",

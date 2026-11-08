@@ -1,6 +1,6 @@
 import type { DataTableColumn } from 'mantine-datatable'
 import { useMemo } from 'react'
-import type { PipelineRun } from '../../../types/domain'
+import type { PipelineRun } from '../../../types/pipelines'
 import { useTableDefinition } from '../queries/useTableSchemaQueries'
 import { buildColumnsFromSchema, filterVisibleColumns } from '../utils/columnBuilder'
 

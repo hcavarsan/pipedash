@@ -3,7 +3,7 @@ name = "pipedash-plugin-fluxcd"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-description = "FluxCD plugin for Pipedash"
+description = "Monitor Flux Kustomizations and HelmReleases, inspect their status and history, and request reconciliation. Flux retains a limited history and groups repeated reconciliations. Connects with a kubeconfig file or pasted kubeconfig content."
 repository = "https://github.com/hcavarsan/pipedash"
 license = "GPL-3.0"
 
@@ -14,7 +14,7 @@ dirs.workspace = true
 futures.workspace = true
 http.workspace = true
 kube.workspace = true
-pipedash-plugin-api.workspace = true
+pipedash-plugin-api = { workspace = true, features = ["kubernetes"] }
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -23,5 +23,10 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-k8s-openapi.workspace = true
 tempfile.workspace = true
+
+[lints]
+workspace = true
+
+[package.metadata.pipedash]
+aliases = ["flux"]

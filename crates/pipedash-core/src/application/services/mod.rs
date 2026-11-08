@@ -1,8 +1,17 @@
+pub mod cache_service;
 pub mod device_alerts;
+pub mod device_service;
 pub mod health_service;
 pub mod log_service;
 pub mod metrics_service;
+pub mod notification_preferences;
 pub mod pipeline_service;
 pub mod pipeline_view_service;
+pub(crate) mod presenter;
+mod provider_commands;
 pub mod provider_service;
+pub mod push_service;
+pub mod session_service;
+pub mod setup_service;
 pub(crate) mod sign_in_service;
+pub mod storage_service;

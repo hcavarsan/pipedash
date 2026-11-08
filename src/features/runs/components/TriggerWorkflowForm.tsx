@@ -1,29 +1,21 @@
-import { Button, Checkbox, Group, Stack, Text } from '@mantine/core'
+import { Button, Checkbox, Group, Stack } from '@mantine/core'
 import { type ReactNode, useActionState, useId, useRef, useState } from 'react'
 import { ActionTargetRows } from '../../../components/common/ActionTargetRows'
-import { ErrorState } from '../../../components/common/ErrorState'
-import { LoadingState } from '../../../components/common/LoadingState'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { LiveStatus, useErrorAnnouncement } from '../../../components/forms/LiveStatus'
-import { IosGroup } from '../../../components/ios/IosList'
 import { useFormEnterNavigation } from '../../../hooks/useFormEnterNavigation'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
+import { usePlugins } from '../../../queries/usePluginsQueries'
+import { service } from '../../../services/service'
 import { useNotificationStore } from '../../../stores/notificationStore'
-import type { Pipeline, WorkflowParameter } from '../../../types/domain'
-import { actionTarget } from '../../../utils/actionTarget'
+import type { Pipeline, TriggerDraft, TriggerResult, WorkflowParameter } from '../../../types/pipelines'
 import { displayWarningNotification } from '../../../utils/errorDisplay'
 import { useFocusFirstInvalid } from '../../../utils/formFocus'
-import { getPipelineLabels, getTriggerBlockReason } from '../../../utils/pipelinePresentation'
-import {
-  buildInitialParamValues,
-  comparable,
-  type ParamValues,
-  paramError,
-  parseRunNumber,
-  triggerModalTitle,
-  validateParams,
-} from '../lib/triggerParams'
-import { useTriggerWorkflow, useWorkflowParameters } from '../queries/useWorkflowQueries'
+import { getPluginByType } from '../../../utils/pluginHelpers'
+import { changePreference } from '../../notifications/queries/changePreference'
+import { comparable, type ParamValues } from '../lib/triggerParams'
+import { usePreparedTrigger, useTriggerWorkflow } from '../queries/useWorkflowQueries'
+import { TriggerWorkflowBody } from './TriggerWorkflowBody'
 import { WorkflowParameterField } from './WorkflowParameterField'
 
 interface DraftState {
@@ -38,15 +30,10 @@ interface TriggerWorkflowFormProps {
   onClose: () => void
   pipeline: Pipeline
   onSuccess?: ((pipelineId: string, runNumber: number) => void) | undefined
-  initialInputs?: Record<string, unknown> | undefined
+  rerunOf?: number | undefined
 }
 
-export function TriggerWorkflowForm({
-  onClose,
-  pipeline,
-  onSuccess,
-  initialInputs,
-}: TriggerWorkflowFormProps): ReactNode {
+export function TriggerWorkflowForm({ onClose, pipeline, onSuccess, rerunOf }: TriggerWorkflowFormProps): ReactNode {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
   const formId = useId()
@@ -56,64 +43,74 @@ export function TriggerWorkflowForm({
   const [errors, setErrors] = useState<Record<string, string>>({})
   const announcement = useErrorAnnouncement(errors)
   const triggerMutation = useTriggerWorkflow()
+  const { data: plugins } = usePlugins()
+  const asyncTrigger = !!getPluginByType(plugins, pipeline.provider_type)?.capabilities.async_trigger
   const notifyTriggeredRuns = useNotificationStore((state) => state.notifyTriggeredRuns)
   const setNotifyTriggeredRuns = useNotificationStore((state) => state.setNotifyTriggeredRuns)
-  const watched = useNotificationStore((state) => state.preferences.watched_pipelines.includes(pipeline.id))
-  const labels = getPipelineLabels(pipeline.provider_type)
-  const isFlux = pipeline.provider_type === 'fluxcd'
-  const isRerun = initialInputs !== undefined
-  const blockedReason = getTriggerBlockReason(pipeline)
+  const watched = useNotificationStore((state) => state.pipelineStates[pipeline.id] === 'watching')
   const {
     data,
     error: fetchError,
     isFetching: refetchingParams,
     refetch: refetchParams,
-  } = useWorkflowParameters(pipeline.provider_id, pipeline.id)
+  } = usePreparedTrigger(pipeline.id, rerunOf)
   const [draft, setDraft] = useState<DraftState | null>(null)
 
   if (draft === null && data) {
-    const initial = buildInitialParamValues(data, initialInputs)
-
-    setDraft({ values: initial, baseline: initial })
+    setDraft({ values: data.values, baseline: data.values })
   }
 
-  const parameters = data ?? EMPTY_PARAMETERS
+  const copy = data?.copy
+  const blockedReason = data?.availability.reason ?? undefined
+  const parameters = data?.parameters ?? EMPTY_PARAMETERS
   const paramValues = draft?.values ?? EMPTY_VALUES
   const baseline = draft?.baseline ?? EMPTY_VALUES
 
   const [, formAction, isPending] = useActionState(async (): Promise<null> => {
-    const nextErrors = validateParams(parameters, paramValues)
+    if (!copy) {
+      return null
+    }
 
-    setErrors(nextErrors)
+    let checked: TriggerDraft
+    let result: TriggerResult
 
-    if (Object.keys(nextErrors).length > 0) {
+    try {
+      checked = await service.preparePipelineTrigger(pipeline.id, rerunOf ?? null, paramValues)
+    } catch {
+      return null
+    }
+
+    setErrors(checked.errors)
+
+    if (Object.keys(checked.errors).length > 0) {
       focusFirstInvalid()
 
       return null
     }
 
-    let result: string
-
     try {
       result = await triggerMutation.mutateAsync({
-        workflow_id: pipeline.id,
-        inputs: Object.keys(paramValues).length > 0 ? paramValues : undefined,
+        params: {
+          workflow_id: pipeline.id,
+          inputs: Object.keys(paramValues).length > 0 ? paramValues : undefined,
+        },
+        copy,
       })
     } catch {
       return null
     }
 
-    const runNumber = parseRunNumber(result)
+    const runNumber = result.run_number ?? 0
 
     onClose()
 
     if (notifyTriggeredRuns && !watched) {
-      useNotificationStore.getState().watchNextFinish(pipeline.id)
+      void changePreference({ type: 'watch_next_finish', pipeline_id: pipeline.id })
     }
 
     if (runNumber > 0) {
       onSuccess?.(pipeline.id, runNumber)
-    } else if (!isFlux) {
+    } else if (!asyncTrigger) {
       displayWarningNotification(
         'The workflow was triggered. Check the pipeline list for the new run.',
         'Run number not available yet'
@@ -124,10 +121,7 @@ export function TriggerWorkflowForm({
   }, null)
 
   const dirty = parameters.some((param) => comparable(paramValues[param.name]) !== comparable(baseline[param.name]))
-  const chosenBranch = comparable(paramValues.ref ?? paramValues.branch)
-  const target = actionTarget(pipeline, [{ branch: chosenBranch || pipeline.branch, inputs: paramValues }]).filter(
-    ({ label }) => mobileShell || label !== 'Pipeline'
-  )
+  const target = (data?.fields ?? []).filter(({ label }) => mobileShell || label !== 'Pipeline')
   const lastTextName = [...parameters]
     .reverse()
     .find((param) => param.type === 'string' || param.type === 'number')?.name
@@ -135,19 +129,11 @@ export function TriggerWorkflowForm({
   const changeValue = (param: WorkflowParameter, value: unknown) => {
     setDraft((current) => current && { ...current, values: { ...current.values, [param.name]: value } })
 
-    if (errors[param.name]) {
-      validateField(param, value)
-    }
-  }
-
-  const validateField = (param: WorkflowParameter, value: unknown) => {
-    const error = paramError(param, value)
-
-    setErrors(({ [param.name]: _removed, ...rest }) => (error ? { ...rest, [param.name]: error } : rest))
+    setErrors(({ [param.name]: _removed, ...rest }) => rest)
   }
 
   const triggerDisabled = !draft || !!fetchError || !!blockedReason
-  const submitLabel = isFlux ? labels.trigger : isRerun ? 'Rerun workflow' : 'Trigger workflow'
+  const submitLabel = copy?.label
 
   const footer = (close: () => void) => (
     <Group justify="flex-end" gap="sm" grow={isMobile}>
@@ -171,21 +157,23 @@ export function TriggerWorkflowForm({
       mobileShell={mobileShell}
       pending={isPending}
       onChange={(value) => changeValue(param, value)}
-      onBlur={() => validateField(param, paramValues[param.name])}
     />
   ))
+
+  const copyTitle = mobileShell ? copy?.label : `${copy?.title}: ${pipeline.name}`
+  const title = copy ? copyTitle : ''
 
   return (
     <StandardModal
       opened
       onClose={onClose}
       size="md"
-      title={triggerModalTitle(pipeline, mobileShell, isFlux, isRerun)}
+      title={title}
       loading={isPending}
       dirty={dirty}
       footer={footer}
       primaryAction={{
-        label: isFlux ? labels.trigger : isRerun ? 'Rerun' : 'Trigger',
+        label: copy?.compact_label ?? '',
         onClick: () => formRef.current?.requestSubmit(),
         loading: isPending,
         disabled: triggerDisabled,
@@ -195,38 +183,20 @@ export function TriggerWorkflowForm({
         <Stack mb="md">
           <ActionTargetRows rows={target} />
         </Stack>
-        {fetchError ? (
-          <ErrorState
-            title="Couldn't load workflow parameters"
-            error={fetchError}
-            hint="The workflow can't be triggered until its parameters load."
-            onRetry={() => {
-              refetchParams().catch(() => undefined)
-            }}
-            retrying={refetchingParams}
-          />
-        ) : !draft ? (
-          <LoadingState message="Loading workflow parameters..." />
-        ) : isFlux ? (
-          <Stack gap="sm">
-            <Text size="sm">
-              Reconcile this resource using its current configuration in the cluster. This does not roll back to a
-              previous revision.
-            </Text>
-            <Text size="sm" c={blockedReason ? 'orange' : 'dimmed'}>
-              {blockedReason ??
-                'Flux processes the request asynchronously. Its status and history update after the controller handles it.'}
-            </Text>
-          </Stack>
-        ) : parameters.length === 0 ? (
-          <Text size="sm" c="dimmed">
-            This workflow has no parameters. It runs with its defaults.
-          </Text>
-        ) : mobileShell ? (
-          <IosGroup>{fields}</IosGroup>
-        ) : (
-          <Stack gap={isMobile ? 'xs' : 'sm'}>{fields}</Stack>
-        )}
+        <TriggerWorkflowBody
+          fetchError={fetchError}
+          retrying={refetchingParams}
+          onRetry={() => {
+            refetchParams().catch(() => undefined)
+          }}
+          ready={!!draft}
+          blockedReason={blockedReason}
+          note={copy?.note}
+          parameterCount={parameters.length}
+          mobileShell={mobileShell}
+          isMobile={isMobile}
+          fields={fields}
+        />
         {draft && !fetchError && !watched && (
           <Checkbox
             mt="md"

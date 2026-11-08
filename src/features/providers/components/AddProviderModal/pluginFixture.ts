@@ -1,4 +1,5 @@
-import type { ConfigField, PluginMetadata } from '../../../../types/domain'
+import { pluginPresentationFixture } from '../../../../testing/presentation'
+import type { ConfigField, PluginMetadata } from '../../../../types/plugins'
 
 export function configFieldFixture(overrides: Partial<ConfigField> = {}): ConfigField {
   return {
@@ -18,30 +19,29 @@ export function configFieldFixture(overrides: Partial<ConfigField> = {}): Config
 
 export function pluginFixture(overrides: Partial<PluginMetadata> = {}): PluginMetadata {
   return {
-    name: 'GitHub',
-    provider_type: 'github',
+    name: 'Stub',
+    provider_type: 'stub',
     version: '1.0.0',
-    description: 'GitHub Actions',
+    description: 'Stub provider',
     author: null,
     icon: null,
     config_schema: { fields: [configFieldFixture()] },
     table_schema: { tables: [] },
     required_permissions: [{ name: 'repo', description: 'Read repositories', required: true }],
     features: [],
+    run_history: { bounded: false, order: 'run_number', tracks_overdue: true },
+    token_prefixes: [],
     capabilities: {
-      pipelines: true,
-      pipeline_runs: true,
       trigger: true,
       cancel: true,
       force_cancel: false,
-      agents: false,
-      artifacts: false,
-      queues: false,
-      custom_tables: false,
       retains_run_history: true,
       logs: false,
       sign_in: false,
+      uses_http_proxy: false,
+      async_trigger: false,
     },
+    presentation: pluginPresentationFixture(),
     ...overrides,
   }
 }

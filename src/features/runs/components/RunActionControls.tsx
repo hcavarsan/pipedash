@@ -2,7 +2,7 @@ import { ActionIcon, Group, Loader, Menu, Tooltip } from '@mantine/core'
 import { IconDots } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { ActionSheetCancel } from '../../../components/ios/ActionSheetCancel'
-import type { PipelineRun } from '../../../types/domain'
+import type { PipelineRun } from '../../../types/pipelines'
 import { useRunActionItems } from '../hooks/useRunActionItems'
 import { useRunActions } from './RunActionsContext'
 

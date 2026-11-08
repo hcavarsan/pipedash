@@ -1,20 +1,19 @@
-import { Box, Button, Group, Skeleton, Text, Tooltip } from '@mantine/core'
+import { Button, Group, Text, Tooltip } from '@mantine/core'
 import { IconAdjustments } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { StatusBadge } from '../../../components/atoms/StatusBadge'
 import { PageHeader } from '../../../components/common/PageHeader'
-import { triggerIcon } from '../../../components/common/PipelineRowParts'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
 import { STATUS_META } from '../../../theme/status'
-import type { Pipeline } from '../../../types/domain'
+import type { Pipeline } from '../../../types/pipelines'
 import { getPipelineStatusLabel } from '../../../utils/pipelinePresentation'
+import { triggerIcon } from '../../../utils/pipelineRowActions'
 import { PipelineNotifyMenu } from '../../notifications/components/PipelineNotifyMenu'
 import { useRunActions } from './RunActionsContext'
 
 interface RunHistoryHeaderProps {
-  pipeline: Pipeline | null
-  isLoadingPipeline: boolean
+  pipeline: Pipeline
   showCustomize: boolean
   customizationDisabled: boolean
   onBack: () => void
@@ -23,20 +22,11 @@ interface RunHistoryHeaderProps {
 
 function HeaderActions({
   pipeline,
-  isLoadingPipeline,
   showCustomize,
   customizationDisabled,
   onCustomize,
 }: Omit<RunHistoryHeaderProps, 'onBack'>): ReactNode {
   const { labels, openTrigger, triggerBlockedReason } = useRunActions()
-
-  if (isLoadingPipeline || !pipeline) {
-    return (
-      <Box style={{ minWidth: 'fit-content' }}>
-        <Skeleton height="2.25rem" width="10rem" />
-      </Box>
-    )
-  }
 
   return (
     <Group gap="sm" wrap="nowrap" style={{ minWidth: 'fit-content' }}>
@@ -68,18 +58,25 @@ function HeaderActions({
   )
 }
 
+function StateTitle({ pipeline }: { pipeline: Pipeline }): ReactNode {
+  return (
+    <Text component="span" fw={600} c={`var(--status-${STATUS_META[pipeline.status].tone})`}>
+      {getPipelineStatusLabel(pipeline) ?? STATUS_META[pipeline.status].label}
+    </Text>
+  )
+}
+
 export function RunHistoryHeader(props: RunHistoryHeaderProps): ReactNode {
-  const { pipeline, isLoadingPipeline, onBack } = props
+  const { pipeline, onBack } = props
+  const { presentation } = useRunActions()
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
-  const state = pipeline?.resource_state?.message ? pipeline : null
+  const state = pipeline.resource_state?.message ? pipeline : null
 
   return (
     <>
       <PageHeader
-        title={
-          !isLoadingPipeline && pipeline?.name ? pipeline.name : <Skeleton height="1.5rem" width="min(250px, 60vw)" />
-        }
+        title={pipeline.name}
         onBack={onBack}
         actions={
           mobileShell ? undefined : <HeaderActions {...props} showCustomize={props.showCustomize && !isMobile} />
@@ -87,14 +84,7 @@ export function RunHistoryHeader(props: RunHistoryHeaderProps): ReactNode {
       />
       {state && mobileShell && (
         <IosGroup>
-          <IosRow
-            title={
-              <Text component="span" fw={600} c={`var(--status-${STATUS_META[state.status].tone})`}>
-                {getPipelineStatusLabel(state) ?? STATUS_META[state.status].label}
-              </Text>
-            }
-            subtitle={state.resource_state?.message}
-          />
+          <IosRow title={<StateTitle pipeline={state} />} subtitle={state.resource_state?.message} />
         </IosGroup>
       )}
       {state && !mobileShell && (
@@ -105,10 +95,9 @@ export function RunHistoryHeader(props: RunHistoryHeaderProps): ReactNode {
           </Text>
         </Group>
       )}
-      {pipeline?.metadata?.history_scope === 'bounded_reconciliation' && (
+      {presentation.history_note && (
         <Text size={mobileShell ? 'xs' : 'sm'} c="dimmed" {...(mobileShell ? { px: 'md' } : { mb: 'sm' })}>
-          FluxCD retains a limited reconciliation history. Repeated reconciliations may be grouped, and older entries
-          may be unavailable.
+          {presentation.history_note}
         </Text>
       )}
     </>

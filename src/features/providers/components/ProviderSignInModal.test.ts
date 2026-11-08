@@ -4,7 +4,7 @@ import { after, afterEach, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, Fragment } from 'react'
 
-import type { SignInStart, SignInStatus } from '../../../types/domain'
+import type { SignInStart, SignInStatus } from '../../../types/providers'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 

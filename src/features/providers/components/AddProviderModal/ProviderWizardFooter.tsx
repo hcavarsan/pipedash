@@ -1,8 +1,6 @@
 import { Button, Group, Text } from '@mantine/core'
 import type { ReactNode } from 'react'
 
-import type { PipelineLabels } from '../../../../utils/pipelinePresentation'
-
 import type { Step } from './types'
 
 interface ProviderWizardFooterProps {
@@ -16,7 +14,7 @@ interface ProviderWizardFooterProps {
   providerNameValid: boolean
   selectedCount: number
   selectingAll: boolean
-  labels: PipelineLabels
+  items: string
   permissionRow: ReactNode
   isPending: boolean
   onBack: () => void
@@ -36,7 +34,7 @@ export function ProviderWizardFooter({
   providerNameValid,
   selectedCount,
   selectingAll,
-  labels,
+  items,
   permissionRow,
   isPending,
   onBack,
@@ -89,7 +87,7 @@ export function ProviderWizardFooter({
           {permissionRow}
           {selectionNeedsRefresh && (
             <Text size="xs" c="dimmed">
-              Select {labels.items} again after changing connection scope.
+              Select {items} again after changing connection scope.
             </Text>
           )}
         </Group>
@@ -119,12 +117,14 @@ export function ProviderWizardFooter({
             loading={isPending && !editMode}
             disabled={detailsBlocked || isPending}
           >
-            {isMobile ? 'Next' : `Next: select ${labels.items}`}
+            {isMobile ? 'Next' : `Next: select ${items}`}
           </Button>
         </Group>
       </Group>
     )
   }
+
+  const submitLabel = editMode ? 'Update' : 'Add'
 
   return (
     <Group justify="space-between">
@@ -139,7 +139,7 @@ export function ProviderWizardFooter({
       <Group gap="xs">
         {cancel}
         <Button size="sm" onClick={onSaveSelection} loading={isPending} disabled={selectedCount === 0 || selectingAll}>
-          {editMode ? (isMobile ? 'Update' : 'Update provider') : isMobile ? 'Add' : 'Add provider'}
+          {isMobile ? submitLabel : `${submitLabel} provider`}
         </Button>
       </Group>
     </Group>

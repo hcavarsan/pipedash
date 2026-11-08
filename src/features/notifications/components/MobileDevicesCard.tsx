@@ -5,10 +5,18 @@ import { LoadingState } from '../../../components/common/LoadingState'
 import { IosGroup } from '../../../components/ios/IosList'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useNow } from '../../../hooks/useNow'
+import type { MobileDevice } from '../../../types/notifications'
 import { formatRelativeTime } from '../../../utils/formatRelativeTime'
 import { useMobileDevices, useRemoveMobileDevice, useTestMobileDevice } from '../queries/usePushQueries'
 
 import { PushDeviceRow } from './PushDeviceRow'
+
+function pairingSubtitle(device: MobileDevice, now: number): string {
+  const lastPush = device.last_success_at
+    ? `last push ${formatRelativeTime(device.last_success_at, now)}`
+    : 'no push delivered yet'
+  return `Paired ${formatRelativeTime(device.created_at, now)} · ${lastPush}`
+}
 
 export function MobileDevicesCard(): ReactNode {
   const { data, isLoading, error, refetch, isRefetching } = useMobileDevices()
@@ -36,29 +44,27 @@ export function MobileDevicesCard(): ReactNode {
     return null
   }
 
+  const rows = data.subscriptions.map((device) => (
+    <PushDeviceRow
+      key={device.id}
+      title={device.device_name}
+      subtitle={pairingSubtitle(device, now)}
+      testLabel={`Send a test push to ${device.device_name}`}
+      removeLabel={`Remove ${device.device_name}`}
+      testing={sendTest.isPending && sendTest.variables === device.id}
+      removing={remove.isPending && remove.variables === device.id}
+      onTest={() => sendTest.mutate(device.id)}
+      onRemove={() => remove.mutate(device.id)}
+    />
+  ))
+
   if (mobileShell) {
     return (
       <IosGroup
         header="Older push pairings"
         footer="These iPhones and iPads use push pairing from an older Pipedash version. They get a push when a pipeline fails. Newer devices pair in Settings → Devices."
       >
-        {data.subscriptions.map((device) => (
-          <PushDeviceRow
-            key={device.id}
-            title={device.device_name}
-            subtitle={`Paired ${formatRelativeTime(device.created_at, now)} · ${
-              device.last_success_at
-                ? `last push ${formatRelativeTime(device.last_success_at, now)}`
-                : 'no push delivered yet'
-            }`}
-            testLabel={`Send a test push to ${device.device_name}`}
-            removeLabel={`Remove ${device.device_name}`}
-            testing={sendTest.isPending && sendTest.variables === device.id}
-            removing={remove.isPending && remove.variables === device.id}
-            onTest={() => sendTest.mutate(device.id)}
-            onRemove={() => remove.mutate(device.id)}
-          />
-        ))}
+        {rows}
       </IosGroup>
     )
   }
@@ -76,25 +82,7 @@ export function MobileDevicesCard(): ReactNode {
           </Text>
         </Stack>
 
-        <Stack gap="sm">
-          {data.subscriptions.map((device) => (
-            <PushDeviceRow
-              key={device.id}
-              title={device.device_name}
-              subtitle={`Paired ${formatRelativeTime(device.created_at, now)} · ${
-                device.last_success_at
-                  ? `last push ${formatRelativeTime(device.last_success_at, now)}`
-                  : 'no push delivered yet'
-              }`}
-              testLabel={`Send a test push to ${device.device_name}`}
-              removeLabel={`Remove ${device.device_name}`}
-              testing={sendTest.isPending && sendTest.variables === device.id}
-              removing={remove.isPending && remove.variables === device.id}
-              onTest={() => sendTest.mutate(device.id)}
-              onRemove={() => remove.mutate(device.id)}
-            />
-          ))}
-        </Stack>
+        <Stack gap="sm">{rows}</Stack>
       </Stack>
     </Card>
   )

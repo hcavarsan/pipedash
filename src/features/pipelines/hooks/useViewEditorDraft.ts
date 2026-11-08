@@ -1,5 +1,5 @@
 import { type Dispatch, type SetStateAction, useState } from 'react'
-import type { PipelineView, ViewDisplay, ViewMember, ViewRules } from '../../../types/domain'
+import type { PipelineView, ViewDisplay, ViewMember, ViewRules } from '../../../types/views'
 import { useViewMembers } from '../queries/usePipelineViewQueries'
 import type { ViewEditorState } from '../stores/pipelineViewStore'
 

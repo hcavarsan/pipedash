@@ -4,10 +4,10 @@ import { useNavigate } from 'react-router-dom'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useProviders } from '../../../queries/useProvidersQueries'
-import type { PipelineView, ViewLayout } from '../../../types/domain'
-import { eligibleViewParents, viewAncestors } from '../../../utils/viewTree'
+import type { PipelineView, ViewLayout } from '../../../types/views'
+import { viewAncestors } from '../../../utils/viewTree'
 import { TOP_LEVEL, useViewEditorDraft } from '../hooks/useViewEditorDraft'
-import { usePipelineViews } from '../queries/usePipelineViewQueries'
+import { usePipelineViews, useViewEditorOptions } from '../queries/usePipelineViewQueries'
 import { usePipelineViewStore } from '../stores/pipelineViewStore'
 import { ViewEditorForm } from './ViewEditorForm'
 import { ViewRulesFields } from './ViewRulesFields'
@@ -22,10 +22,11 @@ export function ViewEditorModal(): ReactNode {
   const { data: views = [] } = usePipelineViews()
   const { data: providers = [] } = useProviders()
   const view = editor.viewId === null ? undefined : views.find((g) => g.id === editor.viewId)
+  const { data: options } = useViewEditorOptions(editor.viewId, true)
   const draft = useViewEditorDraft({ editor, view, mobileShell })
   const parentOptions = [
     { value: TOP_LEVEL, label: 'Top level' },
-    ...eligibleViewParents(views, editor.viewId).map((v) => ({
+    ...(options?.eligible_parents ?? []).map((v) => ({
       value: v.id,
       label: [...viewAncestors(views, v.id), v].map((n) => n.name).join(' / '),
     })),

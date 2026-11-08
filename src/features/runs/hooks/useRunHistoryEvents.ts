@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useEffectEvent } from 'react'
 
 import { logger } from '../../../lib/logger'
-import { events } from '../../../services/service'
+import { listenEvent } from '../../../services/events'
 import { updateRunInHistory } from '../lib/runHistoryCache'
 import { useRunUpdatedEvent } from './useRunUpdatedEvent'
 
@@ -34,7 +34,7 @@ export function useRunHistoryEvents({ pipelineId, resetPage, refetch }: RunHisto
     const unlisteners: Array<() => void> = []
 
     const register = async (name: string, handler: () => void): Promise<void> => {
-      const unlisten = await events.listen<string>(name, (payload) => {
+      const unlisten = await listenEvent<string>(name, (payload) => {
         if (mounted && payload === pipelineId) {
           handler()
         }

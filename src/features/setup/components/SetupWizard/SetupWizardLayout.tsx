@@ -1,13 +1,14 @@
-import { Box, Stack, Stepper, Text } from '@mantine/core'
-import { IconCheck } from '@tabler/icons-react'
+import { Box, Stack } from '@mantine/core'
 import type { ReactNode, RefObject } from 'react'
 import { FillScrollArea } from '../../../../components/common/FillScrollArea'
-import { type ModalAction, StandardModal } from '../../../../components/common/StandardModal'
+import { StandardModal } from '../../../../components/common/StandardModal'
+import type { ModalAction } from '../../../../components/common/standardModalTypes'
 import { ErrorBoundary } from '../../../../components/ErrorBoundary/ErrorBoundary'
 import { StepRegion } from '../../../../components/forms/StepRegion'
-import { useIsMobile, useMobileShell } from '../../../../hooks/useIsMobile'
+import { useMobileShell } from '../../../../hooks/useIsMobile'
 
 import { Onboarding, StepHeader } from './Onboarding'
+import { SetupProgress } from './SetupProgress'
 
 export interface WizardStepper {
   steps: { label: string; icon: ReactNode }[]
@@ -61,7 +62,6 @@ export function SetupWizardLayout({
   onBack,
   children,
 }: SetupWizardLayoutProps): ReactNode {
-  const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
 
   const regionBody = region ? (
@@ -131,35 +131,7 @@ export function SetupWizardLayout({
       disableScrollArea
     >
       <Stack gap={0} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        {stepper && (
-          <Box
-            px="lg"
-            pt="md"
-            pb="md"
-            style={{
-              flexShrink: 0,
-              borderBottom: '1px solid var(--mantine-color-default-border)',
-            }}
-          >
-            <Stepper active={stepper.active} size="xs" iconSize={24}>
-              {stepper.steps.map((s) => (
-                <Stepper.Step
-                  key={s.label}
-                  label={isMobile ? undefined : s.label}
-                  aria-label={s.label}
-                  icon={s.icon}
-                  completedIcon={<IconCheck size={16} aria-hidden />}
-                />
-              ))}
-            </Stepper>
-
-            {isMobile && (
-              <Text size="xs" c="dimmed" ta="center" mt="xs">
-                Step {stepper.active + 1} of {stepper.steps.length}: {stepper.steps[stepper.active]?.label}
-              </Text>
-            )}
-          </Box>
-        )}
+        {stepper && <SetupProgress steps={stepper.steps} active={stepper.active} />}
 
         <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           <FillScrollArea type="auto">

@@ -27,11 +27,17 @@ export function AboutSection(): ReactNode {
     staleTime: Infinity,
   })
 
-  const openLink = (label: string, url: string) =>
-    openExternal(url).catch((error: unknown) => {
+  const openLink = (label: string, url: string): void => {
+    void openExternal(url).catch((error: unknown) => {
       logger.error('AboutSection', `Couldn't open ${url}`, error)
       displayErrorNotification(error, `Couldn't open ${label}`)
     })
+  }
+
+  const openAnchor = (event: React.MouseEvent, label: string, url: string): void => {
+    event.preventDefault()
+    openLink(label, url)
+  }
 
   if (mobileShell) {
     return (
@@ -45,9 +51,7 @@ export function AboutSection(): ReactNode {
               key={url}
               title={label}
               accessory={<IconExternalLink size={18} aria-hidden />}
-              onClick={() => {
-                void openLink(label, url)
-              }}
+              onClick={() => openLink(label, url)}
             />
           ))}
         </IosGroup>
@@ -78,10 +82,7 @@ export function AboutSection(): ReactNode {
               variant="default"
               justify="space-between"
               rightSection={<IconExternalLink size={16} aria-hidden />}
-              onClick={(event: React.MouseEvent) => {
-                event.preventDefault()
-                void openLink(label, url)
-              }}
+              onClick={(event: React.MouseEvent) => openAnchor(event, label, url)}
             >
               {label}
             </Button>

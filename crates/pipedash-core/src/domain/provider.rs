@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
+use pipedash_plugin_api::TriggerResult;
 use serde::{
     Deserialize,
     Serialize,
@@ -21,6 +22,7 @@ use super::pipeline::{
     PipelineRun,
     TriggerParams,
 };
+use super::provider_attention::ProviderAttention;
 use super::run_logs::{
     LogCursor,
     LogDialect,
@@ -102,6 +104,8 @@ pub struct ProviderSummary {
     pub freshness: ProviderFreshness,
     #[serde(default)]
     pub recovery: Option<ProviderRecovery>,
+    #[serde(default)]
+    pub attention: ProviderAttention,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -142,7 +146,35 @@ pub struct ProviderFreshness {
 
 const MIN_STALE_SECS: i64 = 10 * 60;
 
+impl FreshnessState {
+    fn severity(self) -> u8 {
+        match self {
+            Self::Fresh => 0,
+            Self::Never => 1,
+            Self::Stale => 2,
+            Self::Down => 3,
+        }
+    }
+}
+
 impl ProviderFreshness {
+    pub fn aggregate<'a>(items: impl IntoIterator<Item = &'a ProviderFreshness>) -> Self {
+        let mut state = FreshnessState::Fresh;
+        let mut stale_at = None;
+        for item in items {
+            if item.state.severity() > state.severity() {
+                state = item.state;
+            }
+            if item.state == FreshnessState::Fresh {
+                stale_at = [stale_at, item.stale_at].into_iter().flatten().min();
+            }
+        }
+        Self {
+            state,
+            stale_at: stale_at.filter(|_| state == FreshnessState::Fresh),
+        }
+    }
+
     pub fn compute(
         status: &FetchStatus, level: HealthLevel,
         last_fetch_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -179,30 +211,6 @@ impl ProviderFreshness {
 pub trait Provider: Send + Sync {
     async fn fetch_pipelines(&self) -> DomainResult<Vec<Pipeline>>;
 
-    async fn fetch_pipelines_paginated(
-        &self, page: usize, page_size: usize,
-    ) -> DomainResult<pipedash_plugin_api::PaginatedResponse<Pipeline>> {
-        use pipedash_plugin_api::PaginatedResponse;
-
-        let all_pipelines = self.fetch_pipelines().await?;
-        let total_count = all_pipelines.len();
-        let start = (page - 1) * page_size;
-        let end = start + page_size;
-
-        let pipelines = if start < total_count {
-            all_pipelines[start..end.min(total_count)].to_vec()
-        } else {
-            Vec::new()
-        };
-
-        Ok(PaginatedResponse::new(
-            pipelines,
-            page,
-            page_size,
-            total_count,
-        ))
-    }
-
     async fn fetch_run_history(
         &self, pipeline_id: &str, limit: usize,
     ) -> DomainResult<Vec<PipelineRun>>;
@@ -219,7 +227,7 @@ pub trait Provider: Send + Sync {
         ))
     }
 
-    async fn trigger_pipeline(&self, params: TriggerParams) -> DomainResult<String>;
+    async fn trigger_pipeline(&self, params: TriggerParams) -> DomainResult<TriggerResult>;
 
     async fn cancel_run(&self, pipeline_id: &str, run_number: i64) -> DomainResult<()>;
 
@@ -241,16 +249,18 @@ pub trait Provider: Send + Sync {
 
     async fn fetch_rate_limit(&self) -> DomainResult<Option<pipedash_plugin_api::RateLimit>>;
 
-    #[allow(dead_code)]
-    async fn validate_credentials(&self) -> DomainResult<bool>;
-
-    #[allow(dead_code)]
-    fn provider_type(&self) -> &str;
-
     fn capabilities(&self) -> &pipedash_plugin_api::PluginCapabilities;
 
     fn renew_at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
         None
+    }
+
+    fn run_history_policy(&self) -> pipedash_plugin_api::RunHistoryPolicy {
+        pipedash_plugin_api::RunHistoryPolicy::default()
+    }
+
+    fn can_archive_run(&self, _pipeline: &Pipeline, _run: &PipelineRun) -> bool {
+        false
     }
 
     fn status_source(&self) -> Option<&pipedash_plugin_api::StatusSource>;
@@ -281,190 +291,4 @@ pub trait Provider: Send + Sync {
 }
 
 #[cfg(test)]
-mod tests {
-    use chrono::{
-        DateTime,
-        Duration,
-        Utc,
-    };
-
-    use super::*;
-
-    fn now() -> DateTime<Utc> {
-        "2026-10-28T12:00:00Z".parse().unwrap()
-    }
-
-    fn compute(
-        status: FetchStatus, level: HealthLevel, fetched_ago: Option<Duration>,
-        paused_in: Option<Duration>, interval: i64,
-    ) -> ProviderFreshness {
-        ProviderFreshness::compute(
-            &status,
-            level,
-            fetched_ago.map(|ago| now() - ago),
-            paused_in.map(|ahead| now() + ahead),
-            interval,
-            now(),
-        )
-    }
-
-    fn plain(state: FreshnessState) -> ProviderFreshness {
-        ProviderFreshness {
-            state,
-            stale_at: None,
-        }
-    }
-
-    #[test]
-    fn error_status_is_down() {
-        let f = compute(
-            FetchStatus::Error,
-            HealthLevel::Operational,
-            Some(Duration::seconds(5)),
-            None,
-            30,
-        );
-        assert_eq!(f, plain(FreshnessState::Down));
-    }
-
-    #[test]
-    fn partial_and_major_outage_are_down_even_when_never_fetched() {
-        for level in [HealthLevel::PartialOutage, HealthLevel::MajorOutage] {
-            let f = compute(FetchStatus::Never, level, None, None, 30);
-            assert_eq!(f, plain(FreshnessState::Down));
-        }
-        let f = compute(
-            FetchStatus::Success,
-            HealthLevel::Degraded,
-            Some(Duration::seconds(5)),
-            None,
-            30,
-        );
-        assert_eq!(f.state, FreshnessState::Fresh);
-    }
-
-    #[test]
-    fn never_fetched_is_never() {
-        let f = compute(FetchStatus::Never, HealthLevel::Operational, None, None, 30);
-        assert_eq!(f, plain(FreshnessState::Never));
-    }
-
-    #[test]
-    fn paused_in_the_future_is_stale_but_past_pause_is_ignored() {
-        let paused = compute(
-            FetchStatus::Success,
-            HealthLevel::Operational,
-            Some(Duration::seconds(5)),
-            Some(Duration::seconds(30)),
-            30,
-        );
-        assert_eq!(paused, plain(FreshnessState::Stale));
-
-        let elapsed = compute(
-            FetchStatus::Success,
-            HealthLevel::Operational,
-            Some(Duration::seconds(5)),
-            Some(Duration::seconds(-30)),
-            30,
-        );
-        assert_eq!(elapsed.state, FreshnessState::Fresh);
-    }
-
-    #[test]
-    fn old_fetch_is_stale() {
-        let f = compute(
-            FetchStatus::Success,
-            HealthLevel::Operational,
-            Some(Duration::seconds(601)),
-            None,
-            30,
-        );
-        assert_eq!(f, plain(FreshnessState::Stale));
-    }
-
-    #[test]
-    fn threshold_is_the_larger_of_three_intervals_and_ten_minutes() {
-        let at_ten_minutes = compute(
-            FetchStatus::Success,
-            HealthLevel::Operational,
-            Some(Duration::seconds(600)),
-            None,
-            30,
-        );
-        assert_eq!(at_ten_minutes.state, FreshnessState::Fresh);
-
-        let long_interval_inside = compute(
-            FetchStatus::Success,
-            HealthLevel::Operational,
-            Some(Duration::seconds(1500)),
-            None,
-            600,
-        );
-        assert_eq!(long_interval_inside.state, FreshnessState::Fresh);
-
-        let long_interval_outside = compute(
-            FetchStatus::Success,
-            HealthLevel::Operational,
-            Some(Duration::seconds(1801)),
-            None,
-            600,
-        );
-        assert_eq!(long_interval_outside, plain(FreshnessState::Stale));
-    }
-
-    #[test]
-    fn fresh_reports_when_it_turns_stale() {
-        let f = compute(
-            FetchStatus::Success,
-            HealthLevel::Operational,
-            Some(Duration::seconds(100)),
-            None,
-            600,
-        );
-        assert_eq!(f.state, FreshnessState::Fresh);
-        assert_eq!(
-            f.stale_at,
-            Some(now() - Duration::seconds(100) + Duration::seconds(1800))
-        );
-
-        let short = compute(
-            FetchStatus::Success,
-            HealthLevel::Operational,
-            Some(Duration::seconds(100)),
-            None,
-            30,
-        );
-        assert_eq!(
-            short.stale_at,
-            Some(now() - Duration::seconds(100) + Duration::seconds(600))
-        );
-    }
-
-    #[test]
-    fn serializes_snake_case_and_defaults_to_never() {
-        let json = serde_json::to_value(ProviderFreshness::default()).unwrap();
-        assert_eq!(
-            json,
-            serde_json::json!({ "state": "never", "stale_at": null })
-        );
-    }
-
-    #[test]
-    fn recovery_asks_signed_in_providers_to_sign_in_again() {
-        let recovery = ProviderRecovery::for_failure;
-        assert_eq!(
-            recovery(Some(FailureKind::Auth), true),
-            Some(ProviderRecovery::SignIn)
-        );
-        assert_eq!(
-            recovery(Some(FailureKind::Auth), false),
-            Some(ProviderRecovery::Settings)
-        );
-        assert_eq!(
-            recovery(Some(FailureKind::Tls), true),
-            Some(ProviderRecovery::Settings)
-        );
-        assert_eq!(recovery(Some(FailureKind::Network), true), None);
-        assert_eq!(recovery(None, true), None);
-    }
-}
+mod tests;

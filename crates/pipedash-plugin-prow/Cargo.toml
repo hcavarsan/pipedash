@@ -3,7 +3,7 @@ name = "pipedash-plugin-prow"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-description = "Prow plugin for Pipedash"
+description = "Monitor, start and abort Kubernetes Prow jobs"
 repository = "https://github.com/hcavarsan/pipedash"
 license = "GPL-3.0"
 
@@ -15,7 +15,7 @@ flate2.workspace = true
 futures.workspace = true
 http.workspace = true
 kube.workspace = true
-pipedash-plugin-api.workspace = true
+pipedash-plugin-api = { workspace = true, features = ["kubernetes"] }
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -24,6 +24,8 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-k8s-openapi.workspace = true
 rustls.workspace = true
 tempfile.workspace = true
+
+[lints]
+workspace = true

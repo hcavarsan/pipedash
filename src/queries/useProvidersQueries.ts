@@ -10,10 +10,11 @@ import { logger } from '../lib/logger'
 import { notifications } from '../lib/notifications'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services/service'
-import type { PermissionCheckResult, ProviderConfig, ProviderImportResult, ProviderSummary } from '../types/domain'
+import type { PermissionCheckResult } from '../types/plugins'
+import type { ProviderDraft } from '../types/provider_draft'
+import type { ProviderConfig, ProviderImportResult, ProviderSummary } from '../types/providers'
 import { errorMessage } from '../utils/errorDisplay'
 import { saveFile } from '../utils/saveFile'
-import { invalidateProviderPipelines } from './usePipelinesQueries'
 
 export function useProviders(options?: { enabled?: boolean }): UseQueryResult<ProviderSummary[], Error> {
   return useQuery({
@@ -32,110 +33,31 @@ export function useProviders(options?: { enabled?: boolean }): UseQueryResult<Pr
   })
 }
 
-export function useAddProvider(): UseMutationResult<number, Error, ProviderConfig, unknown> {
+export function useSaveProviderDraft(): UseMutationResult<number, Error, ProviderDraft, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (config: ProviderConfig) => service.addProvider(config),
+    mutationFn: (draft: ProviderDraft) => service.saveProviderDraft(draft),
 
-    onSuccess: async (newProviderId, config) => {
-      queryClient.setQueryData<ProviderSummary[]>(queryKeys.providers.list(), (old = []) =>
-        old.some((provider) => provider.id === newProviderId)
-          ? old
-          : [
-              ...old,
-              {
-                id: newProviderId,
-                name: config.name || `${config.provider_type} Provider`,
-                provider_type: config.provider_type,
-                icon: null,
-                pipeline_count: 0,
-                last_updated: null,
-                refresh_interval: config.refresh_interval,
-                last_fetch_status: 'never',
-                last_fetch_error: null,
-                last_fetch_error_kind: null,
-                last_fetch_at: null,
-                last_success_at: null,
-                paused_until: null,
-                freshness: { state: 'never', stale_at: null },
-                recovery: null,
-                health: {
-                  level: 'operational',
-                  signals: [],
-                  next_attempt_at: null,
-                  in_flight: false,
-                  status_page: null,
-                },
-                configured_repositories: [],
-              },
-            ]
-      )
+    onSuccess: (id, draft) => {
+      const updated = draft.provider_id !== null
 
       void queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.providers.detail(id) })
       void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
 
       notifications.show({
-        title: 'Provider added',
-        message: 'Fetching pipelines...',
+        title: updated ? 'Provider updated' : 'Provider added',
+        message: updated ? 'Refreshing pipelines...' : 'Fetching pipelines...',
         color: 'green',
       })
     },
 
-    onError: (error: Error) => {
+    onError: (error: Error, draft) => {
       notifications.show({
-        title: "Couldn't add provider",
-        message: errorMessage(error, 'Check the provider credentials and try again.'),
-        color: 'red',
-      })
-    },
-  })
-}
-
-export function useUpdateProvider(): UseMutationResult<
-  void,
-  Error,
-  { id: number; config: ProviderConfig },
-  { previousProviders: ProviderSummary[] | undefined }
-> {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: ({ id, config }: { id: number; config: ProviderConfig }) => service.updateProvider(id, config),
-
-    onMutate: async ({ id, config }) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.providers.list() })
-
-      const previousProviders = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list())
-
-      queryClient.setQueryData<ProviderSummary[]>(queryKeys.providers.list(), (old) =>
-        old?.map((p) => (p.id === id ? { ...p, name: config.name, refresh_interval: config.refresh_interval } : p))
-      )
-
-      return { previousProviders }
-    },
-
-    onError: (error: Error, _vars, context) => {
-      if (context?.previousProviders) {
-        queryClient.setQueryData(queryKeys.providers.list(), context.previousProviders)
-      }
-
-      notifications.show({
-        title: "Couldn't update provider",
+        title: draft.provider_id === null ? "Couldn't add provider" : "Couldn't update provider",
         message: errorMessage(error, 'Check the provider settings and try again.'),
         color: 'red',
-      })
-    },
-
-    onSuccess: (_data, { id }) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.providers.detail(id) })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
-      invalidateProviderPipelines(queryClient, id)
-
-      notifications.show({
-        title: 'Provider updated',
-        message: 'Refreshing pipelines...',
-        color: 'green',
       })
     },
   })

@@ -1,4 +1,8 @@
-use std::sync::Arc;
+use std::collections::VecDeque;
+use std::sync::{
+    Arc,
+    Mutex,
+};
 use std::time::Duration;
 
 use serde::{
@@ -8,7 +12,6 @@ use serde::{
 use tokio::sync::{
     mpsc,
     watch,
-    Mutex,
 };
 use tokio::task::{
     JoinHandle,
@@ -25,8 +28,15 @@ use super::fetch_scheduler::{
     ClaimKind,
     FetchClaim,
 };
+use super::lifecycle::{
+    start_once,
+    stop_task,
+};
 use super::services::metrics_service::MetricsService;
-use super::services::pipeline_service::PipelineService;
+use super::services::pipeline_service::{
+    PipelineService,
+    FETCH_CONCURRENCY,
+};
 
 const TICK: Duration = Duration::from_secs(5);
 const METRICS_CLEANUP_INTERVAL: Duration = Duration::from_secs(6 * 3600);
@@ -102,35 +112,19 @@ impl RefreshManager {
     }
 
     pub async fn start(&self) {
-        let mut task = self.task.lock().await;
-        if task.is_some() || self.cancel.is_cancelled() {
-            return;
-        }
-        let Some(commands) = self.commands.lock().await.take() else {
-            return;
-        };
-
-        *task = Some(tokio::spawn(run(
-            Arc::clone(&self.pipeline_service),
-            self.metrics_service.clone(),
-            self.mode.subscribe(),
-            self.cancel.clone(),
-            commands,
-        )));
+        start_once(&self.cancel, &self.commands, &self.task, |commands| {
+            tokio::spawn(run(
+                Arc::clone(&self.pipeline_service),
+                self.metrics_service.clone(),
+                self.mode.subscribe(),
+                self.cancel.clone(),
+                commands,
+            ))
+        });
     }
 
     pub async fn stop(&self) {
-        self.cancel.cancel();
-        let task = self.task.lock().await.take();
-        if let Some(task) = task {
-            if let Err(e) = task.await {
-                tracing::error!(error = %e, "RefreshManager task failed");
-            }
-        }
-    }
-
-    pub fn get_mode(&self) -> RefreshMode {
-        *self.mode.borrow()
+        stop_task(&self.cancel, &self.task, "RefreshManager").await;
     }
 
     pub fn set_mode(&self, mode: RefreshMode) {
@@ -157,7 +151,9 @@ async fn run(
 ) {
     let mut tick = interval(TICK);
     tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    let mut attempts: JoinSet<()> = JoinSet::new();
+    let mut fetches: JoinSet<()> = JoinSet::new();
+    let mut cleanups: JoinSet<()> = JoinSet::new();
+    let mut queue: VecDeque<(FetchClaim, ClaimKind)> = VecDeque::new();
     let mut last_cleanup: Option<Instant> = None;
 
     tracing::info!("RefreshManager started");
@@ -166,46 +162,69 @@ async fn run(
         tokio::select! {
             _ = cancel.cancelled() => break,
             _ = tick.tick() => {
-                let active = *mode.borrow() == RefreshMode::Active;
-                if active {
-                    for claim in pipeline_service.claim_due(Instant::now()).await {
-                        spawn_fetch(&mut attempts, &pipeline_service, claim, ClaimKind::Scheduled);
-                    }
+                if *mode.borrow() == RefreshMode::Active {
+                    let Some(due) = claim_due(&pipeline_service, &cancel).await else {
+                        break;
+                    };
+                    queue.extend(due.into_iter().map(|claim| (claim, ClaimKind::Scheduled)));
                 }
                 if let Some(metrics_service) = &metrics_service {
                     if last_cleanup.is_none_or(|last| last.elapsed() >= METRICS_CLEANUP_INTERVAL) {
                         last_cleanup = Some(Instant::now());
-                        let metrics_service = Arc::clone(metrics_service);
-                        attempts.spawn(async move {
-                            match metrics_service.cleanup_old_metrics().await {
-                                Ok(deleted) => {
-                                    tracing::info!(deleted = deleted, "Metrics cleanup complete");
-                                }
-                                Err(e) => {
-                                    tracing::error!(error = %e, "Metrics cleanup failed");
-                                }
-                            }
-                        });
+                        cleanups.spawn(cleanup_metrics(Arc::clone(metrics_service)));
                     }
                 }
             }
             Some(command) = commands.recv() => match command {
                 RefreshCommand::FetchNow { claims } => {
-                    for claim in claims {
-                        spawn_fetch(&mut attempts, &pipeline_service, claim, ClaimKind::Forced);
+                    for claim in claims.into_iter().rev() {
+                        queue.push_front((claim, ClaimKind::Forced));
                     }
                 }
             },
-            Some(finished) = attempts.join_next(), if !attempts.is_empty() => {
+            Some(finished) = fetches.join_next(), if !fetches.is_empty() => {
                 if let Err(e) = finished {
                     tracing::error!(error = %e, "Provider fetch task failed");
                 }
             }
+            Some(finished) = cleanups.join_next(), if !cleanups.is_empty() => {
+                if let Err(e) = finished {
+                    tracing::error!(error = %e, "Metrics cleanup task failed");
+                }
+            }
+        }
+        while fetches.len() < FETCH_CONCURRENCY {
+            let Some((claim, kind)) = queue.pop_front() else {
+                break;
+            };
+            spawn_fetch(&mut fetches, &pipeline_service, claim, kind);
         }
     }
 
-    attempts.shutdown().await;
+    drop(queue);
+    fetches.shutdown().await;
+    cleanups.shutdown().await;
     tracing::info!("RefreshManager stopped");
+}
+
+async fn claim_due(
+    pipeline_service: &PipelineService, cancel: &CancellationToken,
+) -> Option<Vec<FetchClaim>> {
+    tokio::select! {
+        _ = cancel.cancelled() => None,
+        due = pipeline_service.claim_due(Instant::now()) => Some(due),
+    }
+}
+
+async fn cleanup_metrics(metrics_service: Arc<MetricsService>) {
+    match metrics_service.cleanup_old_metrics().await {
+        Ok(deleted) => {
+            tracing::info!(deleted = deleted, "Metrics cleanup complete");
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "Metrics cleanup failed");
+        }
+    }
 }
 
 fn spawn_fetch(
@@ -219,109 +238,4 @@ fn spawn_fetch(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::application::test_support::{
-        Gate,
-        Harness,
-        StubProvider,
-    };
-    use crate::domain::RefreshState;
-    use crate::event::CoreEvent;
-
-    #[tokio::test]
-    async fn the_first_tick_fetches_each_due_provider_once() {
-        let h = Harness::new().await;
-        let (_, first) = h.add_stub(StubProvider::new).await;
-        let (_, second) = h.add_stub(StubProvider::new).await;
-        h.provider_service.load_all_providers().await.unwrap();
-
-        h.start().await;
-        h.start().await;
-        h.bus
-            .wait_for("both providers", |events| {
-                events
-                    .iter()
-                    .filter(|event| matches!(event, CoreEvent::PipelinesUpdated { .. }))
-                    .count()
-                    == 2
-            })
-            .await;
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
-        assert_eq!((first.fetch_count(), second.fetch_count()), (1, 1));
-        assert_eq!(h.bus.count("pipelines-updated"), 2);
-    }
-
-    #[tokio::test]
-    async fn providers_missing_from_the_startup_load_are_fetched_on_schedule() {
-        let h = Harness::new().await;
-        let (_, stub) = h.add_stub(StubProvider::new).await;
-
-        h.start().await;
-        h.bus
-            .wait_for("the unloaded provider", |events| {
-                events
-                    .iter()
-                    .any(|event| matches!(event, CoreEvent::PipelinesUpdated { .. }))
-            })
-            .await;
-
-        assert_eq!(stub.fetch_count(), 1);
-    }
-
-    #[tokio::test]
-    async fn idle_mode_keeps_scheduled_fetches_from_starting() {
-        let h = Harness::new().await;
-        let (_, stub) = h.add_stub(StubProvider::new).await;
-        h.provider_service.load_all_providers().await.unwrap();
-        h.refresh_manager.set_mode(RefreshMode::Idle);
-        assert_eq!(h.refresh_manager.get_mode(), RefreshMode::Idle);
-
-        h.start().await;
-        tokio::time::sleep(Duration::from_millis(300)).await;
-
-        assert_eq!(stub.fetch_count(), 0);
-        h.refresh_manager.set_mode(RefreshMode::Active);
-        assert_eq!(h.refresh_manager.get_mode(), RefreshMode::Active);
-    }
-
-    #[tokio::test]
-    async fn stopping_cancels_running_attempts_and_their_waiters() {
-        let h = Harness::new().await;
-        h.start().await;
-        let gate = Gate::new();
-        let (id, stub) = h.add_stub(|id| StubProvider::new(id).gated(&gate)).await;
-        let waiting = tokio::spawn({
-            let service = Arc::clone(&h.pipeline_service);
-            async move { service.fetch_now(&[id], Duration::from_secs(10)).await }
-        });
-        gate.arrived().await;
-
-        h.refresh_manager.stop().await;
-        let results = waiting.await.unwrap();
-        h.refresh_manager.start().await;
-
-        assert_eq!(results[0].state, RefreshState::Pending);
-        let view = h.scheduler.view(id, Instant::now()).unwrap();
-        assert_eq!((view.failures, view.in_flight), (0, false));
-        assert_eq!(stub.fetch_count(), 1);
-        assert_eq!(h.bus.count("pipelines-updated"), 0);
-        assert!(h.refresh_manager.task.lock().await.is_none());
-    }
-
-    #[tokio::test]
-    async fn a_stopped_manager_hands_new_claims_back_as_cancelled() {
-        let h = Harness::new().await;
-        h.start().await;
-        h.refresh_manager.stop().await;
-        let (id, _) = h.add_stub(StubProvider::new).await;
-
-        let results = h
-            .pipeline_service
-            .fetch_now(&[id], Duration::from_millis(300))
-            .await;
-
-        assert_eq!(results[0].state, RefreshState::Pending);
-    }
-}
+mod tests;

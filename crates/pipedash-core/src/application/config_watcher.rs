@@ -76,8 +76,8 @@ impl Drop for ConfigWatcher {
     }
 }
 
-fn stamp(path: &Path) -> Option<FileStamp> {
-    let metadata = std::fs::metadata(path).ok()?;
+async fn stamp(path: &Path) -> Option<FileStamp> {
+    let metadata = tokio::fs::metadata(path).await.ok()?;
 
     Some((metadata.modified().ok()?, metadata.len()))
 }
@@ -96,12 +96,20 @@ async fn watch(
         tokio::select! {
             _ = cancel.cancelled() => break,
             _ = tick.tick() => {
-                let current = stamp(&path);
+                let current = stamp(&path).await;
                 if current.is_none() || current == applied {
                     continue;
                 }
 
-                match provider_service.apply_config_file(&config_state).await {
+                let loaded = tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    loaded = config_state.load_file() => loaded,
+                };
+                let applying = match loaded {
+                    Ok(loaded) => provider_service.apply_loaded_config(&config_state, loaded).await,
+                    Err(e) => Err(e),
+                };
+                match applying {
                     Ok(_) => applied = current,
                     Err(e) if current != failed => {
                         failed = current;

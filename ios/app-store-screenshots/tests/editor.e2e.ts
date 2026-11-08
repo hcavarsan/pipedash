@@ -51,7 +51,7 @@ test('locale edits stay independent and Arabic canvas has RTL direction', async 
   await screen.getByRole('option', 'AR', { exact: true }).tap();
   await screen.getByRole('textbox', 'Headline').fill('مرحبا بالعالم');
   await expect(browser.locator('main [contenteditable="plaintext-only"]').nth(1)).toContainText('مرحبا بالعالم');
-  await expect(await browser.evaluate(() => getComputedStyle(document.querySelectorAll('main [contenteditable="plaintext-only"]')[1]).direction)).toBe('rtl');
+  await expect(await browser.evaluate(() => { const el = document.querySelectorAll('main [contenteditable="plaintext-only"]')[1]; return el ? getComputedStyle(el).direction : ''; })).toBe('rtl');
   await screen.getByRole('combobox', 'Locale').tap();
   await screen.getByRole('option', 'EN', { exact: true }).tap();
   await expect(screen.getByRole('textbox', 'Headline')).toHaveValue('First');
@@ -124,7 +124,8 @@ test('real ZIP exports exact RGB dimensions locale filenames and composition', a
     await expect(bytes.readUInt32BE(16)).toBe(Number(dimensions[1])); await expect(bytes.readUInt32BE(20)).toBe(Number(dimensions[2]));
     await expect(bytes[25]).toBe(2);
   }
-  const stats = await sharp(await pngs[0].async('nodebuffer')).stats();
+  const [firstPng] = pngs; if (!firstPng) { throw new Error('Export contained no PNG files'); }
+  const stats = await sharp(await firstPng.async('nodebuffer')).stats();
   await expect(stats.channels.some(channel => channel.stdev > 3)).toBe(true);
   await expect(screen.getByRole('textbox', 'App name')).toBeEnabled();
 });

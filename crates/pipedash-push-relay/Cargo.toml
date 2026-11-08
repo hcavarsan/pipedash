@@ -32,3 +32,6 @@ tracing-subscriber.workspace = true
 axum = { workspace = true, features = ["http2"] }
 tempfile.workspace = true
 tower.workspace = true
+
+[lints]
+workspace = true

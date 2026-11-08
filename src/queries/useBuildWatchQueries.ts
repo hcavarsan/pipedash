@@ -7,7 +7,7 @@ import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
 import { hasLocalCore } from '../services/connection'
 import { mobileService } from '../services/mobile'
-import type { BuildWatchStatus } from '../types/domain'
+import type { BuildWatchStatus } from '../types/notifications'
 import { displayErrorNotification } from '../utils/errorDisplay'
 import { isDesktopTauri } from '../utils/platform'
 

@@ -1,4 +1,26 @@
-import type { Pipeline, PipelineView, PipelineViewPage, ProviderSummary, ViewPipeline } from '../types/domain'
+import type { Pipeline } from '../types/pipelines'
+import type { ProviderAttention, ProviderSummary } from '../types/providers'
+import type { PipelineView, PipelineViewPage, ViewPipeline } from '../types/views'
+import { pipelineActionsFixture, viewPresentationFixture } from './presentation'
+
+export function providerAttentionFixture(overrides: Partial<ProviderAttention> = {}): ProviderAttention {
+  return {
+    tone: null,
+    headline: null,
+    detail: null,
+    hint: null,
+    fetch_hint: null,
+    schedule: null,
+    kind: null,
+    recovery: null,
+    episode_key: null,
+    refreshing_normally: true,
+    stale_signals: [],
+    scheduled_maintenances: [],
+    open_action: 'pipelines',
+    ...overrides,
+  }
+}
 
 export function providerSummaryFixture(overrides: Partial<ProviderSummary> = {}): ProviderSummary {
   return {
@@ -19,6 +41,7 @@ export function providerSummaryFixture(overrides: Partial<ProviderSummary> = {})
     freshness: { state: 'never', stale_at: null },
     recovery: null,
     health: { level: 'operational', signals: [], next_attempt_at: null, in_flight: false, status_page: null },
+    attention: providerAttentionFixture(),
     ...overrides,
   }
 }
@@ -27,7 +50,7 @@ export function pipelineFixture(overrides: Partial<Pipeline> = {}): Pipeline {
   return {
     id: 'pipeline-1',
     provider_id: 1,
-    provider_type: 'github',
+    provider_type: 'stub',
     name: 'Pipeline',
     status: 'success',
     last_run: null,
@@ -35,6 +58,7 @@ export function pipelineFixture(overrides: Partial<Pipeline> = {}): Pipeline {
     repository: 'org/repo',
     branch: null,
     workflow_file: null,
+    actions: pipelineActionsFixture(),
     ...overrides,
   }
 }
@@ -80,7 +104,9 @@ export function pipelineViewPageFixture(overrides: Partial<PipelineViewPage> = {
     total: 0,
     hidden_count: 0,
     filters_active: false,
+    section_count: 0,
     facets: { organizations: [], provider_ids: [] },
+    presentation: viewPresentationFixture(),
     ...overrides,
   }
 }

@@ -1,42 +1,46 @@
-"use client";
-import * as React from "react";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import { Copy, GripVertical, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { layoutLabel } from "@/lib/constants";
-import { pickText } from "@/lib/locale";
-import type { Device, Orientation, Scene, Slide, Theme } from "@/lib/types";
-import { cn } from "@/lib/utils";
-import { DeckCanvas, SlideCanvas, getCanvas } from "./slide-canvas";
+'use client'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { Copy, GripVertical, Trash2 } from 'lucide-react'
+import type { CSSProperties, ReactNode } from 'react'
+import { Button } from '@/components/ui/button'
+import { getCanvas } from '@/lib/canvas-device'
+import { layoutLabel } from '@/lib/layout-labels'
+import { pickText } from '@/lib/locale'
+import type { Device, Orientation, Scene, Slide, Theme } from '@/lib/types'
+import { cn } from '@/lib/utils'
+import { DeckCanvas } from './deck-canvas'
+import { SlideCanvas } from './slide-canvas'
 
-type Props = {
-  slide: Slide;
-  slides: Slide[];
-  index: number;
-  active: boolean;
-  device: Device;
-  orientation: Orientation;
-  theme: Theme;
-  locale: string;
-  appName?: string;
-  appIcon?: string;
-  fontFamily?: string;
-  connectedCanvas: boolean;
-  scene?: Scene;
-  onSelect: () => void;
-  onDelete: () => void;
-  onDuplicate: () => void;
-};
+type PreviewProps = {
+  slide: Slide
+  slides: Slide[]
+  index: number
+  device: Device
+  orientation: Orientation
+  theme: Theme
+  locale: string
+  appName?: string | undefined
+  appIcon?: string | undefined
+  fontFamily?: string | undefined
+  connectedCanvas: boolean
+  scene?: Scene | undefined
+}
+
+type Props = PreviewProps & {
+  active: boolean
+  onSelect: () => void
+  onDelete: () => void
+  onDuplicate: () => void
+}
 
 // Thumb tile target width (pixels). Height is derived from device aspect.
-const THUMB_W = 60;
+const THUMB_W = 60
 
-export function SlideThumb({
+function ThumbnailPreview({
   slide,
   slides,
   index,
-  active,
   device,
   orientation,
   theme,
@@ -46,37 +50,91 @@ export function SlideThumb({
   fontFamily,
   connectedCanvas,
   scene,
-  onSelect,
-  onDelete,
-  onDuplicate,
-}: Props) {
-  const headline = pickText(slide.headline, locale);
-  const label = pickText(slide.label, locale);
+}: PreviewProps): ReactNode {
+  const { cW, cH } = getCanvas(device, orientation)
+  const aspect = cW / cH
+  const tileH = Math.max(34, Math.min(120, Math.round(THUMB_W / aspect)))
+  const scale = THUMB_W / cW
+  const start = connectedCanvas ? Math.max(0, index - 1) : index
+  const visibleSlides = connectedCanvas ? slides.slice(start, Math.min(slides.length, index + 2)) : [slide]
+  const localIndex = index - start
+
+  return (
+    <div
+      aria-hidden
+      className="relative shrink-0 overflow-hidden rounded border bg-muted"
+      style={{ width: THUMB_W, height: tileH }}
+    >
+      <div
+        style={{
+          width: cW * visibleSlides.length,
+          height: cH,
+          position: 'absolute',
+          top: 0,
+          left: -localIndex * cW * scale,
+          transformOrigin: 'top left',
+          transform: `scale(${scale})`,
+          pointerEvents: 'none',
+        }}
+      >
+        {connectedCanvas ? (
+          <DeckCanvas
+            slides={visibleSlides}
+            device={device}
+            orientation={orientation}
+            theme={theme}
+            locale={locale}
+            appName={appName}
+            appIcon={appIcon}
+            fontFamily={fontFamily}
+            connectedCanvas
+            editable={false}
+            scene={scene}
+            stripStart={start}
+            stripCount={slides.length}
+          />
+        ) : (
+          <SlideCanvas
+            slide={slide}
+            device={device}
+            orientation={orientation}
+            theme={theme}
+            locale={locale}
+            appName={appName}
+            appIcon={appIcon}
+            fontFamily={fontFamily}
+            editable={false}
+            scene={scene}
+            stripIndex={index}
+            stripCount={slides.length}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+export function SlideThumb({ active, onSelect, onDelete, onDuplicate, ...preview }: Props): ReactNode {
+  const { slide, index, device, locale } = preview
+  const headline = pickText(slide.headline, locale)
+  const label = pickText(slide.label, locale)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: slide.id,
-  });
+  })
 
-  const { cW, cH } = getCanvas(device, orientation);
-  const aspect = cW / cH;
-  const tileH = Math.max(34, Math.min(120, Math.round(THUMB_W / aspect)));
-  const scale = THUMB_W / cW;
-  const start = connectedCanvas ? Math.max(0, index - 1) : index;
-  const visibleSlides = connectedCanvas ? slides.slice(start, Math.min(slides.length, index + 2)) : [slide];
-  const localIndex = index - start;
-
-  const style: React.CSSProperties = {
+  const style: CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
-  };
+  }
 
   return (
     <div
       ref={setNodeRef}
       style={style}
       className={cn(
-        "group relative flex items-stretch gap-2 rounded-lg border bg-card p-1.5 transition-all hover:border-foreground/30 hover:bg-accent",
-        active && "border-primary ring-1 ring-primary",
+        'group relative flex items-stretch gap-2 rounded-lg border bg-card p-1.5 transition-all hover:border-foreground/30 hover:bg-accent',
+        active && 'border-primary ring-1 ring-primary'
       )}
     >
       <button
@@ -89,75 +147,17 @@ export function SlideThumb({
         <GripVertical className="h-4 w-4" />
       </button>
 
-      <button
-        type="button"
-        onClick={onSelect}
-        className="flex flex-1 items-center gap-3 overflow-hidden text-left"
-      >
-        <div
-          aria-hidden
-          className="relative shrink-0 overflow-hidden rounded border bg-muted"
-          style={{ width: THUMB_W, height: tileH }}
-        >
-          <div
-            style={{
-              width: cW * visibleSlides.length,
-              height: cH,
-              position: "absolute",
-              top: 0,
-              left: -localIndex * cW * scale,
-              transformOrigin: "top left",
-              transform: `scale(${scale})`,
-              pointerEvents: "none",
-            }}
-          >
-            {connectedCanvas ? (
-              <DeckCanvas
-                slides={visibleSlides}
-                device={device}
-                orientation={orientation}
-                theme={theme}
-                locale={locale}
-                appName={appName}
-                appIcon={appIcon}
-                fontFamily={fontFamily}
-                connectedCanvas
-                editable={false}
-                scene={scene}
-                stripStart={start}
-                stripCount={slides.length}
-              />
-            ) : (
-              <SlideCanvas
-                slide={slide}
-                device={device}
-                orientation={orientation}
-                theme={theme}
-                locale={locale}
-                appName={appName}
-                appIcon={appIcon}
-                fontFamily={fontFamily}
-                editable={false}
-                scene={scene}
-                stripIndex={index}
-                stripCount={slides.length}
-              />
-            )}
-          </div>
-        </div>
+      <button type="button" onClick={onSelect} className="flex flex-1 items-center gap-3 overflow-hidden text-left">
+        <ThumbnailPreview {...preview} />
         <div className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-[10px] uppercase tracking-wide text-muted-foreground">
             {`Screen ${index + 1} · ${layoutLabel(slide.layout, device)}`}
           </span>
           <span className="truncate text-sm font-medium leading-tight">
-            {headline.split("\n")[0] || (
-              <em className="font-normal text-muted-foreground">Untitled</em>
-            )}
+            {headline.split('\n')[0] || <em className="font-normal text-muted-foreground">Untitled</em>}
           </span>
           {label ? (
-            <span className="truncate text-[10px] uppercase tracking-wide text-muted-foreground">
-              {label}
-            </span>
+            <span className="truncate text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
           ) : null}
         </div>
       </button>
@@ -188,5 +188,5 @@ export function SlideThumb({
         </Button>
       </div>
     </div>
-  );
+  )
 }

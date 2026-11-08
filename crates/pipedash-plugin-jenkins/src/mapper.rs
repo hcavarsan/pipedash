@@ -187,6 +187,66 @@ pub(crate) fn build_to_pipeline_run(
     }
 }
 
+fn default_string(default: Option<types::DefaultValue>) -> Option<String> {
+    default
+        .and_then(|dpv| dpv.value)
+        .and_then(|v| v.as_str().map(str::to_string))
+}
+
+fn choice_parameter_type(parameter: types::ParameterDefinition) -> WorkflowParameterType {
+    let mut choice_seen = HashSet::with_capacity(parameter.choices.len());
+    let mut cleaned_choices = Vec::with_capacity(parameter.choices.len());
+    let mut selected_default: Option<String> = None;
+
+    for choice in parameter.choices {
+        let clean = choice
+            .strip_suffix(":selected")
+            .map(str::to_string)
+            .unwrap_or_else(|| choice.clone());
+        if !choice_seen.insert(clean.clone()) {
+            continue;
+        }
+        if choice.ends_with(":selected") && selected_default.is_none() {
+            selected_default = Some(clean.clone());
+        }
+        cleaned_choices.push(clean);
+    }
+
+    let default = selected_default
+        .or_else(|| default_string(parameter.default_parameter_value))
+        .or_else(|| cleaned_choices.first().cloned());
+
+    WorkflowParameterType::Choice {
+        options: cleaned_choices,
+        default,
+    }
+}
+
+fn parameter_type(parameter: types::ParameterDefinition) -> WorkflowParameterType {
+    let class = parameter._class.clone().unwrap_or_default();
+    let is_boolean =
+        class.contains("BooleanParameterDefinition") || class.contains("BooleanParameter");
+    let is_choice = class.contains("ChoiceParameterDefinition")
+        || class.contains("ChoiceParameter")
+        || class.contains("CascadeChoiceParameter")
+        || class.contains("DynamicReferenceParameter");
+
+    if is_boolean {
+        let default = parameter
+            .default_parameter_value
+            .and_then(|dpv| dpv.value)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        return WorkflowParameterType::Boolean { default };
+    }
+    if is_choice && !parameter.choices.is_empty() {
+        return choice_parameter_type(parameter);
+    }
+    WorkflowParameterType::String {
+        default: default_string(parameter.default_parameter_value),
+    }
+}
+
 pub(crate) fn parameter_definitions_to_workflow_parameters(
     param_definitions: Vec<types::ParameterDefinition>,
 ) -> Vec<WorkflowParameter> {
@@ -198,77 +258,13 @@ pub(crate) fn parameter_definitions_to_workflow_parameters(
             continue;
         }
 
-        let param_type = if let Some(class) = &param_def._class {
-            if class.contains("BooleanParameterDefinition") || class.contains("BooleanParameter") {
-                let default_value = param_def
-                    .default_parameter_value
-                    .and_then(|dpv| dpv.value)
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                WorkflowParameterType::Boolean {
-                    default: default_value,
-                }
-            } else if (class.contains("ChoiceParameterDefinition")
-                || class.contains("ChoiceParameter")
-                || class.contains("CascadeChoiceParameter")
-                || class.contains("DynamicReferenceParameter"))
-                && !param_def.choices.is_empty()
-            {
-                let mut choice_seen = HashSet::with_capacity(param_def.choices.len());
-                let mut cleaned_choices = Vec::with_capacity(param_def.choices.len());
-                let mut selected_default: Option<String> = None;
-
-                for choice in param_def.choices {
-                    if let Some(clean_choice) = choice.strip_suffix(":selected") {
-                        let clean = clean_choice.to_string();
-                        if choice_seen.insert(clean.clone()) {
-                            if selected_default.is_none() {
-                                selected_default = Some(clean.clone());
-                            }
-                            cleaned_choices.push(clean);
-                        }
-                    } else if choice_seen.insert(choice.clone()) {
-                        cleaned_choices.push(choice);
-                    }
-                }
-
-                let default_value = selected_default
-                    .or_else(|| {
-                        param_def
-                            .default_parameter_value
-                            .and_then(|dpv| dpv.value)
-                            .and_then(|v| v.as_str().map(|s| s.to_string()))
-                    })
-                    .or_else(|| cleaned_choices.first().cloned());
-
-                WorkflowParameterType::Choice {
-                    options: cleaned_choices,
-                    default: default_value,
-                }
-            } else {
-                let default_value = param_def
-                    .default_parameter_value
-                    .and_then(|dpv| dpv.value)
-                    .and_then(|v| v.as_str().map(|s| s.to_string()));
-                WorkflowParameterType::String {
-                    default: default_value,
-                }
-            }
-        } else {
-            let default_value = param_def
-                .default_parameter_value
-                .and_then(|dpv| dpv.value)
-                .and_then(|v| v.as_str().map(|s| s.to_string()));
-            WorkflowParameterType::String {
-                default: default_value,
-            }
-        };
-
+        let name = param_def.name.clone();
+        let description = param_def.description.clone();
         parameters.push(WorkflowParameter {
-            name: param_def.name.clone(),
-            label: Some(param_def.name),
-            description: param_def.description,
-            param_type,
+            name: name.clone(),
+            label: Some(name),
+            description,
+            param_type: parameter_type(param_def),
             required: false,
         });
     }
@@ -277,93 +273,4 @@ pub(crate) fn parameter_definitions_to_workflow_parameters(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_map_jenkins_result() {
-        assert_eq!(map_jenkins_result(Some("SUCCESS")), PipelineStatus::Success);
-        assert_eq!(map_jenkins_result(Some("FAILURE")), PipelineStatus::Failed);
-        assert_eq!(
-            map_jenkins_result(Some("ABORTED")),
-            PipelineStatus::Cancelled
-        );
-        assert_eq!(map_jenkins_result(None), PipelineStatus::Running);
-    }
-
-    fn log_node(json: &str, job_path: &str) -> LogNode {
-        build_to_log_node(&serde_json::from_str(json).unwrap(), job_path)
-    }
-
-    #[test]
-    fn every_build_result_maps_to_a_status_and_log_availability() {
-        let cases = [
-            (
-                r#""result":"SUCCESS","building":false"#,
-                PipelineStatus::Success,
-                LogAvailability::Ready,
-            ),
-            (
-                r#""result":"FAILURE","building":false"#,
-                PipelineStatus::Failed,
-                LogAvailability::Ready,
-            ),
-            (
-                r#""result":"UNSTABLE","building":false"#,
-                PipelineStatus::Failed,
-                LogAvailability::Ready,
-            ),
-            (
-                r#""result":"ABORTED","building":false"#,
-                PipelineStatus::Cancelled,
-                LogAvailability::Ready,
-            ),
-            (
-                r#""result":"NOT_BUILT","building":false"#,
-                PipelineStatus::Skipped,
-                LogAvailability::Ready,
-            ),
-            (
-                r#""result":null,"building":true"#,
-                PipelineStatus::Running,
-                LogAvailability::Partial,
-            ),
-            (
-                r#""result":"SUCCESS","building":true"#,
-                PipelineStatus::Running,
-                LogAvailability::Partial,
-            ),
-            (
-                r#""result":"SOMETHING_NEW","building":false"#,
-                PipelineStatus::Pending,
-                LogAvailability::Pending,
-            ),
-        ];
-        for (fields, status, log) in cases {
-            let node = log_node(&format!(r#"{{"number":3,{fields}}}"#), "app");
-            assert_eq!(node.status, status, "{fields}");
-            assert_eq!(node.log, Some(log), "{fields}");
-            assert_eq!(node.id, "3");
-            assert_eq!(node.kind, LogNodeKind::Job);
-        }
-    }
-
-    #[test]
-    fn log_node_is_named_after_the_build_or_the_job() {
-        let full = r#"{"number":3,"fullDisplayName":"team » app #3"}"#;
-        let blank = r#"{"number":3,"fullDisplayName":"  "}"#;
-        let absent = r#"{"number":3}"#;
-
-        assert_eq!(log_node(full, "team/app").name, "team » app #3");
-        assert_eq!(log_node(blank, "team/app").name, "app #3");
-        assert_eq!(log_node(absent, "app").name, "app #3");
-    }
-
-    #[test]
-    fn build_without_a_start_time_has_no_times() {
-        let node = log_node(r#"{"number":3,"result":"SUCCESS","duration":5000}"#, "app");
-
-        assert_eq!(node.started_at, None);
-        assert_eq!(node.finished_at, None);
-    }
-}
+mod tests;

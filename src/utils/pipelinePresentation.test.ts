@@ -1,25 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { PluginMetadata } from '../types/domain'
-import {
-  canCancelPipeline,
-  canEnablePipeline,
-  canForceCancelPipeline,
-  getPipelineStatusLabel,
-  getReconcileBlockReason,
-  getRunStatusLabel,
-  getTriggerBlockReason,
-  pipelineStatusKey,
-  READ_ONLY_REASON,
-} from './pipelinePresentation'
-
-test('enable is offered only when the provider flags the pipeline and it is not read-only', () => {
-  assert.equal(canEnablePipeline({ metadata: { can_enable: true } }), true)
-  assert.equal(canEnablePipeline({ metadata: { can_enable: 'yes' } }), false)
-  assert.equal(canEnablePipeline({ metadata: { can_enable: true, read_only: true } }), false)
-  assert.equal(canEnablePipeline({ metadata: {} }), false)
-})
+import { getPipelineStatusLabel, getRunStatusLabel, pipelineStatusKey } from './pipelinePresentation'
 
 test('pipeline label prefers overdue over the resource state label', () => {
   assert.equal(
@@ -34,62 +16,6 @@ test('run label comes from run metadata and marks archived runs as cached', () =
   assert.equal(getRunStatusLabel({ metadata: { status_label: 'Reconciling' } }), 'Reconciling')
   assert.equal(getRunStatusLabel({ metadata: { status_label: 'Ready', archived: true } }), 'Ready (cached)')
   assert.equal(getRunStatusLabel({}), undefined)
-})
-
-test('read-only pipelines block triggering with the reason and refuse cancelling', () => {
-  const plugin = (cancel: boolean): PluginMetadata[] => [
-    {
-      name: 'Prow',
-      provider_type: 'prow',
-      version: '0.1.0',
-      description: '',
-      author: null,
-      icon: null,
-      config_schema: { fields: [] },
-      table_schema: { tables: [] },
-      required_permissions: [],
-      features: [],
-      capabilities: {
-        pipelines: true,
-        pipeline_runs: true,
-        trigger: false,
-        cancel,
-        force_cancel: true,
-        agents: false,
-        artifacts: false,
-        queues: false,
-        custom_tables: false,
-        retains_run_history: false,
-        logs: false,
-        sign_in: false,
-      },
-    },
-  ]
-  const plugins = plugin(true)
-  const open = { provider_type: 'prow', workflow_file: null, metadata: {} }
-  const readOnly = { ...open, metadata: { read_only: true } }
-
-  assert.equal(getTriggerBlockReason(readOnly), READ_ONLY_REASON)
-  assert.equal(getReconcileBlockReason(readOnly), READ_ONLY_REASON)
-  assert.equal(getTriggerBlockReason(open), undefined)
-  assert.equal(canCancelPipeline(plugins, readOnly), false)
-  assert.equal(canCancelPipeline(plugins, open), true)
-  assert.equal(canCancelPipeline(plugin(false), open), false)
-  assert.equal(canForceCancelPipeline(plugins, open), false)
-
-  const github = { ...open, provider_type: 'github' }
-  const githubPlugins = plugins.map((entry) => ({ ...entry, provider_type: 'github' }))
-
-  assert.equal(canForceCancelPipeline(githubPlugins, github), true)
-  assert.equal(canForceCancelPipeline(githubPlugins, { ...github, metadata: { read_only: true } }), false)
-  assert.equal(canForceCancelPipeline(undefined, github), false)
-  assert.equal(
-    canForceCancelPipeline(
-      githubPlugins.map((entry) => ({ ...entry, capabilities: { ...entry.capabilities, force_cancel: false } })),
-      github
-    ),
-    false
-  )
 })
 
 test('only a pending pipeline with no run and no resource state has never run', () => {

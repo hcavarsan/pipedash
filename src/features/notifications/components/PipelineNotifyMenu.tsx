@@ -3,8 +3,9 @@ import { IconBell, IconBellOff, IconBellPlus, IconBellRinging } from '@tabler/ic
 import type { ReactNode } from 'react'
 
 import { ActionSheetCancel } from '../../../components/ios/ActionSheetCancel'
-import type { Pipeline } from '../../../types/domain'
-import { type PipelineNotifyState, useNotifyItems } from '../hooks/useNotifyItems'
+import type { PipelineNotifyState } from '../../../types/notification_preferences'
+import type { Pipeline } from '../../../types/pipelines'
+import { useNotifyItems } from '../hooks/useNotifyItems'
 
 const STATE_BUTTON: Record<PipelineNotifyState, { label: string; icon: ReactNode }> = {
   watching: { label: 'Watching', icon: <IconBellRinging size={16} aria-hidden /> },

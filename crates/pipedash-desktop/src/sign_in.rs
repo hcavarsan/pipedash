@@ -11,7 +11,7 @@ use tauri::{
     State,
 };
 
-use crate::commands::ErrorResponse;
+use crate::error::ErrorResponse;
 
 async fn provider_service(
     maybe_core: &crate::MaybeCoreContext,

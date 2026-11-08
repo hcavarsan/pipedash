@@ -1,45 +1,15 @@
-import type { RunLogNode } from '../../../types/logs'
+import type { RunLogNode, RunLogTree } from '../../../types/logs'
 
 export interface LogNodeGroup {
   stage: string | null
   nodes: RunLogNode[]
 }
 
-export function groupLogNodes(nodes: readonly RunLogNode[], failedFirst = false): LogNodeGroup[] {
-  const byId = new Map(nodes.map((node) => [node.id, node]))
-  const groups = new Map<string | null, RunLogNode[]>()
+export function resolveLogGroups(tree: Pick<RunLogTree, 'nodes' | 'groups'>, failedFirst = false): LogNodeGroup[] {
+  const byId = new Map(tree.nodes.map((node) => [node.id, node]))
 
-  for (const node of nodes) {
-    if (node.log === null) {
-      continue
-    }
-
-    let stage: string | null = null
-    const seen = new Set<string>([node.id])
-
-    for (let parent = node.parent_id ? byId.get(node.parent_id) : undefined; parent && !seen.has(parent.id); ) {
-      if (parent.kind === 'stage') {
-        stage = parent.name
-        break
-      }
-
-      seen.add(parent.id)
-      parent = parent.parent_id ? byId.get(parent.parent_id) : undefined
-    }
-
-    const members = groups.get(stage)
-
-    if (members) {
-      members.push(node)
-    } else {
-      groups.set(stage, [node])
-    }
-  }
-
-  return Array.from(groups, ([stage, members]) => ({
-    stage,
-    nodes: failedFirst
-      ? [...members.filter((node) => node.status === 'failed'), ...members.filter((node) => node.status !== 'failed')]
-      : members,
+  return tree.groups.map((group) => ({
+    stage: group.stage,
+    nodes: (failedFirst ? group.failed_first_node_ids : group.node_ids).flatMap((id) => byId.get(id) ?? []),
   }))
 }

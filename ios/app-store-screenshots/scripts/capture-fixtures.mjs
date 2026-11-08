@@ -1,3 +1,56 @@
+import { readFileSync } from 'node:fs'
+
+const crates = new URL('../../../crates/', import.meta.url)
+const iconFor = (type) => {
+  const svg = readFileSync(new URL(`pipedash-plugin-${type}/assets/icon.svg`, crates), 'utf8')
+  return `data:image/svg+xml,${[...Buffer.from(svg)].map((byte) => (/[A-Za-z0-9\-._~/:;,=!*'()]/.test(String.fromCharCode(byte)) ? String.fromCharCode(byte) : `%${byte.toString(16).toUpperCase().padStart(2, '0')}`)).join('')}`
+}
+const allowed = { allowed: true, reason: null }
+const denied = { allowed: false, reason: null }
+const pipelineActions = {
+  trigger: allowed, cancel: allowed, force_cancel: denied, enable: allowed,
+  rerun_strategy: 'replay_inputs', trigger_icon: 'play', target: null,
+}
+const runActions = { cancel: allowed, force_cancel: denied, rerun: allowed, rerun_failed: allowed, review: denied, watch: true }
+const notice = { title: 'Nothing here', message: 'Nothing to show.' }
+const terminology = {
+  item: 'pipeline', items: 'pipelines', group: 'repository', groups: 'repositories', group_title: 'Repository',
+  source_title: 'Repository', sources_title: 'Repositories', history: 'Run history', trigger: 'Trigger', run: 'run',
+  runs: 'runs', organization_label: 'Organization', section_count_label: 'Workflows',
+}
+const triggerCopy = {
+  label: 'Trigger workflow', compact_label: 'Trigger', title: 'Trigger',
+  success: { title: 'Workflow triggered', message: 'Workflow has been triggered successfully' },
+  error_title: "Couldn't trigger workflow", note: null,
+}
+const statusOptions = ['success', 'failed', 'degraded', 'running', 'pending', 'cancelled', 'skipped']
+  .map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) }))
+const presentation = {
+  terminology,
+  status_options: statusOptions,
+  wizard: { credentials_description: 'Enter your API credentials', name_placeholder: 'e.g. Provider (work)', permissions_title: 'Token permissions' },
+  view: { title: 'Pipelines', list_title: 'All pipelines', search_placeholder: 'Search pipelines…', matching_empty: notice, hidden_empty: notice, empty: notice, pinned_empty: notice },
+  trigger: triggerCopy,
+  rerun: {
+    label: 'Rerun workflow', compact_label: 'Rerun', title: 'Rerun',
+    success: { title: 'Workflow triggered', message: 'Workflow rerun started' },
+    error_title: "Couldn't rerun workflow", note: null,
+  },
+  history_note: null,
+  empty_history_description: 'No runs yet',
+  run_details_title: 'Run details',
+  progress_title: 'Run in progress',
+  archived_notice: null,
+  force_cancel_confirmation: "You can't undo this.",
+}
+const quietAttention = {
+  tone: null, headline: null, detail: null, hint: null, fetch_hint: null, schedule: null, kind: null, recovery: null,
+  episode_key: null, refreshing_normally: true, stale_signals: [], scheduled_maintenances: [], open_action: 'pipelines',
+}
+const incidentAttention = {
+  ...quietAttention, tone: 'warning', headline: 'Actions jobs are delayed', detail: 'Jobs may take longer to start.',
+  episode_key: '1:demo-actions-delay', refreshing_normally: false, open_action: 'status',
+}
 const now = new Date('2026-10-25T09:41:00Z').getTime()
 const ago = (minutes) => new Date(now - minutes * 60_000).toISOString()
 const healthy = { level: 'operational', signals: [], next_attempt_at: null, in_flight: false, status_page: null }
@@ -11,13 +64,15 @@ const incident = {
   latest_update: 'The cause has been identified. A fix is being deployed to restore normal job processing.',
   url: 'https://www.githubstatus.com/', started_at: ago(27), updated_at: ago(3),
 }
-export const providers = [
-  ['GitHub', 'github'], ['GitLab', 'gitlab'], ['Jenkins', 'jenkins'], ['Argo CD', 'argocd'],
-].map(([name, provider_type], index) => ({
-  id: index + 1, name, provider_type, icon: `/provider-icons/${provider_type}.svg`, pipeline_count: 2,
+const providerRows = [
+  ['GitHub', 'github', true], ['GitLab', 'gitlab', false], ['Jenkins', 'jenkins', false], ['Argo CD', 'argocd', false],
+]
+const providers = providerRows.map(([name, provider_type], index) => ({
+  id: index + 1, name, provider_type, icon: iconFor(provider_type), pipeline_count: 2,
   last_updated: ago(1), refresh_interval: 60, configured_repositories: [], last_fetch_status: 'success',
   last_fetch_error: null, last_fetch_error_kind: null, last_fetch_at: ago(1), last_success_at: ago(index === 0 ? 95 : 1), paused_until: null,
   freshness: index === 0 ? { state: 'down', stale_at: null } : { state: 'fresh', stale_at: ago(-9) },
+  recovery: null, attention: index === 0 ? incidentAttention : quietAttention,
   health: index === 0 ? {
     ...healthy, level: 'partial_outage',
     status_page: { name: 'GitHub', url: 'https://www.githubstatus.com/', checked_at: ago(1), error: null, components, other_incidents: [] },
@@ -41,41 +96,51 @@ export const pipelines = [
   provider_id, provider_type: providers[provider_id - 1].provider_type, name, status, repository, branch,
   last_run: ago(minutes), last_updated: ago(1), workflow_file: '.github/workflows/release.yml',
   metadata: { organization: 'acme', html_url: 'https://example.com/demo' },
+  actions: pipelineActions,
 }))
 export const release = pipelines[0]
 export const failure = pipelines[1]
-export const parameters = [
+const parameters = [
   { name: 'environment', label: 'Environment', description: 'Choose the deployment target', type: 'choice', default: 'Production', options: ['Staging', 'Production'], required: true },
   { name: 'version', label: 'Release version', description: 'The version to publish', type: 'string', default: '2.8.0', required: true },
   { name: 'ref', label: 'Branch', description: 'Build from this branch', type: 'string', default: 'main', required: true },
   { name: 'run_tests', label: 'Run tests before release', description: null, type: 'boolean', default: true, required: false },
 ]
-export function runsFor(pipeline) {
-  return Array.from({ length: 8 }, (_, index) => ({
-    id: `demo-${pipeline.id}-${248 - index}`, pipeline_id: pipeline.id, run_number: 248 - index,
-    status: index === 0 ? pipeline.status : index === 4 ? 'failed' : 'success',
-    started_at: ago(index * 53 + 8), concluded_at: ago(index * 53 + 4), duration_seconds: 242 + index * 7,
-    logs_url: 'https://example.com/demo/run', commit_sha: ['a8f3c21', '7b2d4e9', 'f9c6a12'][index % 3],
-    commit_message: index === 0 && pipeline.id === failure.id ? 'Validate checkout API contract' : ['Ship release 2.8.0', 'Improve deployment checks', 'Update app configuration'][index % 3],
-    branch: 'main', actor: ['alex', 'sam', 'jordan'][index % 3],
-    inputs: { environment: 'Production', version: '2.8.0', ref: 'main', run_tests: true }, metadata: {},
-  }))
+function runsFor(pipeline) {
+  return Array.from({ length: 8 }, (_, index) => {
+    const actor = ['alex', 'sam', 'jordan'][index % 3]
+    const commit_message = index === 0 && pipeline.id === failure.id ? 'Validate checkout API contract' : ['Ship release 2.8.0', 'Improve deployment checks', 'Update app configuration'][index % 3]
+    return {
+      id: `demo-${pipeline.id}-${248 - index}`, pipeline_id: pipeline.id, run_number: 248 - index,
+      status: index === 0 ? pipeline.status : index === 4 ? 'failed' : 'success',
+      started_at: ago(index * 53 + 8), concluded_at: ago(index * 53 + 4), duration_seconds: 242 + index * 7,
+      logs_url: 'https://example.com/demo/run', commit_sha: ['a8f3c21', '7b2d4e9', 'f9c6a12'][index % 3], commit_message,
+      branch: 'main', actor,
+      inputs: { environment: 'Production', version: '2.8.0', ref: 'main', run_tests: true }, metadata: {},
+      actions: runActions,
+      display: { title: `#${248 - index}`, message: commit_message, context: [{ label: 'Branch', value: 'main' }, { label: 'Actor', value: actor }], started_label: 'Started' },
+      pace: { live: index === 0 && pipeline.status === 'running', typical_duration_seconds: 250, past_usual: false },
+    }
+  })
 }
 const column = (id, label, data_type, renderer, width = null) => ({
   id, label, description: null, field_path: id, data_type, renderer, visibility: 'Always', default_visible: true, width, sortable: true, filterable: false,
 })
-export const tableSchema = { tables: [{
+const tableSchema = { tables: [{
   id: 'pipeline_runs', name: 'Run history', description: null, default_sort_column: 'run_number', default_sort_direction: 'desc',
   columns: [column('run_number', 'Run', 'Number', 'Text', 75), column('status', 'Status', 'Status', 'StatusBadge', 110),
     column('commit_message', 'Commit', 'String', 'TruncatedText', 220), column('branch', 'Branch', 'String', 'Badge', 90),
     column('actor', 'Actor', 'String', 'Text', 80), column('duration_seconds', 'Duration', 'Duration', 'Duration', 90),
     column('started_at', 'Started', 'DateTime', 'DateTime', 130)],
 }] }
-export const plugins = providers.map(({ name, provider_type, icon }) => ({
-  name, provider_type, icon, version: '0.4.0', description: `${name} workflows`, author: 'Pipedash',
+const plugins = providerRows.map(([name, provider_type, logs]) => ({
+  name, provider_type, icon: iconFor(provider_type), version: '0.4.0', description: `${name} workflows`, author: 'Pipedash',
   config_schema: { fields: [] }, table_schema: tableSchema, required_permissions: [], features: [],
-  capabilities: { pipelines: true, pipeline_runs: true, trigger: true, cancel: true, agents: false, artifacts: false,
-    queues: false, custom_tables: false, retains_run_history: true, logs: provider_type === 'github' },
+  capabilities: { trigger: true, cancel: true, force_cancel: false,
+    retains_run_history: true, logs, sign_in: false, uses_http_proxy: true, async_trigger: false },
+  run_history: { bounded: false, order: 'run_number', tracks_overdue: true },
+  token_prefixes: [],
+  presentation,
 }))
 export const notifications = [
   { key: 'demo-failed-run', at: now - 8 * 60_000, read: false, tone: 'danger', level: null,
@@ -93,10 +158,18 @@ const job = (id, name, status, duration, log = 'ready') => ({
   id, parent_id: null, kind: 'job', name, status, started_at: ago(8), finished_at: ago(4), duration_seconds: duration,
   log, web_url: 'https://example.com/demo/job', depth: 0, navigable: true,
 })
-export const logJob = job('contract-tests', 'Contract tests', 'failed', 151)
+const logJob = job('contract-tests', 'Contract tests', 'failed', 151)
+const logNodes = [job('build', 'Build', 'success', 48), job('unit-tests', 'Unit tests', 'success', 63), logJob, job('lint', 'Lint', 'success', 22)]
 const logTree = {
-  nodes: [job('build', 'Build', 'success', 48), job('unit-tests', 'Unit tests', 'success', 63), logJob, job('lint', 'Lint', 'success', 22)],
-  default_node_id: logJob.id, complete: true,
+  nodes: logNodes,
+  default_node_id: logJob.id,
+  complete: true,
+  groups: [{
+    stage: null,
+    node_ids: logNodes.map(({ id }) => id),
+    failed_first_node_ids: [...logNodes].sort((a, b) => (b.status === 'failed') - (a.status === 'failed')).map(({ id }) => id),
+  }],
+  step_ids_by_node: {},
 }
 const plainStyle = { fg: null, bg: null, bold: false, dim: false, italic: false, underline: false, strike: false }
 const logStyles = [{ ...plainStyle, fg: 'red', bold: true }, { ...plainStyle, fg: 'green' }, { ...plainStyle, dim: true }]
@@ -138,30 +211,48 @@ const metricSeries = {
   success_rate: [92, 100, 88, 75, 100, 96, 87.5],
   run_frequency: [11, 14, 9, 12, 16, 13, 8],
 }
-const aggregated = ({ metric_type, aggregation_period }) => ({
-  metric_type, aggregation_period, total_count: 83,
-  metrics: metricSeries[metric_type].map((value, index) => ({
+const metricsDashboard = ({ metric_type, aggregation_type }) => {
+  const metrics = metricSeries[metric_type].map((value, index) => ({
     timestamp: new Date(now - (6 - index) * 86_400_000).toISOString(), value, count: metricSeries.run_frequency[index],
     min: metric_type === 'run_duration' ? value - 31 : null, max: metric_type === 'run_duration' ? value + 44 : null, avg: value,
-  })),
-})
+  }))
+  const values = metrics.map(({ value }) => value)
+  return {
+    data: { metrics, total_count: 83, metric_type, aggregation_period: 'daily' },
+    observed: metrics.map(() => true),
+    stats: { average: values.reduce((sum, value) => sum + value, 0) / values.length, latest: values.at(-1), max: Math.max(...values), observed: values.length, total: values.length },
+    table_indices: metrics.map((_, index) => index),
+    ranges: ['today', '24h', '7d', '30d', '60d', '90d'].map((value) => ({ value, enabled: ['today', '24h', '7d'].includes(value) })),
+    widest_range: '7d',
+    aggregation_type: aggregation_type ?? 'avg',
+  }
+}
 export const fixedNow = now
 const viewRules = { provider_ids: [], repositories: [], name_contains: null, statuses: [] }
 const viewCapabilities = (pinned) => ({ rename: false, delete: false, edit_rules: false, edit_members: pinned, edit_display: true, reorder: pinned })
 const pinnedPipelines = [release, pipelines[2]]
 const viewPipeline = (pipeline) => ({ ...pipeline, organization: pipeline.repository.split('/')[0], pinned: pinnedPipelines.includes(pipeline), hidden: false, memberships: [] })
-export const pipelineViews = [
+const pipelineViews = [
   { id: 'all', kind: 'all', name: 'All pipelines', rules: viewRules, display: { sort: 'name', direction: 'asc', sections: 'repository', layout: 'table' }, capabilities: viewCapabilities(false), count: pipelines.length, parent: null },
   { id: 'pinned', kind: 'pinned', name: 'Pinned', rules: viewRules, display: { sort: 'manual', direction: 'asc', sections: 'none', layout: 'cards' }, capabilities: viewCapabilities(true), count: pinnedPipelines.length, parent: null },
 ]
 const SEVERITY = ['failed', 'degraded', 'running', 'pending', 'cancelled', 'success', 'skipped']
+const FRESHNESS_SEVERITY = ['fresh', 'never', 'stale', 'down']
+const aggregateFreshness = (items) => {
+  const state = items.map((item) => item.state).reduce((worst, next) => (FRESHNESS_SEVERITY.indexOf(next) > FRESHNESS_SEVERITY.indexOf(worst) ? next : worst), 'fresh')
+  const staleAt = items.filter((item) => item.state === 'fresh').map((item) => item.stale_at).filter(Boolean).sort()[0] ?? null
+  return { state, stale_at: state === 'fresh' ? staleAt : null }
+}
 const viewSection = (id, kind, title, members) => {
   const lead = [...members].sort((a, b) => SEVERITY.indexOf(a.status) - SEVERITY.indexOf(b.status))[0]
+  const providerIds = [...new Set(members.map((pipeline) => pipeline.provider_id))].sort((a, b) => a - b)
   return {
     id, kind, title, organization: kind === 'none' ? null : members[0].repository.split('/')[0],
-    provider_ids: [...new Set(members.map((pipeline) => pipeline.provider_id))].sort((a, b) => a - b),
+    provider_ids: providerIds,
     status: lead?.status ?? null, status_pipeline_id: lead?.id ?? null, last_run: members.map((pipeline) => pipeline.last_run).sort().at(-1) ?? null,
     pending_fetch: false, pipelines: members.map(viewPipeline),
+    presentation: { organization_label: terminology.organization_label, count_label: terminology.section_count_label },
+    freshness: aggregateFreshness(providerIds.map((providerId) => providers[providerId - 1].freshness)),
   }
 }
 function pipelinePage(viewId) {
@@ -172,24 +263,61 @@ function pipelinePage(viewId) {
     : [...new Set(members.map((pipeline) => pipeline.repository))]
         .map((repository) => viewSection(`repo:${repository}`, 'repository', repository.split('/').slice(1).join('/'), members.filter((pipeline) => pipeline.repository === repository)))
         .sort((a, b) => a.title.localeCompare(b.title))
+  const total = sections.reduce((sum, section) => sum + section.pipelines.length, 0)
   return {
     view: pipelineViews.find((view) => view.id === viewId) ?? pipelineViews[0],
     pinned: pinned ? [] : pinnedPipelines.map(viewPipeline),
     pinned_blocks: [],
     sections,
-    total: sections.reduce((sum, section) => sum + section.pipelines.length, 0),
+    total,
     hidden_count: 0,
     filters_active: false,
+    section_count: pinned ? total : sections.length,
     facets: {
       organizations: [...new Set(members.map((pipeline) => pipeline.repository.split('/')[0]))].sort(),
       provider_ids: [...new Set(members.map((pipeline) => pipeline.provider_id))].sort((a, b) => a - b),
     },
+    presentation: { terminology, status_options: statusOptions, copy: presentation.view },
   }
+}
+const viewMembers = (viewId) => (viewId === 'pinned' ? pinnedPipelines : pipelines).map((pipeline) => ({
+  pipeline_id: pipeline.id, name: pipeline.name, repository: pipeline.repository, provider_id: pipeline.provider_id, available: true,
+}))
+const triggerDraft = (pipeline, body) => ({
+  parameters,
+  values: { ...Object.fromEntries(parameters.map(({ name, default: value }) => [name, value])), ...body?.inputs },
+  fields: [{ label: 'Pipeline', value: pipeline.name }, { label: 'Repository', value: pipeline.repository }],
+  errors: {},
+  availability: allowed,
+  copy: triggerCopy,
+})
+const centerItems = ({ items }, change) => {
+  switch (change.type) {
+    case 'push': return [change.notice, ...items.filter((item) => item.key !== change.notice.key)]
+    case 'insert_missed': return [...items.filter((item) => item.key !== change.notice.key), change.notice].sort((a, b) => b.at - a.at)
+    case 'read': return items.map((item) => (change.key === null || item.key === change.key ? { ...item, read: true } : item))
+    case 'clear': return []
+    default: throw new Error(`Unexpected notification change: ${change.type}`)
+  }
+}
+const notificationCenter = ({ snapshot, change }) => {
+  const items = centerItems(snapshot, change)
+  return { revision: snapshot.revision + 1, items, unread: items.filter((item) => !item.read).length }
+}
+function mockPost(path, body) {
+  if (path === '/metrics/dashboard') return metricsDashboard(body)
+  if (path === '/pipeline-views/selection') return []
+  if (path === '/notifications/center') return notificationCenter(body)
+  const target = /^\/pipelines\/(.+)\/(runs\/query|trigger\/prepare)$/.exec(path)
+  const pipeline = target && pipelines.find((item) => item.id === target[1])
+  if (!pipeline) throw new Error(`Unexpected API request: POST ${path}`)
+  if (target[2] === 'trigger/prepare') return triggerDraft(pipeline, body)
+  const runs = runsFor(pipeline)
+  return { runs, total_count: runs.length, has_more: false, can_scan_deeper: false, is_complete: true, page: 1, page_size: 20, total_pages: 1, branches: ['main'], actors: ['alex', 'jordan', 'sam'] }
 }
 export function mockResponse(method, url, body = null) {
   const path = decodeURIComponent(url.pathname.replace('/api/v1', ''))
-  // Metrics are queried with POST; that is the only non-GET request a capture may make.
-  if (method === 'POST' && path === '/metrics/aggregated') return aggregated(body)
+  if (method === 'POST') return mockPost(path, body)
   if (method !== 'GET') throw new Error(`Unexpected mutation: ${method} ${path}`)
   if (path === '/setup/status') return { config_exists: true, config_valid: true, validation_errors: [], needs_setup: false, needs_migration: false }
   if (path === '/vault/status') return { is_unlocked: true, password_source: 'none', backend: 'sqlite', requires_password: false }
@@ -198,11 +326,13 @@ export function mockResponse(method, url, body = null) {
   if (path === '/pipeline-views') return pipelineViews
   if (path === '/pipeline-views/pins') return []
   if (path === '/pipeline-views/page') return pipelinePage(url.searchParams.get('view') ?? 'all')
+  if (path === '/pipeline-views/navigation') return { views: pipelineViews, pins: [], providers, total_pipelines: pipelines.length }
+  if (path === '/pipeline-views/editor-options') return { eligible_parents: [], can_add_sub_view: false }
+  const members = /^\/pipeline-views\/([^/]+)\/members$/.exec(path)
+  if (members) return viewMembers(members[1])
   if (path === '/health') return { version: '0.4.0' }
   if (path === '/pipelines/cached') return pipelines.filter((pipeline) => !url.searchParams.has('provider_id') || pipeline.provider_id === Number(url.searchParams.get('provider_id')))
   if (/^\/providers\/[1-4]\/table-schema$/.test(path)) return tableSchema
-  if (/^\/providers\/[1-4]\/features$/.test(path)) return []
-  if (/^\/providers\/[1-4]\/permissions$/.test(path)) return { permissions: [], all_granted: true, checked_at: ago(1) }
   if (/^\/preferences\/table\/[1-4]\/pipeline_runs$/.test(path)) return null
   if (/^\/preferences\/table\/[1-4]\/pipeline_runs\/default$/.test(path)) return { columnOrder: tableSchema.tables[0].columns.map(({ id }) => id), columnVisibility: {} }
   if (path === '/metrics/config') return { enabled: true, default_retention_days: 30, updated_at: ago(1) }
@@ -216,10 +346,8 @@ export function mockResponse(method, url, body = null) {
     },
   }
   for (const pipeline of pipelines) {
-    if (path === `/pipelines/${pipeline.id}/workflow-params`) return parameters
     if (path === `/metrics/pipelines/${pipeline.id}/config`) return { pipeline_id: pipeline.id, enabled: true, retention_days: 30, created_at: ago(10_080), updated_at: ago(1) }
     const runs = runsFor(pipeline)
-    if (path === `/pipelines/${pipeline.id}/runs`) return { runs, total_count: runs.length, has_more: false, is_complete: true, page: 1, page_size: 20, total_pages: 1 }
     const run = runs.find((item) => path === `/pipelines/${pipeline.id}/runs/${item.run_number}`)
     if (run) return run
     const logs = `/pipelines/${pipeline.id}/runs/${runs[0].run_number}/logs`

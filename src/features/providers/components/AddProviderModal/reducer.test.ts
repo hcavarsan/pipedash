@@ -1,35 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-
+import { pluginFixture } from './pluginFixture'
 import { formReducer, isFormDirty } from './reducer'
 import { initialFormState } from './types'
 
-const fluxPlugin = {
-  name: 'FluxCD',
-  provider_type: 'fluxcd',
-  version: '0.3.0',
-  description: '',
-  author: null,
-  icon: null,
-  config_schema: { fields: [] },
-  table_schema: { tables: [] },
-  required_permissions: [],
-  features: [],
-  capabilities: {
-    pipelines: true,
-    pipeline_runs: true,
-    trigger: true,
-    cancel: false,
-    force_cancel: false,
-    agents: false,
-    artifacts: false,
-    queues: false,
-    custom_tables: false,
-    retains_run_history: true,
-    logs: false,
-    sign_in: false,
-  },
-}
+const fluxPlugin = pluginFixture({ name: 'Stub', provider_type: 'stub', config_schema: { fields: [] } })
 
 test('selecting resources in another namespace preserves earlier selections', () => {
   const previous = new Set(['Kustomization__team-a__web'])
@@ -93,63 +68,6 @@ test('deselecting visible resources preserves selections outside the current nam
   )
 
   assert.deepEqual([...next.selectedPipelines], ['team-b'])
-})
-
-test('changing the Flux kubeconfig clears its previous context', () => {
-  const next = formReducer(
-    {
-      ...initialFormState,
-      selectedPlugin: fluxPlugin,
-      configValues: { kubeconfig: '/old/config', context: 'production' },
-    },
-    {
-      type: 'UPDATE_CONFIG',
-      key: 'kubeconfig',
-      value: '/new/config',
-    }
-  )
-
-  assert.deepEqual(next.configValues, { kubeconfig: '/new/config', context: '' })
-})
-
-for (const key of ['kubeconfig', 'context', 'namespaces']) {
-  test(`changing ${key} clears saved and pending resource selections`, () => {
-    const selectedId = 'Kustomization__team-a__web'
-    const state = {
-      ...initialFormState,
-      selectedPlugin: fluxPlugin,
-      configValues: { [key]: 'old-scope', selected_items: selectedId },
-      selectedOrganization: 'team-a',
-      selectedPipelines: new Set([selectedId]),
-      repositorySearch: 'web',
-    }
-    const next = formReducer(state, { type: 'UPDATE_CONFIG', key, value: 'new-scope' })
-
-    assert.equal(next.configValues.selected_items, undefined)
-    assert.equal(next.selectedPipelines.size, 0)
-    assert.equal(next.selectedOrganization, '')
-    assert.equal(next.repositorySearch, '')
-    assert.equal(state.selectedPipelines.has(selectedId), true)
-  })
-}
-
-test('editing credentials without changing scope preserves resource selections', () => {
-  const selectedId = 'Kustomization__team-a__web'
-  const state = {
-    ...initialFormState,
-    selectedPlugin: fluxPlugin,
-    configValues: { namespaces: 'team-a', selected_items: selectedId },
-    selectedPipelines: new Set([selectedId]),
-  }
-
-  for (const action of [
-    { type: 'UPDATE_CONFIG', key: 'token', value: 'updated' },
-    { type: 'UPDATE_CONFIG', key: 'namespaces', value: 'team-a' },
-  ] as const) {
-    const next = formReducer(state, action)
-    assert.equal(next.configValues.selected_items, selectedId)
-    assert.deepEqual(next.selectedPipelines, state.selectedPipelines)
-  }
 })
 
 test('form is dirty only after changes against the provider type defaults', () => {
@@ -247,10 +165,18 @@ test('config updates leave the previous config, errors and selection untouched',
   assert.deepEqual([...state.selectedPipelines], ['x'])
   assert.deepEqual(next.fieldErrors, { token: 'missing' })
 
-  const unchanged = formReducer(state, { type: 'UPDATE_CONFIG', key: 'namespaces', value: 'a' })
+  assert.equal(next.configValues.selected_items, 'x')
+  assert.deepEqual([...next.selectedPipelines], ['x'])
+})
 
-  assert.equal(unchanged.configValues.selected_items, 'x')
-  assert.deepEqual([...unchanged.selectedPipelines], ['x'])
+test('clearing the selection empties the picked resources and the search', () => {
+  const next = formReducer(
+    { ...initialFormState, selectedPipelines: new Set(['a']), repositorySearch: 'web' },
+    { type: 'CLEAR_PIPELINES' }
+  )
+
+  assert.equal(next.selectedPipelines.size, 0)
+  assert.equal(next.repositorySearch, '')
 })
 
 test('clearing a field error keeps the others and the previous object', () => {
@@ -287,7 +213,7 @@ test('selecting a provider type applies schema defaults and clears stale selecti
   )
 
   assert.deepEqual(next.configValues, { namespaces: 'flux-system' })
-  assert.equal(next.providerName, 'FluxCD')
+  assert.equal(next.providerName, 'Stub')
   assert.equal(next.selectedPipelines.size, 0)
   assert.deepEqual(next.fieldErrors, {})
 })
@@ -310,12 +236,7 @@ test('clearing the provider type and resetting return to an empty form', () => {
   assert.deepEqual(formReducer(filled, { type: 'RESET' }), initialFormState)
 })
 
-const noAuthPlugin = {
-  ...fluxPlugin,
-  provider_type: 'prow',
-  name: 'Prow',
-  config_schema: { fields: [], no_auth: true },
-}
+const noAuthPlugin = pluginFixture({ config_schema: { fields: [], no_auth: true } })
 
 test('a provider type that offers no auth starts in none mode, others start in token mode', () => {
   const none = formReducer(initialFormState, { type: 'SELECT_PLUGIN', plugin: noAuthPlugin, isEditMode: false })

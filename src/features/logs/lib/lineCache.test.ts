@@ -4,7 +4,7 @@ import { after, type TestContext, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 
 import type { LogLinesPage } from '../../../types/logs'
-import type { DocRef, LineState } from './lineCache'
+import type { DocRef, LineState } from './lineCacheTypes'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 

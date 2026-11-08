@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom'
 import { useProviderSignIn } from '../../features/providers/queries/useProviderSignIn'
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useRefreshProvider } from '../../queries/useRefreshQueries'
-import type { ProviderRecovery } from '../../types/domain'
+import type { ProviderRecovery } from '../../types/providers'
 import { displayErrorNotification } from '../../utils/errorDisplay'
 import { describeRefreshResult } from '../../utils/refreshSummary'
 

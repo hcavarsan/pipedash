@@ -3,14 +3,15 @@ import { after, afterEach, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement } from 'react'
-
-import type { PipelineRun } from '../../../types/domain'
+import { runPresentationFixture } from '../../../testing/presentation'
+import type { PipelineRun } from '../../../types/pipelines'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
 const { act, cleanup, render, waitFor, within } = await import('@testing-library/react')
 const { userEvent } = await import('@testing-library/user-event')
 const { MantineProvider } = await import('@mantine/core')
+const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 const { RerunConfirmModal } = await import('./RerunConfirmModal')
 const view = () => within(document.body)
 
@@ -27,7 +28,7 @@ const run: PipelineRun = {
   commit_message: null,
   branch: 'main',
   actor: null,
-  metadata: { can_rerun_failed_jobs: true },
+  ...runPresentationFixture(),
 }
 
 afterEach(async () => {
@@ -48,21 +49,24 @@ test('a rejected rerun keeps the dialog open with its mode and shows the error, 
     createElement(
       MantineProvider,
       null,
-      createElement(RerunConfirmModal, {
-        run,
-        pipeline: undefined,
-        providerName: 'GitHub',
-        onClose: () => {
-          closes += 1
-        },
-        onConfirm: async (mode) => {
-          modes.push(mode)
+      createElement(
+        QueryClientProvider,
+        { client: new QueryClient() },
+        createElement(RerunConfirmModal, {
+          run,
+          pipeline: undefined,
+          onClose: () => {
+            closes += 1
+          },
+          onConfirm: async (mode) => {
+            modes.push(mode)
 
-          if (fail) {
-            throw new Error('provider said no')
-          }
-        },
-      })
+            if (fail) {
+              throw new Error('provider said no')
+            }
+          },
+        })
+      )
     )
   )
 

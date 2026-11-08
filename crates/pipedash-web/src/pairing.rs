@@ -7,10 +7,7 @@ use pipedash_core::domain::pairing::{
     display_pairing_code,
     pairing_link,
 };
-use pipedash_core::domain::{
-    PairedDevice,
-    ServerUrl,
-};
+use pipedash_core::domain::ServerUrl;
 use qrcode::render::svg;
 use qrcode::QrCode;
 use serde::Serialize;
@@ -30,32 +27,6 @@ pub struct PairingResponse {
     pub expires_at: DateTime<Utc>,
     pub loopback: bool,
     pub qr_svg: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct DeviceResponse {
-    pub id: String,
-    pub name: String,
-    pub platform: String,
-    pub created_at: DateTime<Utc>,
-    pub last_seen_at: Option<DateTime<Utc>>,
-    pub current: bool,
-    pub removable: bool,
-    pub push: bool,
-}
-
-pub fn device_response(device: PairedDevice, current: Option<&str>, push: bool) -> DeviceResponse {
-    let current = current == Some(device.id.as_str());
-    DeviceResponse {
-        removable: !current && !crate::demo::enabled(),
-        current,
-        push,
-        id: device.id,
-        name: device.name,
-        platform: device.platform,
-        created_at: device.created_at,
-        last_seen_at: device.last_seen_at,
-    }
 }
 
 pub fn create_pairing(state: &AppState, server_url: &str) -> ApiResult<PairingResponse> {

@@ -27,6 +27,7 @@ jobs:
   biome:
     name: Biome
     runs-on: ubuntu-22.04
+    timeout-minutes: 10
     permissions:
       contents: read
       id-token: write # Codecov OIDC upload, no long-lived CODECOV_TOKEN
@@ -84,6 +85,7 @@ jobs:
   zizmor:
     name: zizmor
     runs-on: ubuntu-22.04
+    timeout-minutes: 10
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -102,9 +104,40 @@ jobs:
       - name: Lint workflows
         run: mise run lint:actions
 
+  structure:
+    name: Structure
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install mise
+        uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
+        with:
+          install: false
+          cache: true
+
+      - name: Install mise tools
+        run: mise install
+
+      - name: Install dependencies
+        run: mise run install
+
+      - name: Check source structure
+        run: mise run lint:structure
+
+      - name: Check duplication
+        run: mise run lint:dup
+
   rust-format:
     name: rustfmt
     runs-on: ubuntu-22.04
+    timeout-minutes: 10
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -154,6 +187,7 @@ jobs:
             os_name: windows
             rust_target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     permissions:
       contents: read
       id-token: write # Codecov OIDC upload, no long-lived CODECOV_TOKEN
@@ -230,6 +264,7 @@ jobs:
   rust-test:
     name: Tests
     runs-on: ubuntu-22.04
+    timeout-minutes: 25
     permissions:
       contents: read
       id-token: write # Codecov OIDC upload, no long-lived CODECOV_TOKEN
@@ -309,4 +344,10 @@ jobs:
           report_type: test_results
 
       - name: Verify plugin packages
-        run: cargo package -p pipedash-plugin-api -p pipedash-plugin-actions -p pipedash-plugin-github -p pipedash-plugin-gitea -p pipedash-plugin-fluxcd
+        run: |
+          crates="pipedash-plugin-api pipedash-plugin-actions pipedash-plugins $(grep -l 'register_plugin!' crates/pipedash-plugin-*/src/lib.rs | cut -d/ -f2)"
+          args=()
+          for crate in $crates; do
+            args+=(-p "$crate" --config "patch.crates-io.$crate.path=\"crates/$crate\"")
+          done
+          cargo package "${args[@]}"

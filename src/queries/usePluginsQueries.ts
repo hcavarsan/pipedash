@@ -4,8 +4,9 @@ import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services/service'
-import type { PluginMetadata } from '../types/domain'
 import { getHttpStatus } from '../types/errors'
+import type { PluginPresentation } from '../types/plugin_presentation'
+import type { PluginMetadata } from '../types/plugins'
 
 export function usePlugins(): UseQueryResult<PluginMetadata[], Error> {
   return useQuery({
@@ -31,4 +32,8 @@ export function usePlugins(): UseQueryResult<PluginMetadata[], Error> {
     gcTime: GC_TIMES.LONG,
     retry: false,
   })
+}
+
+export function usePluginPresentation(providerType: string | undefined): PluginPresentation | undefined {
+  return usePlugins().data?.find((plugin) => plugin.provider_type === providerType)?.presentation
 }

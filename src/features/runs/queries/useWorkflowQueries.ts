@@ -5,54 +5,51 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
-import { GC_TIMES, STALE_TIMES } from '../../../lib/cacheConfig'
+import { GC_TIMES } from '../../../lib/cacheConfig'
 import { notifications } from '../../../lib/notifications'
 import { queryKeys } from '../../../lib/queryKeys'
 import { useRefreshProvider } from '../../../queries/useRefreshQueries'
 import { service } from '../../../services/service'
-import type { Pipeline, TriggerParams, WorkflowParameter } from '../../../types/domain'
+import type { Pipeline, TriggerDraft, TriggerParams, TriggerResult } from '../../../types/pipelines'
+import type { ActionCopy } from '../../../types/presentation'
 import { errorMessage } from '../../../utils/errorDisplay'
 
-export function useWorkflowParameters(
-  providerId: number,
-  pipelineId: string
-): UseQueryResult<WorkflowParameter[], Error> {
+export function usePreparedTrigger(
+  pipelineId: string,
+  rerunOf: number | undefined,
+  enabled = true
+): UseQueryResult<TriggerDraft, Error> {
   return useQuery({
-    queryKey: queryKeys.workflows.parameters(providerId, pipelineId),
-    queryFn: () => service.getWorkflowParameters(pipelineId),
-    staleTime: STALE_TIMES.SLOW_CHANGING,
-    gcTime: GC_TIMES.MEDIUM,
-    enabled: !!providerId && !!pipelineId,
+    queryKey: [...queryKeys.workflows.all, 'trigger', pipelineId, rerunOf ?? null],
+    queryFn: () => service.preparePipelineTrigger(pipelineId, rerunOf ?? null, null),
+    staleTime: 0,
+    gcTime: GC_TIMES.SHORT,
+    enabled: enabled && !!pipelineId,
     retry: false,
   })
 }
 
-export function useTriggerWorkflow(): UseMutationResult<string, Error, TriggerParams, unknown> {
+interface TriggerRequest {
+  params: TriggerParams
+  copy: ActionCopy
+}
+
+export function useTriggerWorkflow(): UseMutationResult<TriggerResult, Error, TriggerRequest, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (params: TriggerParams) => service.triggerPipeline(params),
+    mutationFn: ({ params }: TriggerRequest) => service.triggerPipeline(params),
 
-    onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.runs.list(variables.workflow_id),
-      })
+    onSuccess: (_data, { params, copy }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.runs.list(params.workflow_id) })
       void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
 
-      notifications.show({
-        title: variables.workflow_id.startsWith('fluxcd__') ? 'Reconciliation requested' : 'Workflow triggered',
-        message: variables.workflow_id.startsWith('fluxcd__')
-          ? 'Flux will reconcile the resource using its current configuration.'
-          : 'Workflow has been triggered successfully',
-        color: 'green',
-      })
+      notifications.show({ title: copy.success.title, message: copy.success.message, color: 'green' })
     },
 
-    onError: (error: Error, variables) => {
+    onError: (error: Error, { copy }) => {
       notifications.show({
-        title: variables.workflow_id.startsWith('fluxcd__')
-          ? "Couldn't request reconciliation"
-          : "Couldn't trigger workflow",
+        title: copy.error_title,
         message: errorMessage(error, 'Check your provider connection and try again.'),
         color: 'red',
       })

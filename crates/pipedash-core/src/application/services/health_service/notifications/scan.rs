@@ -1,3 +1,6 @@
+mod observations;
+mod overdue;
+
 use std::collections::{
     HashMap,
     HashSet,
@@ -14,39 +17,26 @@ use futures::stream::{
     FuturesUnordered,
     StreamExt,
 };
-use pipedash_plugin_api::StatusSource;
+use pipedash_plugin_api::{
+    PluginRegistry,
+    StatusSource,
+};
 use reqwest::Client;
-use tokio::sync::Semaphore;
 use tokio::time::{
-    timeout,
     timeout_at,
     Instant,
 };
 
-use super::super::alerts::{
-    connection_recovery,
-    connectivity,
-    feed_candidates,
-    feed_recovery,
-    instance_candidates,
-    instance_recovery,
-    merge,
-    Connectivity,
-    Observation,
-    CALM_CHECKS,
-    CALM_FETCHES,
+use self::observations::{
+    poll,
+    read_feed,
 };
-use super::super::feed::{
-    fetch_feed,
-    FeedOutcome,
-};
+use self::overdue::check_overdue;
+use super::super::checks::check_instance;
+use super::super::state::CheckOutcome;
 use super::super::{
-    check_instance,
-    connection_subject,
     feed_key,
     feed_subject,
-    instance_subject,
-    CheckOutcome,
     FeedKey,
     FEED_SUBJECT_PREFIX,
 };
@@ -54,42 +44,23 @@ use super::{
     LocalNotification,
     NotificationState,
 };
-use crate::application::services::pipeline_service::{
-    overdue_run,
-    tracks_overdue,
-    FETCH_TIMEOUT,
-    FETCH_TIMEOUT_MESSAGE,
-    OVERDUE_CONCURRENT_CHECKS,
-    OVERDUE_RECENT_RUNS,
-};
-use crate::application::services::provider_service::{
+use crate::application::services::provider_service::plugin::{
     controller_health,
     plugin_provider,
-    quota_pause,
-    ProviderFactory,
 };
+use crate::application::services::provider_service::ProviderFactory;
 use crate::domain::{
-    AlertKind,
     DomainError,
     DomainResult,
-    FailureKind,
     Pipeline,
-    PipelineStatus,
     Provider,
     ProviderConfig,
 };
-use crate::infrastructure::status_feeds::{
-    evaluate,
-    ParsedFeed,
-};
+use crate::infrastructure::status_feeds::ParsedFeed;
 use crate::infrastructure::HttpClientManager;
-use crate::plugins::create_plugin_registry;
 
 const SCAN_CONCURRENCY: usize = 4;
-const RATE_LIMIT_TIMEOUT: Duration = Duration::from_secs(10);
-const MAX_PAUSE: Duration = Duration::from_secs(60 * 60);
 const MAX_OVERDUE_CHECKS: usize = 25;
-const OVERDUE_BUDGET: Duration = Duration::from_secs(20);
 
 enum Polled {
     Paused(DateTime<Utc>),
@@ -136,11 +107,10 @@ enum Done {
 
 pub async fn refresh_notifications(
     providers: &[ProviderConfig], proxy_url: &str, status_pages_enabled: bool,
-    state: &mut NotificationState, deadline: Duration,
+    state: &mut NotificationState, deadline: Duration, registry: Arc<PluginRegistry>,
 ) -> DomainResult<Vec<LocalNotification>> {
     let http = Arc::new(HttpClientManager::new()?);
     http.set_proxy(proxy_url)?;
-    let registry = Arc::new(create_plugin_registry());
     let build: ProviderFactory = {
         let registry = Arc::clone(&registry);
         let http = Arc::clone(&http);
@@ -294,93 +264,6 @@ async fn execute(job: Job, client: Option<&Client>) -> Done {
     }
 }
 
-async fn read_feed(client: Option<&Client>, key: &FeedKey) -> Option<Box<ParsedFeed>> {
-    match fetch_feed(client?, &key.0, key.1, None).await {
-        FeedOutcome::Parsed { feed, .. } => Some(feed),
-        _ => None,
-    }
-}
-
-async fn poll(provider: &dyn Provider) -> Polled {
-    let paused = match timeout(RATE_LIMIT_TIMEOUT, provider.fetch_rate_limit()).await {
-        Ok(Ok(Some(rate_limit))) => quota_pause(&rate_limit, Utc::now()),
-        _ => None,
-    };
-    if let Some(until) = paused {
-        return Polled::Paused(until);
-    }
-    match timeout(FETCH_TIMEOUT, provider.fetch_pipelines()).await {
-        Ok(Ok(pipelines)) => Polled::Fetched(pipelines),
-        Ok(Err(error)) => Polled::Failed(error),
-        Err(_) => Polled::Failed(DomainError::Timeout(FETCH_TIMEOUT_MESSAGE.to_string())),
-    }
-}
-
-async fn check_overdue(job: Overdue) -> Done {
-    let now = Utc::now();
-    let provider = &*job.provider;
-    let ids: Vec<String> = job
-        .selected
-        .iter()
-        .map(|(pipeline, _)| pipeline.id.clone())
-        .collect();
-    let checked = match timeout(
-        OVERDUE_BUDGET,
-        provider.fetch_recent_runs(&ids, OVERDUE_RECENT_RUNS),
-    )
-    .await
-    {
-        Ok(Err(DomainError::NotSupported(_))) => check_each(provider, job.selected, now).await,
-        Ok(Ok(mut runs)) => job
-            .selected
-            .into_iter()
-            .filter_map(|(pipeline, known)| {
-                let overdue = overdue_run(&runs.remove(&pipeline.id)?, now);
-                Some((pipeline, known, overdue))
-            })
-            .collect(),
-        Ok(Err(_)) | Err(_) => Vec::new(),
-    };
-
-    Done::Overdue {
-        id: job.id,
-        checked,
-    }
-}
-
-async fn check_each(
-    provider: &dyn Provider, selected: Vec<(Pipeline, bool)>, now: DateTime<Utc>,
-) -> Vec<(Pipeline, bool, Option<String>)> {
-    let permits = Semaphore::new(OVERDUE_CONCURRENT_CHECKS);
-    let mut running: FuturesUnordered<_> = selected
-        .into_iter()
-        .map(|(pipeline, known)| {
-            let permits = &permits;
-            async move {
-                let _permit = permits.acquire().await.ok()?;
-                let runs = timeout(
-                    FETCH_TIMEOUT,
-                    provider.fetch_run_history(&pipeline.id, OVERDUE_RECENT_RUNS),
-                )
-                .await
-                .ok()?
-                .ok()?;
-                let overdue = overdue_run(&runs, now);
-
-                Some((pipeline, known, overdue))
-            }
-        })
-        .collect();
-    let mut checked = Vec::new();
-    let _ = timeout(OVERDUE_BUDGET, async {
-        while let Some(result) = running.next().await {
-            checked.extend(result);
-        }
-    })
-    .await;
-    checked
-}
-
 impl NotificationState {
     fn attempted_at(&self, id: i64) -> Option<DateTime<Utc>> {
         self.providers.get(&id).and_then(|mark| mark.attempted_at)
@@ -430,223 +313,5 @@ impl NotificationState {
             .retain(|subject| !subject.starts_with(FEED_SUBJECT_PREFIX));
         self.delivered
             .retain(|subject, _| !subject.starts_with(FEED_SUBJECT_PREFIX));
-    }
-
-    fn overdue_job(
-        &self, target: &Target, pipelines: &[Pipeline], limit: usize,
-    ) -> Option<Overdue> {
-        let marks = self.pipelines.get(&target.id);
-        let mark_of = |pipeline: &Pipeline| marks.and_then(|marks| marks.get(&pipeline.id));
-        let stamp = |pipeline: &Pipeline| mark_of(pipeline).and_then(|mark| mark.checked_at);
-        let mut eligible: Vec<&Pipeline> = pipelines
-            .iter()
-            .filter(|pipeline| tracks_overdue(pipeline))
-            .collect();
-        eligible.sort_by(|a, b| stamp(a).cmp(&stamp(b)).then_with(|| a.id.cmp(&b.id)));
-        eligible.truncate(limit);
-        if eligible.is_empty() {
-            return None;
-        }
-        let selected = eligible
-            .into_iter()
-            .map(|pipeline| {
-                let known = mark_of(pipeline).is_some_and(|mark| {
-                    mark.checked_at.is_some() || mark.status != PipelineStatus::Running
-                });
-
-                (pipeline.clone(), known)
-            })
-            .collect();
-
-        Some(Overdue {
-            id: target.id,
-            provider: Arc::clone(&target.provider),
-            selected,
-        })
-    }
-
-    fn settle_overdue(
-        &mut self, id: i64, checked: Vec<(Pipeline, bool, Option<String>)>, wall: DateTime<Utc>,
-    ) -> Vec<LocalNotification> {
-        let mut found = Vec::new();
-        for (pipeline, known, overdue) in checked {
-            let Some(mark) = self
-                .pipelines
-                .get_mut(&id)
-                .and_then(|marks| marks.get_mut(&pipeline.id))
-            else {
-                continue;
-            };
-            mark.checked_at = Some(wall);
-            let Some(run) = overdue else {
-                continue;
-            };
-            let changed = mark.overdue.as_deref() != Some(run.as_str());
-            mark.overdue = Some(run);
-            if known && changed {
-                found.push(self.pipeline_notice(
-                    &pipeline,
-                    format!("{} is running longer than usual", pipeline.name),
-                    AlertKind::LongRun,
-                ));
-            }
-        }
-
-        found
-    }
-
-    fn apply(
-        &mut self, done: Done, feeds: &HashMap<FeedKey, Vec<(i64, StatusSource)>>, now: Instant,
-        wall: DateTime<Utc>,
-    ) -> Vec<LocalNotification> {
-        match done {
-            Done::Poll { target, polled } => self.settle(target.id, polled, now, wall),
-            Done::Health { id, outcome } => {
-                let name = self.provider_name(id);
-                self.observe_instance(id, &name, Some(outcome), now)
-            }
-            Done::Overdue { id, checked } => self.settle_overdue(id, checked, wall),
-            Done::Feed { key, feed } => match (feed, feeds.get(&key)) {
-                (Some(feed), Some(users)) => self.observe_feed(&key, &feed, users, now, wall),
-                _ => {
-                    self.alerts.gap(&feed_subject(&key));
-                    Vec::new()
-                }
-            },
-        }
-    }
-
-    fn provider_name(&self, id: i64) -> String {
-        self.providers
-            .get(&id)
-            .map(|mark| mark.name.clone())
-            .unwrap_or_default()
-    }
-
-    fn settle(
-        &mut self, id: i64, polled: Polled, now: Instant, wall: DateTime<Utc>,
-    ) -> Vec<LocalNotification> {
-        let name = self.provider_name(id);
-        self.pause(id, None);
-        match polled {
-            Polled::Paused(until) => {
-                self.pause(id, Some(until));
-                Vec::new()
-            }
-            Polled::Failed(error) => {
-                let until = error
-                    .retry_after()
-                    .and_then(|wait| chrono::Duration::from_std(wait.min(MAX_PAUSE)).ok())
-                    .map(|wait| wall + wait);
-                self.pause(id, until);
-                self.observe_connection(id, &name, Some(error.failure_kind()), now)
-            }
-            Polled::Fetched(pipelines) => {
-                let mut found = self.observe_connection(id, &name, None, now);
-                found.extend(self.observe_pipelines(id, &pipelines));
-                found
-            }
-        }
-    }
-
-    fn observe_connection(
-        &mut self, id: i64, name: &str, kind: Option<FailureKind>, now: Instant,
-    ) -> Vec<LocalNotification> {
-        let mark = self.providers.entry(id).or_default();
-        match kind {
-            None => mark.failures = 0,
-            Some(kind) if kind.is_transient() => {
-                mark.failures = mark.failures.saturating_add(1);
-            }
-            Some(_) => {}
-        }
-        let subject = connection_subject(id);
-        match connectivity(name, kind, mark.failures, id) {
-            Connectivity::Reset => {
-                self.alerts.reset(&subject);
-                Vec::new()
-            }
-            Connectivity::Ignore => Vec::new(),
-            Connectivity::Observe(candidates) => {
-                let alerts = self.alerts.observe(
-                    &subject,
-                    now,
-                    Observation {
-                        candidates,
-                        recovery: connection_recovery(name),
-                        provider_ids: vec![id],
-                        calm_needed: CALM_FETCHES,
-                    },
-                );
-                self.deliver_all(alerts)
-            }
-        }
-    }
-
-    fn observe_instance(
-        &mut self, id: i64, name: &str, health: Option<CheckOutcome>, now: Instant,
-    ) -> Vec<LocalNotification> {
-        let subject = instance_subject(id);
-        match health {
-            None => Vec::new(),
-            Some(CheckOutcome::Components(components)) => {
-                let alerts = self.alerts.observe(
-                    &subject,
-                    now,
-                    Observation {
-                        candidates: instance_candidates(name, &components, id),
-                        recovery: instance_recovery(name),
-                        provider_ids: vec![id],
-                        calm_needed: CALM_CHECKS,
-                    },
-                );
-                self.deliver_all(alerts)
-            }
-            Some(_) => {
-                self.alerts.gap(&subject);
-                Vec::new()
-            }
-        }
-    }
-
-    fn observe_feed(
-        &mut self, key: &FeedKey, feed: &ParsedFeed, users: &[(i64, StatusSource)], now: Instant,
-        wall: DateTime<Utc>,
-    ) -> Vec<LocalNotification> {
-        let mut candidates = Vec::new();
-        let mut recovery = None;
-        for (id, source) in users {
-            let eval = evaluate(feed, &source.components, &source.page_url, wall);
-            candidates.extend(feed_candidates(source, &eval, *id));
-            recovery.get_or_insert_with(|| feed_recovery(source));
-        }
-        let Some(recovery) = recovery else {
-            return Vec::new();
-        };
-        let subject = feed_subject(key);
-        let seeds: Vec<Option<Vec<String>>> = users
-            .iter()
-            .map(|(id, _)| {
-                self.providers
-                    .get_mut(id)
-                    .and_then(|mark| mark.feed_seed.take())
-            })
-            .collect();
-        if !self.alerts.has(&subject) && seeds.iter().any(Option::is_some) {
-            self.alerts
-                .baseline(&subject, seeds.into_iter().flatten().flatten().collect());
-        }
-        let alerts = self.alerts.observe(
-            &subject,
-            now,
-            Observation {
-                candidates: merge(candidates),
-                recovery,
-                provider_ids: users.iter().map(|(id, _)| *id).collect(),
-                calm_needed: CALM_CHECKS,
-            },
-        );
-
-        self.deliver_all(alerts)
     }
 }

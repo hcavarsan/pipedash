@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { after, afterEach, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
-import type { PendingNativeIntent } from './types/domain'
+import type { PendingNativeIntent } from './types/native'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 

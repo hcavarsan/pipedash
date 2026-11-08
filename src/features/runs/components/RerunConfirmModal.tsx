@@ -5,19 +5,15 @@ import { FormErrorDisplay } from '../../../components/common/FormErrorDisplay'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
-import type { Pipeline, PipelineRun } from '../../../types/domain'
+import type { Pipeline, PipelineRun } from '../../../types/pipelines'
+import type { DisplayField } from '../../../types/presentation'
 import { errorMessage } from '../../../utils/errorDisplay'
-import {
-  buildRerunSummary,
-  canRerunFailedOnly,
-  type RerunMode,
-  type RerunSummaryField,
-} from '../../../utils/rerunSummary'
+import type { RerunMode } from '../lib/runActions'
+import { usePreparedTrigger } from '../queries/useWorkflowQueries'
 
 interface RerunConfirmModalProps {
   run: PipelineRun | null
   pipeline: Pipeline | undefined
-  providerName: string
   onClose: () => void
   onConfirm: (mode: RerunMode) => Promise<unknown>
 }
@@ -31,7 +27,7 @@ const MODE_COPY: Record<RerunMode, { label: string; confirm: string; description
   all: { label: 'Re-run all jobs', confirm: 'Re-run all jobs', description: 'Runs every job of this run again.' },
 }
 
-const SummaryRows = ({ rows }: { rows: RerunSummaryField[] }) => (
+const SummaryRows = ({ rows }: { rows: DisplayField[] }) => (
   <Stack gap="xs">
     {rows.map(({ label, value }) => (
       <Group key={label} justify="space-between" align="flex-start" wrap="nowrap" gap="md">
@@ -46,8 +42,8 @@ const SummaryRows = ({ rows }: { rows: RerunSummaryField[] }) => (
   </Stack>
 )
 
-const ShellRows = ({ rows, header }: { rows: RerunSummaryField[]; header?: string }) => (
-  <IosGroup header={header}>
+const ShellRows = ({ rows }: { rows: DisplayField[] }) => (
+  <IosGroup>
     {rows.map(({ label, value }) =>
       value.length > 32 ? (
         <IosRow key={label} title={value} subtitle={label} />
@@ -58,26 +54,44 @@ const ShellRows = ({ rows, header }: { rows: RerunSummaryField[]; header?: strin
   </IosGroup>
 )
 
+interface ModeRadiosProps {
+  modes: RerunMode[]
+  mode: RerunMode
+  pending: boolean
+  onChange: (mode: RerunMode) => void
+}
+
+const ModeRadios = ({ modes, mode, pending, onChange }: ModeRadiosProps): ReactNode => (
+  <Radio.Group<RerunMode> name="mode" label="Jobs to rerun" value={mode} onChange={onChange}>
+    <Stack gap="xs" mt="xs">
+      {modes.map((value) => (
+        <Radio
+          key={value}
+          value={value}
+          label={MODE_COPY[value].label}
+          description={MODE_COPY[value].description}
+          disabled={pending}
+        />
+      ))}
+    </Stack>
+  </Radio.Group>
+)
+
 interface RerunActionState {
   error: string | null
 }
 
-export const RerunConfirmModal = ({
-  run,
-  pipeline,
-  providerName,
-  onClose,
-  onConfirm,
-}: RerunConfirmModalProps): ReactNode => {
+export const RerunConfirmModal = ({ run, pipeline, onClose, onConfirm }: RerunConfirmModalProps): ReactNode => {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
   const formId = useId()
   const formRef = useRef<HTMLFormElement>(null)
   const [choice, setChoice] = useState<RerunMode | null>(null)
 
-  const failedOffered = run !== null && canRerunFailedOnly(run)
+  const { data: draft } = usePreparedTrigger(pipeline?.id ?? '', run?.run_number, run !== null)
+  const failedOffered = run?.actions.rerun_failed.allowed === true
   const mode: RerunMode = choice ?? (failedOffered ? 'failed' : 'all')
-  const summary = run ? buildRerunSummary(run, { pipeline, providerName }) : { fields: [], inputs: [] }
+  const fields = draft?.fields ?? []
   const modes: RerunMode[] = failedOffered ? ['failed', 'all'] : []
 
   const close = () => {
@@ -113,8 +127,7 @@ export const RerunConfirmModal = ({
 
   const shellBody = (
     <Stack gap="lg">
-      <ShellRows rows={summary.fields} />
-      {summary.inputs.length > 0 && <ShellRows rows={summary.inputs} header="Inputs" />}
+      <ShellRows rows={fields} />
       <IosGroup footer={modes.length === 0 ? MODE_COPY.all.description : MODE_COPY[mode].description}>
         {modes.map((value) => (
           <IosRow
@@ -132,29 +145,9 @@ export const RerunConfirmModal = ({
 
   const desktopBody = (
     <Stack gap="md">
-      <SummaryRows rows={summary.fields} />
-      {summary.inputs.length > 0 && (
-        <Stack gap="xs">
-          <Text size="sm" fw={500}>
-            Inputs
-          </Text>
-          <SummaryRows rows={summary.inputs} />
-        </Stack>
-      )}
+      <SummaryRows rows={fields} />
       {modes.length > 0 ? (
-        <Radio.Group<RerunMode> name="mode" label="Jobs to rerun" value={mode} onChange={(value) => setChoice(value)}>
-          <Stack gap="xs" mt="xs">
-            {modes.map((value) => (
-              <Radio
-                key={value}
-                value={value}
-                label={MODE_COPY[value].label}
-                description={MODE_COPY[value].description}
-                disabled={pending}
-              />
-            ))}
-          </Stack>
-        </Radio.Group>
+        <ModeRadios modes={modes} mode={mode} pending={pending} onChange={setChoice} />
       ) : (
         <Text size="sm" c="dimmed">
           {MODE_COPY.all.description}

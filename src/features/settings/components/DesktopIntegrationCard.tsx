@@ -24,14 +24,18 @@ export function DesktopIntegrationCard(): ReactNode {
   const current = status.data
   const error = settings.error ?? status.error ?? current?.error
   const busy = settings.busy
-  const state =
-    current?.tray_state === 'error'
-      ? 'Desktop menu needs attention'
-      : current?.tray_state === 'ready'
-        ? os === 'macos'
-          ? 'Menu bar item created'
-          : 'System tray icon created'
-        : 'Desktop menu is off'
+  let state = 'Desktop menu is off'
+  if (current?.tray_state === 'error') {
+    state = 'Desktop menu needs attention'
+  } else if (current?.tray_state === 'ready') {
+    state = os === 'macos' ? 'Menu bar item created' : 'System tray icon created'
+  }
+  let liveMessage = 'Loading desktop settings'
+  if (busy) {
+    liveMessage = 'Saving desktop settings'
+  } else if (current) {
+    liveMessage = state
+  }
 
   return (
     <Card padding="md">
@@ -39,7 +43,7 @@ export function DesktopIntegrationCard(): ReactNode {
         <Text size="sm" fw={600}>
           Desktop integration
         </Text>
-        <LiveStatus message={busy ? 'Saving desktop settings' : current ? state : 'Loading desktop settings'} />
+        <LiveStatus message={liveMessage} />
         <Switch
           label={os === 'macos' ? 'Show in menu bar' : 'Show in system tray'}
           checked={current?.settings.show_tray ?? false}

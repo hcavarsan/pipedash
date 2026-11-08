@@ -9,6 +9,16 @@ import { notifications } from '../../../lib/notifications'
 import { desktopService } from '../../../services/desktop'
 import { useDesktopStatus, useUpdateDesktopSettings } from '../../settings/queries/useDesktopQueries'
 
+function notificationGuidance(os: string): string {
+  if (os === 'macos') {
+    return 'Allow Pipedash in System Settings > Notifications'
+  }
+  if (os === 'windows') {
+    return 'Allow Pipedash in Settings > System > Notifications'
+  }
+  return "Allow Pipedash in your desktop's notification settings"
+}
+
 export function DesktopNotificationsCard(): ReactNode {
   const status = useDesktopStatus()
   const settings = useUpdateDesktopSettings()
@@ -24,12 +34,7 @@ export function DesktopNotificationsCard(): ReactNode {
   const enabled = status.data?.settings.notifications_enabled ?? false
   const error = settings.error ?? status.error ?? status.data?.error
   const os = platform()
-  const guidance =
-    os === 'macos'
-      ? 'Allow Pipedash in System Settings > Notifications'
-      : os === 'windows'
-        ? 'Allow Pipedash in Settings > System > Notifications'
-        : "Allow Pipedash in your desktop's notification settings"
+  const guidance = notificationGuidance(os)
 
   return (
     <Card padding="md">

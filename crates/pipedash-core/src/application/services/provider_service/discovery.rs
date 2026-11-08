@@ -33,6 +33,8 @@ use crate::infrastructure::providers::PluginAdapter;
 const CATALOG_TTL: Duration = Duration::from_secs(300);
 const CATALOG_MAX_ENTRIES: usize = 8;
 const DEFAULT_PAGE_SIZE: usize = 100;
+const MIN_PAGE_SIZE: usize = 10;
+const MAX_PAGE_SIZE: usize = 200;
 const SELECTION_KEY: &str = "selected_items";
 
 enum Miss {
@@ -266,6 +268,53 @@ impl ProviderService {
         }
     }
 
+    pub async fn preview_pipelines(
+        &self, provider_type: &str, config: HashMap<String, String>, org: Option<String>,
+        search: Option<String>, page: Option<usize>, page_size: Option<usize>,
+    ) -> DomainResult<PaginatedAvailablePipelines> {
+        let params = PaginationParams {
+            page: page.unwrap_or(1).max(1),
+            page_size: page_size
+                .unwrap_or(DEFAULT_PAGE_SIZE)
+                .clamp(MIN_PAGE_SIZE, MAX_PAGE_SIZE),
+        };
+
+        self.discover_pipelines(provider_type, config, org, search, params)
+            .await
+    }
+
+    pub async fn matching_pipeline_ids(
+        &self, provider_type: &str, config: HashMap<String, String>, organization: Option<String>,
+        search: Option<String>,
+    ) -> DomainResult<Vec<String>> {
+        let organization = organization.filter(|organization| !organization.is_empty());
+        match self.catalog(provider_type, config).await {
+            Ok(catalog) => {
+                let organization =
+                    organization.or_else(|| sole_organization(&catalog.organizations));
+                let params = PaginationParams {
+                    page: 1,
+                    page_size: catalog.pipelines.len().max(1),
+                };
+                let matched = serve_pipelines(
+                    &catalog,
+                    organization.as_deref(),
+                    search.as_deref(),
+                    &params,
+                );
+                Ok(matched
+                    .items
+                    .into_iter()
+                    .map(|pipeline| pipeline.id)
+                    .collect())
+            }
+            Err(Miss::Unsupported(plugin)) => {
+                paged_matching_ids(plugin.as_ref(), organization, search).await
+            }
+            Err(Miss::Failed(e)) => Err(e),
+        }
+    }
+
     async fn catalog(
         &self, provider_type: &str, config: HashMap<String, String>,
     ) -> Result<Arc<PipelineCatalog>, Miss> {
@@ -295,265 +344,46 @@ impl ProviderService {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::sync::atomic::{
-        AtomicUsize,
-        Ordering,
-    };
+const MATCHING_PAGE_SIZE: usize = 200;
+const MATCHING_MAX_PAGES: usize = 500;
 
-    use super::*;
-
-    fn key(provider_type: &str, pairs: &[(&str, &str)]) -> CatalogKey {
-        let config = pairs
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
-        CatalogKey::new(provider_type, &config)
-    }
-
-    fn pipeline(name: &str, org: &str, repo: &str, description: &str) -> AvailablePipeline {
-        AvailablePipeline {
-            id: format!("{org}/{name}"),
-            name: name.to_string(),
-            description: Some(description.to_string()),
-            organization: Some(org.to_string()),
-            repository: Some(repo.to_string()),
-        }
-    }
-
-    fn catalog_of(names: &[&str]) -> PipelineCatalog {
-        PipelineCatalog {
-            organizations: Vec::new(),
-            pipelines: names
-                .iter()
-                .map(|name| pipeline(name, "org", "repo", ""))
-                .collect(),
-        }
-    }
-
-    async fn counted(
-        calls: &AtomicUsize, result: Result<PipelineCatalog, &'static str>,
-    ) -> Result<PipelineCatalog, &'static str> {
-        calls.fetch_add(1, Ordering::SeqCst);
-        for _ in 0..3 {
-            tokio::task::yield_now().await;
-        }
-        result
-    }
-
-    #[tokio::test]
-    async fn concurrent_misses_on_one_key_fetch_once() {
-        let cache = DiscoveryCache::default();
-        let calls = AtomicUsize::new(0);
-
-        let (a, b) = tokio::join!(
-            cache.get_or_fetch(key("prow", &[("url", "x")]), || counted(
-                &calls,
-                Ok(catalog_of(&["a"]))
-            )),
-            cache.get_or_fetch(key("prow", &[("url", "x")]), || counted(
-                &calls,
-                Ok(catalog_of(&["a"]))
-            )),
-        );
-
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
-        assert!(Arc::ptr_eq(&a.unwrap(), &b.unwrap()));
-    }
-
-    #[tokio::test]
-    async fn hit_does_not_fetch_again() {
-        let cache = DiscoveryCache::default();
-        let calls = AtomicUsize::new(0);
-
-        for _ in 0..3 {
-            cache
-                .get_or_fetch(key("prow", &[]), || counted(&calls, Ok(catalog_of(&[]))))
-                .await
-                .unwrap();
-        }
-
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
-    }
-
-    #[tokio::test]
-    async fn failed_fetch_is_retried_by_the_next_call() {
-        let cache = DiscoveryCache::default();
-        let calls = AtomicUsize::new(0);
-
-        let failed = cache
-            .get_or_fetch(key("prow", &[]), || counted(&calls, Err("boom")))
-            .await;
-        assert_eq!(failed.err(), Some("boom"));
-
-        cache
-            .get_or_fetch(key("prow", &[]), || counted(&calls, Ok(catalog_of(&[]))))
-            .await
-            .unwrap();
-
-        assert_eq!(calls.load(Ordering::SeqCst), 2);
-        assert_eq!(cache.state.lock().unwrap().entries.len(), 1);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn expired_entry_is_fetched_again() {
-        let cache = DiscoveryCache::default();
-        let calls = AtomicUsize::new(0);
-        let fetch = || counted(&calls, Ok(catalog_of(&[])));
-
-        cache.get_or_fetch(key("prow", &[]), fetch).await.unwrap();
-        tokio::time::advance(CATALOG_TTL - Duration::from_secs(1)).await;
-        cache.get_or_fetch(key("prow", &[]), fetch).await.unwrap();
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
-
-        tokio::time::advance(Duration::from_secs(1)).await;
-        cache.get_or_fetch(key("prow", &[]), fetch).await.unwrap();
-        assert_eq!(calls.load(Ordering::SeqCst), 2);
-    }
-
-    #[tokio::test]
-    async fn selected_items_does_not_split_the_key() {
-        let cache = DiscoveryCache::default();
-        let calls = AtomicUsize::new(0);
-        let fetch = || counted(&calls, Ok(catalog_of(&[])));
-
-        for selected in ["", "a", "a,b"] {
-            cache
-                .get_or_fetch(
-                    key("prow", &[("url", "x"), ("selected_items", selected)]),
-                    fetch,
-                )
-                .await
-                .unwrap();
-        }
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
-
-        cache
-            .get_or_fetch(key("prow", &[("url", "y")]), fetch)
-            .await
-            .unwrap();
-        cache
-            .get_or_fetch(key("other", &[("url", "x")]), fetch)
-            .await
-            .unwrap();
-        assert_eq!(calls.load(Ordering::SeqCst), 3);
-    }
-
-    #[tokio::test]
-    async fn oldest_entry_is_dropped_past_the_cap() {
-        let cache = DiscoveryCache::new(CATALOG_TTL, 2);
-        let calls = AtomicUsize::new(0);
-        let fetch = || counted(&calls, Ok(catalog_of(&[])));
-
-        for id in ["1", "2", "3"] {
-            cache
-                .get_or_fetch(key("prow", &[("id", id)]), fetch)
-                .await
-                .unwrap();
-        }
-        assert_eq!(cache.state.lock().unwrap().entries.len(), 2);
-
-        cache
-            .get_or_fetch(key("prow", &[("id", "3")]), fetch)
-            .await
-            .unwrap();
-        assert_eq!(calls.load(Ordering::SeqCst), 3);
-
-        cache
-            .get_or_fetch(key("prow", &[("id", "1")]), fetch)
-            .await
-            .unwrap();
-        assert_eq!(calls.load(Ordering::SeqCst), 4);
-    }
-
-    fn page(page: usize, page_size: usize) -> PaginationParams {
-        PaginationParams { page, page_size }
-    }
-
-    fn names(response: &PaginatedAvailablePipelines) -> Vec<&str> {
-        response.items.iter().map(|p| p.name.as_str()).collect()
-    }
-
-    fn sample() -> PipelineCatalog {
-        PipelineCatalog {
-            organizations: Vec::new(),
-            pipelines: vec![
-                pipeline("zeta", "kube", "kubernetes/kubernetes", "unit tests"),
-                pipeline("alpha", "kube", "kubernetes/test-infra", "Lint"),
-                pipeline("mid", "istio", "istio/istio", "builds the KUBE images"),
-                pipeline("beta", "istio", "istio/api", "e2e"),
-            ],
-        }
-    }
-
-    #[test]
-    fn serving_filters_by_org_and_sorts_by_name() {
-        let response = serve_pipelines(&sample(), Some("kube"), None, &page(1, 10));
-
-        assert_eq!(names(&response), ["alpha", "zeta"]);
-        assert_eq!(response.total_count, 2);
-        assert!(!response.has_more);
-    }
-
-    #[test]
-    fn serving_search_matches_name_repository_and_description() {
-        let by_name = serve_pipelines(&sample(), None, Some("  ALPH "), &page(1, 10));
-        assert_eq!(names(&by_name), ["alpha"]);
-
-        let by_repo = serve_pipelines(&sample(), None, Some("istio/api"), &page(1, 10));
-        assert_eq!(names(&by_repo), ["beta"]);
-
-        let by_description = serve_pipelines(&sample(), None, Some("kube images"), &page(1, 10));
-        assert_eq!(names(&by_description), ["mid"]);
-
-        let org_and_search = serve_pipelines(&sample(), Some("kube"), Some("KUBE"), &page(1, 10));
-        assert_eq!(names(&org_and_search), ["alpha", "zeta"]);
-
-        let none = serve_pipelines(&sample(), Some("istio"), Some("lint"), &page(1, 10));
-        assert!(none.items.is_empty());
-    }
-
-    #[test]
-    fn serving_blank_search_keeps_everything() {
-        let response = serve_pipelines(&sample(), None, Some("   "), &page(1, 10));
-
-        assert_eq!(response.total_count, 4);
-    }
-
-    #[test]
-    fn serving_pages_and_reports_has_more() {
-        let first = serve_pipelines(&sample(), None, None, &page(1, 3));
-        assert_eq!(names(&first), ["alpha", "beta", "mid"]);
-        assert!(first.has_more);
-        assert_eq!(first.total_pages, 2);
-
-        let last = serve_pipelines(&sample(), None, None, &page(2, 3));
-        assert_eq!(names(&last), ["zeta"]);
-        assert!(!last.has_more);
-
-        let past_end = serve_pipelines(&sample(), None, None, &page(3, 3));
-        assert!(past_end.items.is_empty());
-        assert!(!past_end.has_more);
-    }
-
-    #[test]
-    fn serving_exact_last_page_has_no_more() {
-        let first = serve_pipelines(&sample(), None, None, &page(1, 2));
-        assert!(first.has_more);
-
-        let last = serve_pipelines(&sample(), None, None, &page(2, 2));
-        assert_eq!(names(&last), ["mid", "zeta"]);
-        assert_eq!(last.items.len(), last.page_size);
-        assert!(!last.has_more);
-    }
-
-    #[test]
-    fn serving_defaults_page_and_page_size() {
-        let response = serve_pipelines(&sample(), None, None, &page(0, 0));
-
-        assert_eq!(response.page, 1);
-        assert_eq!(response.page_size, DEFAULT_PAGE_SIZE);
-        assert_eq!(response.items.len(), 4);
+fn sole_organization(organizations: &[Organization]) -> Option<String> {
+    match organizations {
+        [only] => Some(only.id.clone()),
+        _ => None,
     }
 }
+
+async fn paged_matching_ids(
+    plugin: &dyn PluginTrait, organization: Option<String>, search: Option<String>,
+) -> DomainResult<Vec<String>> {
+    let organization = match organization {
+        Some(organization) => Some(organization),
+        None => sole_organization(
+            &plugin
+                .fetch_organizations()
+                .await
+                .map_err(PluginAdapter::map_error)?,
+        ),
+    };
+    let mut ids = Vec::new();
+    for page in 1..=MATCHING_MAX_PAGES {
+        let params = PaginationParams {
+            page,
+            page_size: MATCHING_PAGE_SIZE,
+        };
+        let response = plugin
+            .fetch_available_pipelines_filtered(organization.clone(), search.clone(), Some(params))
+            .await
+            .map_err(PluginAdapter::map_error)?;
+        let has_more = response.has_more;
+        ids.extend(response.items.into_iter().map(|pipeline| pipeline.id));
+        if !has_more {
+            break;
+        }
+    }
+    Ok(ids)
+}
+
+#[cfg(test)]
+mod tests;

@@ -4,6 +4,7 @@ use std::sync::{
     RwLock as StdRwLock,
 };
 
+use pipedash_core::application::services::push_service::PushService;
 use pipedash_core::application::{
     LogService,
     PipelineService,
@@ -15,11 +16,11 @@ use pipedash_core::domain::{
     PairedDevice,
 };
 use pipedash_core::infrastructure::{
-    ConfigKey,
     ConfigState,
     StorageManager,
 };
 use pipedash_core::CoreContext;
+use pipedash_plugin_api::PluginRegistry;
 use tokio::sync::{
     watch,
     Mutex,
@@ -32,12 +33,11 @@ use crate::error::{
     AppError,
 };
 use crate::pairing_codes::PairingCodes;
-use crate::push::normalize_relay_url;
-use crate::ws::WebSocketEventBus;
+use crate::ws::event_bus::WebSocketEventBus;
 
 pub struct AppStateInner {
     pub core: Option<CoreContext>,
-    pub storage_manager: Option<StorageManager>,
+    pub storage_manager: Option<Arc<StorageManager>>,
     pub setup_required: bool,
     pub config_error: Option<String>,
     pub token_store_ready: bool,
@@ -50,6 +50,7 @@ pub struct CurrentDevice(pub String);
 pub struct AppState {
     pub inner: Arc<RwLock<AppStateInner>>,
     pub ws_event_bus: Arc<WebSocketEventBus>,
+    pub plugin_registry: Arc<PluginRegistry>,
     pub setup_lock: Arc<Mutex<()>>,
     pub download_tickets: Arc<DownloadTickets>,
     pub pairing_codes: Arc<PairingCodes>,
@@ -61,11 +62,13 @@ pub struct AppState {
 
 impl AppState {
     fn new(
-        ws_event_bus: Arc<WebSocketEventBus>, inner: AppStateInner, desktop_host: Option<Arc<str>>,
+        ws_event_bus: Arc<WebSocketEventBus>, plugin_registry: Arc<PluginRegistry>,
+        inner: AppStateInner, desktop_host: Option<Arc<str>>,
     ) -> Self {
         Self {
             inner: Arc::new(RwLock::new(inner)),
             ws_event_bus,
+            plugin_registry,
             setup_lock: Arc::default(),
             download_tickets: Arc::default(),
             pairing_codes: Arc::default(),
@@ -76,9 +79,12 @@ impl AppState {
         }
     }
 
-    pub fn setup_mode(ws_event_bus: Arc<WebSocketEventBus>) -> Self {
+    pub fn setup_mode(
+        ws_event_bus: Arc<WebSocketEventBus>, plugin_registry: Arc<PluginRegistry>,
+    ) -> Self {
         Self::new(
             ws_event_bus,
+            plugin_registry,
             AppStateInner {
                 core: None,
                 storage_manager: None,
@@ -90,9 +96,12 @@ impl AppState {
         )
     }
 
-    pub fn config_error(ws_event_bus: Arc<WebSocketEventBus>, error: String) -> Self {
+    pub fn config_error(
+        ws_event_bus: Arc<WebSocketEventBus>, error: String, plugin_registry: Arc<PluginRegistry>,
+    ) -> Self {
         Self::new(
             ws_event_bus,
+            plugin_registry,
             AppStateInner {
                 core: None,
                 storage_manager: None,
@@ -106,12 +115,14 @@ impl AppState {
 
     pub fn initialized(
         ws_event_bus: Arc<WebSocketEventBus>, core: CoreContext, storage_manager: StorageManager,
+        plugin_registry: Arc<PluginRegistry>,
     ) -> Self {
         Self::new(
             ws_event_bus,
+            plugin_registry,
             AppStateInner {
                 core: Some(core),
-                storage_manager: Some(storage_manager),
+                storage_manager: Some(Arc::new(storage_manager)),
                 setup_required: false,
                 config_error: None,
                 token_store_ready: false,
@@ -122,9 +133,11 @@ impl AppState {
 
     pub fn hosted(
         ws_event_bus: Arc<WebSocketEventBus>, core: Option<CoreContext>, name: &str,
+        plugin_registry: Arc<PluginRegistry>,
     ) -> Self {
         Self::new(
             ws_event_bus,
+            plugin_registry,
             AppStateInner {
                 token_store_ready: core.is_some(),
                 core,
@@ -176,14 +189,18 @@ impl AppState {
         self
     }
 
+    pub async fn push_service(&self) -> ApiResult<PushService> {
+        let service = self.core().await?.push_service();
+
+        Ok(if self.desktop_host.is_some() {
+            service.with_fixed_relay(self.push_relay.as_deref())
+        } else {
+            service
+        })
+    }
+
     pub async fn push_relay_url(&self) -> Option<String> {
-        if self.desktop_host.is_some() {
-            return self.push_relay.as_deref().and_then(normalize_relay_url);
-        }
-
-        let config = self.config_state().await.ok()?;
-
-        normalize_relay_url(&config.get_string(ConfigKey::PushRelayUrl).await)
+        self.push_service().await.ok()?.relay_url().await
     }
 
     pub async fn core(&self) -> ApiResult<CoreContext> {
@@ -193,6 +210,10 @@ impl AppState {
             .core
             .clone()
             .ok_or_else(AppError::not_initialized)
+    }
+
+    pub async fn storage_manager(&self) -> Option<Arc<StorageManager>> {
+        self.inner.read().await.storage_manager.clone()
     }
 
     pub async fn provider_service(&self) -> ApiResult<Arc<ProviderService>> {

@@ -4,6 +4,7 @@ import { after, afterEach, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 
 import { pipelineFixture } from '../../../testing/fixtures'
+import { pluginFixture } from '../../providers/components/AddProviderModal/pluginFixture'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
@@ -16,21 +17,23 @@ const { cleanup, render, within } = await import('@testing-library/react')
 const { MantineProvider } = await import('@mantine/core')
 const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 const { MemoryRouter } = await import('react-router-dom')
+const { queryKeys } = await import('../../../lib/queryKeys')
 const { RunActionsProvider } = await import('./RunActionsContext')
 const { RunHistoryHeader } = await import('./RunHistoryHeader')
 
 const view = () => within(document.body)
 
 function mount(overrides: Parameters<typeof pipelineFixture>[0]) {
-  const pipeline = pipelineFixture({ provider_type: 'argocd', ...overrides })
+  const pipeline = pipelineFixture({ provider_type: 'stub', ...overrides })
+  const client = new QueryClient()
+  client.setQueryData(queryKeys.plugins.list(), [pluginFixture({ provider_type: 'stub' })])
   render(
     <MantineProvider env="test">
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={client}>
         <MemoryRouter>
           <RunActionsProvider pipeline={pipeline}>
             <RunHistoryHeader
               pipeline={pipeline}
-              isLoadingPipeline={false}
               showCustomize={false}
               customizationDisabled={false}
               onBack={() => undefined}

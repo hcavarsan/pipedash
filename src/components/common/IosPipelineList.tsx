@@ -6,21 +6,17 @@ import { Link, useLocation } from 'react-router-dom'
 import { useRowMenuLongPress } from '../../hooks/useLongPress'
 import { useNow } from '../../hooks/useNow'
 import { type StatusKey, statusMeta } from '../../theme/status'
-import type { ProviderSummary } from '../../types/domain'
-import { getPipelineLabels, getPipelineStatusLabel, pipelineStatusKey } from '../../utils/pipelinePresentation'
+import type { PipelineActions, PipelineSelection, TableRow } from '../../types/pipelineRows'
+import type { ProviderSummary } from '../../types/providers'
+import { getPipelineStatusLabel, pipelineStatusKey } from '../../utils/pipelinePresentation'
+import { historyLabel, workflowSwipeActions } from '../../utils/pipelineRowActions'
 import { StatusGlyph } from '../atoms/StatusBadge'
 import groupClasses from '../ios/IosList.module.css'
 import { SwipeActions } from '../ios/SwipeActions'
 import type { SwipeAction } from '../ios/swipeAction'
 import { groupPath, pushState } from '../layout/mobileChrome'
 import classes from './IosPipelineList.module.css'
-import {
-  type PipelineActions,
-  type PipelineSelection,
-  type TableRow,
-  WorkflowActionMenu,
-  workflowSwipeActions,
-} from './PipelineRowParts'
+import { WorkflowActionMenu } from './PipelineRowActions'
 import { VirtualList } from './VirtualList'
 
 interface IosPipelineRowProps {
@@ -191,7 +187,7 @@ function WorkflowRowView({ row, now, getProvider, actions, selection }: Workflow
       statusText={getPipelineStatusLabel(pipeline)}
       title={row.name}
       subtitle={subtitle}
-      hint={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()}`}
+      hint={`View ${historyLabel(actions, pipeline.provider_type)}`}
       longPressMenu
       selected={selection ? selection.selected.has(pipeline.id) : undefined}
       onClick={() => (selection ? selection.onToggle(pipeline) : actions.onViewHistory(pipeline))}
@@ -199,6 +195,10 @@ function WorkflowRowView({ row, now, getProvider, actions, selection }: Workflow
       menu={<WorkflowActionMenu pipeline={pipeline} provider={getProvider(pipeline.provider_id)} actions={actions} />}
     />
   )
+}
+
+function ListRowView({ row, ...rest }: Omit<WorkflowRowViewProps, 'row'> & { row: TableRow }): ReactNode {
+  return row.type === 'section' ? <SectionRowView row={row} /> : <WorkflowRowView row={row} {...rest} />
 }
 
 export function IosPipelineList({ header, rows, getProvider, actions, selection }: IosPipelineListProps): ReactNode {
@@ -218,17 +218,7 @@ export function IosPipelineList({ header, rows, getProvider, actions, selection 
         estimateSize={ROW_ESTIMATE}
         renderItem={(item) => (
           <div className={classes.cell} data-first={item.first || undefined} data-last={item.last || undefined}>
-            {item.row.type === 'section' ? (
-              <SectionRowView row={item.row} />
-            ) : (
-              <WorkflowRowView
-                row={item.row}
-                now={now}
-                getProvider={getProvider}
-                actions={actions}
-                selection={selection}
-              />
-            )}
+            <ListRowView row={item.row} now={now} getProvider={getProvider} actions={actions} selection={selection} />
           </div>
         )}
       />

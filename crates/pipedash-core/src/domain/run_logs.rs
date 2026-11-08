@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use chrono::{
     DateTime,
     Utc,
@@ -39,6 +41,17 @@ pub struct RunLogTree {
     pub nodes: Vec<RunLogNode>,
     pub default_node_id: Option<String>,
     pub complete: bool,
+    #[serde(default)]
+    pub groups: Vec<RunLogGroup>,
+    #[serde(default)]
+    pub step_ids_by_node: BTreeMap<String, Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunLogGroup {
+    pub stage: Option<String>,
+    pub node_ids: Vec<String>,
+    pub failed_first_node_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -171,6 +184,14 @@ impl LineKind {
 pub struct LogLinesPage {
     pub start: u32,
     pub lines: Vec<LogLine>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct LogLinesQuery {
+    pub revision: i64,
+    pub start: u32,
+    pub count: u32,
+    pub max_line_units: u32,
 }
 
 fn is_zero(value: &u32) -> bool {

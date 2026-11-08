@@ -24,7 +24,7 @@ final class BuildWatchTests: XCTestCase {
   private func snapshot(_ sessionId: String = "session-1") -> BuildWatchSnapshot {
     BuildWatchSnapshot(
       sessionId: sessionId, pipelineId: "provider:app/main", pipelineName: "Ship app",
-      providerName: "Work CI", providerType: "github", runNumber: 42,
+      providerName: "Work CI", providerType: "stub", runNumber: 42,
       branch: "main", status: .running, startedAt: 100, concludedAt: nil,
       updatedAt: 130, monitoring: .watching,
       url: "pipedash://pipelines/provider%3Aapp%2Fmain/runs/42")

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
-
-import type { PipelineView, ProviderSummary } from '../../../types/domain'
+import type { ProviderSummary } from '../../../types/providers'
+import type { PipelineView } from '../../../types/views'
 import { reorderSlots } from '../../../utils/viewTree'
 import { SortableList } from './SortableList'
 

@@ -1,7 +1,8 @@
 import { Box } from '@mantine/core'
 import type { ReactNode } from 'react'
 
-import { type ProviderTone, TONE_META } from '../../../utils/fetchInfo'
+import type { ProviderTone } from '../../../types/providers'
+import { TONE_META } from '../../../utils/fetchInfo'
 
 export function ToneDot({ tone }: { tone: ProviderTone }): ReactNode {
   return (

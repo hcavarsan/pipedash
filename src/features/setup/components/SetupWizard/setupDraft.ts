@@ -1,36 +1,12 @@
-import type { PipedashConfig, StorageConfigResponse } from '../../../../types/domain'
+import type { SetupDraft } from '../../../../types/setup'
+import type { StorageConfigResponse } from '../../../../types/storage'
 
-import type { SetupState } from './types'
+import type { SetupFieldErrors, SetupState } from './types'
 
-export type SetupFieldErrors = Partial<Record<'postgresUrl' | 'vaultPassword' | 'vaultPasswordConfirm', string>>
-
-export function isPostgresUrl(value: string): boolean {
-  try {
-    const url = new URL(value.trim())
-
-    return (url.protocol === 'postgres:' || url.protocol === 'postgresql:') && Boolean(url.hostname)
-  } catch {
-    return false
-  }
-}
-
-export function validateSetupDraft(draft: SetupState, needsVaultPassword: boolean): SetupFieldErrors {
-  const errors: SetupFieldErrors = {}
-
-  if (draft.backend === 'postgres' && !isPostgresUrl(draft.postgresUrl)) {
-    errors.postgresUrl = 'Enter a valid PostgreSQL connection URL'
-  }
-
-  if (needsVaultPassword) {
-    if (draft.vaultPassword.length < 8) {
-      errors.vaultPassword = 'Use at least 8 characters'
-    }
-    if (draft.vaultPassword !== draft.vaultPasswordConfirm) {
-      errors.vaultPasswordConfirm = 'Passwords do not match'
-    }
-  }
-
-  return errors
+const FIELD_ERROR_KEYS: Record<string, keyof SetupFieldErrors> = {
+  postgres_url: 'postgresUrl',
+  vault_password: 'vaultPassword',
+  vault_password_confirm: 'vaultPasswordConfirm',
 }
 
 export function initialDraft(currentConfig: StorageConfigResponse | null, defaultDataDir: string): SetupState {
@@ -46,30 +22,27 @@ export function initialDraft(currentConfig: StorageConfigResponse | null, defaul
   }
 }
 
-export function buildStorageConfig(
-  draft: SetupState,
-  currentConfig: StorageConfigResponse | null,
-  useDefaultDir: boolean
-): PipedashConfig {
+export function toSetupDraft(state: SetupState): SetupDraft {
   return {
-    general: currentConfig?.config.general || {
-      metrics_enabled: true,
-      default_refresh_interval: 30,
-      status_pages_enabled: true,
-      proxy_url: '',
-    },
-    server: currentConfig?.config.server || {
-      bind_addr: '127.0.0.1:8080',
-      cors_allow_all: false,
-    },
-    storage: {
-      data_dir: useDefaultDir ? '' : draft.dataDir,
-      backend: draft.backend,
-      ...(draft.backend === 'postgres' && {
-        postgres: {
-          connection_string: draft.postgresUrl,
-        },
-      }),
-    },
+    backend: state.backend,
+    data_dir: state.dataDir,
+    postgres_url: state.postgresUrl,
+    vault_password: state.vaultPassword,
+    vault_password_confirm: state.vaultPasswordConfirm,
+    transfer_data: state.transferData,
   }
+}
+
+export function toFieldErrors(errors: Record<string, string>): SetupFieldErrors {
+  const fields: SetupFieldErrors = {}
+
+  for (const [key, message] of Object.entries(errors)) {
+    const field = FIELD_ERROR_KEYS[key]
+
+    if (field) {
+      fields[field] = message
+    }
+  }
+
+  return fields
 }

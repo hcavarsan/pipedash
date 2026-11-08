@@ -91,6 +91,8 @@ impl From<DomainError> for AppError {
                 StatusCode::FORBIDDEN
             }
             DomainError::NotSupported(_) => StatusCode::NOT_IMPLEMENTED,
+            DomainError::Unprocessable { .. } => StatusCode::UNPROCESSABLE_ENTITY,
+            DomainError::Conflict { .. } => StatusCode::CONFLICT,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         AppError::new(status, ApiError::new(err.code(), err.to_string()))

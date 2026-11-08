@@ -4,6 +4,7 @@ use chrono::{
     DateTime,
     Utc,
 };
+use pipedash_plugin_api::utils;
 use serde::{
     Deserialize,
     Serialize,
@@ -284,5 +285,5 @@ pub struct TaskRunList {
 }
 
 pub fn parse_timestamp(timestamp: &Option<String>) -> Option<DateTime<Utc>> {
-    timestamp.as_ref()?.parse::<DateTime<Utc>>().ok()
+    utils::parse_timestamp(timestamp.as_deref()?)
 }

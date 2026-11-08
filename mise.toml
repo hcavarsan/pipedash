@@ -1,8 +1,9 @@
 [tools]
 rust = { version = "nightly-2026-10-31", components = "rust-src,llvm-tools,clippy,rustfmt,rustc-dev" }
 node = "26"
-bun = "latest"
-zizmor = "latest"
+bun = "1.4.4"
+zizmor = "1.32.0"
+"aqua:google/osv-scanner" = "2.7.0"
 
 [env]
 K8S_OPENAPI_ENABLED_VERSION = "1.32"
@@ -85,16 +86,29 @@ run = "cargo check --workspace --all-targets --all-features"
 
 [tasks.lint]
 description = "Lint all"
-depends = ["lint:front", "lint:back", "lint:actions"]
+depends = ["lint:front", "lint:back", "lint:actions", "lint:structure", "lint:dup"]
 
 [tasks."lint:front"]
-run = "bun run lint"
+run = "bun run lint && mise run lint:screenshots"
+
+[tasks."lint:screenshots"]
+dir = "ios/app-store-screenshots"
+run = "bun install --frozen-lockfile && bun run typecheck && bunx knip"
 
 [tasks."lint:back"]
 run = "cargo clippy --workspace --all-targets --all-features -- -D warnings"
 
 [tasks."lint:actions"]
-run = "zizmor --persona=pedantic .github/workflows"
+run = "zizmor --persona=pedantic .github"
+
+[tasks."lint:structure"]
+run = "python3 scripts/test_audit_structure.py && python3 scripts/audit_structure.py"
+
+[tasks."lint:dup"]
+run = "bunx jscpd"
+
+[tasks."audit:deps"]
+run = "osv-scanner scan source --recursive ."
 
 [tasks.fix]
 description = "Auto-fix lint issues"

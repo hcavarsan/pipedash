@@ -78,6 +78,14 @@ export function useContextMenu(): (items: () => ContextMenuItem[]) => {
   }
 }
 
+function MenuShortcut({ shortcut }: { shortcut: string }): ReactNode {
+  return (
+    <Text size="xs" c="dimmed">
+      {shortcut}
+    </Text>
+  )
+}
+
 export function ContextMenuHost(): ReactNode {
   const menu = useContextMenuStore((state) => state.menu)
   const close = useContextMenuStore((state) => state.close)
@@ -133,13 +141,7 @@ export function ContextMenuHost(): ReactNode {
             <Menu.Item
               key={item.label}
               leftSection={item.icon}
-              rightSection={
-                item.shortcut ? (
-                  <Text size="xs" c="dimmed">
-                    {item.shortcut}
-                  </Text>
-                ) : null
-              }
+              rightSection={item.shortcut ? <MenuShortcut shortcut={item.shortcut} /> : null}
               disabled={item.disabled ?? false}
               {...(item.color === undefined ? {} : { color: item.color })}
               {...(item === firstItem ? { 'data-autofocus': true } : {})}

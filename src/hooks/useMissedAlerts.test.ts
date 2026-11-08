@@ -3,7 +3,7 @@ import { after, afterEach, beforeEach, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 
-import type { HostAlert } from '../types/domain'
+import type { HostAlert } from '../types/notifications'
 
 GlobalRegistrator.register({ width: 1200, height: 800 })
 
@@ -55,6 +55,7 @@ const { createElement } = await import('react')
 const { loadConnection } = await import('../services/connection')
 const { useNotificationCenterStore } = await import('../stores/notificationCenterStore')
 const { DEFAULT_NOTIFICATION_PREFERENCES, useNotificationStore } = await import('../stores/notificationStore')
+const { installNotificationCenterDouble } = await import('../testing/notificationCenter')
 const { useMissedAlerts } = await import('./useMissedAlerts')
 
 await loadConnection()
@@ -69,6 +70,7 @@ const failed: HostAlert = {
   body: 'owner/repo · github',
   pipeline_id: 'p1',
   provider_id: 1,
+  provider_ids: [1],
   created_at: '2026-11-03T12:00:00Z',
 }
 const recovered: HostAlert = {
@@ -81,6 +83,7 @@ const recovered: HostAlert = {
   body: 'Workflow runs are back to normal.',
   pipeline_id: null,
   provider_id: null,
+  provider_ids: [],
   created_at: '2026-11-03T12:05:00Z',
 }
 
@@ -100,6 +103,8 @@ async function emitStatus(status: string) {
   })
 }
 
+installNotificationCenterDouble()
+
 beforeEach(() => {
   calls.length = 0
   batches = []
@@ -109,7 +114,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await act(async () => cleanup())
-  useNotificationCenterStore.setState({ items: [], selection: null })
+  useNotificationCenterStore.setState({ items: [], revision: 0, unread: 0, selection: null })
   useNotificationStore.setState({ preferences: DEFAULT_NOTIFICATION_PREFERENCES })
 })
 

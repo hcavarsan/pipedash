@@ -32,6 +32,7 @@ mime_guess = { workspace = true, optional = true }
 # Core
 pipedash-core.workspace = true
 pipedash-plugin-api.workspace = true
+pipedash-plugins.workspace = true
 qrcode.workspace = true
 rand.workspace = true
 # Static file embedding
@@ -42,7 +43,6 @@ subtle.workspace = true
 # Serialization
 serde.workspace = true
 serde_json.workspace = true
-thiserror.workspace = true
 # Async runtime
 tokio = { workspace = true, features = ["full"] }
 # WebSocket
@@ -54,9 +54,14 @@ tracing.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
+pipedash-plugin-actions.workspace = true
+reqwest.workspace = true
 
 [features]
 default = ["postgres", "embedded-frontend"]
 embedded-frontend = ["dep:rust-embed", "dep:mime_guess"]
 full = ["postgres"]
 postgres = ["pipedash-core/postgres"]
+
+[lints]
+workspace = true

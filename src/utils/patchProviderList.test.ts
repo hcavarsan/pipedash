@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { ProviderSummary } from '../types/domain'
+import { providerAttentionFixture } from '../testing/fixtures'
+import type { ProviderSummary } from '../types/providers'
 
 import { patchProviderList } from './patchProviderList'
 
@@ -23,6 +24,7 @@ const summary = (id: number, name: string): ProviderSummary => ({
   freshness: { state: 'never', stale_at: null },
   recovery: null,
   health: { level: 'operational', signals: [], next_attempt_at: null, in_flight: false, status_page: null },
+  attention: providerAttentionFixture(),
 })
 
 test('replaces the matching provider and keeps every other entry untouched', () => {

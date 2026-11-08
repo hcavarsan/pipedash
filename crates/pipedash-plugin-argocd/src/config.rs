@@ -1,117 +1,44 @@
 use std::collections::HashMap;
 
+use pipedash_plugin_api::config::{
+    csv_list,
+    required_base_url,
+    PIPELINE_ID_SEPARATOR,
+};
+use pipedash_plugin_api::utils::repository_name;
 use pipedash_plugin_api::{
     PluginError,
     PluginResult,
 };
 
-pub(crate) fn parse_pipeline_id(id: &str) -> PluginResult<(i64, String, String)> {
-    let parts: Vec<&str> = id.split("__").collect();
-
-    if parts.len() != 4 || parts[0] != "argocd" {
-        return Err(PluginError::InvalidConfig(format!(
-            "Invalid pipeline ID format: '{}'. Expected format: 'argocd__{{provider_id}}__{{namespace}}__{{app_name}}'",
-            id
-        )));
-    }
-
-    let provider_id = parts[1].parse::<i64>().map_err(|_| {
-        PluginError::InvalidConfig(format!(
-            "Invalid provider ID '{}' in pipeline ID '{}'. Provider ID must be a valid integer",
-            parts[1], id
-        ))
-    })?;
-
-    let namespace = parts[2].to_string();
-    let app_name = parts[3].to_string();
-
-    Ok((provider_id, namespace, app_name))
+pub(crate) fn parse_pipeline_id(id: &str) -> PluginResult<(String, String)> {
+    let (namespace, app_name) = id
+        .split_once(PIPELINE_ID_SEPARATOR)
+        .filter(|(_, app_name)| !app_name.contains(PIPELINE_ID_SEPARATOR))
+        .ok_or_else(|| {
+            PluginError::InvalidConfig(format!(
+                "Invalid pipeline ID format: '{id}'. Expected format: '{{namespace}}__{{app_name}}'"
+            ))
+        })?;
+    Ok((namespace.to_string(), app_name.to_string()))
 }
 
 pub(crate) fn get_server_url(config: &HashMap<String, String>) -> PluginResult<String> {
-    config
-        .get("server_url")
-        .map(|url| url.trim().trim_end_matches('/').to_string())
-        .ok_or_else(|| PluginError::InvalidConfig("Missing server_url in config".to_string()))
-}
-
-pub(crate) fn get_token(config: &HashMap<String, String>) -> PluginResult<String> {
-    config
-        .get("token")
-        .map(|t| t.trim().to_string())
-        .ok_or_else(|| PluginError::InvalidConfig("Missing token in config".to_string()))
-}
-
-pub(crate) fn is_insecure(config: &HashMap<String, String>) -> bool {
-    config
-        .get("insecure")
-        .and_then(|v| v.parse::<bool>().ok())
-        .unwrap_or(false)
+    required_base_url(config, "server_url", "Missing server_url in config").map(str::to_string)
 }
 
 pub(crate) fn parse_organizations_filter(config: &HashMap<String, String>) -> Option<Vec<String>> {
-    config.get("organizations").map(|orgs| {
-        orgs.split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect()
-    })
+    csv_list(config, "organizations")
 }
 
-pub(crate) fn build_pipeline_id(provider_id: i64, namespace: &str, app_name: &str) -> String {
-    format!("argocd__{}__{}__{}", provider_id, namespace, app_name)
-}
-
-pub(crate) fn parse_selected_items(config: &HashMap<String, String>) -> Option<Vec<String>> {
-    config.get("selected_items").map(|items| {
-        items
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect()
-    })
-}
-
-pub(crate) fn parse_repository_name(repo_url: &str) -> String {
-    let cleaned = repo_url.trim_end_matches(".git").trim_end_matches('/');
-
-    if !cleaned.contains("://") {
-        if let Some((_, path)) = cleaned.rsplit_once(':') {
-            if path.contains('/') {
-                return path.to_string();
-            }
-        }
-    }
-
-    let parts: Vec<&str> = cleaned.split('/').collect();
-    if parts.len() >= 2 {
-        let org = parts[parts.len() - 2];
-        let repo = parts[parts.len() - 1];
-        return format!("{}/{}", org, repo);
-    }
-
-    repo_url.to_string()
+pub(crate) fn build_pipeline_id(namespace: &str, app_name: &str) -> String {
+    format!("{namespace}__{app_name}")
 }
 
 pub(crate) fn extract_git_org(repo_url: &str) -> String {
-    let repo_name = parse_repository_name(repo_url);
+    let repo_name = repository_name(repo_url);
     repo_name.split('/').next().unwrap_or("unknown").to_string()
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn repository_name_ignores_hosts_and_ports() {
-        for url in [
-            "https://github.com/acme/web.git",
-            "http://gitea:3000/acme/web.git",
-            "ssh://git@git.example.com:2222/acme/web",
-            "git@github.com:acme/web.git",
-        ] {
-            assert_eq!(parse_repository_name(url), "acme/web", "{url}");
-            assert_eq!(extract_git_org(url), "acme", "{url}");
-        }
-    }
-}
+mod tests;

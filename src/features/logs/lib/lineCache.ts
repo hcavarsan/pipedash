@@ -1,22 +1,9 @@
-import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from 'react'
-
 import { service } from '../../../services/service'
 import { getErrorCode } from '../../../types/errors'
 import { type LogLine, normalizeLine } from '../../../types/logs'
+import type { DocRef, LineState } from './lineCacheTypes'
 
 export const LOG_LINE_UNITS = 4096
-
-export interface DocRef {
-  pipelineId: string
-  runNumber: number
-  nodeId: string
-  revision: number
-  lineCount: number
-  previousRevision: number | null
-  stableLines: number
-}
-
-export type LineState = LogLine | 'loading' | 'error' | undefined
 
 interface Entry {
   line: LogLine
@@ -399,43 +386,3 @@ export class LogLineCache {
 }
 
 export const logLineCache = new LogLineCache()
-
-export function useLogLines(doc: DocRef | null, lines: readonly number[]): (line: number) => LineState {
-  const [owner] = useState(() => Symbol('log-lines'))
-
-  useSyncExternalStore(logLineCache.subscribe, logLineCache.version)
-
-  const pipelineId = doc?.pipelineId
-  const runNumber = doc?.runNumber
-  const nodeId = doc?.nodeId
-  const revision = doc?.revision
-  const lineCount = doc?.lineCount
-  const previousRevision = doc?.previousRevision
-  const stableLines = doc?.stableLines
-
-  useLayoutEffect(() => {
-    if (
-      pipelineId === undefined ||
-      runNumber === undefined ||
-      nodeId === undefined ||
-      revision === undefined ||
-      lineCount === undefined ||
-      previousRevision === undefined ||
-      stableLines === undefined
-    ) {
-      logLineCache.release(owner)
-
-      return
-    }
-
-    logLineCache.need(
-      owner,
-      { pipelineId, runNumber, nodeId, revision, lineCount, previousRevision, stableLines },
-      lines
-    )
-  }, [owner, pipelineId, runNumber, nodeId, revision, lineCount, previousRevision, stableLines, lines])
-
-  useEffect(() => () => logLineCache.release(owner), [owner])
-
-  return (line) => (doc ? logLineCache.line(doc, line) : undefined)
-}

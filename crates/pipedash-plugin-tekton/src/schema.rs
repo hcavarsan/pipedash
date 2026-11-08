@@ -1,259 +1,174 @@
 use pipedash_plugin_api::*;
+use schema::{
+    CellRenderer,
+    ColumnDataType,
+    ColumnDefinition,
+    TableDefinition,
+};
 
 pub fn create_table_schema() -> schema::TableSchema {
-    schema::TableSchema::new()
-        .add_table(create_pipeline_runs_table())
-        .add_table(pipedash_plugin_api::defaults::default_pipelines_table())
+    defaults::table_schema(
+        create_pipeline_runs_table(),
+        defaults::default_pipelines_table(),
+    )
 }
 
-fn create_pipeline_runs_table() -> schema::TableDefinition {
-    use schema::*;
-
-    TableDefinition {
-        id: "pipeline_runs".to_string(),
-        name: "Pipeline Runs".to_string(),
-        description: Some("Tekton PipelineRun executions".to_string()),
-        columns: vec![
-            create_run_identifier_column(),
-            create_namespace_column(),
-            create_status_column(),
-            create_pipeline_column(),
-            create_branch_column(),
-            create_started_at_column(),
-            create_duration_column(),
-            create_commit_sha_column(),
-            create_trigger_column(),
-            create_pipelinerun_column(),
-            create_event_type_column(),
-            create_task_summary_column(),
-            create_concluded_at_column(),
-            create_service_account_column(),
+fn create_pipeline_runs_table() -> TableDefinition {
+    TableDefinition::new(
+        "pipeline_runs",
+        "Pipeline Runs",
+        "Tekton PipelineRun executions",
+        ("run_number", "desc"),
+        vec![
+            ColumnDefinition::new(
+                "run_identifier",
+                "Run",
+                "metadata.run_identifier",
+                ColumnDataType::String,
+                CellRenderer::TruncatedText,
+            )
+            .described("Run identifier (event ID or PipelineRun name)")
+            .with_width(180),
+            ColumnDefinition::new(
+                "namespace",
+                "Namespace",
+                "metadata.namespace",
+                ColumnDataType::String,
+                CellRenderer::Badge,
+            )
+            .described("Kubernetes namespace")
+            .hidden()
+            .with_width(140)
+            .sortable(),
+            ColumnDefinition::new(
+                "status",
+                "Status",
+                "status",
+                ColumnDataType::Status,
+                CellRenderer::StatusBadge,
+            )
+            .described("Pipeline run status")
+            .with_width(110)
+            .sortable(),
+            ColumnDefinition::new(
+                "pipeline",
+                "Pipeline",
+                "metadata.pipeline_name",
+                ColumnDataType::String,
+                CellRenderer::TruncatedText,
+            )
+            .described("Tekton Pipeline template name")
+            .with_width(180),
+            ColumnDefinition::new(
+                "branch",
+                "Branch",
+                "branch",
+                ColumnDataType::String,
+                CellRenderer::TruncatedText,
+            )
+            .described("Git branch")
+            .when_present()
+            .hidden()
+            .with_width(140)
+            .sortable(),
+            ColumnDefinition::new(
+                "started_at",
+                "Started",
+                "started_at",
+                ColumnDataType::DateTime,
+                CellRenderer::DateTime,
+            )
+            .described("Start time")
+            .hidden()
+            .with_width(160)
+            .sortable(),
+            ColumnDefinition::new(
+                "duration_seconds",
+                "Duration",
+                "duration_seconds",
+                ColumnDataType::Duration,
+                CellRenderer::Duration,
+            )
+            .described("Execution duration")
+            .with_width(100)
+            .sortable(),
+            ColumnDefinition::new(
+                "commit_sha",
+                "Commit",
+                "commit_sha",
+                ColumnDataType::String,
+                CellRenderer::Commit,
+            )
+            .described("Git commit SHA")
+            .when_present()
+            .hidden()
+            .with_width(100),
+            ColumnDefinition::new(
+                "trigger",
+                "Triggered By",
+                "metadata.trigger",
+                ColumnDataType::String,
+                CellRenderer::Badge,
+            )
+            .described("User or system that triggered the run")
+            .when_present()
+            .with_width(140),
+            ColumnDefinition::new(
+                "pipelinerun",
+                "PipelineRun",
+                "metadata.pipelinerun_name",
+                ColumnDataType::String,
+                CellRenderer::TruncatedText,
+            )
+            .described("Kubernetes PipelineRun resource name (for kubectl)")
+            .when_present()
+            .hidden()
+            .with_width(200),
+            ColumnDefinition::new(
+                "event_type",
+                "Event Listener",
+                "metadata.event_type",
+                ColumnDataType::String,
+                CellRenderer::Badge,
+            )
+            .described("Tekton EventListener or Trigger that started this run")
+            .when_present()
+            .hidden()
+            .with_width(150),
+            ColumnDefinition::new(
+                "task_summary",
+                "Tasks",
+                "metadata.task_summary",
+                ColumnDataType::String,
+                CellRenderer::Text,
+            )
+            .described("Task completion summary (completed/total)")
+            .when_present()
+            .hidden()
+            .with_width(80),
+            ColumnDefinition::new(
+                "concluded_at",
+                "Concluded",
+                "concluded_at",
+                ColumnDataType::DateTime,
+                CellRenderer::DateTime,
+            )
+            .described("When the pipeline run completed or failed")
+            .when_present()
+            .hidden()
+            .with_width(160)
+            .sortable(),
+            ColumnDefinition::new(
+                "service_account",
+                "Service Account",
+                "metadata.service_account",
+                ColumnDataType::String,
+                CellRenderer::Badge,
+            )
+            .described("Kubernetes ServiceAccount used for the run")
+            .when_present()
+            .hidden()
+            .with_width(140),
         ],
-        default_sort_column: Some("run_number".to_string()),
-        default_sort_direction: Some("desc".to_string()),
-    }
-}
-
-fn create_run_identifier_column() -> schema::ColumnDefinition {
-    schema::ColumnDefinition {
-        id: "run_identifier".to_string(),
-        label: "Run".to_string(),
-        description: Some("Run identifier (event ID or PipelineRun name)".to_string()),
-        field_path: "metadata.run_identifier".to_string(),
-        data_type: schema::ColumnDataType::String,
-        renderer: schema::CellRenderer::TruncatedText,
-        visibility: schema::ColumnVisibility::Always,
-        default_visible: true,
-        width: Some(180),
-        sortable: false,
-        filterable: false,
-    }
-}
-
-fn create_namespace_column() -> schema::ColumnDefinition {
-    schema::ColumnDefinition {
-        id: "namespace".to_string(),
-        label: "Namespace".to_string(),
-        description: Some("Kubernetes namespace".to_string()),
-        field_path: "metadata.namespace".to_string(),
-        data_type: schema::ColumnDataType::String,
-        renderer: schema::CellRenderer::Badge,
-        visibility: schema::ColumnVisibility::Always,
-        default_visible: false,
-        width: Some(140),
-        sortable: true,
-        filterable: false,
-    }
-}
-
-fn create_status_column() -> schema::ColumnDefinition {
-    schema::ColumnDefinition {
-        id: "status".to_string(),
-        label: "Status".to_string(),
-        description: Some("Pipeline run status".to_string()),
-        field_path: "status".to_string(),
-        data_type: schema::ColumnDataType::Status,
-        renderer: schema::CellRenderer::StatusBadge,
-        visibility: schema::ColumnVisibility::Always,
-        default_visible: true,
-        width: Some(110),
-        sortable: true,
-        filterable: false,
-    }
-}
-
-fn create_pipeline_column() -> schema::ColumnDefinition {
-    schema::ColumnDefinition {
-        id: "pipeline".to_string(),
-        label: "Pipeline".to_string(),
-        description: Some("Tekton Pipeline template name".to_string()),
-        field_path: "metadata.pipeline_name".to_string(),
-        data_type: schema::ColumnDataType::String,
-        renderer: schema::CellRenderer::TruncatedText,
-        visibility: schema::ColumnVisibility::Always,
-        default_visible: true,
-        width: Some(180),
-        sortable: false,
-        filterable: false,
-    }
-}
-
-fn create_branch_column() -> schema::ColumnDefinition {
-    schema::ColumnDefinition {
-        id: "branch".to_string(),
-        label: "Branch".to_string(),
-        description: Some("Git branch".to_string()),
-        field_path: "branch".to_string(),
-        data_type: schema::ColumnDataType::String,
-        renderer: schema::CellRenderer::TruncatedText,
-        visibility: schema::ColumnVisibility::WhenPresent,
-        default_visible: false,
-        width: Some(140),
-        sortable: true,
-        filterable: false,
-    }
-}
-
-fn create_started_at_column() -> schema::ColumnDefinition {
-    schema::ColumnDefinition {
-        id: "started_at".to_string(),
-        label: "Started".to_string(),
-        description: Some("Start time".to_string()),
-        field_path: "started_at".to_string(),
-        data_type: schema::ColumnDataType::DateTime,
-        renderer: schema::CellRenderer::DateTime,
-        visibility: schema::ColumnVisibility::Always,
-        default_visible: false,
-        width: Some(160),
-        sortable: true,
-        filterable: false,
-    }
-}
-
-fn create_duration_column() -> schema::ColumnDefinition {
-    schema::ColumnDefinition {
-        id: "duration_seconds".to_string(),
-        label: "Duration".to_string(),
-        description: Some("Execution duration".to_string()),
-        field_path: "duration_seconds".to_string(),
-        data_type: schema::ColumnDataType::Duration,
-        renderer: schema::CellRenderer::Duration,
-        visibility: schema::ColumnVisibility::Always,
-        default_visible: true,
-        width: Some(100),
-        sortable: true,
-        filterable: false,
-    }
-}
-
-fn create_commit_sha_column() -> schema::ColumnDefinition {
-    schema::ColumnDefinition {
-        id: "commit_sha".to_string(),
-        label: "Commit".to_string(),
-        description: Some("Git commit SHA".to_string()),
-        field_path: "commit_sha".to_string(),
-        data_type: schema::ColumnDataType::String,
-        renderer: schema::CellRenderer::Commit,
-        visibility: schema::ColumnVisibility::WhenPresent,
-        default_visible: false,
-        width: Some(100),
-        sortable: false,
-        filterable: false,
-    }
-}
-
-fn create_trigger_column() -> schema::ColumnDefinition {
-    schema::ColumnDefinition {
-        id: "trigger".to_string(),
-        label: "Triggered By".to_string(),
-        description: Some("User or system that triggered the run".to_string()),
-        field_path: "metadata.trigger".to_string(),
-        data_type: schema::ColumnDataType::String,
-        renderer: schema::CellRenderer::Badge,
-        visibility: schema::ColumnVisibility::WhenPresent,
-        default_visible: true,
-        width: Some(140),
-        sortable: false,
-        filterable: false,
-    }
-}
-
-fn create_pipelinerun_column() -> schema::ColumnDefinition {
-    schema::ColumnDefinition {
-        id: "pipelinerun".to_string(),
-        label: "PipelineRun".to_string(),
-        description: Some("Kubernetes PipelineRun resource name (for kubectl)".to_string()),
-        field_path: "metadata.pipelinerun_name".to_string(),
-        data_type: schema::ColumnDataType::String,
-        renderer: schema::CellRenderer::TruncatedText,
-        visibility: schema::ColumnVisibility::WhenPresent,
-        default_visible: false,
-        width: Some(200),
-        sortable: false,
-        filterable: false,
-    }
-}
-
-fn create_event_type_column() -> schema::ColumnDefinition {
-    schema::ColumnDefinition {
-        id: "event_type".to_string(),
-        label: "Event Listener".to_string(),
-        description: Some("Tekton EventListener or Trigger that started this run".to_string()),
-        field_path: "metadata.event_type".to_string(),
-        data_type: schema::ColumnDataType::String,
-        renderer: schema::CellRenderer::Badge,
-        visibility: schema::ColumnVisibility::WhenPresent,
-        default_visible: false,
-        width: Some(150),
-        sortable: false,
-        filterable: false,
-    }
-}
-
-fn create_task_summary_column() -> schema::ColumnDefinition {
-    schema::ColumnDefinition {
-        id: "task_summary".to_string(),
-        label: "Tasks".to_string(),
-        description: Some("Task completion summary (completed/total)".to_string()),
-        field_path: "metadata.task_summary".to_string(),
-        data_type: schema::ColumnDataType::String,
-        renderer: schema::CellRenderer::Text,
-        visibility: schema::ColumnVisibility::WhenPresent,
-        default_visible: false,
-        width: Some(80),
-        sortable: false,
-        filterable: false,
-    }
-}
-
-fn create_concluded_at_column() -> schema::ColumnDefinition {
-    schema::ColumnDefinition {
-        id: "concluded_at".to_string(),
-        label: "Concluded".to_string(),
-        description: Some("When the pipeline run completed or failed".to_string()),
-        field_path: "concluded_at".to_string(),
-        data_type: schema::ColumnDataType::DateTime,
-        renderer: schema::CellRenderer::DateTime,
-        visibility: schema::ColumnVisibility::WhenPresent,
-        default_visible: false,
-        width: Some(160),
-        sortable: true,
-        filterable: false,
-    }
-}
-
-fn create_service_account_column() -> schema::ColumnDefinition {
-    schema::ColumnDefinition {
-        id: "service_account".to_string(),
-        label: "Service Account".to_string(),
-        description: Some("Kubernetes ServiceAccount used for the run".to_string()),
-        field_path: "metadata.service_account".to_string(),
-        data_type: schema::ColumnDataType::String,
-        renderer: schema::CellRenderer::Badge,
-        visibility: schema::ColumnVisibility::WhenPresent,
-        default_visible: false,
-        width: Some(140),
-        sortable: false,
-        filterable: false,
-    }
+    )
 }

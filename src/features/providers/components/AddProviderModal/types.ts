@@ -1,4 +1,5 @@
-import type { AuthMode, PluginMetadata, ProviderConfig } from '../../../../types/domain'
+import type { AuthMode, PluginMetadata } from '../../../../types/plugins'
+import type { ProviderConfig } from '../../../../types/providers'
 
 export type Step = 'provider' | 'credentials' | 'pipelines'
 
@@ -37,6 +38,7 @@ export type FormAction =
   | { type: 'TOGGLE_PIPELINE'; pipelineId: string }
   | { type: 'SELECT_ALL_PIPELINES'; pipelineIds: string[] }
   | { type: 'DESELECT_PIPELINES'; pipelineIds: string[] }
+  | { type: 'CLEAR_PIPELINES' }
   | { type: 'START_SELECT_ALL'; run: number }
   | { type: 'FINISH_SELECT_ALL'; run: number; pipelineIds: string[] | null }
   | { type: 'SET_REPOSITORY_SEARCH'; search: string }
@@ -53,15 +55,11 @@ export type AddProviderModalProps = {
 } & (
   | {
       editMode?: false
-      onAdd: (config: ProviderConfig) => Promise<void>
-      onUpdate?: never
       existingProvider?: never
     }
   | {
       editMode: true
-      onUpdate: (id: number, config: ProviderConfig) => Promise<void>
       existingProvider: ProviderConfig & { id: number }
-      onAdd?: never
     }
 )
 

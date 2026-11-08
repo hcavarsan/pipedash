@@ -4,7 +4,7 @@ import { after, afterEach, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement } from 'react'
 
-import type { AggregatedMetrics } from '../../../types/domain'
+import { dashboardFixture } from '../../../testing/metrics'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
@@ -28,7 +28,7 @@ const { MetricsDataTable } = await import('./MetricsDataTable')
 
 const view = () => within(document.body)
 
-const DATA: AggregatedMetrics = {
+const DATA = dashboardFixture({
   metric_type: 'run_duration',
   aggregation_period: 'hourly',
   total_count: 300,
@@ -40,7 +40,8 @@ const DATA: AggregatedMetrics = {
     max: index + 1,
     avg: index + 1,
   })),
-}
+})
+const SORTED = { ...DATA, table_indices: DATA.table_indices.toReversed() }
 
 afterEach(async () => {
   await act(async () => cleanup())
@@ -60,6 +61,7 @@ after(async () => {
 test('a long series mounts only a window of rows, and a sorted row selects its original data point', async () => {
   const user = userEvent.setup({ document })
   const selected: Array<number | null> = []
+  const sorts: Array<string | undefined> = []
 
   render(
     createElement(
@@ -69,7 +71,9 @@ test('a long series mounts only a window of rows, and a sorted row selects its o
         MemoryRouter,
         null,
         createElement(MetricsDataTable, {
-          data: DATA,
+          data: SORTED,
+          sort: undefined,
+          onSortChange: (next) => sorts.push(next?.direction),
           selectedIndex: null,
           onRowClick: (index) => selected.push(index),
         })
@@ -81,7 +85,7 @@ test('a long series mounts only a window of rows, and a sorted row selects its o
 
   const header = view().getByRole('columnheader', { name: /Duration/ })
   await user.click(within(header).getByRole('button'))
-  await user.click(within(header).getByRole('button'))
+  assert.deepEqual(sorts, ['asc'])
 
   const [first] = view().getAllByRole('button', { pressed: false })
   assert.ok(first)

@@ -1,9 +1,9 @@
-import { useMutationState, useQueryClient } from '@tanstack/react-query'
+import { useMutationState } from '@tanstack/react-query'
 import { createContext, type ReactNode, use, useState } from 'react'
 
-import { queryKeys } from '../../../lib/queryKeys'
+import { LoadingState } from '../../../components/common/LoadingState'
 import { useBuildWatch } from '../../../queries/useBuildWatchQueries'
-import { usePlugins } from '../../../queries/usePluginsQueries'
+import { usePluginPresentation } from '../../../queries/usePluginsQueries'
 import { useRefreshProvider } from '../../../queries/useRefreshQueries'
 import {
   useCancelRun,
@@ -12,27 +12,15 @@ import {
   useRerunRun,
   useReviewRun,
 } from '../../../queries/useRunHistoryQueries'
-import { service } from '../../../services/service'
 import { useModalStore } from '../../../stores/modalStore'
-import type { Pipeline, PipelineRun, ReviewDecision } from '../../../types/domain'
-import { displayErrorNotification } from '../../../utils/errorDisplay'
+import type { Pipeline, PipelineRun, ReviewDecision } from '../../../types/pipelines'
 import { isRecord } from '../../../utils/isRecord'
-import {
-  canCancelPipeline,
-  canForceCancelPipeline,
-  canRerunInPlace,
-  getPipelineLabels,
-  getReconcileBlockReason,
-  getTriggerBlockReason,
-} from '../../../utils/pipelinePresentation'
-import type { RerunMode } from '../../../utils/rerunSummary'
-
-import type { RunActionsValue } from '../lib/runActions'
+import type { RerunMode, RunActionsValue } from '../lib/runActions'
 
 const RunActionsContext = createContext<RunActionsValue | null>(null)
 
 interface RunActionsProviderProps {
-  pipeline: Pipeline | null
+  pipeline: Pipeline
   children: ReactNode
 }
 
@@ -42,10 +30,9 @@ interface PendingRun {
 }
 
 export function RunActionsProvider({ pipeline, children }: RunActionsProviderProps): ReactNode {
-  const queryClient = useQueryClient()
   const openLogsModal = useModalStore((state) => state.openLogsModal)
   const openTriggerModal = useModalStore((state) => state.openTriggerModal)
-  const { data: plugins } = usePlugins()
+  const presentation = usePluginPresentation(pipeline.provider_type)
   const buildWatch = useBuildWatch()
   const cancelRun = useCancelRun()
   const forceCancelRun = useForceCancelRun()
@@ -60,68 +47,33 @@ export function RunActionsProvider({ pipeline, children }: RunActionsProviderPro
   })
 
   const pendingNumber = (mutation: PendingRun): number | null =>
-    pipeline && mutation.isPending && mutation.variables?.pipelineId === pipeline.id
-      ? mutation.variables.runNumber
-      : null
+    mutation.isPending && mutation.variables?.pipelineId === pipeline.id ? mutation.variables.runNumber : null
 
   const rerunningRuns = new Set(
     rerunVariables.flatMap((variables) =>
-      isRecord(variables) && variables.pipelineId === pipeline?.id && typeof variables.runNumber === 'number'
+      isRecord(variables) && variables.pipelineId === pipeline.id && typeof variables.runNumber === 'number'
         ? [variables.runNumber]
         : []
     )
   )
 
   const rerun = async (run: PipelineRun): Promise<void> => {
-    if (!pipeline) {
-      return
-    }
-
-    if (pipeline.provider_type === 'fluxcd') {
-      openTriggerModal(pipeline.id)
+    if (pipeline.actions.rerun_strategy !== 'in_place') {
+      openTriggerModal(pipeline.id, run.run_number)
 
       return
     }
 
-    if (canRerunInPlace(pipeline)) {
-      await rerunRun.mutateAsync({ pipelineId: run.pipeline_id, runNumber: run.run_number })
-      refreshProvider(pipeline.provider_id)
-
-      return
-    }
-
-    try {
-      const runDetails = await queryClient.fetchQuery({
-        queryKey: queryKeys.runs.detail(run.pipeline_id, run.run_number),
-        queryFn: () => service.getWorkflowRunDetails(run.pipeline_id, run.run_number),
-        staleTime: 30 * 1000,
-      })
-      const existingInputs = runDetails.inputs ?? {}
-      const inputs =
-        run.branch && !existingInputs.branch && !existingInputs.ref
-          ? { ...existingInputs, ref: run.branch }
-          : existingInputs
-
-      openTriggerModal(pipeline.id, inputs)
-    } catch (error) {
-      displayErrorNotification(error, "Couldn't rerun")
-    }
+    await rerunRun.mutateAsync({ pipelineId: run.pipeline_id, runNumber: run.run_number })
+    refreshProvider(pipeline.provider_id)
   }
 
   const rerunFailed = async (run: PipelineRun): Promise<void> => {
-    if (!pipeline) {
-      return
-    }
-
     await rerunFailedJobs.mutateAsync({ pipelineId: run.pipeline_id, runNumber: run.run_number })
     refreshProvider(pipeline.provider_id)
   }
 
   const cancel = async (run: PipelineRun): Promise<void> => {
-    if (!pipeline) {
-      return
-    }
-
     const cancelled = await cancelRun
       .mutateAsync({ pipelineId: run.pipeline_id, runNumber: run.run_number, pipeline, run })
       .catch(() => false)
@@ -132,12 +84,18 @@ export function RunActionsProvider({ pipeline, children }: RunActionsProviderPro
   }
 
   const forceCancel = async (run: PipelineRun): Promise<void> => {
-    if (!pipeline || !canForceCancelPipeline(plugins, pipeline) || run.status !== 'running') {
+    if (!run.actions.force_cancel.allowed) {
       return
     }
 
     const cancelled = await forceCancelRun
-      .mutateAsync({ pipelineId: run.pipeline_id, runNumber: run.run_number, pipeline, run })
+      .mutateAsync({
+        pipelineId: run.pipeline_id,
+        runNumber: run.run_number,
+        pipeline,
+        run,
+        forceConfirmation: presentation?.force_cancel_confirmation,
+      })
       .catch(() => false)
 
     if (cancelled) {
@@ -151,14 +109,16 @@ export function RunActionsProvider({ pipeline, children }: RunActionsProviderPro
       .catch(() => undefined)
   }
 
+  if (!presentation) {
+    return <LoadingState message="Loading..." />
+  }
+
   const watching = buildWatch.data?.watch?.monitoring === 'watching'
   const value: RunActionsValue = {
     pipeline,
-    labels: getPipelineLabels(pipeline?.provider_type),
-    isFlux: pipeline?.provider_type === 'fluxcd',
-    canRerun: !!pipeline && !getReconcileBlockReason(pipeline),
-    canCancel: !!pipeline && canCancelPipeline(plugins, pipeline),
-    canForceCancel: !!pipeline && canForceCancelPipeline(plugins, pipeline),
+    presentation,
+    labels: presentation.terminology,
+    canCancel: pipeline.actions.cancel.allowed,
     cancellingRun: pendingNumber(cancelRun),
     forceCancellingRun: pendingNumber(forceCancelRun),
     reviewingRun: pendingNumber(reviewRun),
@@ -172,18 +132,10 @@ export function RunActionsProvider({ pipeline, children }: RunActionsProviderPro
       disabled:
         buildWatch.busy || buildWatch.isFetching || buildWatch.isError || !buildWatch.data?.available || watching,
     },
-    startWatch: (runNumber) => {
-      if (pipeline) {
-        buildWatch.start(pipeline.id, runNumber)
-      }
-    },
-    openRun: (run) => {
-      if (pipeline) {
-        openLogsModal(pipeline.id, run.run_number)
-      }
-    },
+    startWatch: (runNumber) => buildWatch.start(pipeline.id, runNumber),
+    openRun: (run) => openLogsModal(pipeline.id, run.run_number),
     openTrigger: () => {
-      if (pipeline && !getTriggerBlockReason(pipeline)) {
+      if (pipeline.actions.trigger.allowed) {
         openTriggerModal(pipeline.id)
       }
     },
@@ -191,7 +143,7 @@ export function RunActionsProvider({ pipeline, children }: RunActionsProviderPro
     forceCancel,
     review,
     requestRerun: (run) => {
-      if (pipeline && canRerunInPlace(pipeline)) {
+      if (pipeline.actions.rerun_strategy === 'in_place') {
         setRerunTarget(run)
       } else {
         void rerun(run)
@@ -204,7 +156,7 @@ export function RunActionsProvider({ pipeline, children }: RunActionsProviderPro
         await (mode === 'failed' ? rerunFailed(rerunTarget) : rerun(rerunTarget))
       }
     },
-    triggerBlockedReason: pipeline ? getTriggerBlockReason(pipeline) : undefined,
+    triggerBlockedReason: pipeline.actions.trigger.reason ?? undefined,
   }
 
   return <RunActionsContext value={value}>{children}</RunActionsContext>

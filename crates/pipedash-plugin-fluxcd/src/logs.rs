@@ -1,5 +1,15 @@
 use std::fmt::Write as _;
 
+use chrono::{
+    DateTime,
+    Utc,
+};
+use pipedash_plugin_api::logs::tagged::{
+    self,
+    write_line,
+    write_line_at,
+    LogEvent,
+};
 use pipedash_plugin_api::{
     LineMarker,
     LogAvailability,
@@ -13,10 +23,6 @@ use pipedash_plugin_api::{
 use serde_json::Value;
 
 use crate::{
-    log_dialect::{
-        push_line,
-        push_line_at,
-    },
     mapper,
     types::{
         Event,
@@ -103,7 +109,7 @@ pub(crate) fn write_reconciliation(resource: &FluxResource, run: &PipelineRun, o
         _ => LineMarker::Plain,
     };
 
-    push_line_at(
+    write_line_at(
         out,
         LineMarker::SectionStart { open: true },
         Some(run.started_at),
@@ -114,14 +120,14 @@ pub(crate) fn write_reconciliation(resource: &FluxResource, run: &PipelineRun, o
     if let Some(reason) = text(run, "reason").filter(|_| has_own_reason) {
         let _ = write!(status, ": {reason}");
     }
-    push_line_at(out, marker, run.concluded_at, &status);
+    write_line_at(out, marker, run.concluded_at, &status);
     if let Some(message) = text(run, "message").filter(|_| current) {
         let reason = text(run, "condition_reason").or(text(run, "reason"));
         let line = format!("{}: {message}", reason.unwrap_or("Status"));
-        push_line(out, marker, None, &line);
+        write_line(out, marker, None, &line);
     }
     if let Some(seconds) = run.duration_seconds {
-        push_line(out, LineMarker::Plain, None, &format!("Took {seconds}s"));
+        write_line(out, LineMarker::Plain, None, &format!("Took {seconds}s"));
     }
 
     let revision = match resource.kind {
@@ -146,14 +152,14 @@ pub(crate) fn write_reconciliation(resource: &FluxResource, run: &PipelineRun, o
     ];
     for (label, key) in fields {
         if let Some(value) = field(run, key) {
-            push_line(out, LineMarker::Plain, None, &format!("{label}: {value}"));
+            write_line(out, LineMarker::Plain, None, &format!("{label}: {value}"));
         }
     }
 
     if !current || resource.status.conditions.is_empty() {
         return;
     }
-    push_line(
+    write_line(
         out,
         LineMarker::SectionStart { open: true },
         None,
@@ -176,30 +182,32 @@ pub(crate) fn write_reconciliation(resource: &FluxResource, run: &PipelineRun, o
         } else {
             LineMarker::Plain
         };
-        push_line_at(out, marker, condition.last_transition_time, &line);
+        write_line_at(out, marker, condition.last_transition_time, &line);
     }
 }
 
-pub(crate) fn write_events(mut events: Vec<Event>, out: &mut Vec<u8>) {
-    if events.is_empty() {
-        push_line(out, LineMarker::Plain, None, NO_EVENTS);
-        return;
+impl LogEvent for Event {
+    fn is_warning(&self) -> bool {
+        self.type_ == "Warning"
     }
-    events.sort_by_key(Event::time);
-    for event in &events {
-        let marker = if event.type_ == "Warning" {
-            LineMarker::Warning
-        } else {
-            LineMarker::Plain
-        };
-        let mut line = format!("{} {}", event.type_, event.reason);
-        if let Some(component) = event.component() {
-            let _ = write!(line, " from {component}");
-        }
-        let _ = write!(line, ": {}", event.message);
-        if event.occurrences() > 1 {
-            let _ = write!(line, " (x{})", event.occurrences());
-        }
-        push_line_at(out, marker, event.time(), &line);
+
+    fn event_time(&self) -> Option<DateTime<Utc>> {
+        self.time()
     }
+
+    fn event_text(&self) -> String {
+        let mut text = format!("{} {}", self.type_, self.reason);
+        if let Some(component) = self.component() {
+            let _ = write!(text, " from {component}");
+        }
+        let _ = write!(text, ": {}", self.message);
+        if self.occurrences() > 1 {
+            let _ = write!(text, " (x{})", self.occurrences());
+        }
+        text
+    }
+}
+
+pub(crate) fn write_events(events: Vec<Event>, out: &mut Vec<u8>) {
+    tagged::write_events(out, &events, NO_EVENTS);
 }

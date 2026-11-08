@@ -11,7 +11,8 @@ import { useDebounce } from '../hooks/useDebounce'
 import { GC_TIMES } from '../lib/cacheConfig'
 import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
-import { events, service } from '../services/service'
+import { listenEvent } from '../services/events'
+import { service } from '../services/service'
 import type { EventPayloadMap } from '../types/events'
 import type { LogSearchQuery, LogSearchResult, RunLogDocument, RunLogTree } from '../types/logs'
 
@@ -39,12 +40,11 @@ function subscribe<E extends RunLogEvent>(
   let live = true
   let unlisten: (() => void) | undefined
 
-  events
-    .listen<EventPayloadMap[E]>(name, (payload) => {
-      if (live && payload && matches(payload)) {
-        handler(payload)
-      }
-    })
+  listenEvent<EventPayloadMap[E]>(name, (payload) => {
+    if (live && payload && matches(payload)) {
+      handler(payload)
+    }
+  })
     .then((stop) => {
       if (live) {
         unlisten = stop

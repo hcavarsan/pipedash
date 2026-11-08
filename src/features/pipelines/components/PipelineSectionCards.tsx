@@ -1,14 +1,12 @@
 import { Stack } from '@mantine/core'
 import { IconFolder, IconFolders } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
-import {
-  FetchInfo,
-  type PipelineActions,
-  rowMenuItems,
-  SectionActions,
-  SectionHeading,
-} from '../../../components/common/PipelineRowParts'
-import type { ViewSection } from '../../../types/domain'
+import { FetchInfo } from '../../../components/common/PipelineFetchInfo'
+import { SectionActions } from '../../../components/common/PipelineRowActions'
+import { SectionHeading } from '../../../components/common/SectionHeading'
+import type { PipelineActions } from '../../../types/pipelineRows'
+import type { ViewSection } from '../../../types/views'
+import { rowMenuItems } from '../../../utils/pipelineRowActions'
 import type { PipelineViewPageModel } from '../hooks/usePipelineViewModel'
 import { sectionTitle } from '../lib/pipelineRows'
 import { PipelineCardGrid } from './PipelineCardGrid'
@@ -23,36 +21,36 @@ function PipelineSectionCard({ section, model, actions }: PipelineSectionCardPro
   const { isOpen, toggleOpen, getProvider, selection } = model
   const open = section.kind === 'none' || isOpen(section.id, true)
   const name = sectionTitle(section)
+  let heading: ReactNode = null
+
+  if (section.kind !== 'none') {
+    const Icon = section.kind === 'view' ? IconFolders : IconFolder
+    const items = rowMenuItems(
+      { id: section.id, type: 'section', name, kind: section.kind, pipelines: section.pipelines },
+      actions
+    )
+
+    heading = (
+      <SectionHeading
+        icon={<Icon size={16} color="var(--mantine-color-dimmed)" aria-hidden />}
+        label={name}
+        info={
+          <FetchInfo
+            providers={section.provider_ids.flatMap((id) => getProvider(id) ?? [])}
+            freshness={section.freshness}
+          />
+        }
+        actions={<SectionActions name={name} providerIds={section.provider_ids} items={items} actions={actions} />}
+        count={section.pipelines.length}
+        expanded={open}
+        onToggle={() => toggleOpen(section.id, true)}
+      />
+    )
+  }
 
   return (
     <Stack gap="sm">
-      {section.kind !== 'none' && (
-        <SectionHeading
-          icon={
-            section.kind === 'view' ? (
-              <IconFolders size={16} color="var(--mantine-color-dimmed)" aria-hidden />
-            ) : (
-              <IconFolder size={16} color="var(--mantine-color-dimmed)" aria-hidden />
-            )
-          }
-          label={name}
-          info={<FetchInfo providers={section.provider_ids.flatMap((id) => getProvider(id) ?? [])} />}
-          actions={
-            <SectionActions
-              name={name}
-              providerIds={section.provider_ids}
-              items={rowMenuItems(
-                { id: section.id, type: 'section', name, kind: section.kind, pipelines: section.pipelines },
-                actions
-              )}
-              actions={actions}
-            />
-          }
-          count={section.pipelines.length}
-          expanded={open}
-          onToggle={() => toggleOpen(section.id, true)}
-        />
-      )}
+      {heading}
       {open && (
         <PipelineCardGrid
           pipelines={section.pipelines}

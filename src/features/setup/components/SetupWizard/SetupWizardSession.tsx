@@ -1,9 +1,8 @@
 import { IconDatabase, IconListCheck, IconTransfer } from '@tabler/icons-react'
 import { type ReactNode, useId, useRef, useState } from 'react'
-import type { ModalAction } from '../../../../components/common/StandardModal'
+import type { ModalAction } from '../../../../components/common/standardModalTypes'
 import { useIsMobile, useMobileShell } from '../../../../hooks/useIsMobile'
-import { hasLocalCore } from '../../../../services/connection'
-import type { StorageConfigResponse } from '../../../../types/domain'
+import type { StorageConfigResponse } from '../../../../types/storage'
 import { isMobilePlatform } from '../../../../utils/platform'
 
 import { ConfirmStep } from './ConfirmStep'
@@ -11,15 +10,33 @@ import { confirmSkipTransfer, DesktopFooter, ShellFooter, type WizardAction } fr
 import { SetupWizardLayout } from './SetupWizardLayout'
 import { StorageStep } from './StorageStep'
 import { SuccessStep } from './SuccessStep'
-import { initialDraft, validateSetupDraft } from './setupDraft'
+import { initialDraft, toFieldErrors } from './setupDraft'
 import { TransferStep } from './TransferStep'
 import type { VaultPasswordStatus, WizardStep } from './types'
+import { usePreparedSetup } from './usePreparedSetup'
 import { useSetupSubmission } from './useSetupSubmission'
 
 const STEP_META = {
   storage: { label: 'Storage', icon: <IconDatabase size={16} aria-hidden /> },
   transfer: { label: 'Transfer', icon: <IconTransfer size={16} aria-hidden /> },
   confirm: { label: 'Confirm', icon: <IconListCheck size={16} aria-hidden /> },
+}
+
+function saveLabelFor(needsMigration: boolean, transferData: boolean): string {
+  if (!needsMigration) {
+    return 'Save'
+  }
+
+  return transferData ? 'Save and transfer' : 'Switch without transferring'
+}
+
+const transferLabelFor = (skipsTransfer: boolean): string =>
+  skipsTransfer ? 'Switch without transferring' : 'Continue'
+
+function stepsFor(compact: boolean, transfer: boolean): WizardStep[] {
+  const middle: WizardStep[] = transfer ? ['transfer'] : []
+
+  return compact ? ['storage', ...middle, 'success'] : ['storage', ...middle, 'confirm', 'success']
 }
 
 interface SetupWizardSessionProps {
@@ -48,38 +65,20 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
   const compact = mobileShell && isMobilePlatform()
 
   const vaultPasswordFromEnv = vaultStatus.is_set
-  const needsVaultPassword = !vaultPasswordFromEnv && !isMobilePlatform()
-  const currentBackend = currentConfig?.config.storage.backend || 'sqlite'
-  const currentDataDir = currentConfig?.config.storage.data_dir || defaultDataDir
-  const isFromKeyring =
-    Boolean(currentConfig) &&
-    hasLocalCore() &&
-    !isMobilePlatform() &&
-    currentBackend === 'sqlite' &&
-    !vaultPasswordFromEnv
+  const prepared = usePreparedSetup(draft)
+  const needsMigration = prepared?.needs_migration ?? false
   const reconfigured = Boolean(currentConfig)
-  const isDatabaseBackendChange = reconfigured && currentBackend !== draft.backend
-  const isDataDirChange = reconfigured && currentDataDir !== draft.dataDir
-  const needsMigration = isDatabaseBackendChange || isFromKeyring || isDataDirChange
   const showTransferStep = compact ? needsMigration : reconfigured
 
-  const wizardSteps: WizardStep[] = compact
-    ? showTransferStep
-      ? ['storage', 'transfer', 'success']
-      : ['storage', 'success']
-    : showTransferStep
-      ? ['storage', 'transfer', 'confirm', 'success']
-      : ['storage', 'confirm', 'success']
+  const wizardSteps = stepsFor(compact, showTransferStep)
   const stepIndex = Math.max(wizardSteps.indexOf(step), 0)
   const isSuccessStep = step === 'success'
   const stepperSteps = wizardSteps.flatMap((name) => (name === 'success' ? [] : [STEP_META[name]]))
-  const canProceedFromStorage = Object.keys(validateSetupDraft(draft, needsVaultPassword)).length === 0
-  const saveLabel = !needsMigration ? 'Save' : draft.transferData ? 'Save and transfer' : 'Switch without transferring'
-  const transferLabel = compact
-    ? saveLabel
-    : !draft.transferData && needsMigration
-      ? 'Switch without transferring'
-      : 'Continue'
+  const validation = toFieldErrors(prepared?.errors ?? {})
+  const canProceedFromStorage = prepared !== undefined && Object.keys(prepared.errors).length === 0
+  const saveLabel = saveLabelFor(needsMigration, draft.transferData)
+  const skipsTransfer = !draft.transferData && needsMigration
+  const transferLabel = compact ? saveLabel : transferLabelFor(skipsTransfer)
   const submits =
     (step === 'storage' && compact && !needsMigration && !currentConfig) ||
     (step === 'transfer' && compact) ||
@@ -87,12 +86,9 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
 
   const [actionState, formAction, isPending] = useSetupSubmission({
     draft,
-    currentConfig,
-    defaultDataDir,
+    firstRun: !currentConfig,
     step,
     submits,
-    needsVaultPassword,
-    needsMigration,
     compact,
     onComplete,
   })
@@ -120,10 +116,7 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
 
   const continueFromTransfer = (): void => {
     if (mobileShell && !draft.transferData && needsMigration) {
-      confirmSkipTransfer(
-        { databaseBackend: isDatabaseBackendChange, credentialStorage: isFromKeyring, dataDirectory: isDataDirChange },
-        afterTransfer
-      )
+      confirmSkipTransfer(afterTransfer)
     } else {
       afterTransfer()
     }
@@ -190,6 +183,8 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
             vaultStatus={vaultStatus}
             error={error}
             fieldErrors={actionState.errorStep === step ? actionState.fieldErrors : {}}
+            validation={validation}
+            passwordWarnings={prepared?.password_warnings ?? []}
           />
         )
     }

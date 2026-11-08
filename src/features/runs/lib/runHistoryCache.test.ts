@@ -4,7 +4,10 @@ import { test } from 'node:test'
 import { QueryClient } from '@tanstack/react-query'
 
 import { queryKeys } from '../../../lib/queryKeys'
-import type { PaginatedRunHistory, PipelineRun } from '../../../types/domain'
+import { runHistoryQuery } from '../../../lib/runHistoryQuery'
+import { runPresentationFixture } from '../../../testing/presentation'
+import type { PipelineRun } from '../../../types/pipelines'
+import type { RunHistoryPage } from '../../../types/run_history'
 import { updateRunInHistory } from './runHistoryCache'
 
 const run = (runNumber: number, status: PipelineRun['status'], pipelineId = 'p1'): PipelineRun => ({
@@ -20,23 +23,27 @@ const run = (runNumber: number, status: PipelineRun['status'], pipelineId = 'p1'
   commit_message: null,
   branch: null,
   actor: null,
+  ...runPresentationFixture(),
 })
 
-const page = (...runs: PipelineRun[]): PaginatedRunHistory => ({
+const page = (...runs: PipelineRun[]): RunHistoryPage => ({
   runs,
   total_count: runs.length,
   has_more: false,
+  can_scan_deeper: false,
   is_complete: true,
   page: 1,
   page_size: 20,
   total_pages: 1,
+  branches: [],
+  actors: [],
 })
 
 test('a run update replaces that run in paged and infinite histories of its pipeline only', () => {
   const client = new QueryClient()
-  const pagedKey = queryKeys.runs.list('p1', 1, 20)
-  const infiniteKey = queryKeys.runs.infinite('p1', 20)
-  const otherKey = queryKeys.runs.list('p2', 1, 20)
+  const pagedKey = queryKeys.runs.list('p1', runHistoryQuery(1, 20))
+  const infiniteKey = queryKeys.runs.infinite('p1', runHistoryQuery(1, 20))
+  const otherKey = queryKeys.runs.list('p2', runHistoryQuery(1, 20))
 
   client.setQueryData(pagedKey, page(run(2, 'running'), run(1, 'success')))
   client.setQueryData(infiniteKey, { pages: [page(run(2, 'running')), page(run(1, 'success'))], pageParams: [1, 2] })
@@ -46,17 +53,17 @@ test('a run update replaces that run in paged and infinite histories of its pipe
 
   updateRunInHistory(client, finished)
 
-  assert.deepEqual(client.getQueryData<PaginatedRunHistory>(pagedKey)?.runs, [finished, run(1, 'success')])
+  assert.deepEqual(client.getQueryData<RunHistoryPage>(pagedKey)?.runs, [finished, run(1, 'success')])
   assert.deepEqual(
-    client.getQueryData<{ pages: PaginatedRunHistory[] }>(infiniteKey)?.pages.map((entry) => entry.runs),
+    client.getQueryData<{ pages: RunHistoryPage[] }>(infiniteKey)?.pages.map((entry) => entry.runs),
     [[finished], [run(1, 'success')]]
   )
-  assert.equal(client.getQueryData<PaginatedRunHistory>(otherKey)?.runs[0]?.status, 'running')
+  assert.equal(client.getQueryData<RunHistoryPage>(otherKey)?.runs[0]?.status, 'running')
 })
 
 test('a run missing from the cached pages leaves them untouched', () => {
   const client = new QueryClient()
-  const key = queryKeys.runs.list('p1', 1, 20)
+  const key = queryKeys.runs.list('p1', runHistoryQuery(1, 20))
   const cached = page(run(1, 'success'))
 
   client.setQueryData(key, cached)

@@ -4,8 +4,10 @@ import { after, afterEach, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement } from 'react'
 
+import { dashboardFixture } from '../../../testing/metrics'
 import { installRequestSubmitShim } from '../../../testing/requestSubmitShim'
-import type { MetricsConfig, PaginatedRunHistory } from '../../../types/domain'
+import type { MetricsConfig, MetricsDashboardQuery } from '../../../types/metrics'
+import type { RunHistoryPage, RunHistoryQuery } from '../../../types/run_history'
 
 GlobalRegistrator.register({ width: 393, height: 852, settings: { navigator: { userAgent: 'iPhone' } } })
 
@@ -16,7 +18,7 @@ const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanst
 const { MemoryRouter } = await import('react-router-dom')
 const { PipelineMetricsView } = await import('./PipelineMetricsView')
 const { apiService } = await import('../../../services/api')
-const { events } = await import('../../../services/service')
+const { wsClient } = await import('../../../services/websocket')
 const view = () => within(document.body)
 const restoreRequestSubmit = installRequestSubmitShim()
 const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
@@ -42,14 +44,17 @@ test('saving a new retention re-reads run history without deleting the cached ru
     created_at: '2026-10-25T00:00:00Z',
     updated_at: '2026-10-25T00:00:00Z',
   }
-  const emptyHistory: PaginatedRunHistory = {
+  const emptyHistory: RunHistoryPage = {
     runs: [],
     total_count: 0,
     has_more: false,
+    can_scan_deeper: false,
     is_complete: true,
     page: 1,
     page_size: 50,
     total_pages: 0,
+    branches: [],
+    actors: [],
   }
   const historyReads: number[] = []
   const requests: string[] = []
@@ -62,12 +67,9 @@ test('saving a new retention re-reads run history without deleting the cached ru
       config.retention_days = days
     }
   )
-  context.mock.method(apiService, 'queryAggregatedMetrics', async () => ({
-    metric_type: 'run_duration',
-    aggregation_period: 'hourly',
-    total_count: 0,
-    metrics: [],
-  }))
+  context.mock.method(apiService, 'getMetricsDashboard', async () =>
+    dashboardFixture({ metric_type: 'run_duration', aggregation_period: 'hourly', total_count: 0, metrics: [] })
+  )
   context.mock.method(apiService, 'getMetricsStorageStats', async () => ({
     total_metrics_count: 0,
     estimated_size_bytes: 0,
@@ -75,8 +77,8 @@ test('saving a new retention re-reads run history without deleting the cached ru
     last_cleanup_at: null,
     by_pipeline: [],
   }))
-  context.mock.method(apiService, 'fetchRunHistory', async (_id: string, page?: number) => {
-    historyReads.push(page ?? 1)
+  context.mock.method(apiService, 'fetchRunHistory', async (_id: string, query: RunHistoryQuery) => {
+    historyReads.push(query.page)
 
     return emptyHistory
   })
@@ -85,7 +87,7 @@ test('saving a new retention re-reads run history without deleting the cached ru
 
     return new Response(null, { status: 204 })
   })
-  context.mock.method(events, 'listen', async () => () => undefined)
+  context.mock.method(wsClient, 'listen', async () => () => undefined)
   notifyManager.setNotifyFunction((callback) => act(callback))
   await act(async () => {
     render(
@@ -115,11 +117,12 @@ test('refreshing the mounted metrics page advances both time bounds without crea
   context.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-01T12:00:00Z').getTime() })
   const pipelineId = 'github__1__build'
   const listeners = new Map<string, (payload: unknown) => void>()
+  let observed = 1
   const observations = [
     { timestamp: '2026-10-31T12:05:00Z', value: 120 },
     { timestamp: '2026-11-01T12:05:00Z', value: 60 },
   ]
-  context.mock.method(events, 'listen', async (name: string, handler: (payload: unknown) => void) => {
+  context.mock.method(wsClient, 'listen', async (name: string, handler: (payload: unknown) => void) => {
     listeners.set(name, handler)
 
     return () => listeners.delete(name)
@@ -135,26 +138,35 @@ test('refreshing the mounted metrics page advances both time bounds without crea
     runs: [],
     total_count: 0,
     has_more: false,
+    can_scan_deeper: false,
     is_complete: true,
     page: 1,
     page_size: 50,
     total_pages: 0,
+    branches: [],
+    actors: [],
   }))
-  context.mock.method(
-    apiService,
-    'queryAggregatedMetrics',
-    async (...args: Parameters<typeof apiService.queryAggregatedMetrics>) => {
-      const [metricType, period, , , start, end] = args
-      const metrics = observations
-        .filter(
-          ({ timestamp }) =>
-            (!start || new Date(timestamp) >= new Date(start)) && (!end || new Date(timestamp) <= new Date(end))
-        )
-        .map(({ timestamp, value }) => ({ timestamp, value, count: 1, min: value, max: value, avg: value }))
+  context.mock.method(apiService, 'getMetricsDashboard', async (query: MetricsDashboardQuery) => {
+    const metrics = observations.slice(0, observed).map(({ timestamp, value }) => ({
+      timestamp,
+      value,
+      count: 1,
+      min: value,
+      max: value,
+      avg: value,
+    }))
+    const latest = metrics.at(-1)?.value ?? null
 
-      return { metric_type: metricType, aggregation_period: period, total_count: metrics.length, metrics }
-    }
-  )
+    return dashboardFixture(
+      {
+        metric_type: query.metric_type,
+        aggregation_period: query.aggregation_period,
+        total_count: metrics.length,
+        metrics,
+      },
+      { stats: { average: latest, latest, max: latest, observed: metrics.length, total: metrics.length } }
+    )
+  })
   notifyManager.setNotifyFunction((callback) => act(callback))
   render(
     createElement(
@@ -176,6 +188,7 @@ test('refreshing the mounted metrics page advances both time bounds without crea
     .map((query) => query.queryHash)
   await act(async () => {
     context.mock.timers.tick(10 * 60_000)
+    observed = 2
     listeners.get('metrics-generated')?.(pipelineId)
   })
 

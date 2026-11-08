@@ -1,4 +1,4 @@
-import type { PipelineStatus } from './domain'
+import type { PipelineStatus } from './pipelines'
 
 export type LogNodeKind = 'stage' | 'job' | 'step'
 
@@ -19,10 +19,18 @@ export interface RunLogNode {
   navigable: boolean
 }
 
+export interface RunLogGroup {
+  stage: string | null
+  node_ids: string[]
+  failed_first_node_ids: string[]
+}
+
 export interface RunLogTree {
   nodes: RunLogNode[]
   default_node_id: string | null
   complete: boolean
+  groups: RunLogGroup[]
+  step_ids_by_node: Record<string, string[]>
 }
 
 export type AnsiColor = 'black' | 'red' | 'green' | 'yellow' | 'blue' | 'magenta' | 'cyan' | 'white'

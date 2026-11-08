@@ -1,8 +1,7 @@
-import { Box, Button, Center, Paper, Stack, Text, Title } from '@mantine/core'
+import { Box, Button, Center, Paper, Stack } from '@mantine/core'
 import { IconWifiOff } from '@tabler/icons-react'
 import { type ReactNode, useState } from 'react'
 
-import { AppLogo } from '../../../components/atoms/AppLogo'
 import { DocumentTitle } from '../../../components/common/DocumentTitle'
 import { StatusScreen } from '../../../components/ErrorBoundary/StatusScreen'
 import { useMobileShell } from '../../../hooks/useIsMobile'
@@ -10,6 +9,7 @@ import { logger } from '../../../lib/logger'
 import { connectionService, getConnection } from '../../../services/connection'
 import { confirmDisconnect } from '../confirmDisconnect'
 import { useDisconnectServer } from '../queries/useConnectionQueries'
+import { ConnectionScreenHeading } from './ConnectionScreenHeading'
 
 interface HostUnreachableScreenProps {
   onRetry: () => Promise<unknown>
@@ -87,15 +87,7 @@ export function HostUnreachableScreen({ onRetry }: HostUnreachableScreenProps): 
       <Center h="100%" p={{ base: 'md', sm: 'xl' }}>
         <Paper p={{ base: 'lg', sm: 'xl' }} w="100%" maw={480} withBorder>
           <Stack gap="xl">
-            <Stack gap="md" align="center">
-              <AppLogo size={{ base: 48, sm: 56 }} alt="Pipedash" />
-              <Title order={1} size="h2" ta="center" style={{ overflowWrap: 'anywhere' }}>
-                {title}
-              </Title>
-              <Text c="dimmed" ta="center" style={{ overflowWrap: 'anywhere' }}>
-                {message}
-              </Text>
-            </Stack>
+            <ConnectionScreenHeading title={title} message={message} wrapTitle />
 
             <Stack gap="sm">{actions}</Stack>
           </Stack>

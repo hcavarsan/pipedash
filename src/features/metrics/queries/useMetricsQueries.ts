@@ -1,4 +1,5 @@
 import {
+  keepPreviousData,
   type UseMutationResult,
   type UseQueryResult,
   useMutation,
@@ -11,63 +12,17 @@ import { notifications } from '../../../lib/notifications'
 import { queryKeys } from '../../../lib/queryKeys'
 import { service } from '../../../services/service'
 import type {
-  AggregatedMetrics,
   AggregationPeriod,
   AggregationType,
   GlobalMetricsConfig,
   MetricsConfig,
+  MetricsDashboard,
   MetricsStats,
+  MetricTableSort,
   MetricType,
-} from '../../../types/domain'
-import { type DateRange, getDateRangeStart } from '../../../utils/dateRange'
+} from '../../../types/metrics'
+import type { DateRange } from '../../../utils/dateRange'
 import { errorMessage } from '../../../utils/errorDisplay'
-
-const advancePeriod = (date: Date, period: AggregationPeriod): Date => {
-  const next = new Date(date)
-
-  switch (period) {
-    case 'hourly':
-      next.setUTCHours(next.getUTCHours() + 1)
-      break
-    case 'daily':
-      next.setUTCDate(next.getUTCDate() + 1)
-      break
-    case 'weekly':
-      next.setUTCDate(next.getUTCDate() + 7)
-      break
-    case 'monthly':
-      next.setUTCMonth(next.getUTCMonth() + 1)
-      break
-  }
-
-  return next
-}
-
-const fillMissingPeriods = (data: AggregatedMetrics): AggregatedMetrics => {
-  const filled: AggregatedMetrics['metrics'] = []
-
-  data.metrics.forEach((metric, index) => {
-    filled.push(metric)
-
-    const following = data.metrics[index + 1]
-
-    if (!following) {
-      return
-    }
-
-    const end = new Date(following.timestamp)
-
-    for (
-      let gap = advancePeriod(new Date(metric.timestamp), data.aggregation_period);
-      gap < end;
-      gap = advancePeriod(gap, data.aggregation_period)
-    ) {
-      filled.push({ timestamp: gap.toISOString(), value: 0, count: 0, min: null, max: null, avg: 0 })
-    }
-  })
-
-  return { ...data, metrics: filled, total_count: filled.length }
-}
 
 export function useInvalidatePipelineMetrics(pipelineId: string): () => Promise<void> {
   const queryClient = useQueryClient()
@@ -97,15 +52,16 @@ export function usePipelineMetricsConfig(pipelineId: string): UseQueryResult<Met
   })
 }
 
-export function useAggregatedMetrics(params: {
+export function useMetricsDashboard(params: {
   metricType: MetricType
   aggregationPeriod: AggregationPeriod
   aggregationType?: AggregationType | undefined
   pipelineId?: string | undefined
   dateRange: DateRange
   limit?: number | undefined
+  tableSort?: MetricTableSort | undefined
   enabled?: boolean | undefined
-}): UseQueryResult<AggregatedMetrics, Error> {
+}): UseQueryResult<MetricsDashboard, Error> {
   const { enabled = true, ...queryParams } = params
 
   return useQuery({
@@ -118,21 +74,20 @@ export function useAggregatedMetrics(params: {
       queryParams.aggregationType,
       queryParams.dateRange,
       queryParams.limit,
+      queryParams.tableSort,
     ],
-    queryFn: () => {
-      const now = new Date()
-
-      return service.queryAggregatedMetrics(
-        queryParams.metricType,
-        queryParams.aggregationPeriod,
-        queryParams.aggregationType,
-        queryParams.pipelineId,
-        getDateRangeStart(queryParams.dateRange, now)?.toISOString(),
-        now.toISOString(),
-        queryParams.limit
-      )
-    },
-    select: fillMissingPeriods,
+    queryFn: () =>
+      service.getMetricsDashboard({
+        pipeline_id: queryParams.pipelineId,
+        metric_type: queryParams.metricType,
+        aggregation_period: queryParams.aggregationPeriod,
+        aggregation_type: queryParams.aggregationType,
+        date_range: queryParams.dateRange,
+        utc_offset_minutes: -new Date().getTimezoneOffset(),
+        limit: queryParams.limit,
+        table_sort: queryParams.tableSort,
+      }),
+    placeholderData: keepPreviousData,
     staleTime: STALE_TIMES.MODERATE,
     gcTime: GC_TIMES.SHORT,
     enabled,

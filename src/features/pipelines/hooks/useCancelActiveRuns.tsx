@@ -5,18 +5,12 @@ import type { ContextMenuItem } from '../../../components/common/ContextMenu'
 import { notifications } from '../../../lib/notifications'
 import { queryKeys } from '../../../lib/queryKeys'
 import { usePipelines } from '../../../queries/usePipelinesQueries'
-import { usePlugins } from '../../../queries/usePluginsQueries'
 import { useRefreshProvider } from '../../../queries/useRefreshQueries'
 import { service } from '../../../services/service'
-import type { Pipeline, ProviderSummary } from '../../../types/domain'
-import {
-  type CancelGroup,
-  type CancelResult,
-  summarizeCancellation,
-  unfinishedPipelines,
-} from '../../../utils/cancelActiveRuns'
-import { errorMessage } from '../../../utils/errorDisplay'
-import { canCancelPipeline, isReadOnlyPipeline } from '../../../utils/pipelinePresentation'
+import type { Pipeline } from '../../../types/pipelines'
+import type { ProviderSummary } from '../../../types/providers'
+import type { CancelGroup } from '../../../types/run_action_batch'
+import { runTargetsOf, summarizeCancellation } from '../../../utils/cancelActiveRuns'
 import { CancelActiveRunsModal, type CancelScope } from '../../runs/components/CancelActiveRunsModal'
 
 type CancelItem = Extract<ContextMenuItem, { label: string }>
@@ -28,28 +22,16 @@ interface CancelActiveRunsResult {
 
 export function useCancelActiveRuns(): CancelActiveRunsResult {
   const queryClient = useQueryClient()
-  const { data: plugins } = usePlugins()
   const { mutate: refreshProvider } = useRefreshProvider()
   const [scope, setScope] = useState<CancelScope | null>(null)
   const [opened, setOpened] = useState(false)
 
   const cancelGroups = async (groups: CancelGroup[]) => {
-    const results: CancelResult[] = []
+    const batch = await service.cancelPipelineRuns(runTargetsOf(groups))
 
-    for (const { pipeline, runs } of groups) {
-      for (const { run_number: runNumber } of runs) {
-        const error = await service.cancelPipelineRun(pipeline.id, runNumber).then(
-          () => null,
-          (reason) => errorMessage(reason, 'Cancellation failed')
-        )
-
-        results.push({ pipelineId: pipeline.id, pipelineName: pipeline.name, runNumber, error })
-      }
-    }
-
-    for (const { pipelineId, runNumber, error } of results) {
+    for (const { target, error } of batch.results) {
       if (error === null) {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.runs.detail(pipelineId, runNumber) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.runs.detail(target.pipeline_id, target.run_number) })
       }
     }
 
@@ -61,16 +43,12 @@ export function useCancelActiveRuns(): CancelActiveRunsResult {
       refreshProvider(providerId)
     }
 
-    notifications.show(summarizeCancellation(results))
+    notifications.show(summarizeCancellation(batch))
   }
 
-  const cancelItem = (label: string, all: Pipeline[]): CancelItem | null => {
-    const pipelines = all.filter((pipeline) => !isReadOnlyPipeline(pipeline))
-
-    return unfinishedPipelines(pipelines).length === 0 &&
-      !pipelines.some((pipeline) => canCancelPipeline(plugins, pipeline))
-      ? null
-      : {
+  const cancelItem = (label: string, pipelines: Pipeline[]): CancelItem | null =>
+    pipelines.some((pipeline) => pipeline.actions.cancel.allowed)
+      ? {
           label: 'Cancel running…',
           icon: <IconSquare size={16} aria-hidden />,
           color: 'red',
@@ -79,7 +57,7 @@ export function useCancelActiveRuns(): CancelActiveRunsResult {
             setOpened(true)
           },
         }
-  }
+      : null
 
   const dialog = (
     <CancelActiveRunsModal opened={opened} scope={scope} onClose={() => setOpened(false)} onConfirm={cancelGroups} />

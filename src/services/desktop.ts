@@ -1,8 +1,8 @@
 import { invoke } from '@tauri-apps/api/core'
 
-import type { CenterNotification } from '../stores/notificationCenterStore'
-import type { DesktopSettingsPatch, DesktopStatus } from '../types/domain'
 import { toPipedashError } from '../types/errors'
+import type { DesktopSettingsPatch, DesktopStatus } from '../types/native'
+import type { CenterNotification } from '../types/notifications'
 
 export const DESKTOP_STATUS_EVENT = 'desktop-status-changed'
 export const DESKTOP_NOTIFICATIONS_EVENT = 'desktop-notifications-changed'

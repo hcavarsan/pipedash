@@ -1,38 +1,16 @@
 import { Button, Stack } from '@mantine/core'
 import { IconExternalLink } from '@tabler/icons-react'
-import type { ReactNode, Ref } from 'react'
+import type { ReactNode } from 'react'
 import { EmptyState } from '../../../components/common/EmptyState'
 import { ErrorState } from '../../../components/common/ErrorState'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import { useRetryRunLog, useRunLogDocument } from '../../../queries/useRunLogQueries'
-import type { RunLogNode } from '../../../types/logs'
 import { formatBytes } from '../../../utils/formatBytes'
 import { openExternal } from '../../../utils/openExternal'
+import type { LogViewerProps } from '../lib/logViewerTypes'
 import { PendingLogSteps } from './PendingLogSteps'
 import { ReadyViewer } from './ReadyViewer'
-
-export interface LogViewerHandle {
-  focusSearch: () => void
-  nextMatch: () => void
-  prevMatch: () => void
-  nextError: () => void
-  prevError: () => void
-  scrollToStart: () => void
-  scrollToEnd: () => void
-  focusBody: () => void
-}
-
-export interface LogViewerProps {
-  pipelineId: string
-  pipelineName: string
-  runNumber: number
-  node: RunLogNode
-  steps: RunLogNode[]
-  variant: 'desktop' | 'narrow' | 'phone'
-  providerName: string
-  ref?: Ref<LogViewerHandle> | undefined
-}
 
 export function LogViewer({ ref, ...props }: LogViewerProps): ReactNode {
   return (

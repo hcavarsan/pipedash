@@ -6,21 +6,11 @@ import { StandardModal } from '../../../components/common/StandardModal'
 import { LiveStatus } from '../../../components/forms/LiveStatus'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
 import { useNow } from '../../../hooks/useNow'
-import { usePlugins } from '../../../queries/usePluginsQueries'
-import { useUnfinishedRuns } from '../../../queries/useRunHistoryQueries'
-import type { Pipeline } from '../../../types/domain'
-import { actionTarget } from '../../../utils/actionTarget'
-import {
-  buildCancelGroups,
-  type CancelGroup,
-  cancellableGroups,
-  countRuns,
-  unfinishedPipelines,
-} from '../../../utils/cancelActiveRuns'
+import type { Pipeline } from '../../../types/pipelines'
+import type { CancelGroup } from '../../../types/run_action_batch'
 import { errorMessage } from '../../../utils/errorDisplay'
 import { formatCount } from '../../../utils/formatCount'
-import { canCancelPipeline } from '../../../utils/pipelinePresentation'
-import { getPluginDisplayName } from '../../../utils/pluginHelpers'
+import { useCancellationTargets } from '../queries/useCancellationTargets'
 
 import { CancelRunTargets } from './CancelRunTargets'
 
@@ -40,61 +30,41 @@ interface CancelActiveRunsModalProps {
   onConfirm: (groups: CancelGroup[]) => Promise<unknown>
 }
 
+const where = ({ pipeline }: CancelGroup): string =>
+  pipeline.actions.target ? `${pipeline.actions.target.label}: ${pipeline.actions.target.value}` : ''
+
+const CancelNote = ({ color, text }: { color: string; text: string | null }): ReactNode =>
+  text ? (
+    <Text size="xs" c={color}>
+      {text}
+    </Text>
+  ) : null
+
 export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: CancelActiveRunsModalProps): ReactNode => {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
   const now = useNow(30_000)
-  const { data: plugins } = usePlugins()
   const formId = useId()
-
-  const { candidates, skippedNote } = useMemo(() => {
-    const cancelCapable = (pipeline: Pipeline) => canCancelPipeline(plugins, pipeline)
-    const pipelines = scope?.pipelines ?? []
-    const skipped = new Map<string, number>()
-
-    for (const pipeline of unfinishedPipelines(pipelines)) {
-      if (!cancelCapable(pipeline)) {
-        const name = getPluginDisplayName(plugins, pipeline.provider_type)
-
-        skipped.set(name, (skipped.get(name) ?? 0) + 1)
-      }
-    }
-
-    return {
-      candidates: pipelines.filter(cancelCapable),
-      skippedNote: [...skipped]
-        .map(
-          ([name, total]) =>
-            `Skipped ${formatCount(total, 'running pipeline')} on ${name}: it can't cancel runs from Pipedash.`
-        )
-        .join(' '),
-    }
-  }, [scope, plugins])
-  const search = useUnfinishedRuns(candidates, opened)
+  const pipelineIds = useMemo(() => scope?.pipelines.map((pipeline) => pipeline.id) ?? [], [scope])
+  const search = useCancellationTargets(pipelineIds, opened)
   const loading = search.isFetching
-  const unreadable = search.data?.failed.map((entry) => entry.name) ?? []
-  const groups = useMemo(
-    () =>
-      buildCancelGroups(candidates, search.data?.runs ?? {}, (pipeline) => ({
-        name: getPluginDisplayName(plugins, pipeline.provider_type),
-        canCancel: canCancelPipeline(plugins, pipeline),
-      })),
-    [candidates, search.data, plugins]
-  )
-  const targets = cancellableGroups(groups)
-  const where = (group: CancelGroup) =>
-    actionTarget(group.pipeline, group.runs)
-      .filter(({ label: field }) => field !== 'Pipeline' && field !== 'Branch')
-      .map(({ label: field, value }) => `${field}: ${value}`)
-      .join(' · ')
-  const count = countRuns(targets)
+  const groups = search.data?.groups ?? []
+  const unreadable = search.data?.failed_pipeline_ids ?? []
+  const skippedNote = (search.data?.skipped ?? []).map((entry) => entry.reason).join(' ')
+  const count = search.data?.run_count ?? 0
   const label = scope?.label ?? ''
+  const emptyNote =
+    groups.length === 0 && unreadable.length === 0
+      ? `${skippedNote ? 'No runs to cancel in' : 'Nothing is running in'} ${label}.`
+      : null
+  const unreadableNote =
+    unreadable.length > 0 ? `Couldn't load runs for ${formatCount(unreadable.length, 'pipeline')}.` : null
   const ready = !loading && count > 0
 
   const [state, formAction, isPending] = useActionState(
     async (): Promise<CancelActionState> => {
       try {
-        await onConfirm(targets)
+        await onConfirm(groups)
       } catch (error) {
         return { error: errorMessage(error, "Couldn't cancel the runs. Check them in your provider and try again.") }
       }
@@ -107,7 +77,7 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
   )
 
   const status = loading
-    ? `Looking for running runs… (${search.progress} of ${formatCount(candidates.length, 'pipeline')})`
+    ? 'Looking for running runs…'
     : `${formatCount(count, 'run')} can be cancelled.${unreadable.length > 0 ? ` Couldn't load runs for ${formatCount(unreadable.length, 'pipeline')}.` : ''}`
 
   const footer = ready
@@ -134,30 +104,15 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
     >
       <LiveStatus message={status} />
       {loading ? (
-        <LoadingState
-          variant="compact"
-          message={`Looking for running runs… (${search.progress} of ${formatCount(candidates.length, 'pipeline')})`}
-        />
+        <LoadingState variant="compact" message="Looking for running runs…" />
       ) : (
         <form id={formId} action={formAction}>
           <Stack gap={mobileShell ? 'lg' : 'md'}>
             <FormErrorDisplay title="Couldn't cancel runs" globalError={state.error} />
-            {groups.length === 0 && unreadable.length === 0 && (
-              <Text size="sm">
-                {skippedNote ? `No runs to cancel in ${label}.` : `Nothing is running in ${label}.`}
-              </Text>
-            )}
+            {emptyNote && <Text size="sm">{emptyNote}</Text>}
             <CancelRunTargets groups={groups} now={now} shell={mobileShell} where={where} />
-            {unreadable.length > 0 && (
-              <Text size="xs" c="red">
-                Couldn't load runs for {unreadable.join(', ')}.
-              </Text>
-            )}
-            {skippedNote && (
-              <Text size="xs" c="orange">
-                {skippedNote}
-              </Text>
-            )}
+            <CancelNote color="red" text={unreadableNote} />
+            <CancelNote color="orange" text={skippedNote} />
           </Stack>
         </form>
       )}

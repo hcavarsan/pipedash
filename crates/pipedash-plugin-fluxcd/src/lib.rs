@@ -1,11 +1,13 @@
+mod actions;
 mod client;
 mod config;
 mod health;
-mod log_dialect;
+mod history;
 mod logs;
 mod mapper;
 mod metadata;
 mod plugin;
+mod presentation;
 mod schema;
 mod types;
 mod workloads;

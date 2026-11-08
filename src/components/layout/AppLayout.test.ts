@@ -5,7 +5,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks'
 import { createElement } from 'react'
 
-import type { ProviderSummary } from '../../types/domain'
+import type { ProviderSummary } from '../../types/providers'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 Object.assign(window, { __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'linux' } })

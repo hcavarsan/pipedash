@@ -8,9 +8,9 @@ import {
   IconTrash,
 } from '@tabler/icons-react'
 import type { ContextMenuItem } from '../../../components/common/ContextMenu'
-import type { PipelineView } from '../../../types/domain'
-import { canAddSubView, reorderSlots } from '../../../utils/viewTree'
-import { useReorderPipelineViews } from '../queries/usePipelineViewQueries'
+import type { PipelineView } from '../../../types/views'
+import { reorderSlots } from '../../../utils/viewTree'
+import { useReorderPipelineViews, useSubViewAllowance } from '../queries/usePipelineViewQueries'
 import { usePipelineViewStore } from '../stores/pipelineViewStore'
 import { useConfirmDeleteView } from './useConfirmDeleteView'
 import { usePinning } from './usePinning'
@@ -33,6 +33,7 @@ export function useViewMenuItems(
   const { mutate: reorder } = useReorderPipelineViews()
   const confirmDelete = useConfirmDeleteView()
   const pinItem = usePinning()
+  const canAddSubView = useSubViewAllowance(views)
   const movableIds = views.filter((g) => g.capabilities.reorder).map((g) => g.id)
   const [prevLabel, nextLabel, PrevIcon, NextIcon] =
     orientation === 'horizontal'
@@ -49,7 +50,7 @@ export function useViewMenuItems(
     if (rename || edit_rules) {
       items.push({ label: 'Edit view…', icon: <IconEdit size={16} aria-hidden />, onClick: () => openEditor(view.id) })
     }
-    if (canAddSubView(views, view)) {
+    if (canAddSubView(view.id)) {
       items.push({
         label: 'New sub-view…',
         icon: <IconFolderPlus size={16} aria-hidden />,

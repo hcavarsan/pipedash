@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod stub_plugin;
+
 use std::path::PathBuf;
 use std::sync::{
     Arc,
@@ -17,16 +20,36 @@ use pipedash_core::infrastructure::{
     StorageManager,
 };
 use pipedash_core::CoreContext;
+use pipedash_plugin_api::{
+    PluginManifest,
+    PluginRegistry,
+};
 use serde_json::Value;
 
 use crate::routes::CONFIG_ENV;
 use crate::state::AppState;
-use crate::ws::WebSocketEventBus;
+use crate::ws::event_bus::WebSocketEventBus;
 
 #[derive(Clone)]
 struct RelayState {
     requests: Arc<Mutex<Vec<Value>>>,
     status: Arc<Mutex<u16>>,
+}
+
+pub(crate) fn registry() -> Arc<PluginRegistry> {
+    let mut registry = PluginRegistry::new();
+    registry.register(
+        || Box::new(stub_plugin::StubPlugin::new()),
+        PluginManifest {
+            package_name: "stub",
+            version: "0.0.0",
+            description: "Stub provider",
+            authors: "Pipedash Team",
+            icon_svg: "<svg/>",
+        },
+    );
+
+    Arc::new(registry)
 }
 
 pub(crate) struct StubRelay {
@@ -111,19 +134,19 @@ async fn build(name: &str, shared: bool) -> Hosted {
     let storage = StorageManager::from_config(config, false).await.unwrap();
 
     let bus = Arc::new(WebSocketEventBus::new());
-    let core = CoreContext::with_storage_manager(&storage, bus.clone())
+    let core = CoreContext::with_storage_manager(&storage, bus.clone(), registry())
         .await
         .unwrap();
 
     if shared {
         Hosted {
-            state: AppState::hosted(bus, Some(core), "test-mac"),
+            state: AppState::hosted(bus, Some(core), "test-mac", registry()),
             data_dir,
             _storage: Some(storage),
         }
     } else {
         Hosted {
-            state: AppState::initialized(bus, core, storage),
+            state: AppState::initialized(bus, core, storage, registry()),
             data_dir,
             _storage: None,
         }

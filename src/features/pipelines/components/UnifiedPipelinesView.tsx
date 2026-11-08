@@ -1,6 +1,7 @@
 import { type ReactNode, useState } from 'react'
 import { PageContainer } from '../../../components/common/PageContainer'
-import type { Pipeline, ProviderSummary } from '../../../types/domain'
+import type { Pipeline } from '../../../types/pipelines'
+import type { ProviderSummary } from '../../../types/providers'
 import { usePipelineActions } from '../hooks/usePipelineActions'
 import { usePipelineViewModel } from '../hooks/usePipelineViewModel'
 import { PipelinePinnedArea } from './PipelinePinnedArea'
@@ -44,21 +45,27 @@ export function UnifiedPipelinesView({
     <PipelineViewFilters model={model} sheet={{ opened: filtersOpen, onClose: () => setFiltersOpen(false) }} />
   )
 
+  let header: ReactNode = null
+
+  if (!model.pushed) {
+    header = model.mobileShell ? (
+      <>
+        {filters}
+        {nav}
+      </>
+    ) : (
+      <>
+        {nav}
+        {filters}
+      </>
+    )
+  }
+
   return (
     <PipelineViewStatus model={model} onRetry={onRetry} onViewRun={onViewRun} onDisplayChange={changeDisplay}>
       <PageContainer>
         <PipelineViewToolbar model={model} onDisplayChange={changeDisplay} onOpenFilters={() => setFiltersOpen(true)} />
-        {model.pushed ? null : model.mobileShell ? (
-          <>
-            {filters}
-            {nav}
-          </>
-        ) : (
-          <>
-            {nav}
-            {filters}
-          </>
-        )}
+        {header}
         <PipelineBuildWatch model={model} onViewRun={onViewRun} />
         <PipelineViewSelection model={model} actions={actions} />
         {cancelDialog}

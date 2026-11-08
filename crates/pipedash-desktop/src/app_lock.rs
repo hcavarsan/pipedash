@@ -1,3 +1,6 @@
+mod biometry;
+pub(crate) mod commands;
+
 use std::path::{
     Path,
     PathBuf,
@@ -16,32 +19,16 @@ use serde::{
 use tauri::{
     AppHandle,
     Manager,
-    State,
 };
 #[cfg(target_os = "android")]
 use tauri_plugin_pipedash_native::PipedashNativeExt;
 
-use crate::commands::{
-    load_config_from_dir,
-    unlock_session,
-    vault_requires_password,
-    ErrorResponse,
-    UnlockVaultResponse,
-};
-use crate::{
-    credential,
-    AppDataDir,
-    MaybeCoreContext,
-};
+use crate::MaybeCoreContext;
 
 pub const SUPPORTED: bool = cfg!(mobile);
 
 const SETTINGS_FILE: &str = "app_lock.json";
-const KEYCHAIN_SERVICE: &str = "pipedash";
-const VAULT_PASSWORD_ACCOUNT: &str = "app_lock_vault_password";
 const VAULT_PASSWORD_ENV: &str = "PIPEDASH_VAULT_PASSWORD";
-const UNLOCK_REASON: &str = "Unlock Pipedash";
-const ENABLE_REASON: &str = "Turn on app lock for Pipedash";
 const CANCEL_CODES: [&str; 3] = ["userCancel", "systemCancel", "appCancel"];
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -246,93 +233,11 @@ impl AppLockState {
     }
 }
 
-#[cfg(mobile)]
-mod native {
-    use tauri::AppHandle;
-    use tauri_plugin_biometric::{
-        AuthOptions,
-        BiometricExt,
-        BiometryType,
-    };
-
-    use super::{
-        classify_rejection,
-        AuthOutcome,
-        Biometry,
-        BiometryInfo,
-    };
-
-    pub async fn biometry(app: &AppHandle) -> BiometryInfo {
-        let app = app.clone();
-        match tauri::async_runtime::spawn_blocking(move || app.biometric().status()).await {
-            Ok(Ok(status)) => BiometryInfo {
-                biometry: match status.biometry_type {
-                    BiometryType::None => Biometry::None,
-                    BiometryType::TouchID => Biometry::TouchId,
-                    BiometryType::FaceID => Biometry::FaceId,
-                },
-                available: status.is_available,
-            },
-            Ok(Err(e)) => {
-                tracing::warn!("Couldn't read the biometric status: {}", e);
-                BiometryInfo::NONE
-            }
-            Err(e) => {
-                tracing::warn!("Biometric status task failed: {}", e);
-                BiometryInfo::NONE
-            }
-        }
-    }
-
-    pub async fn authenticate(app: &AppHandle, reason: &str) -> AuthOutcome {
-        let app = app.clone();
-        let reason = reason.to_string();
-        let options = AuthOptions {
-            allow_device_credential: true,
-            ..Default::default()
-        };
-
-        match tauri::async_runtime::spawn_blocking(move || {
-            app.biometric().authenticate(reason, options)
-        })
-        .await
-        {
-            Ok(Ok(())) => AuthOutcome::Authenticated,
-            Ok(Err(tauri_plugin_biometric::Error::PluginInvoke(
-                tauri::plugin::mobile::PluginInvokeError::InvokeRejected(rejection),
-            ))) => classify_rejection(
-                rejection.code.as_deref(),
-                rejection.message.as_deref().unwrap_or_default(),
-            ),
-            Ok(Err(e)) => AuthOutcome::Failed(e.to_string()),
-            Err(e) => AuthOutcome::Failed(e.to_string()),
-        }
-    }
-}
-
-#[cfg(not(mobile))]
-mod native {
-    use tauri::AppHandle;
-
-    use super::{
-        AuthOutcome,
-        BiometryInfo,
-    };
-
-    pub async fn biometry(_app: &AppHandle) -> BiometryInfo {
-        BiometryInfo::NONE
-    }
-
-    pub async fn authenticate(_app: &AppHandle, _reason: &str) -> AuthOutcome {
-        AuthOutcome::Failed("App lock is not supported on this platform".to_string())
-    }
-}
-
 pub async fn status(app: &AppHandle) -> AppLockStatus {
     let lock = app.state::<AppLockState>();
     AppLockStatus::new(
         SUPPORTED,
-        native::biometry(app).await,
+        biometry::info(app).await,
         lock.settings(),
         lock.locked(),
     )
@@ -343,11 +248,12 @@ pub async fn lock_session(app: &AppHandle) {
     let _transition = lock.transition().await;
     #[cfg(desktop)]
     {
-        crate::desktop::detach(app);
+        crate::desktop::projection::detach(app);
         crate::desktop::flush_menu(app).await;
     }
 
     let core = app.state::<MaybeCoreContext>().0.write().await.take();
+    crate::core_boot::background::cancel_init(app).await;
     crate::host::core_changed(app, None).await;
     std::env::remove_var(VAULT_PASSWORD_ENV);
     lock.set_locked(true);
@@ -365,7 +271,7 @@ pub async fn lock_session(app: &AppHandle) {
 #[cfg_attr(not(mobile), allow(dead_code))]
 async fn lock_on_resume(app: &AppHandle) {
     if app
-        .try_state::<crate::remote::RemoteConnection>()
+        .try_state::<crate::remote::connection::RemoteConnection>()
         .is_some_and(|remote| remote.is_client())
     {
         return;
@@ -396,391 +302,5 @@ pub fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
     }
 }
 
-fn vault_password_entry() -> credential::Result<credential::Entry> {
-    credential::device_only_entry(KEYCHAIN_SERVICE, VAULT_PASSWORD_ACCOUNT)
-}
-
-fn read_saved_vault_password() -> credential::Result<Option<String>> {
-    match vault_password_entry()?.get_password() {
-        Ok(password) => Ok(Some(password)),
-        Err(credential::Error::NoEntry) => Ok(None),
-        Err(e) => Err(e),
-    }
-}
-
-fn delete_saved_vault_password() -> credential::Result<()> {
-    match vault_password_entry().and_then(|entry| entry.delete_credential()) {
-        Ok(()) | Err(credential::Error::NoEntry) => Ok(()),
-        Err(e) => Err(e),
-    }
-}
-
-pub fn reset(app: &AppHandle, lock: &AppLockState) -> Result<(), ErrorResponse> {
-    delete_saved_vault_password()
-        .map_err(|e| error(&format!("Couldn't delete the saved vault password: {e}")))?;
-    lock.clear_settings()
-        .map_err(|e| error(&format!("Couldn't delete the app lock settings: {e}")))?;
-    crate::native::sync_privacy_cover(app, AppLockSettings::default());
-    Ok(())
-}
-
-fn failure(message: &str) -> UnlockVaultResponse {
-    UnlockVaultResponse::failed(message)
-}
-
-fn error(message: &str) -> ErrorResponse {
-    ErrorResponse {
-        error: message.to_string(),
-        details: None,
-        code: None,
-    }
-}
-
-fn enable_confirmed(outcome: AuthOutcome) -> Result<bool, ErrorResponse> {
-    match outcome {
-        AuthOutcome::Authenticated => Ok(true),
-        AuthOutcome::Cancelled => Ok(false),
-        AuthOutcome::Failed(message) => Err(error(&message)),
-    }
-}
-
-#[tauri::command]
-pub async fn unlock_with_biometrics(
-    app: AppHandle, lock: State<'_, AppLockState>, app_data_dir: State<'_, AppDataDir>,
-) -> Result<UnlockVaultResponse, ErrorResponse> {
-    if !SUPPORTED || !lock.settings().enabled {
-        return Ok(failure("App lock is not enabled"));
-    }
-    if !lock.locked() {
-        return Ok(UnlockVaultResponse::ok("Already unlocked"));
-    }
-
-    let outcome = {
-        let _prompt = lock.begin_prompt();
-        native::authenticate(&app, UNLOCK_REASON).await
-    };
-    match outcome {
-        AuthOutcome::Authenticated => {}
-        AuthOutcome::Cancelled => return Ok(UnlockVaultResponse::cancelled()),
-        AuthOutcome::Failed(message) => return Ok(failure(&message)),
-    }
-
-    let config = load_config_from_dir(&app_data_dir.0)?;
-    let password = if vault_requires_password(&config).await {
-        match read_saved_vault_password() {
-            Ok(Some(password)) => password,
-            Ok(None) => {
-                return Ok(failure(
-                    "No saved vault password. Turn app lock off and on again.",
-                ))
-            }
-            Err(e) => {
-                tracing::warn!("Couldn't read the saved vault password: {}", e);
-                return Ok(failure("Couldn't read the saved vault password"));
-            }
-        }
-    } else {
-        String::new()
-    };
-
-    unlock_session(&app, &password, true).await
-}
-
-#[tauri::command]
-pub async fn set_app_lock(
-    app: AppHandle, lock: State<'_, AppLockState>, app_data_dir: State<'_, AppDataDir>,
-    enabled: bool, lock_on_background: bool,
-) -> Result<AppLockStatus, ErrorResponse> {
-    if !SUPPORTED {
-        return Err(error("App lock is not supported on this device"));
-    }
-    if lock.locked() {
-        return Err(error("Unlock Pipedash before changing app lock"));
-    }
-
-    let current = lock.settings();
-    let enabling = enabled && !current.enabled;
-    let disabling = !enabled && current.enabled;
-
-    let vault_password = if enabling {
-        let config = load_config_from_dir(&app_data_dir.0)?;
-        if vault_requires_password(&config).await {
-            Some(
-                std::env::var(VAULT_PASSWORD_ENV)
-                    .map_err(|_| error("Unlock the vault before turning on app lock"))?,
-            )
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    if enabling {
-        let outcome = {
-            let _prompt = lock.begin_prompt();
-            native::authenticate(&app, ENABLE_REASON).await
-        };
-        if !enable_confirmed(outcome)? {
-            return Ok(status(&app).await);
-        }
-    }
-
-    if let Some(password) = &vault_password {
-        vault_password_entry()
-            .and_then(|entry| entry.set_password(password))
-            .map_err(|e| {
-                tracing::warn!("Couldn't save the vault password: {}", e);
-                error("Couldn't save the vault password in the Keychain")
-            })?;
-    }
-
-    let requested = AppLockSettings {
-        enabled,
-        lock_on_background,
-    };
-    if disabling {
-        disable_app_lock(&lock, current, requested, delete_saved_vault_password)?;
-    } else if let Err(e) = lock.save_settings(requested) {
-        if vault_password.is_some() {
-            if let Err(cleanup) = delete_saved_vault_password() {
-                tracing::warn!(%cleanup, "Couldn't delete the saved vault password after settings failure");
-            }
-        }
-        tracing::error!("Couldn't save app lock settings: {}", e);
-        return Err(error("Couldn't save the app lock settings"));
-    }
-
-    crate::native::sync_privacy_cover(&app, requested);
-
-    Ok(status(&app).await)
-}
-
-fn disable_app_lock<E: std::fmt::Display>(
-    lock: &AppLockState, current: AppLockSettings, requested: AppLockSettings,
-    delete_password: impl FnOnce() -> Result<(), E>,
-) -> Result<(), ErrorResponse> {
-    lock.save_settings(requested).map_err(|e| {
-        tracing::error!("Couldn't save app lock settings: {}", e);
-        error("Couldn't save the app lock settings")
-    })?;
-    delete_password().map_err(|e| {
-        if let Err(restore) = lock.save_settings(current) {
-            tracing::error!(%restore, "Couldn't restore app lock settings after the vault password deletion failed");
-        }
-        error(&format!("Couldn't delete the saved vault password: {e}"))
-    })
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const ON: AppLockSettings = AppLockSettings {
-        enabled: true,
-        lock_on_background: true,
-    };
-
-    #[test]
-    fn the_app_starts_locked_only_when_supported_enabled_and_set_up() {
-        assert!(starts_locked(true, ON, true));
-        assert!(!starts_locked(false, ON, true));
-        assert!(!starts_locked(true, AppLockSettings::default(), true));
-        assert!(!starts_locked(true, ON, false));
-    }
-
-    #[test]
-    fn resuming_locks_only_a_loaded_idle_core_with_background_lock_on() {
-        assert!(resume_should_lock(ON, false, 0, true));
-        assert!(!resume_should_lock(ON, true, 0, true));
-        assert!(!resume_should_lock(ON, false, 1, true));
-        assert!(!resume_should_lock(ON, false, 0, false));
-        let foreground_only = AppLockSettings {
-            enabled: true,
-            lock_on_background: false,
-        };
-        assert!(!resume_should_lock(foreground_only, false, 0, true));
-        assert!(!resume_should_lock(
-            AppLockSettings::default(),
-            false,
-            0,
-            true
-        ));
-    }
-
-    #[test]
-    fn a_biometric_prompt_blocks_locking_until_it_ends() {
-        let dir = tempfile::tempdir().unwrap();
-        let state = AppLockState::load(dir.path(), true, true);
-        state.save_settings(ON).unwrap();
-        state.set_locked(false);
-
-        let prompt = state.begin_prompt();
-        let second = state.begin_prompt();
-        assert!(!state.should_lock_on_resume(true));
-        drop(prompt);
-        assert!(!state.should_lock_on_resume(true));
-        drop(second);
-        assert!(state.should_lock_on_resume(true));
-    }
-
-    #[test]
-    fn settings_survive_a_reload_and_bad_files_fall_back_to_off() {
-        let dir = tempfile::tempdir().unwrap();
-        let state = AppLockState::load(dir.path(), true, true);
-        assert!(!state.locked());
-        state.save_settings(ON).unwrap();
-
-        let reloaded = AppLockState::load(dir.path(), true, true);
-        assert_eq!(reloaded.settings(), ON);
-        assert!(reloaded.locked());
-
-        std::fs::write(dir.path().join(SETTINGS_FILE), b"{ not json").unwrap();
-        assert_eq!(
-            read_settings(&dir.path().join(SETTINGS_FILE)),
-            AppLockSettings::default()
-        );
-    }
-
-    #[test]
-    fn failed_settings_deletion_preserves_state_for_retry() {
-        let dir = tempfile::tempdir().unwrap();
-        let state = AppLockState::load(dir.path(), true, true);
-        state.save_settings(ON).unwrap();
-        std::fs::remove_file(&state.path).unwrap();
-        std::fs::create_dir(&state.path).unwrap();
-
-        assert!(state.clear_settings().is_err());
-        assert_eq!(state.settings(), ON);
-
-        std::fs::remove_dir(&state.path).unwrap();
-        state.clear_settings().unwrap();
-        state.clear_settings().unwrap();
-        assert_eq!(state.settings(), AppLockSettings::default());
-    }
-
-    #[test]
-    fn a_failed_password_deletion_keeps_app_lock_enabled_for_retry() {
-        let dir = tempfile::tempdir().unwrap();
-        let state = AppLockState::load(dir.path(), true, true);
-        state.save_settings(ON).unwrap();
-        let off = AppLockSettings::default();
-
-        assert!(disable_app_lock(&state, ON, off, || Err("keychain locked")).is_err());
-        assert_eq!(AppLockState::load(dir.path(), true, true).settings(), ON);
-
-        let mut deleted = false;
-        disable_app_lock(&state, ON, off, || {
-            deleted = true;
-            Ok::<(), &str>(())
-        })
-        .unwrap();
-        assert!(deleted);
-        assert_eq!(AppLockState::load(dir.path(), true, true).settings(), off);
-    }
-
-    #[test]
-    fn a_failed_settings_write_keeps_the_saved_password() {
-        let dir = tempfile::tempdir().unwrap();
-        let state = AppLockState::load(dir.path(), true, true);
-        state.save_settings(ON).unwrap();
-        std::fs::remove_file(&state.path).unwrap();
-        std::fs::create_dir(&state.path).unwrap();
-
-        let mut deleted = false;
-        assert!(
-            disable_app_lock(&state, ON, AppLockSettings::default(), || {
-                deleted = true;
-                Ok::<(), &str>(())
-            })
-            .is_err()
-        );
-        assert!(!deleted);
-        assert_eq!(state.settings(), ON);
-    }
-
-    #[test]
-    fn unsupported_platforms_report_no_app_lock_but_keep_the_session_flag() {
-        let info = BiometryInfo {
-            biometry: Biometry::FaceId,
-            available: true,
-        };
-        let status = AppLockStatus::new(false, info, ON, true);
-        assert_eq!(
-            status,
-            AppLockStatus {
-                supported: false,
-                biometry: Biometry::None,
-                biometry_available: false,
-                enabled: false,
-                lock_on_background: false,
-                locked: true,
-            }
-        );
-    }
-
-    #[test]
-    fn supported_platforms_report_settings_and_biometry() {
-        let info = BiometryInfo {
-            biometry: Biometry::FaceId,
-            available: true,
-        };
-        let status = AppLockStatus::new(true, info, ON, false);
-        assert_eq!(
-            serde_json::to_value(status).unwrap(),
-            serde_json::json!({
-                "supported": true,
-                "biometry": "faceId",
-                "biometry_available": true,
-                "enabled": true,
-                "lock_on_background": true,
-                "locked": false,
-            })
-        );
-        assert_eq!(
-            serde_json::to_value(Biometry::TouchId).unwrap(),
-            serde_json::json!("touchId")
-        );
-    }
-
-    #[test]
-    fn only_a_cancelled_unlock_carries_a_reason() {
-        assert_eq!(
-            serde_json::to_value(UnlockVaultResponse::cancelled()).unwrap(),
-            serde_json::json!({ "success": false, "message": "cancelled", "reason": "cancelled" })
-        );
-        assert_eq!(
-            serde_json::to_value(UnlockVaultResponse::failed("nope")).unwrap(),
-            serde_json::json!({ "success": false, "message": "nope" })
-        );
-    }
-
-    #[test]
-    fn cancel_codes_are_told_apart_from_real_failures() {
-        for code in CANCEL_CODES {
-            assert_eq!(classify_rejection(Some(code), "x"), AuthOutcome::Cancelled);
-        }
-        assert_eq!(
-            classify_rejection(Some("biometryLockout"), "Locked out"),
-            AuthOutcome::Failed("Locked out".to_string())
-        );
-        assert_eq!(
-            classify_rejection(None, "boom"),
-            AuthOutcome::Failed("boom".to_string())
-        );
-    }
-
-    #[test]
-    fn cancelling_the_enable_prompt_is_not_an_error() {
-        assert!(matches!(
-            enable_confirmed(AuthOutcome::Authenticated),
-            Ok(true)
-        ));
-        assert!(matches!(
-            enable_confirmed(AuthOutcome::Cancelled),
-            Ok(false)
-        ));
-        let failed = enable_confirmed(AuthOutcome::Failed("Locked out".to_string()));
-        assert!(matches!(failed, Err(ErrorResponse { error, .. }) if error == "Locked out"));
-    }
-}
+mod tests;

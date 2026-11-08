@@ -1,0 +1,7 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "project": ["src/**/*.{ts,tsx,css}!"],
+  "ignoreExportsUsedInFile": true,
+  "ignoreDependencies": ["@e2e-dev/web"],
+  "ignoreUnresolved": ["/src/stores/notificationCenterStore.ts"]
+}

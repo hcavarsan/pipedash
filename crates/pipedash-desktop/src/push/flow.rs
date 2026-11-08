@@ -1,10 +1,15 @@
-use serde::{
-    Deserialize,
-    Serialize,
-};
-use tauri::AppHandle;
-use tauri_plugin_pipedash_push::PipedashPushExt;
+pub(super) mod platform;
+mod registration;
 
+use serde::Deserialize;
+
+use self::platform::Env;
+use self::registration::{
+    delete_registration,
+    registration,
+    save_registration,
+    Registration,
+};
 use super::{
     host_failure,
     host_problem,
@@ -15,171 +20,10 @@ use super::{
     RELAY_NOT_CONFIGURED_CODE,
     UNAVAILABLE,
 };
-use crate::local_notifications::{
-    self,
-    AlertHost,
-};
+use crate::local_notifications::store::AlertHost;
 use crate::remote::alerts::host_request;
 
 pub(super) static PUSH_OPS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
-pub(super) trait Env {
-    fn relay_url(&self) -> &str;
-    async fn notifications_enabled(&self) -> bool;
-    async fn stored_host(&self) -> Option<AlertHost>;
-    async fn available(&self) -> bool;
-    async fn permission_granted(&self) -> bool;
-    async fn device_token(&self) -> Result<String>;
-    async fn mark_push(&self, host: &AlertHost, push: bool);
-    fn set_problem(&self, problem: Option<String>);
-}
-
-pub(super) struct AppEnv<'a>(pub &'a AppHandle);
-
-impl Env for AppEnv<'_> {
-    fn relay_url(&self) -> &str {
-        relay::base_url()
-    }
-
-    async fn notifications_enabled(&self) -> bool {
-        local_notifications::notifications_enabled(self.0).await
-    }
-
-    async fn stored_host(&self) -> Option<AlertHost> {
-        local_notifications::current_alert_host().await
-    }
-
-    async fn available(&self) -> bool {
-        cfg!(target_os = "ios") && matches!(self.0.pipedash_push().is_enabled().await, Ok(true))
-    }
-
-    async fn permission_granted(&self) -> bool {
-        permission_granted(self.0).await
-    }
-
-    async fn device_token(&self) -> Result<String> {
-        acquire_device_token(self.0).await
-    }
-
-    async fn mark_push(&self, host: &AlertHost, push: bool) {
-        local_notifications::mark_alert_host_push(host, push).await;
-    }
-
-    fn set_problem(&self, problem: Option<String>) {
-        local_notifications::set_push_problem(self.0, problem);
-    }
-}
-
-#[cfg(target_os = "ios")]
-async fn permission_granted(app: &AppHandle) -> bool {
-    use tauri_plugin_notification::NotificationExt;
-
-    let app = app.clone();
-    matches!(
-        tauri::async_runtime::spawn_blocking(move || app.notification().permission_state()).await,
-        Ok(Ok(tauri::plugin::PermissionState::Granted))
-    )
-}
-
-#[cfg(not(target_os = "ios"))]
-async fn permission_granted(_app: &AppHandle) -> bool {
-    false
-}
-
-#[cfg(target_os = "ios")]
-async fn acquire_device_token(app: &AppHandle) -> Result<String> {
-    let app = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        app.pipedash_push().register_for_remote_notifications()
-    })
-    .await
-    .map_err(|_| PushError::Registration)?
-    .map_err(PushError::from)
-}
-
-#[cfg(not(target_os = "ios"))]
-async fn acquire_device_token(_app: &AppHandle) -> Result<String> {
-    Err(PushError::Unsupported)
-}
-
-#[derive(Serialize, Deserialize)]
-struct Registration {
-    subscription_id: String,
-    device_id: String,
-}
-
-fn keychain(error: impl std::fmt::Display) -> PushError {
-    tracing::warn!(%error, "push keychain access failed");
-    PushError::Keychain
-}
-
-#[cfg(not(test))]
-mod saved {
-    use super::{
-        keychain,
-        Result,
-    };
-    use crate::credential;
-
-    const KEYCHAIN_SERVICE: &str = "pipedash";
-    const KEYCHAIN_ACCOUNT: &str = "device_push";
-
-    fn entry() -> Result<credential::Entry> {
-        credential::device_only_entry(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT).map_err(keychain)
-    }
-
-    pub(super) fn read() -> Result<Option<String>> {
-        match entry()?.get_password() {
-            Ok(saved) => Ok(Some(saved)),
-            Err(credential::Error::NoEntry) => Ok(None),
-            Err(error) => Err(keychain(error)),
-        }
-    }
-
-    pub(super) fn write(value: &str) -> Result<()> {
-        entry()?.set_password(value).map_err(keychain)
-    }
-
-    pub(super) fn delete() -> Result<()> {
-        match entry()?.delete_credential() {
-            Ok(()) | Err(credential::Error::NoEntry) => Ok(()),
-            Err(error) => Err(keychain(error)),
-        }
-    }
-}
-
-#[cfg(test)]
-mod saved {
-    use std::cell::RefCell;
-
-    use super::Result;
-
-    thread_local! {
-        static SAVED: RefCell<Option<String>> = const { RefCell::new(None) };
-    }
-
-    pub(super) fn read() -> Result<Option<String>> {
-        Ok(SAVED.with_borrow(Clone::clone))
-    }
-
-    pub(super) fn write(value: &str) -> Result<()> {
-        SAVED.set(Some(value.to_owned()));
-        Ok(())
-    }
-
-    pub(super) fn delete() -> Result<()> {
-        SAVED.set(None);
-        Ok(())
-    }
-}
-
-fn registration() -> Result<Option<Registration>> {
-    Ok(saved::read()?.and_then(|saved| serde_json::from_str(&saved).ok()))
-}
-
-fn save_registration(registration: &Registration) -> Result<()> {
-    saved::write(&serde_json::to_string(registration).map_err(keychain)?)
-}
 
 async fn revoke_relay(relay_url: &str, subscription_id: &str) {
     if let Err(error) = relay::delete(relay_url, subscription_id).await {
@@ -254,13 +98,15 @@ async fn register(
         }
         Err(error) => Err(failed(error)),
     };
-    let saved = accepted.and_then(|()| {
-        save_registration(&Registration {
+    let saved = match accepted {
+        Ok(()) => save_registration(Registration {
             subscription_id: subscription_id.clone(),
             device_id: host.device_id.clone(),
         })
-        .map_err(failed)
-    });
+        .await
+        .map_err(failed),
+        Err(error) => Err(error),
+    };
     if let Err(error) = saved {
         if fresh {
             revoke_relay(relay_url, &subscription_id).await;
@@ -353,26 +199,22 @@ pub(super) async fn enable_with(env: &impl Env) -> Result<(), String> {
         .device_token()
         .await
         .map_err(|error| error.to_string())?;
-    register(
-        env.relay_url(),
-        &host,
-        &device_token,
-        registration().ok().flatten(),
-    )
-    .await
-    .map_err(|error| error.problem(&host))?;
+    let saved = registration().await.ok().flatten();
+    register(env.relay_url(), &host, &device_token, saved)
+        .await
+        .map_err(|error| error.problem(&host))?;
     env.mark_push(&host, true).await;
 
     Ok(())
 }
 
 pub(super) async fn forget_at(relay_url: &str) {
-    match registration() {
+    match registration().await {
         Ok(Some(saved)) => revoke_relay(relay_url, &saved.subscription_id).await,
         Ok(None) => {}
         Err(error) => tracing::warn!(%error, "could not read the push registration"),
     }
-    if let Err(error) = saved::delete() {
+    if let Err(error) = delete_registration().await {
         tracing::warn!(%error, "could not remove the push registration");
     }
 }
@@ -411,14 +253,8 @@ async fn refresh_with(env: &impl Env, host: &AlertHost) {
             return;
         }
     };
-    match register(
-        env.relay_url(),
-        host,
-        &device_token,
-        registration().ok().flatten(),
-    )
-    .await
-    {
+    let saved = registration().await.ok().flatten();
+    match register(env.relay_url(), host, &device_token, saved).await {
         Ok(()) => env.mark_push(host, true).await,
         Err(RegisterError::HostStopped) => host_stopped(env, host).await,
         Err(RegisterError::Failed(_)) => tracing::debug!("Couldn't refresh the push registration"),
@@ -460,307 +296,4 @@ pub(super) async fn sync_with(env: &impl Env) {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::atomic::{
-        AtomicBool,
-        Ordering,
-    };
-    use std::sync::{
-        Mutex,
-        PoisonError,
-    };
-    use std::time::Duration;
-
-    use super::*;
-    use crate::push::stub::Stub;
-    use crate::remote::test_host::{
-        start_host_with_relay,
-        Host,
-    };
-
-    struct TestEnv {
-        relay: String,
-        host: Mutex<Option<AlertHost>>,
-        enabled: AtomicBool,
-        problem: Mutex<Option<String>>,
-    }
-
-    impl TestEnv {
-        fn new(relay: &str, host: AlertHost) -> Self {
-            Self {
-                relay: relay.to_owned(),
-                host: Mutex::new(Some(host)),
-                enabled: AtomicBool::new(true),
-                problem: Mutex::new(None),
-            }
-        }
-
-        fn current(&self) -> Option<AlertHost> {
-            self.host
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone()
-        }
-
-        fn problem(&self) -> Option<String> {
-            self.problem
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone()
-        }
-    }
-
-    impl Env for TestEnv {
-        fn relay_url(&self) -> &str {
-            &self.relay
-        }
-
-        async fn notifications_enabled(&self) -> bool {
-            self.enabled.load(Ordering::SeqCst)
-        }
-
-        async fn stored_host(&self) -> Option<AlertHost> {
-            self.current()
-        }
-
-        async fn available(&self) -> bool {
-            true
-        }
-
-        async fn permission_granted(&self) -> bool {
-            true
-        }
-
-        async fn device_token(&self) -> Result<String> {
-            Ok("apns-token".to_owned())
-        }
-
-        async fn mark_push(&self, host: &AlertHost, push: bool) {
-            if let Some(stored) = self
-                .host
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .as_mut()
-            {
-                if same_host(stored, host) {
-                    stored.push = push;
-                }
-            }
-        }
-
-        fn set_problem(&self, problem: Option<String>) {
-            *self.problem.lock().unwrap_or_else(PoisonError::into_inner) = problem;
-        }
-    }
-
-    async fn paired(relay: Option<&str>) -> (Host, AlertHost) {
-        let host = start_host_with_relay(relay).await;
-        let code = pipedash_web::pairing::create_pairing(&host.state, &host.url.url)
-            .unwrap()
-            .code;
-        let alert_host = crate::remote::alerts::claim_alert_host(host.url.clone(), &code, true)
-            .await
-            .unwrap();
-
-        (host, alert_host)
-    }
-
-    async fn relay_stub() -> Stub {
-        Stub::start_with_body(
-            |request| match (request.method.as_str(), request.path.as_str()) {
-                ("POST", "/v1/subscriptions") => {
-                    (201, r#"{"subscription_id":"sub-new"}"#.to_owned())
-                }
-                _ => (204, String::new()),
-            },
-        )
-        .await
-    }
-
-    fn seed_registration(device_id: &str, subscription_id: &str) {
-        save_registration(&Registration {
-            subscription_id: subscription_id.to_owned(),
-            device_id: device_id.to_owned(),
-        })
-        .unwrap();
-    }
-
-    #[tokio::test]
-    async fn a_host_that_dropped_its_relay_is_told_apart_from_one_that_still_pushes() {
-        let relay = "https://relay.pipedash.app";
-        let (_off, off_host) = paired(None).await;
-        assert_eq!(
-            host_push(&off_host, relay).await,
-            Some(HostPush::RelayStopped)
-        );
-
-        let (_other, other_host) = paired(Some("https://relay.example.com")).await;
-        assert_eq!(
-            host_push(&other_host, relay).await,
-            Some(HostPush::RelayStopped)
-        );
-
-        let (on, on_host) = paired(Some(&format!("{relay}/"))).await;
-        assert_eq!(
-            host_push(&on_host, relay).await,
-            Some(HostPush::NoRegistration)
-        );
-
-        on.core
-            .device_pushes()
-            .set(&on_host.device_id, "sub-1")
-            .await
-            .unwrap();
-        assert_eq!(
-            host_push(&on_host, relay).await,
-            Some(HostPush::Active {
-                undelivered_after: None
-            })
-        );
-
-        let unreachable = AlertHost {
-            server_url: "http://127.0.0.1:1".to_owned(),
-            ..on_host
-        };
-        assert_eq!(host_push(&unreachable, relay).await, None);
-    }
-
-    #[tokio::test]
-    async fn a_sync_that_was_waiting_when_notifications_went_off_registers_nothing() {
-        let relay = relay_stub().await;
-        let (host, alert_host) = paired(Some(&relay.url)).await;
-        let alert_host = AlertHost {
-            push: true,
-            ..alert_host
-        };
-        host.core
-            .device_pushes()
-            .set(&alert_host.device_id, "sub-old")
-            .await
-            .unwrap();
-        seed_registration(&alert_host.device_id, "sub-old");
-        let env = std::sync::Arc::new(TestEnv::new(&relay.url, alert_host.clone()));
-
-        let held = PUSH_OPS.lock().await;
-        let pending = tokio::spawn({
-            let env = std::sync::Arc::clone(&env);
-            async move { sync_with(&*env).await }
-        });
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(!pending.is_finished());
-
-        env.enabled.store(false, Ordering::SeqCst);
-        disable_with(&*env).await;
-        *env.host.lock().unwrap_or_else(PoisonError::into_inner) = None;
-        drop(held);
-        pending.await.unwrap();
-
-        assert_eq!(relay.count("PUT", "/v1/subscriptions/sub-old"), 0);
-        assert_eq!(relay.count("POST", "/v1/subscriptions"), 0);
-        assert_eq!(relay.count("DELETE", "/v1/subscriptions/sub-old"), 1);
-        assert!(registration().unwrap().is_none());
-        assert!(host
-            .core
-            .device_pushes()
-            .get(&alert_host.device_id)
-            .await
-            .unwrap()
-            .is_none());
-    }
-
-    #[tokio::test]
-    async fn a_sync_for_a_replaced_host_registers_nothing() {
-        let relay = relay_stub().await;
-        let (host, alert_host) = paired(Some(&relay.url)).await;
-        let alert_host = AlertHost {
-            push: true,
-            ..alert_host
-        };
-        let env = std::sync::Arc::new(TestEnv::new(&relay.url, alert_host.clone()));
-
-        let held = PUSH_OPS.lock().await;
-        let pending = tokio::spawn({
-            let env = std::sync::Arc::clone(&env);
-            async move { sync_with(&*env).await }
-        });
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        *env.host.lock().unwrap_or_else(PoisonError::into_inner) = Some(AlertHost {
-            device_id: "other".to_owned(),
-            server_url: "https://other.example.com".to_owned(),
-            ..alert_host.clone()
-        });
-        drop(held);
-        pending.await.unwrap();
-
-        assert_eq!(relay.count("POST", "/v1/subscriptions"), 0);
-        assert!(host
-            .core
-            .device_pushes()
-            .get(&alert_host.device_id)
-            .await
-            .unwrap()
-            .is_none());
-    }
-
-    #[tokio::test]
-    async fn a_host_that_now_offers_push_is_set_up_on_the_next_sync() {
-        let relay = relay_stub().await;
-        let (host, alert_host) = paired(Some(&relay.url)).await;
-        saved::delete().unwrap();
-        let env = TestEnv::new(&relay.url, alert_host.clone());
-        env.set_problem(Some("old problem".to_owned()));
-
-        sync_with(&env).await;
-
-        assert!(env.current().unwrap().push);
-        assert_eq!(env.problem(), None);
-        assert_eq!(relay.count("POST", "/v1/subscriptions"), 1);
-        let row = host
-            .core
-            .device_pushes()
-            .get(&alert_host.device_id)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(row.relay_subscription_id, "sub-new");
-        assert_eq!(registration().unwrap().unwrap().subscription_id, "sub-new");
-    }
-
-    #[tokio::test]
-    async fn a_host_that_still_offers_no_push_is_left_alone() {
-        let relay = relay_stub().await;
-        let (_host, alert_host) = paired(None).await;
-        let env = TestEnv::new(&relay.url, alert_host);
-
-        sync_with(&env).await;
-
-        assert!(!env.current().unwrap().push);
-        assert_eq!(relay.count("POST", "/v1/subscriptions"), 0);
-    }
-
-    #[tokio::test]
-    async fn a_host_that_stopped_its_relay_ends_push_and_explains_why() {
-        let relay = relay_stub().await;
-        let (_host, alert_host) = paired(None).await;
-        seed_registration(&alert_host.device_id, "sub-old");
-        let env = TestEnv::new(
-            &relay.url,
-            AlertHost {
-                push: true,
-                ..alert_host
-            },
-        );
-
-        sync_with(&env).await;
-
-        assert!(!env.current().unwrap().push);
-        assert_eq!(
-            env.problem().as_deref(),
-            Some(
-                "Studio stopped sending push alerts. Pipedash checks it in the background instead."
-            )
-        );
-        assert_eq!(relay.count("DELETE", "/v1/subscriptions/sub-old"), 1);
-        assert!(registration().unwrap().is_none());
-    }
-}
+mod tests;

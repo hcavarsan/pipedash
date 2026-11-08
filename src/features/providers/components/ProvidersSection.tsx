@@ -25,40 +25,48 @@ export const ProvidersSection = (): ReactNode => {
   const statusPagesEnabled = useStorageConfig().data?.config.general.status_pages_enabled !== false
   const [editingId, setEditingId] = useState<number | null>(null)
 
-  const list = loading ? (
-    <LoadingState message="Loading providers..." />
-  ) : providersError ? (
-    <ErrorState
-      title="Couldn't load providers"
-      error={providersError}
-      onRetry={() => refetchProviders()}
-      retrying={isRefetchingProviders}
-    />
-  ) : providers.length === 0 ? (
-    <EmptyState
-      title="No providers configured"
-      description="Add a CI/CD provider to start monitoring pipelines."
-      action={
-        <Button size="sm" onClick={openAddProviderModal}>
-          Add provider
-        </Button>
-      }
-    />
-  ) : (
-    <Stack gap={mobileShell ? 'lg' : 'md'}>
-      {providers.map((provider) => (
-        <ProviderSettingsCard
-          key={provider.id}
-          provider={provider}
-          statusPagesEnabled={statusPagesEnabled}
-          now={now}
-          editing={editingId === provider.id}
-          onStartEditing={() => setEditingId(provider.id)}
-          onFinishEditing={() => setEditingId(null)}
-        />
-      ))}
-    </Stack>
-  )
+  let list: ReactNode
+
+  if (loading) {
+    list = <LoadingState message="Loading providers..." />
+  } else if (providersError) {
+    list = (
+      <ErrorState
+        title="Couldn't load providers"
+        error={providersError}
+        onRetry={() => refetchProviders()}
+        retrying={isRefetchingProviders}
+      />
+    )
+  } else if (providers.length === 0) {
+    list = (
+      <EmptyState
+        title="No providers configured"
+        description="Add a CI/CD provider to start monitoring pipelines."
+        action={
+          <Button size="sm" onClick={openAddProviderModal}>
+            Add provider
+          </Button>
+        }
+      />
+    )
+  } else {
+    list = (
+      <Stack gap={mobileShell ? 'lg' : 'md'}>
+        {providers.map((provider) => (
+          <ProviderSettingsCard
+            key={provider.id}
+            provider={provider}
+            statusPagesEnabled={statusPagesEnabled}
+            now={now}
+            editing={editingId === provider.id}
+            onStartEditing={() => setEditingId(provider.id)}
+            onFinishEditing={() => setEditingId(null)}
+          />
+        ))}
+      </Stack>
+    )
+  }
 
   if (mobileShell) {
     return (

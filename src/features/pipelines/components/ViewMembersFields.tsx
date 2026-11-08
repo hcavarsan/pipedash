@@ -2,15 +2,55 @@ import { ActionIcon, Group, Stack, Text, Title, Tooltip } from '@mantine/core'
 import { IconGripVertical, IconX } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
-import type { ViewMember } from '../../../types/domain'
-import { SortableList } from './SortableList'
+import type { ViewMember } from '../../../types/views'
+import { type SortableDragProps, SortableList } from './SortableList'
 
 interface ViewMembersFieldsProps {
   members: ViewMember[]
   onChange: (ids: string[]) => void
 }
 
+interface ViewMemberRowProps {
+  member: ViewMember
+  drag: SortableDragProps
+  onRemove: (pipelineId: string) => void
+}
+
+function ViewMemberRow({ member, drag, onRemove }: ViewMemberRowProps): ReactNode {
+  const label = member.name ?? member.pipeline_id
+
+  return (
+    <Group ref={drag.setNodeRef} style={drag.style} gap="xs" wrap="nowrap" opacity={drag.isDragging ? 0.6 : undefined}>
+      <ActionIcon
+        {...drag.handleProps}
+        {...drag.listeners}
+        aria-label={`Reorder ${label}`}
+        style={{ touchAction: 'none', cursor: 'grab' }}
+      >
+        <IconGripVertical size={16} aria-hidden />
+      </ActionIcon>
+      <Stack gap={0} flex={1} miw={0}>
+        <Text size="sm" truncate>
+          {label}
+        </Text>
+        {!member.available && (
+          <Text size="xs" c="dimmed">
+            Unavailable
+          </Text>
+        )}
+      </Stack>
+      <Tooltip label={`Remove ${label}`}>
+        <ActionIcon aria-label={`Remove ${label}`} onClick={() => onRemove(member.pipeline_id)}>
+          <IconX size={16} aria-hidden />
+        </ActionIcon>
+      </Tooltip>
+    </Group>
+  )
+}
+
 export function ViewMembersFields({ members, onChange }: ViewMembersFieldsProps): ReactNode {
+  const ids = members.map((m) => m.pipeline_id)
+
   return (
     <Stack gap="sm">
       <Title order={3} size="sm">
@@ -23,48 +63,9 @@ export function ViewMembersFields({ members, onChange }: ViewMembersFieldsProps)
       ) : (
         <Stack gap="4xs">
           <SortableList items={members} getId={(m) => m.pipeline_id} orientation="vertical" handle onReorder={onChange}>
-            {(member, drag) => {
-              const label = member.name ?? member.pipeline_id
-
-              return (
-                <Group
-                  ref={drag.setNodeRef}
-                  style={drag.style}
-                  gap="xs"
-                  wrap="nowrap"
-                  opacity={drag.isDragging ? 0.6 : undefined}
-                >
-                  <ActionIcon
-                    {...drag.handleProps}
-                    {...drag.listeners}
-                    aria-label={`Reorder ${label}`}
-                    style={{ touchAction: 'none', cursor: 'grab' }}
-                  >
-                    <IconGripVertical size={16} aria-hidden />
-                  </ActionIcon>
-                  <Stack gap={0} flex={1} miw={0}>
-                    <Text size="sm" truncate>
-                      {label}
-                    </Text>
-                    {!member.available && (
-                      <Text size="xs" c="dimmed">
-                        Unavailable
-                      </Text>
-                    )}
-                  </Stack>
-                  <Tooltip label={`Remove ${label}`}>
-                    <ActionIcon
-                      aria-label={`Remove ${label}`}
-                      onClick={() =>
-                        onChange(members.map((m) => m.pipeline_id).filter((id) => id !== member.pipeline_id))
-                      }
-                    >
-                      <IconX size={16} aria-hidden />
-                    </ActionIcon>
-                  </Tooltip>
-                </Group>
-              )
-            }}
+            {(member, drag) => (
+              <ViewMemberRow member={member} drag={drag} onRemove={(pid) => onChange(ids.filter((id) => id !== pid))} />
+            )}
           </SortableList>
         </Stack>
       )}

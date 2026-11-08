@@ -17,11 +17,14 @@ import { type ReactNode, useState } from 'react'
 import { EmptyState } from '../../../components/common/EmptyState'
 import { ErrorState } from '../../../components/common/ErrorState'
 import { LoadingState } from '../../../components/common/LoadingState'
-import type { PinnedItem, PipelineView, ProviderSummary } from '../../../types/domain'
+import { useDebounce } from '../../../hooks/useDebounce'
+import type { ProviderSummary } from '../../../types/providers'
+import type { PinnedItem, PipelineView } from '../../../types/views'
 import { formatCount } from '../../../utils/formatCount'
 import { ProviderAvatar, ProviderStatusLine } from '../../providers/components/ProviderPresentation'
 import { useProviderNavigation } from '../../providers/queries/useProviderNavigation'
-import { ancestorKeys, filterNavTree, matchesQuery, type NavNode, pinTo } from '../utils/navTree'
+import { usePipelineNavigation } from '../queries/usePipelineViewQueries'
+import { ancestorKeys, type NavNode, pinTo } from '../utils/navTree'
 import { ICON_TILE, type MenuProps, NavbarTreeRow, NavTile, PIN_ICONS, VIEW_ICONS } from './NavbarTreeRow'
 import { activeRootOf, flattenNavbarViewRows, PINNED_ID, viewNodesOf, viewTo } from './NavbarViewRows'
 
@@ -129,6 +132,17 @@ const ProviderRows = ({
   ))
 }
 
+const PinRow = ({ pin, active, menu }: { pin: PinnedItem; active: boolean; menu: MenuProps }): ReactNode => (
+  <NavbarTreeRow
+    depth={1}
+    label={pin.name}
+    icon={<NavTile icon={PIN_ICONS[pin.kind]} size={ICON_TILE.list} />}
+    active={active}
+    to={pinTo(pin)}
+    menu={menu}
+  />
+)
+
 export const NavbarTree = ({
   providers,
   views,
@@ -154,30 +168,29 @@ export const NavbarTree = ({
   })
   const [query, setQuery] = useState('')
   const searching = query.trim() !== ''
-  const viewNodes = viewNodesOf(views)
+  const { data: navigation } = usePipelineNavigation(useDebounce(query.trim()))
+  const navViews = navigation?.views ?? views
+  const viewNodes = viewNodesOf(navViews)
   const activeRootId = activeRootOf(views, viewId)
   const activeKeys = viewId ? ancestorKeys(viewNodes, `view:${viewId}`) : null
   const isOpen = (key: string) => searching || expanded.includes(key) || activeKeys?.includes(key) === true
   const toggle = (key: string) =>
     setExpanded((current) => (current.includes(key) ? current.filter((k) => k !== key) : [...current, key]))
 
-  const pinnedNodes = filterNavTree(
-    viewNodes.filter((node) => node.view?.kind === 'pinned' || !node.view),
-    query
-  )
-  const otherNodes = filterNavTree(
-    viewNodes.filter((node) => node.view && node.view.kind !== 'pinned'),
-    query
-  )
+  const pinnedNodes = viewNodes.filter((node) => node.view?.kind === 'pinned' || !node.view)
+  const otherNodes = viewNodes.filter((node) => node.view && node.view.kind !== 'pinned')
   const viewsOpen =
     searching ||
     !expanded.includes(VIEWS_COLLAPSED_KEY) ||
     otherNodes.some((node) => node.view && node.view.id === activeRootId)
-  const visiblePins = pins.filter((pin) => matchesQuery(pin.name, query))
-  const visibleProviders = providers.filter((provider) => matchesQuery(provider.name, query))
-  const showProviders = !searching || matchesQuery('All providers', query) || visibleProviders.length > 0
-  const totalPipelines = providers.reduce((sum, p) => sum + p.pipeline_count, 0)
+  const visiblePins = navigation?.pins ?? pins
+  const visibleProviders = navigation?.providers ?? providers
+  const showProviders = !searching || visibleProviders.length > 0
+  const totalPipelines = navigation?.total_pipelines ?? 0
   const allActive = inPipelines && providerId === null && viewId === null
+
+  const isPinActive = (pin: PinnedItem) =>
+    pin.kind === 'view' ? viewId === pin.ref : viewId === null && providerId === null && repositorySearch === pin.ref
 
   const renderViewRows = (nodes: NavNode[], depth: number) =>
     flattenNavbarViewRows(nodes, depth, isOpen).map(({ key, node, depth: rowDepth }) => (
@@ -195,6 +208,29 @@ export const NavbarTree = ({
         menu={viewMenu(node.view)}
       />
     ))
+
+  const providersSection = showProviders && (
+    <>
+      <NavbarTreeRow
+        depth={0}
+        expandable
+        open={isOpen(PROVIDERS_KEY)}
+        onToggle={() => toggle(PROVIDERS_KEY)}
+        label="All providers"
+        icon={<NavTile icon={IconStack2} size={ICON_TILE.list} />}
+        description={loading || error ? undefined : `${formatCount(totalPipelines, 'pipeline')} total`}
+        active={allActive}
+        to="/pipelines"
+      />
+      {isOpen(PROVIDERS_KEY) && (
+        <ProviderRows
+          {...{ providers, visibleProviders, providerId, loading, error, retrying, onRetry, providerMenu }}
+          onEditProvider={onEditProvider}
+          onRemoveProvider={onRemoveProvider}
+        />
+      )}
+    </>
+  )
 
   return (
     <>
@@ -214,49 +250,9 @@ export const NavbarTree = ({
         <Stack gap="4xs">
           {renderViewRows(pinnedNodes, 0)}
           {visiblePins.map((pin) => (
-            <NavbarTreeRow
-              key={`pin:${pin.kind}:${pin.ref}`}
-              depth={1}
-              label={pin.name}
-              icon={<NavTile icon={PIN_ICONS[pin.kind]} size={ICON_TILE.list} />}
-              active={
-                pin.kind === 'view'
-                  ? viewId === pin.ref
-                  : viewId === null && providerId === null && repositorySearch === pin.ref
-              }
-              to={pinTo(pin)}
-              menu={pinMenu(pin)}
-            />
+            <PinRow key={`pin:${pin.kind}:${pin.ref}`} pin={pin} active={isPinActive(pin)} menu={pinMenu(pin)} />
           ))}
-          {showProviders && (
-            <>
-              <NavbarTreeRow
-                depth={0}
-                expandable
-                open={isOpen(PROVIDERS_KEY)}
-                onToggle={() => toggle(PROVIDERS_KEY)}
-                label="All providers"
-                icon={<NavTile icon={IconStack2} size={ICON_TILE.list} />}
-                description={loading || error ? undefined : `${formatCount(totalPipelines, 'pipeline')} total`}
-                active={allActive}
-                to="/pipelines"
-              />
-              {isOpen(PROVIDERS_KEY) && (
-                <ProviderRows
-                  providers={providers}
-                  visibleProviders={visibleProviders}
-                  providerId={providerId}
-                  loading={loading}
-                  error={error}
-                  retrying={retrying}
-                  onRetry={onRetry}
-                  providerMenu={providerMenu}
-                  onEditProvider={onEditProvider}
-                  onRemoveProvider={onRemoveProvider}
-                />
-              )}
-            </>
-          )}
+          {providersSection}
 
           <Divider my="2xs" />
 

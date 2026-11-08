@@ -7,7 +7,7 @@ import { formatDuration } from '../../../utils/formatDuration'
 import { isOneOf } from '../../../utils/isOneOf'
 import { openExternal } from '../../../utils/openExternal'
 import { typedKeys } from '../../../utils/typedKeys'
-import type { LineState } from '../lib/lineCache'
+import type { LineState } from '../lib/lineCacheTypes'
 import { type Highlight, segmentsFor } from '../lib/segments'
 import classes from './LogViewer.module.css'
 
@@ -63,6 +63,8 @@ const BG: Record<AnsiColor, string | undefined> = {
   cyan: classes.bgCyan,
   white: classes.bgWhite,
 }
+
+const GLYPH_BY_KIND = { error: IconCircleX, warning: IconAlertTriangle }
 
 const join = (...names: Array<string | false | null | undefined>) => names.filter(Boolean).join(' ')
 
@@ -198,7 +200,7 @@ export const LogRow = memo(function LogRow(props: LogRowProps): ReactNode {
   const { line, data, section, open, selected, fresh, gutterCh, timestamps, onToggle, onSelect, onFullLine } = props
   const loaded = typeof data === 'object' ? data : null
   const lineKind = loaded?.kind
-  const Glyph = lineKind === 'error' ? IconCircleX : lineKind === 'warning' ? IconAlertTriangle : null
+  const Glyph = lineKind === 'error' || lineKind === 'warning' ? GLYPH_BY_KIND[lineKind] : null
   const kindClass = lineKind && isOneOf(typedKeys(KIND_CLASS), lineKind) ? KIND_CLASS[lineKind] : null
   return (
     <div

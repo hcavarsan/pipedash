@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { after, afterEach, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
-import type { DesktopSettingsPatch, DesktopStatus } from '../../../types/domain'
+import type { DesktopSettingsPatch, DesktopStatus } from '../../../types/native'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 let status: DesktopStatus = {

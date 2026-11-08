@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { AppLockStatus } from '../types/domain'
+import type { AppLockStatus } from '../types/vault'
 
 import { biometryLabel, lockMeansSomething, needsUnlock, shouldShowPrivacyCover } from './appLock'
 

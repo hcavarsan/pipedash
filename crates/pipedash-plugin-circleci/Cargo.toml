@@ -3,7 +3,7 @@ name = "pipedash-plugin-circleci"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-description = "CircleCI plugin for Pipedash"
+description = "Monitor and run CircleCI pipelines"
 repository = "https://github.com/hcavarsan/pipedash"
 license = "GPL-3.0"
 
@@ -22,3 +22,6 @@ tracing.workspace = true
 [dev-dependencies]
 rustls.workspace = true
 tokio.workspace = true
+
+[lints]
+workspace = true

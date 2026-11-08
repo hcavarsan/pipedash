@@ -6,7 +6,8 @@ import { useContextMenu } from '../../../components/common/ContextMenu'
 import { fromOf } from '../../../components/layout/mobileChrome'
 import { useProviders } from '../../../queries/useProvidersQueries'
 import { useProviderStore } from '../../../stores/providerStore'
-import type { PinKind, PipelineView, ProviderSummary } from '../../../types/domain'
+import type { ProviderSummary } from '../../../types/providers'
+import type { PinKind, PipelineView } from '../../../types/views'
 import { useNotifyItems } from '../../notifications/hooks/useNotifyItems'
 import { useConfirmRemoveProvider } from '../../providers/components/ProviderModals'
 import { useProviderCancelItems } from '../hooks/useCancelActiveRuns'
@@ -20,6 +21,26 @@ import { activeRootOf, viewNodesOf } from './NavbarViewRows'
 
 interface NavbarProps {
   compact?: boolean
+}
+
+function AddProviderRailButton(p: { onClick: () => void }): ReactNode {
+  return (
+    <Center>
+      <Tooltip label="Add provider" position="right">
+        <ActionIcon size={44} radius="sm" aria-label="Add provider" onClick={p.onClick}>
+          <IconPlus size={20} aria-hidden />
+        </ActionIcon>
+      </Tooltip>
+    </Center>
+  )
+}
+
+function AddProviderButton(p: { onClick: () => void }): ReactNode {
+  return (
+    <Button leftSection={<IconPlus size={16} aria-hidden />} variant="default" size="sm" fullWidth onClick={p.onClick}>
+      Add provider
+    </Button>
+  )
 }
 
 export const Navbar = ({ compact = false }: NavbarProps): ReactNode => {
@@ -111,23 +132,9 @@ export const Navbar = ({ compact = false }: NavbarProps): ReactNode => {
       <Divider />
       <Box p={compact ? 'sm' : 'md'} pb={`calc(var(--mantine-spacing-${compact ? 'sm' : 'md'}) + var(--safe-bottom))`}>
         {compact ? (
-          <Center>
-            <Tooltip label="Add provider" position="right">
-              <ActionIcon size={44} radius="sm" aria-label="Add provider" onClick={openAddProviderModal}>
-                <IconPlus size={20} aria-hidden />
-              </ActionIcon>
-            </Tooltip>
-          </Center>
+          <AddProviderRailButton onClick={openAddProviderModal} />
         ) : (
-          <Button
-            leftSection={<IconPlus size={16} aria-hidden />}
-            variant="default"
-            size="sm"
-            fullWidth
-            onClick={openAddProviderModal}
-          >
-            Add provider
-          </Button>
+          <AddProviderButton onClick={openAddProviderModal} />
         )}
       </Box>
     </Stack>

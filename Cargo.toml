@@ -1,35 +1,15 @@
 [workspace]
 resolver = "2"
-members = [
-  "crates/pipedash-core",
-  "crates/pipedash-desktop",
-  "crates/pipedash-plugin-actions",
-  "crates/pipedash-plugin-api",
-  "crates/pipedash-plugin-argocd",
-  "crates/pipedash-plugin-azure-devops",
-  "crates/pipedash-plugin-bitbucket",
-  "crates/pipedash-plugin-buildkite",
-  "crates/pipedash-plugin-circleci",
-  "crates/pipedash-plugin-coolify",
-  "crates/pipedash-plugin-fluxcd",
-  "crates/pipedash-plugin-github",
-  "crates/pipedash-plugin-gitea",
-  "crates/pipedash-plugin-gitlab",
-  "crates/pipedash-plugin-jenkins",
-  "crates/pipedash-plugin-komodo",
-  "crates/pipedash-plugin-prow",
-  "crates/pipedash-plugin-tekton",
-  "crates/pipedash-plugin-woodpecker",
-  "crates/pipedash-push-relay",
-  "crates/pipedash-web",
-  "crates/tauri-plugin-pipedash-native",
-  "crates/tauri-plugin-pipedash-push",
-]
+members = ["crates/*"]
 
 [workspace.package]
 version = "0.12.0"
 authors = ["Pipedash Team"]
 edition = "2021"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
 
 [workspace.dependencies]
 aes-gcm = "0.11"
@@ -46,7 +26,6 @@ flate2 = "1"
 futures = "0.3"
 futures-util = "0.3"
 glob = "0.3"
-hostname = "0.4"
 http = "1.5"
 indexmap = { version = "2", features = ["serde"] }
 keyring = "4"
@@ -62,7 +41,6 @@ memchr = "2"
 mime_guess = "2.0"
 octocrab = { version = "0.54.8", default-features = false, features = [
   "follow-redirect",
-  "jwt-rust-crypto",
   "reqwest",
   "retry",
   "timeout",
@@ -71,21 +49,7 @@ octocrab = { version = "0.54.8", default-features = false, features = [
 pipedash-core = { version = "0.12.0", path = "crates/pipedash-core" }
 pipedash-plugin-actions = { version = "0.12.0", path = "crates/pipedash-plugin-actions" }
 pipedash-plugin-api = { version = "0.12.0", path = "crates/pipedash-plugin-api" }
-pipedash-plugin-argocd = { version = "0.12.0", path = "crates/pipedash-plugin-argocd" }
-pipedash-plugin-azure-devops = { version = "0.12.0", path = "crates/pipedash-plugin-azure-devops" }
-pipedash-plugin-bitbucket = { version = "0.12.0", path = "crates/pipedash-plugin-bitbucket" }
-pipedash-plugin-buildkite = { version = "0.12.0", path = "crates/pipedash-plugin-buildkite" }
-pipedash-plugin-circleci = { version = "0.12.0", path = "crates/pipedash-plugin-circleci" }
-pipedash-plugin-coolify = { version = "0.12.0", path = "crates/pipedash-plugin-coolify" }
-pipedash-plugin-fluxcd = { version = "0.12.0", path = "crates/pipedash-plugin-fluxcd" }
-pipedash-plugin-github = { version = "0.12.0", path = "crates/pipedash-plugin-github" }
-pipedash-plugin-gitea = { version = "0.12.0", path = "crates/pipedash-plugin-gitea" }
-pipedash-plugin-gitlab = { version = "0.12.0", path = "crates/pipedash-plugin-gitlab" }
-pipedash-plugin-jenkins = { version = "0.12.0", path = "crates/pipedash-plugin-jenkins" }
-pipedash-plugin-komodo = { version = "0.12.0", path = "crates/pipedash-plugin-komodo" }
-pipedash-plugin-prow = { version = "0.12.0", path = "crates/pipedash-plugin-prow" }
-pipedash-plugin-tekton = { version = "0.12.0", path = "crates/pipedash-plugin-tekton" }
-pipedash-plugin-woodpecker = { version = "0.12.0", path = "crates/pipedash-plugin-woodpecker" }
+pipedash-plugins = { version = "0.12.0", path = "crates/pipedash-plugins" }
 pipedash-web = { version = "0.12.0", path = "crates/pipedash-web", default-features = false }
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 rand = "0.10"
@@ -145,25 +109,11 @@ tower-http = { version = "0.7", features = [
 ] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = { version = "2", features = ["serde"] }
 urlencoding = "2.1"
-zeroize = "1.9"
 
 [patch.crates-io]
 pipedash-core = { path = "crates/pipedash-core" }
 pipedash-plugin-actions = { path = "crates/pipedash-plugin-actions" }
 pipedash-plugin-api = { path = "crates/pipedash-plugin-api" }
-pipedash-plugin-argocd = { path = "crates/pipedash-plugin-argocd" }
-pipedash-plugin-azure-devops = { path = "crates/pipedash-plugin-azure-devops" }
-pipedash-plugin-bitbucket = { path = "crates/pipedash-plugin-bitbucket" }
-pipedash-plugin-buildkite = { path = "crates/pipedash-plugin-buildkite" }
-pipedash-plugin-circleci = { path = "crates/pipedash-plugin-circleci" }
-pipedash-plugin-coolify = { path = "crates/pipedash-plugin-coolify" }
-pipedash-plugin-fluxcd = { path = "crates/pipedash-plugin-fluxcd" }
-pipedash-plugin-github = { path = "crates/pipedash-plugin-github" }
-pipedash-plugin-gitea = { path = "crates/pipedash-plugin-gitea" }
-pipedash-plugin-gitlab = { path = "crates/pipedash-plugin-gitlab" }
-pipedash-plugin-jenkins = { path = "crates/pipedash-plugin-jenkins" }
-pipedash-plugin-komodo = { path = "crates/pipedash-plugin-komodo" }
-pipedash-plugin-prow = { path = "crates/pipedash-plugin-prow" }
-pipedash-plugin-tekton = { path = "crates/pipedash-plugin-tekton" }
-pipedash-plugin-woodpecker = { path = "crates/pipedash-plugin-woodpecker" }
+pipedash-plugins = { path = "crates/pipedash-plugins" }

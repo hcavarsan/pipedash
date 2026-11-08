@@ -1,22 +1,31 @@
+use std::collections::HashMap;
+
+use chrono::Utc;
 use octocrab::models::workflows::Job;
+use pipedash_plugin_api::utils::{
+    duration_seconds,
+    status_from_conclusion,
+};
 use pipedash_plugin_api::{
     LogAvailability,
     LogNode,
     LogNodeKind,
+    PipelineRun,
     PipelineStatus,
     ResourceState,
 };
 use serde::Serialize;
+use tracing::debug;
+
+use crate::types;
 
 pub(crate) fn map_status(status: &str, conclusion: Option<&str>) -> PipelineStatus {
-    match (status, conclusion) {
-        ("completed", Some("success" | "neutral")) => PipelineStatus::Success,
-        ("completed", Some("cancelled" | "stale")) => PipelineStatus::Cancelled,
-        ("completed", Some("skipped")) => PipelineStatus::Skipped,
-        ("completed", _) => PipelineStatus::Failed,
-        ("in_progress", _) | ("queued", _) => PipelineStatus::Running,
-        _ => PipelineStatus::Pending,
-    }
+    status_from_conclusion(
+        status,
+        conclusion,
+        &["success", "neutral"],
+        &["cancelled", "stale"],
+    )
 }
 
 pub(crate) fn disabled_state(workflow_state: &str) -> Option<ResourceState> {
@@ -66,89 +75,77 @@ pub(crate) fn jobs_to_log_nodes(jobs: &[Job]) -> Vec<LogNode> {
         });
 
         for step in &job.steps {
-            nodes.push(LogNode {
-                id: format!("{job_id}:{}", step.number),
-                parent_id: Some(job_id.clone()),
-                kind: LogNodeKind::Step,
-                name: step.name.clone(),
-                status: map_status(
+            nodes.push(LogNode::step(
+                &job_id,
+                step.number,
+                step.name.clone(),
+                map_status(
                     &wire(&step.status),
                     step.conclusion.as_ref().map(wire).as_deref(),
                 ),
-                started_at: step.started_at,
-                finished_at: step.completed_at,
-                log: None,
-                web_url: None,
-            });
+                step.started_at,
+                step.completed_at,
+            ));
         }
     }
 
     nodes
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub(crate) fn run_to_pipeline_run(run: types::Run, pipeline_id: &str) -> PipelineRun {
+    let status = map_status(run.status.as_str(), run.conclusion.as_deref());
+    let started_at = run.created_at.with_timezone(&Utc);
+    let concluded_at = run.updated_at.with_timezone(&Utc);
 
-    #[test]
-    fn every_documented_conclusion_maps_to_a_finished_status() {
-        let cases = [
-            ("success", PipelineStatus::Success),
-            ("neutral", PipelineStatus::Success),
-            ("failure", PipelineStatus::Failed),
-            ("timed_out", PipelineStatus::Failed),
-            ("startup_failure", PipelineStatus::Failed),
-            ("action_required", PipelineStatus::Failed),
-            ("cancelled", PipelineStatus::Cancelled),
-            ("stale", PipelineStatus::Cancelled),
-            ("skipped", PipelineStatus::Skipped),
-        ];
-        for (conclusion, expected) in cases {
-            assert_eq!(
-                map_status("completed", Some(conclusion)),
-                expected,
-                "conclusion {conclusion}"
-            );
-        }
+    let mut inputs_map = serde_json::Map::new();
+
+    inputs_map.insert(
+        "ref".to_string(),
+        serde_json::Value::String(run.head_branch.clone()),
+    );
+
+    debug!(
+        "Run #{}: branch={}, event={:?}",
+        run.run_number, run.head_branch, run.event
+    );
+
+    let inputs = Some(serde_json::Value::Object(inputs_map));
+
+    let mut metadata = HashMap::new();
+    metadata.insert("event".to_string(), serde_json::json!(&run.event));
+    metadata.insert("run_id".to_string(), serde_json::json!(run.id.0));
+
+    if run.status == "waiting" {
+        metadata.insert("awaiting_review".to_string(), serde_json::json!(true));
     }
 
-    #[test]
-    fn unfinished_statuses_are_running_or_pending() {
-        assert_eq!(map_status("in_progress", None), PipelineStatus::Running);
-        assert_eq!(map_status("queued", None), PipelineStatus::Running);
-        for status in ["requested", "waiting", "pending"] {
-            assert_eq!(
-                map_status(status, None),
-                PipelineStatus::Pending,
-                "status {status}"
-            );
-        }
+    if run.status == "completed"
+        && matches!(run.conclusion.as_deref(), Some("failure" | "timed_out"))
+    {
+        metadata.insert("can_rerun_failed_jobs".to_string(), serde_json::json!(true));
     }
 
-    #[test]
-    fn every_documented_workflow_state_maps_to_its_disabled_reason() {
-        let cases = [
-            ("active", None),
-            ("deleted", None),
-            (
-                "disabled_inactivity",
-                Some("GitHub disabled this workflow after 60 days without repository activity"),
-            ),
-            (
-                "disabled_manually",
-                Some("Someone disabled this workflow on GitHub"),
-            ),
-            (
-                "disabled_fork",
-                Some("GitHub disables workflows in a fork until you enable them"),
-            ),
-        ];
-        for (workflow_state, reason) in cases {
-            assert_eq!(
-                disabled_state(workflow_state),
-                reason.map(|reason| ResourceState::new("Disabled", Some(reason))),
-                "state {workflow_state}"
-            );
-        }
+    if let Some(owner) = run.repository.owner.as_ref() {
+        metadata.insert("owner".to_string(), serde_json::json!(&owner.login));
+    }
+
+    PipelineRun {
+        id: format!("github-run-{}", run.id),
+        pipeline_id: pipeline_id.to_string(),
+        run_number: run.run_number,
+        status,
+        started_at,
+        concluded_at: Some(concluded_at),
+        duration_seconds: duration_seconds(Some(started_at), Some(concluded_at)),
+        logs_url: run.html_url.to_string(),
+        commit_sha: Some(run.head_sha.clone()),
+        commit_message: Some(run.head_commit.message.clone()),
+        branch: Some(run.head_branch.clone()),
+        actor: Some(run.head_commit.author.name.clone()),
+        inputs,
+        metadata,
     }
 }
+
+#[cfg(test)]
+mod tests;

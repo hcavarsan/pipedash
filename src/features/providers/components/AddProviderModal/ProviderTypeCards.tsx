@@ -2,7 +2,7 @@ import { Box, Button, SimpleGrid, Text, UnstyledButton } from '@mantine/core'
 import { type ReactNode, useId } from 'react'
 
 import { ProviderIcon } from '../../../../components/atoms/ProviderIcon'
-import type { PluginMetadata } from '../../../../types/domain'
+import type { PluginMetadata } from '../../../../types/plugins'
 
 import classes from './ProviderTypeCards.module.css'
 

@@ -1,14 +1,15 @@
 use std::collections::HashMap;
 
-use chrono::{
-    DateTime,
-    Utc,
+use chrono::Utc;
+use pipedash_plugin_api::utils::{
+    duration_seconds,
+    parse_timestamp,
 };
 use pipedash_plugin_api::{
-    BuildAgent,
     LogAvailability,
     LogNode,
     LogNodeKind,
+    PipelineRun,
     PipelineStatus,
 };
 
@@ -40,12 +41,6 @@ fn map_job_state(state: &str) -> PipelineStatus {
     }
 }
 
-fn parse_time(value: Option<&str>) -> Option<DateTime<Utc>> {
-    value
-        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
-        .map(|at| at.with_timezone(&Utc))
-}
-
 fn job_name(job: &types::Job) -> String {
     let base = job
         .name
@@ -70,7 +65,7 @@ pub(crate) fn jobs_to_log_nodes(jobs: &[types::Job]) -> Vec<LogNode> {
         .filter(|job| job.kind.as_deref() == Some("script") && job.retried != Some(true))
         .map(|job| {
             let status = map_job_state(job.state.as_deref().unwrap_or_default());
-            let started_at = parse_time(job.started_at.as_deref());
+            let started_at = job.started_at.as_deref().and_then(parse_timestamp);
             let log = match status {
                 PipelineStatus::Running => Some(LogAvailability::Partial),
                 PipelineStatus::Pending => Some(LogAvailability::Pending),
@@ -83,7 +78,7 @@ pub(crate) fn jobs_to_log_nodes(jobs: &[types::Job]) -> Vec<LogNode> {
                 name: job_name(job),
                 status,
                 started_at,
-                finished_at: parse_time(job.finished_at.as_deref()),
+                finished_at: job.finished_at.as_deref().and_then(parse_timestamp),
                 log,
                 web_url: job.web_url.clone(),
             }
@@ -91,145 +86,60 @@ pub(crate) fn jobs_to_log_nodes(jobs: &[types::Job]) -> Vec<LogNode> {
         .collect()
 }
 
-pub(crate) fn map_agent(agent: types::Agent) -> BuildAgent {
-    let status = if agent.connected {
-        if agent.job.is_some() {
-            "busy".to_string()
-        } else {
-            "idle".to_string()
-        }
+pub(crate) fn build_to_pipeline_run(build: types::Build, pipeline_id: &str) -> PipelineRun {
+    let status = map_build_state(&build.state);
+
+    let started = build.started_at.as_deref().and_then(parse_timestamp);
+    let concluded_at = build.finished_at.as_deref().and_then(parse_timestamp);
+    let started_at = started
+        .or_else(|| parse_timestamp(&build.created_at))
+        .unwrap_or_else(Utc::now);
+    let duration_seconds = duration_seconds(started, concluded_at);
+
+    let branch_value = if build.branch.is_empty() {
+        "unknown".to_string()
     } else {
-        "disconnected".to_string()
+        build.branch.clone()
     };
 
-    let mut metadata = HashMap::new();
-    metadata.insert("ip_address".to_string(), agent.ip_address);
-    metadata.insert("version".to_string(), agent.version);
+    let mut inputs_map = serde_json::Map::new();
+    inputs_map.insert(
+        "branch".to_string(),
+        serde_json::Value::String(branch_value.clone()),
+    );
+    inputs_map.insert(
+        "commit".to_string(),
+        serde_json::Value::String(build.commit.clone()),
+    );
 
-    BuildAgent {
-        id: agent.id,
-        name: agent.name,
-        hostname: agent.hostname,
+    tracing::debug!(
+        build_number = build.number,
+        branch = %branch_value,
+        commit = %build.commit,
+        "Processing Buildkite build"
+    );
+
+    PipelineRun {
+        id: format!("{pipeline_id}__{}", build.id),
+        pipeline_id: pipeline_id.to_string(),
+        run_number: build.number,
         status,
-        job_id: agent.job.map(|j| j.id),
-        last_seen: Utc::now(),
-        metadata,
+        started_at,
+        concluded_at,
+        duration_seconds,
+        logs_url: build.web_url.clone(),
+        commit_sha: if build.commit.is_empty() {
+            None
+        } else {
+            Some(build.commit.clone())
+        },
+        commit_message: build.message.clone(),
+        branch: Some(branch_value),
+        actor: build.author.as_ref().map(|a| a.name.clone()),
+        inputs: Some(serde_json::Value::Object(inputs_map)),
+        metadata: HashMap::new(),
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_map_build_state() {
-        assert_eq!(map_build_state("passed"), PipelineStatus::Success);
-        assert_eq!(map_build_state("failed"), PipelineStatus::Failed);
-        assert_eq!(map_build_state("running"), PipelineStatus::Running);
-        assert_eq!(map_build_state("canceled"), PipelineStatus::Cancelled);
-        assert_eq!(map_build_state("skipped"), PipelineStatus::Skipped);
-        assert_eq!(map_build_state("unknown"), PipelineStatus::Pending);
-    }
-
-    #[test]
-    fn every_job_state_maps_to_a_status() {
-        let cases = [
-            ("pending", PipelineStatus::Pending),
-            ("waiting", PipelineStatus::Pending),
-            ("blocked", PipelineStatus::Pending),
-            ("unblocked", PipelineStatus::Pending),
-            ("limiting", PipelineStatus::Pending),
-            ("limited", PipelineStatus::Pending),
-            ("scheduled", PipelineStatus::Pending),
-            ("assigned", PipelineStatus::Pending),
-            ("accepted", PipelineStatus::Pending),
-            ("running", PipelineStatus::Running),
-            ("canceling", PipelineStatus::Running),
-            ("timing_out", PipelineStatus::Running),
-            ("passed", PipelineStatus::Success),
-            ("failed", PipelineStatus::Failed),
-            ("timed_out", PipelineStatus::Failed),
-            ("canceled", PipelineStatus::Cancelled),
-            ("expired", PipelineStatus::Cancelled),
-            ("skipped", PipelineStatus::Skipped),
-            ("broken", PipelineStatus::Skipped),
-            ("waiting_failed", PipelineStatus::Skipped),
-            ("blocked_failed", PipelineStatus::Skipped),
-            ("unblocked_failed", PipelineStatus::Skipped),
-        ];
-        for (state, status) in cases {
-            assert_eq!(map_job_state(state), status, "{state}");
-        }
-    }
-
-    #[test]
-    fn script_jobs_of_the_latest_attempt_become_log_nodes() {
-        let build: types::BuildJobs = serde_json::from_str(
-            r#"{"number":2,"state":"failed","jobs":[
-                {"id":"old","type":"script","name":"RSpec","state":"failed","retried":true,
-                 "started_at":"2026-10-27T10:00:00.000Z","finished_at":"2026-10-27T10:01:00.000Z"},
-                {"id":"new","type":"script","name":"RSpec","state":"passed","retried":false,
-                 "web_url":"https://buildkite.com/acme/app/builds/2#new",
-                 "started_at":"2026-10-27T10:02:00.000Z","finished_at":"2026-10-27T10:03:30.000Z"},
-                {"id":"wait","type":"waiter","state":null},
-                {"id":"gate","type":"manual","label":"Deploy?","state":"blocked"},
-                {"id":"shard","type":"script","name":":rspec: Tests","state":"running",
-                 "started_at":"2026-10-27T10:04:00.000Z","parallel_group_index":1,"parallel_group_total":4},
-                {"id":"queued","type":"script","name":null,"command":"\nmake lint\nmake test","state":"scheduled"},
-                {"id":"never","type":"script","step_key":"deploy","state":"broken"},
-                {"id":"stopped","type":"script","name":"Lint","state":"canceled",
-                 "started_at":"2026-10-27T10:05:00.000Z","finished_at":"2026-10-27T10:05:10.000Z"}
-            ]}"#,
-        )
-        .unwrap();
-
-        let nodes = jobs_to_log_nodes(&build.jobs);
-
-        let summary: Vec<_> = nodes
-            .iter()
-            .map(|node| (node.id.as_str(), node.name.as_str(), node.status, node.log))
-            .collect();
-        assert_eq!(
-            summary,
-            vec![
-                (
-                    "new",
-                    "RSpec",
-                    PipelineStatus::Success,
-                    Some(LogAvailability::Ready)
-                ),
-                (
-                    "shard",
-                    ":rspec: Tests (2/4)",
-                    PipelineStatus::Running,
-                    Some(LogAvailability::Partial)
-                ),
-                (
-                    "queued",
-                    "make lint",
-                    PipelineStatus::Pending,
-                    Some(LogAvailability::Pending)
-                ),
-                ("never", "deploy", PipelineStatus::Skipped, None),
-                (
-                    "stopped",
-                    "Lint",
-                    PipelineStatus::Cancelled,
-                    Some(LogAvailability::Ready)
-                ),
-            ]
-        );
-        assert!(nodes
-            .iter()
-            .all(|node| node.kind == LogNodeKind::Job && node.parent_id.is_none()));
-        let new = &nodes[0];
-        assert_eq!(
-            new.web_url.as_deref(),
-            Some("https://buildkite.com/acme/app/builds/2#new")
-        );
-        assert_eq!(
-            new.finished_at.unwrap() - new.started_at.unwrap(),
-            chrono::Duration::seconds(90)
-        );
-    }
-}
+mod tests;

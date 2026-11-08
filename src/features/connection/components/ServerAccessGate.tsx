@@ -1,15 +1,15 @@
-import { Box, Button, Center, Paper, Stack, Text, Title } from '@mantine/core'
+import { Box, Button, Center, Paper, Stack } from '@mantine/core'
 import { IconPlugConnectedX } from '@tabler/icons-react'
 import { type ReactNode, useEffect, useState } from 'react'
 
-import { AppLogo } from '../../../components/atoms/AppLogo'
 import { DocumentTitle } from '../../../components/common/DocumentTitle'
 import { StatusScreen } from '../../../components/ErrorBoundary/StatusScreen'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { logger } from '../../../lib/logger'
 import { getConnection, REMOTE_ACCESS_REVOKED_EVENT } from '../../../services/connection'
-import { events } from '../../../services/service'
+import { listenEvent } from '../../../services/events'
 import { useDisconnectServer } from '../queries/useConnectionQueries'
+import { ConnectionScreenHeading } from './ConnectionScreenHeading'
 
 const TITLE = 'This device was removed'
 
@@ -22,8 +22,7 @@ export function ServerAccessGate({ children }: { children: ReactNode }): ReactNo
     let active = true
     let stop: (() => void) | undefined
 
-    events
-      .listen(REMOTE_ACCESS_REVOKED_EVENT, () => setRemoved(true))
+    listenEvent(REMOTE_ACCESS_REVOKED_EVENT, () => setRemoved(true))
       .then((unlisten) => {
         if (active) {
           stop = unlisten
@@ -80,15 +79,7 @@ export function ServerAccessGate({ children }: { children: ReactNode }): ReactNo
       <Center h="100%" p={{ base: 'md', sm: 'xl' }}>
         <Paper p={{ base: 'lg', sm: 'xl' }} w="100%" maw={480} withBorder>
           <Stack gap="xl">
-            <Stack gap="md" align="center">
-              <AppLogo size={{ base: 48, sm: 56 }} alt="Pipedash" />
-              <Title order={1} size="h2" ta="center">
-                {TITLE}
-              </Title>
-              <Text c="dimmed" ta="center" style={{ overflowWrap: 'anywhere' }}>
-                {message}
-              </Text>
-            </Stack>
+            <ConnectionScreenHeading title={TITLE} message={message} />
 
             {action}
           </Stack>

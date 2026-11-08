@@ -1,7 +1,7 @@
 import type { KeyboardEvent, ReactNode } from 'react'
 import { useContextMenu } from '../../../components/common/ContextMenu'
 import { StandardTable } from '../../../components/common/StandardTable'
-import type { PipelineRun } from '../../../types/domain'
+import type { PipelineRun } from '../../../types/pipelines'
 import { formatCount } from '../../../utils/formatCount'
 import type { RunHistoryColumns } from '../hooks/useRunHistoryColumns'
 import type { RunHistoryPageData } from '../hooks/useRunHistoryPageData'
@@ -61,17 +61,19 @@ export function RunHistoryTable({ data, columns, selection }: RunHistoryTablePro
       sortStatus={data.sortStatus}
       onSortStatusChange={data.setSortOverride}
       fetching={data.isFetching}
-      totalRecords={data.effectiveTotalRecords}
+      totalRecords={data.totalCount}
       recordsPerPage={data.pageSize}
       page={page}
       onPageChange={(next) => data.setFilter('page', next)}
-      paginationText={({ from, to }) =>
-        data.isFetching
-          ? 'Loading...'
-          : data.isComplete
-            ? `Showing ${from}-${to} of ${formatCount(data.totalCount, labels.run)}`
-            : `Showing ${from}-${to} ${labels.runs}`
-      }
+      paginationText={({ from, to }) => {
+        if (data.isFetching) {
+          return 'Loading...'
+        }
+
+        return data.isComplete
+          ? `Showing ${from}-${to} of ${formatCount(data.totalCount, labels.run)}`
+          : `Showing ${from}-${to} ${labels.runs}`
+      }}
     />
   )
 }

@@ -10,7 +10,7 @@ import { useNow } from '../../hooks/useNow'
 import { prefersReducedMotion } from '../../lib/motion'
 import { animateSpring } from '../../lib/spring'
 import { STATUS_META } from '../../theme/status'
-import type { PipelineRun } from '../../types/domain'
+import type { PipelineRun } from '../../types/pipelines'
 import { formatDuration } from '../../utils/formatDuration'
 import { getRunStatusLabel } from '../../utils/pipelinePresentation'
 import { formatLiveRunDuration, isLiveRun } from '../../utils/runTiming'
@@ -23,7 +23,6 @@ import { VirtualList } from './VirtualList'
 
 interface IosRunRowProps {
   run: PipelineRun
-  isFlux: boolean
   noun: string
   now: number
   selecting: boolean
@@ -32,23 +31,20 @@ interface IosRunRowProps {
   onToggle: () => void
 }
 
-const IosRunRow = ({ run, isFlux, noun, now, selecting, selectable, selected, onToggle }: IosRunRowProps) => {
-  const { openRun, pipeline } = useRunActions()
+const IosRunRow = ({ run, noun, now, selecting, selectable, selected, onToggle }: IosRunRowProps) => {
+  const { openRun } = useRunActions()
   const swipeActions = swipeActionsOf(useRunActionItems(run))
   const onOpen = () => openRun(run)
   const hintId = useId()
   const pressRef = useRowMenuLongPress(!selecting)
-  const name = isFlux ? String(run.metadata?.run_label ?? 'Reconciliation') : `#${run.run_number}`
-  const message = isFlux
-    ? String(run.metadata?.message ?? run.commit_message ?? '')
-    : (run.commit_message?.split('\n')[0]?.trim() ?? '')
+  const { title, message, context } = run.display
   const timing = [
     run.started_at && relativeOrNever(run.started_at, now),
     isLiveRun(run)
-      ? formatLiveRunDuration(run, now, pipeline?.typical_duration_seconds)
+      ? formatLiveRunDuration(run, now)
       : run.duration_seconds !== null && formatDuration(run.duration_seconds),
   ]
-  const subtitle = [...timing, ...(isFlux ? [message] : [run.branch, run.actor])].filter(Boolean).join(' · ')
+  const subtitle = [...timing, ...context.map((field) => field.value)].filter(Boolean).join(' · ')
   const statusLabel = getRunStatusLabel(run) ?? STATUS_META[run.status].label
   const swipeable = !selecting && swipeActions.length > 0
 
@@ -75,14 +71,8 @@ const IosRunRow = ({ run, isFlux, noun, now, selecting, selectable, selected, on
         <StatusGlyph status={run.status} />
         <span className={classes.text}>
           <span className={classes.title}>
-            {isFlux ? (
-              name
-            ) : (
-              <>
-                <span className={classes.number}>{name}</span>
-                {message && ` ${message}`}
-              </>
-            )}
+            <span className={classes.number}>{title}</span>
+            {message && ` ${message}`}
           </span>
           <span className={classes.srOnly}>, {statusLabel}</span>
           {subtitle && <span className={classes.subtitle}>{subtitle}</span>}
@@ -133,7 +123,7 @@ export const IosRunList = ({
   onEndReached,
 }: IosRunListProps): ReactNode => {
   const now = useNow(runs.some(isLiveRun) ? 1000 : 30_000)
-  const { isFlux, labels } = useRunActions()
+  const { labels } = useRunActions()
 
   return (
     <IosGroup header={label}>
@@ -148,7 +138,6 @@ export const IosRunList = ({
           return (
             <IosRunRow
               run={run}
-              isFlux={isFlux}
               noun={labels.run}
               now={now}
               selecting={selecting}

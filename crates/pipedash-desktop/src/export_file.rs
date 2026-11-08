@@ -5,7 +5,10 @@ use std::path::{
 
 use futures::StreamExt;
 use pipedash_core::application::LogExport;
-use serde::Serialize;
+use serde::{
+    Deserialize,
+    Serialize,
+};
 use tauri::{
     AppHandle,
     State,
@@ -13,7 +16,7 @@ use tauri::{
 use tauri_plugin_pipedash_native::PipedashNativeExt;
 use tokio::io::AsyncWriteExt;
 
-use crate::commands::ErrorResponse;
+use crate::error::ErrorResponse;
 
 const MAX_FILE_NAME_BYTES: usize = 255;
 
@@ -67,11 +70,11 @@ pub(crate) fn export_error(message: String) -> ErrorResponse {
 const EXPORT_DIR: &str = "pipedash-exports";
 const CREATE_ATTEMPTS: usize = 8;
 
-fn create_export_dir(base: &Path) -> std::io::Result<PathBuf> {
-    std::fs::create_dir_all(base)?;
+async fn create_export_dir(base: &Path) -> std::io::Result<PathBuf> {
+    tokio::fs::create_dir_all(base).await?;
     for _ in 0..CREATE_ATTEMPTS {
         let dir = base.join(format!("{:016x}", rand::random::<u64>()));
-        match std::fs::create_dir(&dir) {
+        match tokio::fs::create_dir(&dir).await {
             Ok(()) => return Ok(dir),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(e) => return Err(e),
@@ -85,7 +88,7 @@ fn create_export_dir(base: &Path) -> std::io::Result<PathBuf> {
 }
 
 async fn write_export(base: &Path, name: &str, contents: &[u8]) -> std::io::Result<PathBuf> {
-    let dir = create_export_dir(base)?;
+    let dir = create_export_dir(base).await?;
     let path = dir.join(name);
     tokio::fs::write(&path, contents).await?;
 
@@ -144,13 +147,29 @@ async fn write_log(export: LogExport, path: &Path) -> Result<(), ErrorResponse> 
     file.sync_all().await.map_err(write_error)
 }
 
-#[tauri::command]
-#[allow(clippy::too_many_arguments)]
-pub async fn export_run_log(
-    app: AppHandle, maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: String,
-    run_number: i64, node_id: String, revision: i64, file_name: String,
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportRunLogArgs {
+    pipeline_id: String,
+    run_number: i64,
+    node_id: String,
+    revision: i64,
+    file_name: String,
     destination: Option<String>,
+}
+
+#[tauri::command]
+pub async fn export_run_log(
+    app: AppHandle, maybe_core: State<'_, crate::MaybeCoreContext>, args: ExportRunLogArgs,
 ) -> Result<ExportFileResult, ErrorResponse> {
+    let ExportRunLogArgs {
+        pipeline_id,
+        run_number,
+        node_id,
+        revision,
+        file_name,
+        destination,
+    } = args;
     let service = crate::run_logs::log_service(&maybe_core).await?;
 
     if cfg!(mobile) {
@@ -159,6 +178,7 @@ pub async fn export_run_log(
             .prepare_export(&pipeline_id, run_number, &node_id, revision)
             .await?;
         let dir = create_export_dir(&std::env::temp_dir().join(EXPORT_DIR))
+            .await
             .map_err(|e| export_error(format!("Couldn't prepare the file: {e}")))?;
         let path = dir.join(name);
 
@@ -195,76 +215,4 @@ pub async fn export_run_log(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn plain_file_names_are_accepted() {
-        for name in [
-            "pipedash-export.json",
-            "metrics 2026-10-24.csv",
-            ".hidden",
-            "a.b.c",
-        ] {
-            assert_eq!(validate_file_name(name), Ok(name));
-        }
-    }
-
-    #[test]
-    fn empty_and_blank_names_are_rejected() {
-        assert_eq!(validate_file_name(""), Err(FileNameError::Empty));
-        assert_eq!(validate_file_name("   "), Err(FileNameError::Empty));
-    }
-
-    #[test]
-    fn path_separators_and_traversal_are_rejected() {
-        for name in ["../x.json", "a/b.json", "/etc/passwd", "a\\b", "dir/"] {
-            assert_eq!(
-                validate_file_name(name),
-                Err(FileNameError::Separator),
-                "{name}"
-            );
-        }
-        assert_eq!(validate_file_name(".."), Err(FileNameError::Reserved));
-        assert_eq!(validate_file_name("."), Err(FileNameError::Reserved));
-    }
-
-    #[test]
-    fn control_characters_and_overlong_names_are_rejected() {
-        assert_eq!(validate_file_name("a\0b"), Err(FileNameError::Control));
-        assert_eq!(validate_file_name("a\nb"), Err(FileNameError::Control));
-        assert_eq!(
-            validate_file_name(&"x".repeat(MAX_FILE_NAME_BYTES + 1)),
-            Err(FileNameError::TooLong)
-        );
-        assert!(validate_file_name(&"x".repeat(MAX_FILE_NAME_BYTES)).is_ok());
-    }
-
-    #[tokio::test]
-    async fn every_export_gets_its_own_folder_so_names_never_collide() {
-        let base = tempfile::tempdir().unwrap();
-
-        let first = write_export(base.path(), "export.json", b"one")
-            .await
-            .unwrap();
-        let second = write_export(base.path(), "export.json", b"two")
-            .await
-            .unwrap();
-
-        assert_ne!(first, second);
-        assert_eq!(first.file_name(), second.file_name());
-        assert_eq!(std::fs::read_to_string(&first).unwrap(), "one");
-        assert_eq!(std::fs::read_to_string(&second).unwrap(), "two");
-    }
-
-    #[tokio::test]
-    async fn binary_exports_preserve_every_byte() {
-        let base = tempfile::tempdir().unwrap();
-        let bytes = [0x89, b'P', b'N', b'G', 0, 0xff];
-        let path = write_export(base.path(), "chart.png", &bytes)
-            .await
-            .unwrap();
-
-        assert_eq!(std::fs::read(path).unwrap(), bytes);
-    }
-}
+mod tests;

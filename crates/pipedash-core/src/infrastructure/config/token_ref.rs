@@ -1,5 +1,6 @@
 use std::fmt;
 
+use pipedash_plugin_api::PluginRegistry;
 use serde::{
     Deserialize,
     Serialize,
@@ -54,7 +55,7 @@ impl fmt::Display for TokenReference {
 }
 
 impl TokenReference {
-    pub fn parse(value: &str) -> Result<Self, TokenRefError> {
+    pub fn parse(value: &str, registry: &PluginRegistry) -> Result<Self, TokenRefError> {
         let value = value.trim();
 
         if value.is_empty() {
@@ -95,7 +96,7 @@ impl TokenReference {
             return Ok(Self::SecureStorage(id));
         }
 
-        if Self::looks_like_token(value) {
+        if Self::looks_like_token(value, registry) {
             return Err(TokenRefError::PlainTextToken(
                 "Plain-text tokens are not allowed in config. Use ${ENV_VAR} or leave empty for keyring.".to_string(),
             ));
@@ -109,23 +110,6 @@ impl TokenReference {
             "Unknown token reference format: '{}'. Use ${{ENV_VAR}}, env:VAR, keyring:name, or storage:id",
             value
         )))
-    }
-
-    pub fn to_toml_string(&self) -> String {
-        match self {
-            Self::EnvVar(name) => format!("${{{}}}", name),
-            Self::SecureStorage(id) => format!("storage:{}", id),
-            Self::Keyring(name) => format!("keyring:{}", name),
-            Self::None => String::new(),
-        }
-    }
-
-    pub fn is_plain_text(&self) -> bool {
-        false
-    }
-
-    pub fn is_configured(&self) -> bool {
-        !matches!(self, Self::None)
     }
 
     pub async fn resolve(
@@ -156,21 +140,12 @@ impl TokenReference {
         }
     }
 
-    fn looks_like_token(value: &str) -> bool {
-        if value.starts_with("ghp_")
-            || value.starts_with("gho_")
-            || value.starts_with("ghu_")
-            || value.starts_with("ghs_")
-            || value.starts_with("github_pat_")
+    fn looks_like_token(value: &str, registry: &PluginRegistry) -> bool {
+        if registry
+            .metadata()
+            .flat_map(|metadata| metadata.token_prefixes.iter())
+            .any(|prefix| value.starts_with(prefix.as_str()))
         {
-            return true;
-        }
-
-        if value.starts_with("glpat-") || value.starts_with("gldt-") {
-            return true;
-        }
-
-        if value.starts_with("ATBB") {
             return true;
         }
 
@@ -208,80 +183,4 @@ impl TokenReference {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_env_var_dollar_brace() {
-        let result = TokenReference::parse("${GITHUB_TOKEN}").unwrap();
-        assert_eq!(result, TokenReference::EnvVar("GITHUB_TOKEN".to_string()));
-    }
-
-    #[test]
-    fn test_parse_env_var_with_default() {
-        let result = TokenReference::parse("${GITHUB_TOKEN:-}").unwrap();
-        assert_eq!(result, TokenReference::EnvVar("GITHUB_TOKEN".to_string()));
-
-        let result = TokenReference::parse("${GITHUB_TOKEN:-default_value}").unwrap();
-        assert_eq!(result, TokenReference::EnvVar("GITHUB_TOKEN".to_string()));
-    }
-
-    #[test]
-    fn test_parse_env_prefix() {
-        let result = TokenReference::parse("env:MY_TOKEN").unwrap();
-        assert_eq!(result, TokenReference::EnvVar("MY_TOKEN".to_string()));
-    }
-
-    #[test]
-    fn test_parse_keyring() {
-        let result = TokenReference::parse("keyring:my-provider").unwrap();
-        assert_eq!(result, TokenReference::Keyring("my-provider".to_string()));
-    }
-
-    #[test]
-    fn test_parse_storage() {
-        let result = TokenReference::parse("storage:123").unwrap();
-        assert_eq!(result, TokenReference::SecureStorage(123));
-    }
-
-    #[test]
-    fn test_parse_empty() {
-        let result = TokenReference::parse("").unwrap();
-        assert_eq!(result, TokenReference::None);
-    }
-
-    #[test]
-    fn test_parse_uppercase_as_env() {
-        let result = TokenReference::parse("GITHUB_TOKEN").unwrap();
-        assert_eq!(result, TokenReference::EnvVar("GITHUB_TOKEN".to_string()));
-    }
-
-    #[test]
-    fn test_reject_github_token() {
-        let result = TokenReference::parse("ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");
-        assert!(matches!(result, Err(TokenRefError::PlainTextToken(_))));
-    }
-
-    #[test]
-    fn test_reject_gitlab_token() {
-        let result = TokenReference::parse("glpat-xxxxxxxxxxxxxxxxxxxx");
-        assert!(matches!(result, Err(TokenRefError::PlainTextToken(_))));
-    }
-
-    #[test]
-    fn test_to_toml_string() {
-        assert_eq!(
-            TokenReference::EnvVar("TOKEN".to_string()).to_toml_string(),
-            "${TOKEN}"
-        );
-        assert_eq!(
-            TokenReference::SecureStorage(42).to_toml_string(),
-            "storage:42"
-        );
-        assert_eq!(
-            TokenReference::Keyring("my-key".to_string()).to_toml_string(),
-            "keyring:my-key"
-        );
-        assert_eq!(TokenReference::None.to_toml_string(), "");
-    }
-}
+mod tests;

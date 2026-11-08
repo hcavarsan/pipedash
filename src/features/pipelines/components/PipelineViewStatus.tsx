@@ -10,10 +10,10 @@ import { PageContainer } from '../../../components/common/PageContainer'
 import { ProviderRecoveryActions } from '../../../components/common/ProviderRecoveryActions'
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import { useProviderStore } from '../../../stores/providerStore'
-import type { ProviderRecovery, ProviderSummary, ViewDisplay } from '../../../types/domain'
 import { getErrorCode } from '../../../types/errors'
+import type { ProviderRecovery, ProviderSummary } from '../../../types/providers'
+import type { ViewDisplay } from '../../../types/views'
 import { isDesktopTauri } from '../../../utils/platform'
-import { fetchHint, providerAttention } from '../../../utils/providerAttention'
 import type { PipelineViewPageModel } from '../hooks/usePipelineViewModel'
 import { usePipelineViewStore } from '../stores/pipelineViewStore'
 import { PipelineViewNav, PipelineViewToolbar } from './PipelineViewToolbar'
@@ -28,7 +28,7 @@ interface EmptyTableIssue {
 }
 
 const toEmptyTableIssue = (provider: ProviderSummary): EmptyTableIssue | null => {
-  const attention = providerAttention(provider)
+  const { attention } = provider
   const base = { id: provider.id, name: provider.name, recovery: attention.recovery }
 
   if (attention.headline) {
@@ -36,7 +36,7 @@ const toEmptyTableIssue = (provider: ProviderSummary): EmptyTableIssue | null =>
   }
 
   if (provider.last_fetch_status === 'error' && provider.last_fetch_error) {
-    return { ...base, headline: 'Fetch failed', detail: provider.last_fetch_error, hint: fetchHint(provider) }
+    return { ...base, headline: 'Fetch failed', detail: provider.last_fetch_error, hint: attention.fetch_hint }
   }
 
   return null
@@ -142,12 +142,13 @@ export function PipelineViewEmptyState({
   model: PipelineViewPageModel
   onRetry: () => void
 }): ReactNode {
-  const { page, view, kind, isFluxView, labels, mobileShell, showHidden, filtersActive, providers, query } = model
+  const { page, view, kind, mobileShell, showHidden, filtersActive, providers, query } = model
 
   if (!page || !view) {
     return null
   }
 
+  const { copy, terminology } = page.presentation
   const issues = providers
     .filter((provider) => query.provider_id === undefined || provider.id === query.provider_id)
     .map(toEmptyTableIssue)
@@ -158,14 +159,8 @@ export function PipelineViewEmptyState({
     return (
       <EmptyState
         icon={<IconFilterOff size={24} aria-hidden />}
-        title={isFluxView ? 'No matching resources' : 'No matching workflows'}
-        description={
-          isFluxView
-            ? 'No resources match the current filters.'
-            : kind === 'pinned'
-              ? 'No pinned workflows match the current filters.'
-              : 'No repositories or workflows match the current filters.'
-        }
+        title={copy.matching_empty.title}
+        description={copy.matching_empty.message}
         action={
           <Button variant="default" size="sm" onClick={model.clearFilters}>
             Clear filters
@@ -178,7 +173,7 @@ export function PipelineViewEmptyState({
   if (kind === 'all' && firstIssue) {
     return (
       <ErrorState
-        title={`Couldn't fetch ${labels.items} from ${issues.map((issue) => issue.name).join(', ')}`}
+        title={`Couldn't fetch ${terminology.items} from ${issues.map((issue) => issue.name).join(', ')}`}
         error={[firstIssue.headline, firstIssue.detail].filter(Boolean).join(': ')}
         hint={firstIssue.hint}
         actions={<ProviderRecoveryActions providerId={firstIssue.id} recovery={firstIssue.recovery} />}
@@ -190,8 +185,8 @@ export function PipelineViewEmptyState({
     return (
       <EmptyState
         icon={<IconEyeOff size={24} aria-hidden />}
-        title={isFluxView ? 'All resources are hidden' : 'All workflows are hidden'}
-        description="Turn on Show hidden pipelines in View options to list them and unhide them."
+        title={copy.hidden_empty.title}
+        description={copy.hidden_empty.message}
         action={
           <Button variant="default" size="sm" onClick={() => model.setFilter('hidden', 'show')}>
             Show hidden
@@ -205,12 +200,8 @@ export function PipelineViewEmptyState({
     return (
       <EmptyState
         icon={<IconFolder size={24} aria-hidden />}
-        title={isFluxView ? 'No FluxCD resources found' : 'No workflows yet'}
-        description={
-          isFluxView
-            ? 'Check the configured namespaces and resource selection in Settings → Providers.'
-            : 'Workflows appear here after they run on your configured providers.'
-        }
+        title={copy.empty.title}
+        description={copy.empty.message}
         action={
           !mobileShell && (
             <Button variant="default" size="sm" onClick={onRetry}>
@@ -226,16 +217,12 @@ export function PipelineViewEmptyState({
     return (
       <EmptyState
         icon={<IconPin size={24} aria-hidden />}
-        title={isFluxView ? 'No pinned resources' : 'No pinned workflows'}
-        description={`${
-          mobileShell
-            ? `Swipe a ${labels.item} left or open its Actions menu and choose Pin to keep it here.`
-            : `Use the pin icon on a ${labels.item} to keep it here.`
-        }${isDesktopTauri() ? ' Pinned pipelines also appear in the optional desktop menu.' : ''}`}
+        title={copy.pinned_empty.title}
+        description={`${copy.pinned_empty.message}${isDesktopTauri() ? ' Pinned pipelines also appear in the optional desktop menu.' : ''}`}
         action={
           <Group gap="xs">
             <Button component={Link} to="/pipelines" variant="default" size="sm">
-              Browse {labels.items}
+              Browse {terminology.items}
             </Button>
             <Button variant="default" size="sm" onClick={() => usePipelineViewStore.getState().openEditor('pinned')}>
               Manage pins

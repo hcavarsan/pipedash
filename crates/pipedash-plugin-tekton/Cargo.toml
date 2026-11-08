@@ -3,7 +3,7 @@ name = "pipedash-plugin-tekton"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-description = "Tekton CD plugin for Pipedash"
+description = "Monitor and trigger Tekton CI/CD pipelines running on Kubernetes, using a kubeconfig file or pasted kubeconfig content"
 repository = "https://github.com/hcavarsan/pipedash"
 license = "GPL-3.0"
 
@@ -15,7 +15,7 @@ futures.workspace = true
 http.workspace = true
 k8s-openapi.workspace = true
 kube.workspace = true
-pipedash-plugin-api.workspace = true
+pipedash-plugin-api = { workspace = true, features = ["kubernetes"] }
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -26,3 +26,6 @@ tracing.workspace = true
 [dev-dependencies]
 parking_lot = "0.12"
 tempfile.workspace = true
+
+[lints]
+workspace = true

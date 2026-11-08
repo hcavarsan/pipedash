@@ -1,9 +1,9 @@
 import { Stack, Text } from '@mantine/core'
 import type { ReactNode } from 'react'
 
-import type { RerunSummaryField } from '../../utils/rerunSummary'
+import type { DisplayField } from '../../types/presentation'
 
-export const ActionTargetRows = ({ rows }: { rows: RerunSummaryField[] }): ReactNode => (
+export const ActionTargetRows = ({ rows }: { rows: DisplayField[] }): ReactNode => (
   <Stack gap={2}>
     {rows.map(({ label, value }) => (
       <Text key={label} size="sm" style={{ overflowWrap: 'anywhere' }}>
@@ -16,7 +16,7 @@ export const ActionTargetRows = ({ rows }: { rows: RerunSummaryField[] }): React
   </Stack>
 )
 
-export const confirmBody = (message: string, rows: RerunSummaryField[]): ReactNode => (
+export const confirmBody = (message: string, rows: DisplayField[]): ReactNode => (
   <Stack gap="sm">
     <Text size="sm">{message}</Text>
     {rows.length > 0 && <ActionTargetRows rows={rows} />}

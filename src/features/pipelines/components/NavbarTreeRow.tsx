@@ -10,7 +10,7 @@ import {
 import type { KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
-import type { PinKind, ViewKind } from '../../../types/domain'
+import type { PinKind, ViewKind } from '../../../types/views'
 
 export const ICON_TILE = { rail: 30, list: 28 } as const
 

@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { pipelineViewFixture } from '../../../testing/fixtures'
-import type { PinnedItem } from '../../../types/domain'
-import { ancestorKeys, buildViewNodes, filterNavTree, isPinned, type NavNode, pinTo } from './navTree'
+import type { PinnedItem } from '../../../types/views'
+import { ancestorKeys, buildViewNodes, isPinned, type NavNode, pinTo } from './navTree'
 
 const view = (id: string, name: string, parent: string | null = null) =>
   pipelineViewFixture({ id, name, parent, kind: 'custom' })
@@ -27,26 +27,6 @@ test('sub-views nest under their parent view', () => {
     production.children.map((node) => node.key),
     ['view:web', 'view:eu']
   )
-})
-
-test('a match keeps its ancestors and hides non-matching branches', () => {
-  assert.deepEqual(names(filterNavTree(buildViewNodes(views), 'berlin')), [{ Production: [{ Europe: ['Berlin'] }] }])
-  assert.deepEqual(names(filterNavTree(buildViewNodes(views), 'web')), [{ Production: ['Web'] }])
-})
-
-test('matching is case-insensitive and ignores surrounding spaces', () => {
-  assert.deepEqual(names(filterNavTree(buildViewNodes(views), '  STAG ')), ['Staging'])
-})
-
-test('a matching parent does not drag in unrelated children', () => {
-  assert.deepEqual(names(filterNavTree(buildViewNodes(views), 'production')), ['Production'])
-})
-
-test('an empty query returns the tree and no match returns nothing', () => {
-  const nodes = buildViewNodes(views)
-
-  assert.equal(filterNavTree(nodes, ''), nodes)
-  assert.deepEqual(filterNavTree(nodes, 'zzz'), [])
 })
 
 test('ancestor keys list the chain above a view, or null when absent', () => {

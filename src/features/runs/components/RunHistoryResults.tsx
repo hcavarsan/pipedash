@@ -21,19 +21,14 @@ interface RunHistoryResultsProps {
 }
 
 function RunHistoryEmpty({ data }: { data: RunHistoryPageData }): ReactNode {
-  const { isMobile } = useIsMobile()
-  const { labels, isFlux } = useRunActions()
+  const { labels, presentation } = useRunActions()
 
-  if (data.sourceRuns.length === 0) {
+  if (!data.filtered) {
     return (
       <EmptyState
         icon={<IconHistory size={24} aria-hidden />}
         title={`No ${labels.runs} yet`}
-        description={
-          isFlux
-            ? 'Flux has not recorded a reconciliation for this resource yet.'
-            : 'This workflow has no recorded runs.'
-        }
+        description={presentation.empty_history_description}
         action={
           <Button
             type="button"
@@ -62,7 +57,7 @@ function RunHistoryEmpty({ data }: { data: RunHistoryPageData }): ReactNode {
       }
       action={
         <Group gap="sm">
-          {data.hasMore && isMobile && (
+          {data.hasMore && (
             <Button type="button" variant="default" size="sm" onClick={data.fetchMore}>
               Load more {labels.runs}
             </Button>
@@ -140,5 +135,20 @@ export function RunHistoryResults({
     )
   }
 
-  return empty ?? <RunHistoryTable data={data} columns={columns} selection={selection} />
+  if (empty) {
+    return empty
+  }
+
+  return (
+    <>
+      <RunHistoryTable data={data} columns={columns} selection={selection} />
+      {data.hasMore && (
+        <Group justify="center" mt="sm">
+          <Button type="button" variant="default" size="sm" loading={data.isFetchingMore} onClick={data.fetchMore}>
+            Search older {labels.runs}
+          </Button>
+        </Group>
+      )}
+    </>
+  )
 }

@@ -31,20 +31,28 @@ const isFractional = (value: unknown): boolean => {
   return Number.isFinite(parsed) && !Number.isInteger(parsed)
 }
 
+const passwordAutoComplete = (hint: string): 'one-time-code' | 'current-password' | 'off' => {
+  if (ONE_TIME_HINT.test(hint)) {
+    return 'one-time-code'
+  }
+  if (PASSWORD_HINT.test(hint)) {
+    return 'current-password'
+  }
+
+  return 'off'
+}
+
 export function fieldAttributes({ name, label, kind, defaultValue, last = false }: FieldSchema): FieldAttributes {
   const hint = `${name} ${label ?? ''}`
-  const enterKeyHint = kind === 'textarea' ? undefined : last ? 'go' : 'next'
+  const returnKeyHint = last ? 'go' : 'next'
+  const enterKeyHint = kind === 'textarea' ? undefined : returnKeyHint
 
   if (kind === 'number') {
     return { inputMode: isFractional(defaultValue) ? 'decimal' : 'numeric', autoComplete: 'off', enterKeyHint }
   }
 
   if (kind === 'password') {
-    const autoComplete = ONE_TIME_HINT.test(hint)
-      ? 'one-time-code'
-      : PASSWORD_HINT.test(hint)
-        ? 'current-password'
-        : 'off'
+    const autoComplete = passwordAutoComplete(hint)
 
     return { ...TECHNICAL, autoComplete, enterKeyHint }
   }

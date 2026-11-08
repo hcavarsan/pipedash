@@ -9,8 +9,10 @@ import { act, cleanup, render } from '@testing-library/react'
 import { createElement } from 'react'
 
 import { queryKeys } from '../lib/queryKeys'
+import { runHistoryQuery } from '../lib/runHistoryQuery'
 import { wsClient } from '../services/websocket'
-import type { Pipeline } from '../types/domain'
+import { pipelineActionsFixture } from '../testing/presentation'
+import type { Pipeline } from '../types/pipelines'
 
 import { Socket } from './fixtures/notificationWebEnvironment'
 import { useEventSync } from './useEventSync'
@@ -28,6 +30,7 @@ const pipeline: Pipeline = {
   status: 'running',
   last_run: '2026-10-26T12:00:00Z',
   last_updated: '2026-10-26T12:01:00Z',
+  actions: pipelineActionsFixture(),
 }
 
 function Probe() {
@@ -132,24 +135,24 @@ test('a history invalidation refreshes paged and infinite lists only for its pip
     total_count: runs.length,
   })
   const paged = new QueryObserver(client, {
-    queryKey: queryKeys.runs.list(pipeline.id, 2, 2),
+    queryKey: queryKeys.runs.list(pipeline.id, runHistoryQuery(2, 2)),
     queryFn: async () => page(2),
   })
   const infinite = new InfiniteQueryObserver(client, {
-    queryKey: queryKeys.runs.infinite(pipeline.id, 2),
+    queryKey: queryKeys.runs.infinite(pipeline.id, runHistoryQuery(1, 2)),
     queryFn: async ({ pageParam }) => page(pageParam),
     initialPageParam: 1,
     getNextPageParam: (_lastPage, _pages, lastPageParam) => (lastPageParam < 2 ? lastPageParam + 1 : undefined),
   })
   const unrelated = new QueryObserver(client, {
-    queryKey: queryKeys.runs.list('other-pipeline', 1, 2),
+    queryKey: queryKeys.runs.list('other-pipeline', runHistoryQuery(1, 2)),
     queryFn: async () => {
       unrelatedFetches += 1
 
       return { runs: [{ run_number: 99 }], total_count: 1 }
     },
   })
-  const inactiveKey = queryKeys.runs.list(pipeline.id, 1, 20)
+  const inactiveKey = queryKeys.runs.list(pipeline.id, runHistoryQuery(1, 20))
   client.setQueryData(inactiveKey, page(1))
   const stops = [paged, infinite, unrelated].map((observer) => observer.subscribe(() => undefined))
 
@@ -181,7 +184,10 @@ test('a history invalidation refreshes paged and infinite lists only for its pip
 })
 
 test('a history invalidation without a pipeline expires all lists but keeps run details', async () => {
-  const histories = [queryKeys.runs.list(pipeline.id, 1, 20), queryKeys.runs.infinite('other-pipeline', 20)]
+  const histories = [
+    queryKeys.runs.list(pipeline.id, runHistoryQuery(1, 20)),
+    queryKeys.runs.infinite('other-pipeline', runHistoryQuery(1, 20)),
+  ]
   const detailKey = queryKeys.runs.detail(pipeline.id, 1)
   for (const key of [...histories, detailKey]) {
     client.setQueryData(key, { run_number: 1 })

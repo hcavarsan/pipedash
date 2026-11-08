@@ -1,24 +1,22 @@
 import { Button, Group } from '@mantine/core'
 import { IconSquare } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
-import { FilterBar, type FilterSheet } from '../../../components/common/FilterBar'
+import { FilterBar } from '../../../components/common/FilterBar'
+import type { FilterSheet } from '../../../components/common/filterTypes'
 import { useMobileShell } from '../../../hooks/useIsMobile'
-import type { Pipeline } from '../../../types/domain'
-import { getStatusOptions } from '../../../utils/pipelinePresentation'
 import type { RunHistoryPageData } from '../hooks/useRunHistoryPageData'
 import type { RunPageSelection } from '../lib/runHistoryTypes'
 import { useRunActions } from './RunActionsContext'
 
 interface RunHistoryFiltersProps {
-  pipeline: Pipeline
   data: RunHistoryPageData
   selection: RunPageSelection
   sheet: FilterSheet
 }
 
-export function RunHistoryFilters({ pipeline, data, selection, sheet }: RunHistoryFiltersProps): ReactNode {
+export function RunHistoryFilters({ data, selection, sheet }: RunHistoryFiltersProps): ReactNode {
   const mobileShell = useMobileShell()
-  const { labels } = useRunActions()
+  const { labels, presentation } = useRunActions()
   const { setFilter, filters } = data
 
   return (
@@ -41,7 +39,7 @@ export function RunHistoryFilters({ pipeline, data, selection, sheet }: RunHisto
             value: filters.status,
             onSelect: data.selectStatus,
             onClear: () => setFilter('status', []),
-            options: getStatusOptions(pipeline.provider_type),
+            options: presentation.status_options,
           },
           branch: {
             value: filters.branch,

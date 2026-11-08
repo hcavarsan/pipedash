@@ -1,13 +1,14 @@
-import { Button } from '@mantine/core'
+import { Button, Skeleton } from '@mantine/core'
 import type { ReactNode } from 'react'
 import { Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom'
 
 import { EmptyState } from '../../../components/common/EmptyState'
+import { LoadingState } from '../../../components/common/LoadingState'
 import { PageContainer } from '../../../components/common/PageContainer'
 import { PageHeader } from '../../../components/common/PageHeader'
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import { useMobileShell } from '../../../hooks/useIsMobile'
-import type { Pipeline } from '../../../types/domain'
+import type { Pipeline } from '../../../types/pipelines'
 import { RunActionsProvider } from '../components/RunActionsContext'
 import { type DetailTab, RunHistoryPage } from '../components/RunHistoryPage'
 
@@ -45,23 +46,6 @@ export function PipelineDetailRoute({ pipelines, loading, onBack }: PipelineDeta
 
   const actualPipeline = pipelines.find((pipeline) => pipeline.id === pipelineId) ?? null
 
-  const pipeline: Pipeline | null =
-    actualPipeline ??
-    (loading && pipelineId
-      ? {
-          id: pipelineId,
-          name: pipelineId,
-          provider_id: 0,
-          repository: '',
-          branch: null,
-          status: 'pending' as const,
-          last_run: null,
-          last_updated: new Date().toISOString(),
-          workflow_file: null,
-          provider_type: 'github',
-        }
-      : null)
-
   if (rawTab !== null && rawTab !== 'metrics') {
     const params = new URLSearchParams(searchParams)
     params.delete('tab')
@@ -90,16 +74,19 @@ export function PipelineDetailRoute({ pipelines, loading, onBack }: PipelineDeta
     )
   }
 
+  if (!actualPipeline) {
+    return (
+      <PageContainer>
+        <PageHeader title={<Skeleton height="1.5rem" width="min(250px, 60vw)" />} onBack={onBack} />
+        <LoadingState message="Loading pipeline…" />
+      </PageContainer>
+    )
+  }
+
   return (
     <ErrorBoundary scope="feature" name="Pipeline history" resetKeys={[pipelineId]}>
       <RunActionsProvider key={pipelineId} pipeline={actualPipeline}>
-        <RunHistoryPage
-          pipeline={pipeline}
-          tab={tab}
-          onTabChange={setTab}
-          onBack={onBack}
-          isLoadingPipeline={loading && !actualPipeline}
-        />
+        <RunHistoryPage pipeline={actualPipeline} tab={tab} onTabChange={setTab} onBack={onBack} />
       </RunActionsProvider>
     </ErrorBoundary>
   )

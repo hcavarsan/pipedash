@@ -1,7 +1,8 @@
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 
 import type { DesktopNotificationSnapshot } from '../../services/desktop'
-import type { DesktopSettingsPatch, DesktopStatus, NotificationPreferences, WatchOnce } from '../../types/domain'
+import type { DesktopSettingsPatch, DesktopStatus } from '../../types/native'
+import type { NotificationPreferences, WatchOnce } from '../../types/notifications'
 import { isRecord } from '../../utils/isRecord'
 
 GlobalRegistrator.register({ width: 390, height: 844 })

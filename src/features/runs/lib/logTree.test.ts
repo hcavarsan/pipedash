@@ -3,9 +3,9 @@ import { test } from 'node:test'
 
 import type { RunLogNode } from '../../../types/logs'
 
-import { groupLogNodes } from './logTree'
+import { resolveLogGroups } from './logTree'
 
-const node = (id: string, patch: Partial<RunLogNode> = {}): RunLogNode => ({
+const node = (id: string): RunLogNode => ({
   id,
   parent_id: null,
   kind: 'job',
@@ -18,61 +18,26 @@ const node = (id: string, patch: Partial<RunLogNode> = {}): RunLogNode => ({
   web_url: null,
   depth: 0,
   navigable: true,
-  ...patch,
 })
 
-test('jobs group under their nearest stage and failed jobs can lead', () => {
-  const nodes = [
-    node('build', { kind: 'stage', log: null }),
-    node('a', { parent_id: 'build' }),
-    node('b', { parent_id: 'build', status: 'failed' }),
-    node('step', { parent_id: 'b', kind: 'step', log: null }),
-    node('lone'),
-  ]
+const tree = {
+  nodes: [node('a'), node('b'), node('lone')],
+  groups: [
+    { stage: 'build', node_ids: ['a', 'b'], failed_first_node_ids: ['b', 'a'] },
+    { stage: null, node_ids: ['lone'], failed_first_node_ids: ['lone'] },
+  ],
+}
 
+test('groups resolve backend node ids in the requested order', () => {
   assert.deepEqual(
-    groupLogNodes(nodes, true).map((group) => [group.stage, group.nodes.map((n) => n.id)]),
+    resolveLogGroups(tree).map((group) => [group.stage, group.nodes.map((n) => n.id)]),
     [
-      ['build', ['b', 'a']],
+      ['build', ['a', 'b']],
       [null, ['lone']],
     ]
   )
-  const [first] = groupLogNodes(nodes)
-  assert.ok(first)
   assert.deepEqual(
-    first.nodes.map((n) => n.id),
-    ['a', 'b']
-  )
-})
-
-test('empty input, orphan parents and duplicate stage names group predictably', () => {
-  assert.deepEqual(groupLogNodes([]), [])
-  const nodes = [
-    node('s1', { kind: 'stage', log: null, name: 'build' }),
-    node('s2', { kind: 'stage', log: null, name: 'build' }),
-    node('a', { parent_id: 's1' }),
-    node('b', { parent_id: 's2' }),
-    node('orphan', { parent_id: 'missing' }),
-  ]
-
-  assert.deepEqual(
-    groupLogNodes(nodes).map((group) => [group.stage, group.nodes.map((n) => n.id)]),
-    [
-      ['build', ['a', 'b']],
-      [null, ['orphan']],
-    ]
-  )
-})
-
-test('cyclic parent chains terminate and leave the job ungrouped', () => {
-  const nodes = [
-    node('self', { parent_id: 'self', kind: 'step' }),
-    node('x', { parent_id: 'y', kind: 'step' }),
-    node('y', { parent_id: 'x', kind: 'step' }),
-  ]
-
-  assert.deepEqual(
-    groupLogNodes(nodes).map((group) => [group.stage, group.nodes.map((n) => n.id)]),
-    [[null, ['self', 'x', 'y']]]
+    resolveLogGroups(tree, true).map((group) => group.nodes.map((n) => n.id)),
+    [['b', 'a'], ['lone']]
   )
 })

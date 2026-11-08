@@ -8,6 +8,7 @@ links = "tauri-plugin-pipedash-native"
 description = "Native integration for the Pipedash mobile apps: haptics, appearance, privacy cover, share sheet, notification actions and background refresh."
 
 [dependencies]
+pipedash-plugin-api = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tauri = { workspace = true }
@@ -15,3 +16,6 @@ thiserror = { workspace = true }
 
 [build-dependencies]
 tauri-plugin = { version = "2", features = ["build"] }
+
+[lints]
+workspace = true

@@ -1,4 +1,4 @@
-import type { PluginMetadata } from '../types/domain'
+import type { PluginMetadata } from '../types/plugins'
 
 export function getPluginByType(
   plugins: PluginMetadata[] | undefined,

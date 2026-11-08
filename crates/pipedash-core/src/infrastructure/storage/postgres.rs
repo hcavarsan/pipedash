@@ -5,7 +5,11 @@ use chrono::{
     DateTime,
     Utc,
 };
-use sqlx::postgres::PgPool;
+use sqlx::postgres::{
+    PgPool,
+    PgPoolOptions,
+    PgRow,
+};
 use sqlx::Row;
 
 use super::{
@@ -17,13 +21,24 @@ use crate::domain::{
     DomainResult,
 };
 
-#[derive(Debug, Clone)]
-pub struct PostgresCacheConfig {
-    pub connection_string: String,
-}
-
 pub struct PostgresStorage {
     pool: PgPool,
+}
+
+pub(crate) fn pool_options() -> PgPoolOptions {
+    PgPoolOptions::new()
+        .max_connections(20)
+        .min_connections(5)
+        .acquire_timeout(std::time::Duration::from_secs(30))
+}
+
+pub(crate) async fn connect(
+    options: PgPoolOptions, connection_string: &str,
+) -> DomainResult<PgPool> {
+    options
+        .connect(connection_string)
+        .await
+        .map_err(|e| DomainError::DatabaseError(format!("Failed to connect to PostgreSQL: {}", e)))
 }
 
 impl PostgresStorage {
@@ -32,17 +47,7 @@ impl PostgresStorage {
     }
 
     pub async fn from_connection_string(connection_string: &str) -> DomainResult<Self> {
-        use sqlx::postgres::PgPoolOptions;
-
-        let pool = PgPoolOptions::new()
-            .max_connections(20)
-            .min_connections(5)
-            .acquire_timeout(std::time::Duration::from_secs(30))
-            .connect(connection_string)
-            .await
-            .map_err(|e| {
-                DomainError::DatabaseError(format!("Failed to connect to PostgreSQL: {}", e))
-            })?;
+        let pool = connect(pool_options(), connection_string).await?;
 
         Self::init_cache_table(&pool).await?;
 
@@ -93,12 +98,21 @@ impl PostgresStorage {
     }
 }
 
+fn object_metadata(row: &PgRow) -> ObjectMetadata {
+    let size: i64 = row.get("size");
+    let metadata_json: serde_json::Value = row.get("metadata");
+    ObjectMetadata {
+        key: row.get("key"),
+        size: size as u64,
+        last_modified: row.get::<DateTime<Utc>, _>("updated_at"),
+        etag: row.get("etag"),
+        content_type: row.get("content_type"),
+        metadata: serde_json::from_value(metadata_json).unwrap_or_default(),
+    }
+}
+
 #[async_trait]
 impl StorageBackend for PostgresStorage {
-    fn backend_type(&self) -> &str {
-        "postgres"
-    }
-
     async fn is_available(&self) -> bool {
         sqlx::query("SELECT 1").fetch_one(&self.pool).await.is_ok()
     }
@@ -130,29 +144,7 @@ impl StorageBackend for PostgresStorage {
         }
         .map_err(|e| DomainError::DatabaseError(format!("Failed to list cache objects: {}", e)))?;
 
-        let mut objects = Vec::new();
-        for row in rows {
-            let key: String = row.get("key");
-            let size: i64 = row.get("size");
-            let content_type: Option<String> = row.get("content_type");
-            let etag: Option<String> = row.get("etag");
-            let metadata_json: serde_json::Value = row.get("metadata");
-            let updated_at: DateTime<Utc> = row.get("updated_at");
-
-            let metadata: HashMap<String, String> =
-                serde_json::from_value(metadata_json).unwrap_or_default();
-
-            objects.push(ObjectMetadata {
-                key,
-                size: size as u64,
-                last_modified: updated_at,
-                etag,
-                content_type,
-                metadata,
-            });
-        }
-
-        Ok(objects)
+        Ok(rows.iter().map(object_metadata).collect())
     }
 
     async fn get(&self, key: &str) -> DomainResult<Vec<u8>> {
@@ -216,75 +208,4 @@ impl StorageBackend for PostgresStorage {
             metadata: HashMap::new(),
         })
     }
-
-    async fn delete(&self, key: &str) -> DomainResult<()> {
-        sqlx::query(
-            r#"
-            DELETE FROM cache_objects WHERE key = $1
-            "#,
-        )
-        .bind(key)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| DomainError::DatabaseError(format!("Failed to delete cache object: {}", e)))?;
-
-        Ok(())
-    }
-
-    async fn exists(&self, key: &str) -> DomainResult<bool> {
-        let row = sqlx::query(
-            r#"
-            SELECT 1 FROM cache_objects WHERE key = $1
-            "#,
-        )
-        .bind(key)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| DomainError::DatabaseError(format!("Failed to check cache object: {}", e)))?;
-
-        Ok(row.is_some())
-    }
-
-    async fn head(&self, key: &str) -> DomainResult<Option<ObjectMetadata>> {
-        let row = sqlx::query(
-            r#"
-            SELECT key, size, content_type, etag, metadata, updated_at
-            FROM cache_objects
-            WHERE key = $1
-            "#,
-        )
-        .bind(key)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| {
-            DomainError::DatabaseError(format!("Failed to get cache object metadata: {}", e))
-        })?;
-
-        match row {
-            Some(row) => {
-                let key: String = row.get("key");
-                let size: i64 = row.get("size");
-                let content_type: Option<String> = row.get("content_type");
-                let etag: Option<String> = row.get("etag");
-                let metadata_json: serde_json::Value = row.get("metadata");
-                let updated_at: DateTime<Utc> = row.get("updated_at");
-
-                let metadata: HashMap<String, String> =
-                    serde_json::from_value(metadata_json).unwrap_or_default();
-
-                Ok(Some(ObjectMetadata {
-                    key,
-                    size: size as u64,
-                    last_modified: updated_at,
-                    etag,
-                    content_type,
-                    metadata,
-                }))
-            }
-            None => Ok(None),
-        }
-    }
 }
-
-#[cfg(test)]
-mod tests {}

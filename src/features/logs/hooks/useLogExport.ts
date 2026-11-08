@@ -2,7 +2,7 @@ import { useClipboard } from '@mantine/hooks'
 import { useState } from 'react'
 import { service } from '../../../services/service'
 import { displayErrorNotification } from '../../../utils/errorDisplay'
-import type { DocRef } from '../lib/lineCache'
+import type { DocRef } from '../lib/lineCacheTypes'
 import { collectLines, exportFileName, FULL_LINE_UNITS } from '../lib/logActions'
 import type { LogSelection } from './useLogNavigation'
 

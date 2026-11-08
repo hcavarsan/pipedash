@@ -7,7 +7,7 @@ import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { FieldRow, SwitchRow } from '../../../components/ios/mobileParts'
 import { useFormEnterNavigation } from '../../../hooks/useFormEnterNavigation'
 import { useMobileShell } from '../../../hooks/useIsMobile'
-import type { MigrationOptions, MigrationPlan, MigrationStatsPreview } from '../../../types/domain'
+import type { MigrationOptions, MigrationPlan, MigrationStatsPreview } from '../../../types/storage'
 
 interface MigrationConfirmModalProps {
   onClose: () => void
@@ -27,6 +27,32 @@ const PASSWORD_ATTRIBUTES = {
   spellCheck: false,
   enterKeyHint: 'go',
 } as const
+
+interface MigrationPasswordFieldProps {
+  value: string
+  onChange: (value: string) => void
+  disabled: boolean
+  id: string
+  errorId: string
+}
+
+const MigrationPasswordField = ({ value, onChange, disabled, id, errorId }: MigrationPasswordFieldProps): ReactNode => (
+  <PasswordInput
+    id={id}
+    name="password"
+    variant="unstyled"
+    aria-required
+    aria-invalid={!value}
+    aria-describedby={value ? undefined : errorId}
+    placeholder="Required"
+    value={value}
+    onChange={(e) => onChange(e.currentTarget.value)}
+    disabled={disabled}
+    w="12em"
+    styles={{ input: { minHeight: '2em', paddingInlineStart: 0, textAlign: 'right' } }}
+    {...PASSWORD_ATTRIBUTES}
+  />
+)
 
 export const MigrationConfirmModal = ({
   onClose,
@@ -91,6 +117,30 @@ export const MigrationConfirmModal = ({
     </Group>
   )
 
+  const passwordFooter = password ? (
+    'Required to decrypt and migrate your encrypted tokens.'
+  ) : (
+    <Text span inherit c="red" id={passwordErrorId}>
+      Password is required for token migration
+    </Text>
+  )
+
+  const renderPasswordField = (fieldId: string): ReactNode => (
+    <MigrationPasswordField
+      id={fieldId}
+      errorId={passwordErrorId}
+      value={password}
+      onChange={setPassword}
+      disabled={loading}
+    />
+  )
+
+  const passwordGroup = needsPassword && (
+    <IosGroup header="Vault password" footer={passwordFooter}>
+      <FieldRow title="Password">{renderPasswordField}</FieldRow>
+    </IosGroup>
+  )
+
   const shellBody = (
     <Stack gap="lg">
       <Text size="sm" c="dimmed" px="md">
@@ -113,42 +163,18 @@ export const MigrationConfirmModal = ({
         />
       </IosGroup>
 
-      {needsPassword && (
-        <IosGroup
-          header="Vault password"
-          footer={
-            password ? (
-              'Required to decrypt and migrate your encrypted tokens.'
-            ) : (
-              <Text span inherit c="red" id={passwordErrorId}>
-                Password is required for token migration
-              </Text>
-            )
-          }
-        >
-          <FieldRow title="Password">
-            {(fieldId) => (
-              <PasswordInput
-                id={fieldId}
-                name="password"
-                variant="unstyled"
-                aria-required
-                aria-invalid={!password}
-                aria-describedby={password ? undefined : passwordErrorId}
-                placeholder="Required"
-                value={password}
-                onChange={(e) => setPassword(e.currentTarget.value)}
-                disabled={loading}
-                w="12em"
-                styles={{ input: { minHeight: '2em', paddingInlineStart: 0, textAlign: 'right' } }}
-                {...PASSWORD_ATTRIBUTES}
-              />
-            )}
-          </FieldRow>
-        </IosGroup>
-      )}
+      {passwordGroup}
     </Stack>
   )
+
+  const desktopSummaryRows = summaryRows.map((row) => (
+    <Group key={row.label} justify="space-between">
+      <Text size="sm" c="dimmed">
+        {row.label}
+      </Text>
+      <Badge>{row.value ?? 'Unavailable'}</Badge>
+    </Group>
+  ))
 
   const desktopBody = (
     <Stack gap="md">
@@ -164,14 +190,7 @@ export const MigrationConfirmModal = ({
           <Text size="sm" fw={500}>
             Migration summary
           </Text>
-          {summaryRows.map((row) => (
-            <Group key={row.label} justify="space-between">
-              <Text size="sm" c="dimmed">
-                {row.label}
-              </Text>
-              <Badge>{row.value ?? 'Unavailable'}</Badge>
-            </Group>
-          ))}
+          {desktopSummaryRows}
         </Stack>
       </Card>
 

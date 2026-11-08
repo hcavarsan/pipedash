@@ -3,7 +3,7 @@ import { after, afterEach, beforeEach, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 
-import type { NotificationPreferences, WatchOnce } from '../../../types/domain'
+import type { NotificationPreferences, WatchOnce } from '../../../types/notifications'
 
 GlobalRegistrator.register({ width: 1200, height: 800 })
 
@@ -128,21 +128,6 @@ test('every connected status loads first and adopts again, and other statuses do
   await unmount()
   assert.equal(loads().length, 2)
   assert.equal(sends().length, 1)
-})
-
-test('a local edit still waiting to be sent wins over the server copy', async () => {
-  await mount()
-  await waitFor(() => assert.equal(sends().length, 1))
-
-  serverCopy = server
-  await act(async () => {
-    useNotificationStore.getState().setKindEnabled('outage', false)
-  })
-  await emitStatus('connected')
-
-  await waitFor(() => assert.equal(sends().length, 2))
-  assert.equal(useNotificationStore.getState().preferences.outage, false)
-  assert.equal(useNotificationStore.getState().preferences.failed, true)
 })
 
 test('used one-time requests the app reports are marked fired', async () => {

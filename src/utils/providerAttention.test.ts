@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { HealthLevel, HealthSignal, Maintenance, ProviderHealth, ProviderSummary } from '../types/domain'
+import { providerAttentionFixture } from '../testing/fixtures'
+import type { HealthLevel, HealthSignal, Maintenance, ProviderHealth } from '../types/health'
+import type { ProviderSummary } from '../types/providers'
 
 import { formatTime } from './formatDateTime'
 import { isOutageLevel, providerAttention } from './providerAttention'
@@ -50,6 +52,7 @@ const summary = (overrides: Partial<ProviderSummary> = {}): ProviderSummary => (
   freshness: { state: 'never', stale_at: null },
   recovery: null,
   health: health('operational'),
+  attention: providerAttentionFixture(),
   ...overrides,
 })
 

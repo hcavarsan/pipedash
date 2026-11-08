@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import { FormErrorDisplay } from '../../../components/common/FormErrorDisplay'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { LiveStatus } from '../../../components/forms/LiveStatus'
-import type { ConfigAnalysisResponse } from '../../../types/domain'
+import type { ConfigAnalysisResponse } from '../../../types/storage'
 import { formatCount } from '../../../utils/formatCount'
 
 interface ConfigAnalysisNoticesProps {
@@ -28,6 +28,13 @@ export function ConfigAnalysisNotices({
 }: ConfigAnalysisNoticesProps): ReactNode {
   const noticesProps = mobileShell ? ({ mah: '35dvh', flex: '0 0 auto', style: { overflowY: 'auto' } } as const) : {}
   const { stats, migration_plan: migrationPlan, postgres_connection: postgres } = analysis ?? {}
+  const statsText = stats
+    ? [
+        formatCount(stats.providers_count, 'provider'),
+        formatCount(stats.tokens_count, 'token'),
+        formatCount(stats.cache_entries_count, 'cache entry', 'cache entries'),
+      ].join(' · ')
+    : ''
 
   return (
     <Box {...noticesProps}>
@@ -63,11 +70,7 @@ export function ConfigAnalysisNotices({
           </Text>
           {stats && mobileShell && (
             <Text size="xs" c="dimmed" mt="xs">
-              {[
-                formatCount(stats.providers_count, 'provider'),
-                formatCount(stats.tokens_count, 'token'),
-                formatCount(stats.cache_entries_count, 'cache entry', 'cache entries'),
-              ].join(' · ')}
+              {statsText}
             </Text>
           )}
           {stats && !mobileShell && (

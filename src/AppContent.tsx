@@ -25,8 +25,40 @@ import { useVaultStatus } from './queries/useVaultQueries'
 import { isTauri } from './services/isTauri'
 import { useAuthStore } from './stores/authStore'
 import { useModalStore } from './stores/modalStore'
-import type { Pipeline } from './types/domain'
+import type { Pipeline } from './types/pipelines'
 import { WorkflowModalHost } from './WorkflowModalHost'
+
+interface PageTitleContext {
+  pathname: string
+  sectionTitle: string
+  isDetail: boolean
+  detailName: string | undefined
+  viewParam: string | null
+  viewName: string | undefined
+  providerName: string | undefined
+}
+
+function resolvePageTitle(ctx: PageTitleContext): string {
+  if (ctx.pathname.startsWith('/settings')) {
+    return `${ctx.sectionTitle} Settings`
+  }
+  if (ctx.isDetail) {
+    return ctx.detailName ?? 'Pipeline unavailable'
+  }
+  if (ctx.pathname === '/pipelines') {
+    if (ctx.viewParam) {
+      return `${ctx.viewName ?? 'View'} Pipelines`
+    }
+    if (ctx.providerName) {
+      return `${ctx.providerName} Pipelines`
+    }
+    return 'Pipelines'
+  }
+  if (ctx.pathname === '/notifications') {
+    return 'Notifications'
+  }
+  return 'Page not found'
+}
 
 export function AppContent(): ReactNode {
   const navigate = useNavigate()
@@ -84,19 +116,15 @@ export function AppContent(): ReactNode {
   const providerName = providers.find((provider) => provider.id === selectedProviderId)?.name
   const section = location.pathname.split('/')[2] ?? 'general'
   const sectionTitle = section.charAt(0).toUpperCase() + section.slice(1)
-  const pageTitle = location.pathname.startsWith('/settings')
-    ? `${sectionTitle} Settings`
-    : detailMatch
-      ? (detailPipeline?.name ?? 'Pipeline unavailable')
-      : location.pathname === '/pipelines'
-        ? viewParam
-          ? `${pipelineViews?.find((view) => view.id === viewParam)?.name ?? 'View'} Pipelines`
-          : providerName
-            ? `${providerName} Pipelines`
-            : 'Pipelines'
-        : location.pathname === '/notifications'
-          ? 'Notifications'
-          : 'Page not found'
+  const pageTitle = resolvePageTitle({
+    pathname: location.pathname,
+    sectionTitle,
+    isDetail: Boolean(detailMatch),
+    detailName: detailPipeline?.name,
+    viewParam,
+    viewName: pipelineViews?.find((view) => view.id === viewParam)?.name,
+    providerName,
+  })
 
   const invalidateAll = async (): Promise<void> => {
     await Promise.all([

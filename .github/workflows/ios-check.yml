@@ -27,6 +27,7 @@ jobs:
   app-store-checks:
     name: Unsigned IPA and App Store checks
     runs-on: macos-26
+    timeout-minutes: 40
     permissions:
       contents: read # checkout the repository
     steps:
@@ -54,6 +55,7 @@ jobs:
   simulator:
     name: Launch on iPhone and iPad simulators
     runs-on: macos-26
+    timeout-minutes: 40
     permissions:
       contents: read # checkout the repository
     steps:

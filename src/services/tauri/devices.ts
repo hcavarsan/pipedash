@@ -1,0 +1,12 @@
+import { invoke } from '@tauri-apps/api/core'
+
+import type { PairedDevice, PairingCode } from '../../types/native'
+import type { DevicesService } from '../types'
+
+export const devicesTauriService: DevicesService = {
+  listPairedDevices: async () => invoke<PairedDevice[]>('list_paired_devices'),
+
+  createPairingCode: async () => invoke<PairingCode>('create_pairing_code'),
+
+  removePairedDevice: async (id) => invoke<void>('remove_paired_device', { id }),
+}

@@ -24,7 +24,7 @@ after(async () => {
   await GlobalRegistrator.unregister()
 })
 
-test('mobile refresh interval rejects empty and zero drafts and saves a valid value', async (context) => {
+test('mobile refresh interval shows the backend rejection for empty and zero drafts and saves a valid value', async (context) => {
   const user = userEvent.setup({ document })
   const saves: Array<[number, number]> = []
   context.mock.method(apiService, 'listProviders', async () => [providerSummaryFixture({ id: 7, name: 'Acme CI' })])
@@ -33,6 +33,9 @@ test('mobile refresh interval rejects empty and zero drafts and saves a valid va
     throw new Error('not needed')
   })
   context.mock.method(apiService, 'updateProviderRefreshInterval', async (id: number, interval: number) => {
+    if (!Number.isInteger(interval) || interval < 5 || interval > 300) {
+      throw new Error('Enter a whole number from 5 to 300 seconds.')
+    }
     saves.push([id, interval])
   })
   notifyManager.setNotifyFunction((callback) => act(callback))

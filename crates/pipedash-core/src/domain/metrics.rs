@@ -23,6 +23,13 @@ impl MetricType {
             MetricType::RunFrequency => "run_frequency",
         }
     }
+
+    pub fn default_aggregation(&self) -> AggregationType {
+        match self {
+            MetricType::RunFrequency => AggregationType::Sum,
+            MetricType::RunDuration | MetricType::SuccessRate => AggregationType::Avg,
+        }
+    }
 }
 
 impl std::str::FromStr for MetricType {

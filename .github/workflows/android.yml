@@ -35,6 +35,7 @@ jobs:
   android:
     name: Build and upload Android app
     runs-on: ubuntu-24.04
+    timeout-minutes: 55
     environment: google-play
     permissions:
       contents: read
@@ -52,6 +53,7 @@ jobs:
           ref: ${{ inputs.beta_ref || github.ref }}
 
       - name: Set up Android build
+        id: android
         uses: $/.github/actions/setup-android
         with:
           rust-targets: aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
@@ -67,6 +69,8 @@ jobs:
       - name: Run Fastlane
         env:
           LANE: ${{ inputs.lane || 'beta' }}
+          NDK_HOME: ${{ steps.android.outputs.ndk-home }}
+          BUNDLETOOL_JAR: ${{ steps.android.outputs.bundletool-jar }}
           GITHUB_TOKEN: ${{ github.token }}
           PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           ANDROID_UPLOAD_KEYSTORE: ${{ runner.temp }}/upload.jks

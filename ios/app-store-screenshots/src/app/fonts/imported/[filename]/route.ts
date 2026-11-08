@@ -1,8 +1,14 @@
-import { serveAsset } from "@/lib/serve-asset";
+import type { NextResponse } from 'next/server'
+import { serveAsset } from '@/lib/serve-asset'
 
-export const dynamic = "force-dynamic";
+export const dynamic = 'force-dynamic'
 
-export async function GET(_req: Request, context: { params: Promise<{ filename: string }> }) {
-  const { filename } = await context.params;
-  return serveAsset("fonts/imported", filename, { woff2: "font/woff2", woff: "font/woff", ttf: "font/ttf", otf: "font/otf" });
+export async function GET(_req: Request, context: { params: Promise<{ filename: string }> }): Promise<NextResponse> {
+  const { filename } = await context.params
+  return serveAsset('fonts/imported', filename, {
+    woff2: 'font/woff2',
+    woff: 'font/woff',
+    ttf: 'font/ttf',
+    otf: 'font/otf',
+  })
 }

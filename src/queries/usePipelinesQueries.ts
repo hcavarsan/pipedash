@@ -4,7 +4,7 @@ import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services/service'
-import type { Pipeline } from '../types/domain'
+import type { Pipeline } from '../types/pipelines'
 
 export function invalidateProviderPipelines(queryClient: QueryClient, providerId: number): void {
   void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.list({ providerId }), exact: true })

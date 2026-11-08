@@ -3,21 +3,25 @@ name = "pipedash-plugin-gitea"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-description = "Gitea Actions plugin for Pipedash"
+description = "Monitor and trigger Gitea Actions workflows"
 repository = "https://github.com/hcavarsan/pipedash"
 license = "GPL-3.0"
 
 [dependencies]
 async-trait.workspace = true
 chrono.workspace = true
-futures.workspace = true
 pipedash-plugin-actions.workspace = true
 pipedash-plugin-api.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
-tracing.workspace = true
 
 [dev-dependencies]
 rustls.workspace = true
+
+[lints]
+workspace = true
+
+[package.metadata.pipedash]
+aliases = ["forgejo"]

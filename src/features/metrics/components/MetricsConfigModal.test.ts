@@ -5,6 +5,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { mockIPC } from '@tauri-apps/api/mocks'
 import { createElement } from 'react'
 
+import { installRequestSubmitShim } from '../../../testing/requestSubmitShim'
 import { isRecord } from '../../../utils/isRecord'
 
 GlobalRegistrator.register({ width: 393, height: 852, settings: { navigator: { userAgent: 'iPhone' } } })
@@ -26,6 +27,9 @@ mockIPC((command, args) => {
     case 'update_pipeline_metrics_config':
       assert.ok(isRecord(args))
       saves.push(args)
+      if (Number(args.retentionDays) < 1) {
+        throw new Error('Retention days must be at least 1')
+      }
 
       return null
     default:
@@ -42,6 +46,7 @@ const { iosTheme } = await import('../../../theme/ios')
 const { MetricsConfigModal } = await import('./MetricsConfigModal')
 const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 const view = () => within(document.body)
+const restoreRequestSubmit = installRequestSubmitShim()
 
 afterEach(async () => {
   await act(async () => cleanup())
@@ -50,10 +55,11 @@ afterEach(async () => {
 })
 
 after(async () => {
+  restoreRequestSubmit()
   await GlobalRegistrator.unregister()
 })
 
-test('a blank or zero custom retention is rejected instead of being replaced by 7 days', async () => {
+test('a blank custom retention is sent as given and the backend rejection is shown', async () => {
   const user = userEvent.setup({ document })
 
   render(
@@ -83,16 +89,21 @@ test('a blank or zero custom retention is rejected instead of being replaced by 
   const save = view().getByRole('button', { name: 'Save' })
 
   await user.clear(days)
-  assert.ok(await view().findByText(/whole number from 1 to 90/i))
-  assert.equal(save.hasAttribute('disabled'), true)
+  await user.click(save)
+  await waitFor(() =>
+    assert.deepEqual(
+      saves.map((call) => call.retentionDays),
+      [0]
+    )
+  )
+  assert.ok((await view().findAllByText(/at least 1/i)).length > 0)
 
-  await user.type(days, '0')
-  assert.ok(await view().findByText(/whole number from 1 to 90/i))
-  assert.equal(saves.length, 0)
-
-  await user.clear(days)
   await user.type(days, '45')
-  await waitFor(() => assert.equal(save.hasAttribute('disabled'), false))
-  assert.equal(view().queryByText(/whole number from 1 to 90/i), null)
-  assert.equal(saves.length, 0)
+  await user.click(save)
+  await waitFor(() =>
+    assert.deepEqual(
+      saves.map((call) => call.retentionDays),
+      [0, 45]
+    )
+  )
 })

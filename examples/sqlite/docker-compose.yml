@@ -1,4 +1,10 @@
 services:
+  pipedash-data-init:
+    image: busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+    command: ["chown", "-R", "65532:65532", "/data"]
+    volumes:
+      - pipedash-data:/data
+
   pipedash:
     build:
       context: ../..
@@ -19,6 +25,9 @@ services:
     volumes:
       - ./config.toml:/config/config.toml:ro
       - pipedash-data:/data
+    depends_on:
+      pipedash-data-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
 volumes:

@@ -13,7 +13,7 @@ import { useEffect } from 'react'
 import { logger } from '../../../lib/logger'
 import { DESKTOP_STATUS_EVENT, desktopService } from '../../../services/desktop'
 import { useNotificationStore } from '../../../stores/notificationStore'
-import type { DesktopSettingsPatch, DesktopStatus } from '../../../types/domain'
+import type { DesktopSettingsPatch, DesktopStatus } from '../../../types/native'
 import { isDesktopTauri } from '../../../utils/platform'
 
 const statusKey = ['desktop', 'status'] as const

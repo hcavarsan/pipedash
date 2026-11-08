@@ -9,7 +9,8 @@ import { logger } from '@/lib/logger'
 import { queryKeys } from '@/lib/queryKeys'
 import { useVaultStatus } from '@/queries/useVaultQueries'
 import { connectionService, getConnection, hasLocalCore, isRemoteClient } from '@/services/connection'
-import { events, service } from '@/services/service'
+import { listenEvent } from '@/services/events'
+import { service } from '@/services/service'
 import { WS_EVENTS, wsClient } from '@/services/websocket'
 
 import classes from './ConnectionStatus.module.css'
@@ -60,8 +61,7 @@ export function ConnectionStatus(): ReactNode {
     let mounted = true
     let unlisten: (() => void) | undefined
 
-    events
-      .listen<ConnectionState>(WS_EVENTS.CONNECTION_STATUS, setConnectionState)
+    listenEvent<ConnectionState>(WS_EVENTS.CONNECTION_STATUS, setConnectionState)
       .then((stop) => {
         if (mounted) {
           unlisten = stop

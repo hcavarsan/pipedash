@@ -42,21 +42,31 @@ export function ShellField({ id, label, required, description, error, children }
           label
         )
       }
-      footer={
-        error || description ? (
-          <>
-            {error && (
-              <div id={id ? errorId(id) : undefined} className={classes.error}>
-                {error}
-              </div>
-            )}
-            {description && <div id={id ? helpId(id) : undefined}>{description}</div>}
-          </>
-        ) : undefined
-      }
+      footer={error || description ? <FieldFooter id={id} error={error} description={description} /> : undefined}
     >
       {label ? <div className={classes.control}>{children}</div> : children}
     </IosGroup>
+  )
+}
+
+function FieldFooter({
+  id,
+  error,
+  description,
+}: {
+  id: string | undefined
+  error: ReactNode
+  description: ReactNode
+}): ReactNode {
+  return (
+    <>
+      {error && (
+        <div id={id ? errorId(id) : undefined} className={classes.error}>
+          {error}
+        </div>
+      )}
+      {description && <div id={id ? helpId(id) : undefined}>{description}</div>}
+    </>
   )
 }
 

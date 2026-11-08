@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 import { isMobileShell } from '../hooks/useIsMobile'
 import { haptic } from '../lib/haptics'
 import { notifications } from '../lib/notifications'
@@ -29,6 +31,28 @@ export function errorMessage(error: unknown, fallback: string): string {
   return !message || /^(an? )?unknown error( occurred)?[.!]?$/i.test(message) ? fallback : message
 }
 
+interface NotificationActionProps {
+  notificationId: string
+  children: ReactNode
+  onAction: () => void
+}
+
+function NotificationAction({ notificationId, children, onAction }: NotificationActionProps): ReactNode {
+  return (
+    <button
+      type="button"
+      className={classes.retry}
+      onClick={(event) => {
+        event.stopPropagation()
+        notifications.hide(notificationId)
+        onAction()
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
 export function displayErrorNotification(
   error: unknown,
   title: string,
@@ -38,46 +62,34 @@ export function displayErrorNotification(
   const message = formatErrorMessage(error)
   const duration = isMobileShell() ? NOTIFICATION_DURATIONS.ERROR_MOBILE : NOTIFICATION_DURATIONS.ERROR
 
+  const hasActions = Boolean(onRetry || onDetails)
+  let body: ReactNode = message
+
+  if (hasActions) {
+    body = (
+      <>
+        {message}
+        {onRetry && (
+          <NotificationAction notificationId={id} onAction={onRetry}>
+            Retry
+          </NotificationAction>
+        )}
+        {onDetails && (
+          <NotificationAction notificationId={id} onAction={onDetails}>
+            View details
+          </NotificationAction>
+        )}
+      </>
+    )
+  }
+
   haptic('error')
   notifications.show({
     id,
     title,
     color: 'red',
-    message:
-      onRetry || onDetails ? (
-        <>
-          {message}
-          {onRetry ? (
-            <button
-              type="button"
-              className={classes.retry}
-              onClick={(event) => {
-                event.stopPropagation()
-                notifications.hide(id)
-                onRetry()
-              }}
-            >
-              Retry
-            </button>
-          ) : null}
-          {onDetails ? (
-            <button
-              type="button"
-              className={classes.retry}
-              onClick={(event) => {
-                event.stopPropagation()
-                notifications.hide(id)
-                onDetails()
-              }}
-            >
-              View details
-            </button>
-          ) : null}
-        </>
-      ) : (
-        message
-      ),
-    autoClose: onRetry || onDetails ? false : duration,
+    message: body,
+    autoClose: hasActions ? false : duration,
   })
 }
 

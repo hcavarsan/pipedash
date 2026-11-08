@@ -4,8 +4,8 @@ import { after, afterEach, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { useState } from 'react'
 import type { DesktopNotificationSnapshot } from '../services/desktop'
-import type { CenterNotification } from '../stores/notificationCenterStore'
-import type { PendingNativeIntent } from '../types/domain'
+import type { PendingNativeIntent } from '../types/native'
+import type { CenterNotification } from '../types/notifications'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
@@ -73,6 +73,8 @@ const { NativeIntentBridge } = await import('./NativeIntentBridge')
 const { useModalStore } = await import('../stores/modalStore')
 const { usePipelineViewStore } = await import('../features/pipelines/stores/pipelineViewStore')
 const { useNotificationCenterStore } = await import('../stores/notificationCenterStore')
+const { installNotificationCenterDouble } = await import('../testing/notificationCenter')
+installNotificationCenterDouble()
 
 after(async () => {
   await act(async () => cleanup())

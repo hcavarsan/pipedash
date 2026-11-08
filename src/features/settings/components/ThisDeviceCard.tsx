@@ -15,6 +15,24 @@ const TOGGLE_LABEL = 'Allow unencrypted connections on private networks'
 const TOGGLE_DESCRIPTION =
   "Needed for addresses that start with http://, such as a computer sharing Pipedash at home. Anyone on that network could read your pipelines and this device's access token. Turn it on only for networks you trust."
 
+interface DisconnectControlProps {
+  mobile: boolean
+  pending: boolean
+  onDisconnect: () => void
+}
+
+function DisconnectControl({ mobile, pending, onDisconnect }: DisconnectControlProps): ReactNode {
+  if (mobile) {
+    return <IosRow title="Disconnect" destructive disabled={pending} onClick={onDisconnect} />
+  }
+
+  return (
+    <Button variant="outline" color="red" loading={pending} onClick={onDisconnect}>
+      Disconnect
+    </Button>
+  )
+}
+
 export function ThisDeviceCard(): ReactNode {
   const mobileShell = useMobileShell()
   const navigate = useNavigate()
@@ -35,34 +53,35 @@ export function ThisDeviceCard(): ReactNode {
     }
   }
 
+  const onDisconnect = (): void => {
+    void handleDisconnect()
+  }
+
   const handleToggle = (next: boolean): void => {
     privateHttp.mutate(next, { onSuccess: () => setAllowPrivateHttp(next) })
   }
+
+  const standaloneRows = standalone && (
+    <>
+      <IosRow title={STANDALONE_TEXT} />
+      <IosRow title="Connect to a server" onClick={() => navigate('/connect')} chevron />
+    </>
+  )
+
+  const clientRows = client && (
+    <>
+      <IosRow title={`Shows pipelines from ${host}.`} />
+      <DisconnectControl mobile pending={disconnect.isPending} onDisconnect={onDisconnect} />
+    </>
+  )
 
   if (mobileShell) {
     return (
       <Stack gap="lg">
         {(standalone || client) && (
           <IosGroup>
-            {standalone && (
-              <>
-                <IosRow title={STANDALONE_TEXT} />
-                <IosRow title="Connect to a server" onClick={() => navigate('/connect')} chevron />
-              </>
-            )}
-            {client && (
-              <>
-                <IosRow title={`Shows pipelines from ${host}.`} />
-                <IosRow
-                  title="Disconnect"
-                  destructive
-                  disabled={disconnect.isPending}
-                  onClick={() => {
-                    void handleDisconnect()
-                  }}
-                />
-              </>
-            )}
+            {standaloneRows}
+            {clientRows}
           </IosGroup>
         )}
         <IosGroup footer={toggleError}>
@@ -97,16 +116,7 @@ export function ThisDeviceCard(): ReactNode {
         {client && (
           <Stack gap="sm" align="flex-start">
             <Text size="sm">Shows pipelines from {host}.</Text>
-            <Button
-              variant="outline"
-              color="red"
-              loading={disconnect.isPending}
-              onClick={() => {
-                void handleDisconnect()
-              }}
-            >
-              Disconnect
-            </Button>
+            <DisconnectControl mobile={false} pending={disconnect.isPending} onDisconnect={onDisconnect} />
           </Stack>
         )}
 

@@ -1,5 +1,7 @@
-import type { PipelineViewQuery } from '../types/domain'
 import type { LogSearchQuery } from '../types/logs'
+import type { MetricsDashboardQuery } from '../types/metrics'
+import type { RunHistoryQuery } from '../types/run_history'
+import type { PipelineViewQuery } from '../types/views'
 
 export const queryKeys = {
   providers: {
@@ -26,16 +28,22 @@ export const queryKeys = {
     page: (q: PipelineViewQuery) => [...queryKeys.pipelines.all, 'page', q] as const,
     viewMembers: (id: string) => [...queryKeys.pipelines.all, 'viewMembers', id] as const,
     pins: () => [...queryKeys.pipelines.all, 'pins'] as const,
+    selections: () => [...queryKeys.pipelines.all, 'selection'] as const,
+    selection: (pipelineIds: string[]) => [...queryKeys.pipelines.selections(), pipelineIds] as const,
+    editorOptions: () => [...queryKeys.pipelines.all, 'editorOptions'] as const,
+    editorOption: (view: string | null) => [...queryKeys.pipelines.editorOptions(), view] as const,
+    navigations: () => [...queryKeys.pipelines.all, 'navigation'] as const,
+    navigation: (search: string) => [...queryKeys.pipelines.navigations(), search] as const,
   },
 
   runs: {
     all: ['runs'] as const,
-    list: (pipelineId: string, page?: number, pageSize?: number) =>
-      page === undefined
+    list: (pipelineId: string, query?: RunHistoryQuery) =>
+      query === undefined
         ? ([...queryKeys.runs.all, 'list', pipelineId] as const)
-        : ([...queryKeys.runs.all, 'list', pipelineId, { page, pageSize }] as const),
-    infinite: (pipelineId: string, pageSize: number) =>
-      [...queryKeys.runs.all, 'list', pipelineId, 'infinite', { pageSize }] as const,
+        : ([...queryKeys.runs.all, 'list', pipelineId, query] as const),
+    infinite: (pipelineId: string, query: Omit<RunHistoryQuery, 'page'>) =>
+      [...queryKeys.runs.all, 'list', pipelineId, 'infinite', query] as const,
     detail: (pipelineId: string, runNumber: number) =>
       [...queryKeys.runs.all, 'detail', pipelineId, runNumber] as const,
     active: (pipelineId: string) => [...queryKeys.runs.all, 'active', pipelineId] as const,
@@ -48,6 +56,7 @@ export const queryKeys = {
     pipelineConfig: (pipelineId: string) => [...queryKeys.metrics.all, 'config', 'pipeline', pipelineId] as const,
     aggregated: (params: { metricType: string; aggregationPeriod: string; pipelineId?: string | undefined }) =>
       [...queryKeys.metrics.all, 'aggregated', params] as const,
+    dashboard: (query: MetricsDashboardQuery) => [...queryKeys.metrics.all, 'dashboard', query] as const,
     stats: () => [...queryKeys.metrics.all, 'stats'] as const,
   },
 

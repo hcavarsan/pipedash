@@ -1,5 +1,5 @@
 import { Divider, PasswordInput, Stack } from '@mantine/core'
-import { type ReactNode, useActionState, useRef, useState } from 'react'
+import { type ChangeEvent, type KeyboardEvent, type ReactNode, useActionState, useRef, useState } from 'react'
 import { FormErrorDisplay } from '../../../components/common/FormErrorDisplay'
 import { SubmitButton } from '../../../components/forms/SubmitButton'
 import { useUnlockVault } from '../../../queries/useVaultQueries'
@@ -87,6 +87,27 @@ export function UnlockPasswordForm({
   const passwordError = blurPasswordError ?? visible.passwordError ?? globalOnPassword
   const confirmationError = blurConfirmationError ?? visible.confirmationError ?? globalOnConfirmation
 
+  const handlePasswordChange = (event: ChangeEvent<HTMLInputElement>): void => {
+    setPassword(event.currentTarget.value)
+    dismissErrors()
+  }
+
+  const handleConfirmationChange = (event: ChangeEvent<HTMLInputElement>): void => {
+    setConfirmation(event.currentTarget.value)
+    dismissErrors()
+  }
+
+  const handlePasswordKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+    if (firstTime && event.key === 'Enter' && !event.nativeEvent.isComposing) {
+      event.preventDefault()
+      confirmRef.current?.focus()
+    }
+  }
+
+  const confirmationLabels = mobileShell
+    ? { 'aria-label': 'Confirm password', placeholder: 'Confirm password' }
+    : { label: 'Confirm password', placeholder: 'Re-enter your password' }
+
   return (
     <form noValidate action={formAction}>
       <Stack gap={mobileShell ? 'md' : 'lg'}>
@@ -108,17 +129,9 @@ export function UnlockPasswordForm({
             name="password"
             required
             value={password}
-            onChange={(event) => {
-              setPassword(event.currentTarget.value)
-              dismissErrors()
-            }}
+            onChange={handlePasswordChange}
             onBlur={() => setBlurred((value) => ({ ...value, password: true }))}
-            onKeyDown={(event) => {
-              if (firstTime && event.key === 'Enter' && !event.nativeEvent.isComposing) {
-                event.preventDefault()
-                confirmRef.current?.focus()
-              }
-            }}
+            onKeyDown={handlePasswordKeyDown}
             disabled={disabled}
             error={passwordError}
             size="md"
@@ -130,17 +143,12 @@ export function UnlockPasswordForm({
 
           {firstTime && (
             <PasswordInput
-              {...(mobileShell
-                ? { 'aria-label': 'Confirm password', placeholder: 'Confirm password' }
-                : { label: 'Confirm password', placeholder: 'Re-enter your password' })}
+              {...confirmationLabels}
               ref={confirmRef}
               name="confirmation"
               required
               value={confirmation}
-              onChange={(event) => {
-                setConfirmation(event.currentTarget.value)
-                dismissErrors()
-              }}
+              onChange={handleConfirmationChange}
               onBlur={() => setBlurred((value) => ({ ...value, confirmation: true }))}
               disabled={disabled}
               error={confirmationError}

@@ -117,35 +117,42 @@ export function IosRow(props: IosRowProps): ReactNode {
     </>
   )
 
-  const render = (className: string | undefined, ref?: (element: HTMLElement | null) => void) =>
-    props.to ? (
-      <Link
-        to={props.to}
-        state={pushState(location.pathname, location.search, location.state)}
-        {...shared}
-        aria-current={selected ? 'true' : undefined}
-        className={className}
-        ref={ref}
-      >
-        {content}
-      </Link>
-    ) : props.onClick ? (
-      <button
-        type="button"
-        onClick={props.onClick}
-        disabled={props.disabled}
-        {...shared}
-        aria-pressed={selected}
-        className={className}
-        ref={ref}
-      >
-        {content}
-      </button>
-    ) : (
+  const render = (className: string | undefined, ref?: (element: HTMLElement | null) => void): ReactNode => {
+    if (props.to) {
+      return (
+        <Link
+          to={props.to}
+          state={pushState(location.pathname, location.search, location.state)}
+          {...shared}
+          aria-current={selected ? 'true' : undefined}
+          className={className}
+          ref={ref}
+        >
+          {content}
+        </Link>
+      )
+    }
+    if (props.onClick) {
+      return (
+        <button
+          type="button"
+          onClick={props.onClick}
+          disabled={props.disabled}
+          {...shared}
+          aria-pressed={selected}
+          className={className}
+          ref={ref}
+        >
+          {content}
+        </button>
+      )
+    }
+    return (
       <div {...shared} className={className} ref={ref}>
         {content}
       </div>
     )
+  }
 
   if (swipeActions?.length) {
     return (

@@ -9,8 +9,8 @@ import { haptic } from '../../../lib/haptics'
 import { logger } from '../../../lib/logger'
 import { notifications } from '../../../lib/notifications'
 import { service } from '../../../services/service'
-import type { PipedashConfig, StoragePathsResponse } from '../../../types/domain'
 import { formatErrorMessage } from '../../../types/errors'
+import type { PipedashConfig, StoragePathsResponse } from '../../../types/storage'
 import { isDesktopTauri } from '../../../utils/platform'
 
 interface StoragePathsDisplayProps {
@@ -111,21 +111,18 @@ export const StoragePathsDisplay = ({ paths, config, onEditConfig }: StoragePath
   const row = (label: string, path: string) => (
     <CopyPathRow label={label} path={path} copied={copied && copiedLabel === label} onCopy={copyPath} />
   )
+  const announcement = copied && copiedLabel ? `Copied ${copiedLabel.toLowerCase()} path` : ''
+  const pathsFooter = (
+    <>
+      Tap a path to copy it.
+      <VisuallyHidden role="status">{announcement}</VisuallyHidden>
+    </>
+  )
 
   if (mobileShell) {
     return (
       <>
-        <IosGroup
-          header="Storage paths"
-          footer={
-            <>
-              Tap a path to copy it.
-              <VisuallyHidden role="status">
-                {copied && copiedLabel ? `Copied ${copiedLabel.toLowerCase()} path` : ''}
-              </VisuallyHidden>
-            </>
-          }
-        >
+        <IosGroup header="Storage paths" footer={pathsFooter}>
           {row('Configuration', paths.config_file)}
           {!isPostgres && (
             <>

@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react'
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
-import { useSaveTablePreferences } from '../../../queries/useRunHistoryQueries'
-import type { Pipeline } from '../../../types/domain'
+import type { Pipeline } from '../../../types/pipelines'
 import type { RunHistoryColumns } from '../hooks/useRunHistoryColumns'
+import { useSaveTablePreferences } from '../queries/useTablePreferences'
 import { RerunConfirmModal } from './RerunConfirmModal'
 import { useRunActions } from './RunActionsContext'
 import { TableCustomizationModal } from './TableCustomizationModal'
@@ -13,7 +13,6 @@ interface RunHistoryDialogsProps {
   customizationSession: number
   customizationOpened: boolean
   onCloseCustomization: () => void
-  providerName: string
 }
 
 export function RunHistoryDialogs({
@@ -22,7 +21,6 @@ export function RunHistoryDialogs({
   customizationSession,
   customizationOpened,
   onCloseCustomization,
-  providerName,
 }: RunHistoryDialogsProps): ReactNode {
   const { mutateAsync: savePreferences } = useSaveTablePreferences()
   const { rerunTarget, closeRerun, confirmRerun } = useRunActions()
@@ -61,7 +59,6 @@ export function RunHistoryDialogs({
         <RerunConfirmModal
           run={rerunTarget}
           pipeline={pipeline ?? undefined}
-          providerName={providerName}
           onClose={closeRerun}
           onConfirm={confirmRerun}
         />

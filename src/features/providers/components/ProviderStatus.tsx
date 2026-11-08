@@ -3,7 +3,7 @@ import { IconExternalLink } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { IosRow } from '../../../components/ios/IosList'
 import { HEALTH_META } from '../../../theme/status'
-import type { ProviderSummary } from '../../../types/domain'
+import type { ProviderSummary } from '../../../types/providers'
 import { formatDateTime } from '../../../utils/formatDateTime'
 import { formatRelativeTime } from '../../../utils/formatRelativeTime'
 import { openExternal } from '../../../utils/openExternal'
@@ -16,7 +16,7 @@ interface ProviderStatusProps {
   now: number
 }
 
-type Maintenance = ProviderSummary['health']['signals'][number]['maintenances'][number]
+type Maintenance = ProviderSummary['attention']['scheduled_maintenances'][number]
 
 interface StatusDetails {
   page: ProviderSummary['health']['status_page']
@@ -31,12 +31,9 @@ export const getStatusDetails = (
 ): StatusDetails => {
   const { status_page: page, signals, level } = provider.health
   const upcoming = statusPagesEnabled
-    ? signals
-        .filter((signal) => signal.evidence === 'fresh')
-        .flatMap((signal) => signal.maintenances)
-        .flatMap((item) =>
-          !item.in_progress && item.starts_at ? [{ id: item.id, name: item.name, at: item.starts_at }] : []
-        )
+    ? provider.attention.scheduled_maintenances.flatMap((item) =>
+        item.starts_at ? [{ id: item.id, name: item.name, at: item.starts_at }] : []
+      )
     : []
   const reportedBy = signals.find((signal) => signal.kind === 'status_page')?.reported_by ?? page?.name
   const summary = page

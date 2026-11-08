@@ -1,9 +1,9 @@
 import { Button, Group, Select, Stack, Text, TextInput } from '@mantine/core'
-import { type ReactNode, useActionState, useId, useRef } from 'react'
+import { type ChangeEvent, type ReactNode, useActionState, useId, useRef } from 'react'
 import { FormErrorDisplay } from '../../../components/common/FormErrorDisplay'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { logger } from '../../../lib/logger'
-import type { PipelineView, ViewPatch } from '../../../types/domain'
+import type { PipelineView, ViewPatch } from '../../../types/views'
 import { errorMessage } from '../../../utils/errorDisplay'
 import { useConfirmDeleteView } from '../hooks/useConfirmDeleteView'
 import { NAME_REQUIRED, sameJson, TOP_LEVEL, type ViewEditorDraftModel } from '../hooks/useViewEditorDraft'
@@ -139,13 +139,35 @@ export function ViewEditorForm({
     </Group>
   )
 
+  let title = `Edit ${view?.name ?? 'view'}`
+
+  if (creating) {
+    title = editor.parent ? 'New sub-view' : 'New view'
+  }
+
+  const memberCount = editor.initialMembers.length
+  const memberNote =
+    memberCount === 1
+      ? 'The selected pipeline joins this view.'
+      : `The ${memberCount} selected pipelines join this view.`
+  const onNameChange = (event: ChangeEvent<HTMLInputElement>): void => {
+    const name = event.currentTarget.value
+
+    draft.setDraft((d) => ({ ...d, name }))
+  }
+  const onParentChange = (value: string | null): void => {
+    if (value) {
+      draft.setDraft((d) => ({ ...d, parent: value === TOP_LEVEL ? null : value }))
+    }
+  }
+
   return (
     <StandardModal
       opened={editor.open}
       onClose={onClose}
       size="lg"
       dirty={draft.dirty}
-      title={creating ? (editor.parent ? 'New sub-view' : 'New view') : `Edit ${view?.name ?? 'view'}`}
+      title={title}
       footer={footer}
       primaryAction={{
         label: creating ? 'Create' : 'Save',
@@ -166,11 +188,7 @@ export function ViewEditorForm({
               value={fields.name}
               error={nameError}
               onBlur={draft.touchName}
-              onChange={(event) => {
-                const name = event.currentTarget.value
-
-                draft.setDraft((d) => ({ ...d, name }))
-              }}
+              onChange={onNameChange}
               data-autofocus
             />
           )}
@@ -181,17 +199,13 @@ export function ViewEditorForm({
               data={parentOptions}
               value={fields.parent ?? TOP_LEVEL}
               allowDeselect={false}
-              onChange={(value) =>
-                value && draft.setDraft((d) => ({ ...d, parent: value === TOP_LEVEL ? null : value }))
-              }
+              onChange={onParentChange}
             />
           )}
 
           {creating && editor.initialMembers.length > 0 && (
             <Text size="sm" c="dimmed">
-              {editor.initialMembers.length === 1
-                ? 'The selected pipeline joins this view.'
-                : `The ${editor.initialMembers.length} selected pipelines join this view.`}
+              {memberNote}
             </Text>
           )}
 

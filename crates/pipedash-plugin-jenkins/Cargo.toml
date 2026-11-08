@@ -3,7 +3,7 @@ name = "pipedash-plugin-jenkins"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-description = "Jenkins plugin for Pipedash"
+description = "Monitor Jenkins jobs, builds, and pipelines"
 repository = "https://github.com/hcavarsan/pipedash"
 license = "GPL-3.0"
 
@@ -11,7 +11,6 @@ license = "GPL-3.0"
 async-trait.workspace = true
 base64.workspace = true
 chrono.workspace = true
-futures.workspace = true
 pipedash-plugin-api.workspace = true
 reqwest.workspace = true
 serde.workspace = true
@@ -21,3 +20,6 @@ tracing.workspace = true
 
 [dev-dependencies]
 rustls.workspace = true
+
+[lints]
+workspace = true

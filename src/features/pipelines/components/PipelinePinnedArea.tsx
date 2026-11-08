@@ -1,12 +1,10 @@
 import { ActionIcon, Stack, Tooltip } from '@mantine/core'
 import { IconFolder, IconPinFilled, IconPinnedOff } from '@tabler/icons-react'
 import { type ReactNode, useId } from 'react'
-import {
-  type PipelineActions,
-  type PipelineSelection,
-  SectionHeading,
-} from '../../../components/common/PipelineRowParts'
-import type { PinnedBlock, ProviderSummary } from '../../../types/domain'
+import { SectionHeading } from '../../../components/common/SectionHeading'
+import type { PipelineActions, PipelineSelection } from '../../../types/pipelineRows'
+import type { ProviderSummary } from '../../../types/providers'
+import type { PinnedBlock } from '../../../types/views'
 import type { PipelineViewPageModel } from '../hooks/usePipelineViewModel'
 import { IosPinnedList } from './IosPinnedList'
 import { PipelineCardGrid } from './PipelineCardGrid'

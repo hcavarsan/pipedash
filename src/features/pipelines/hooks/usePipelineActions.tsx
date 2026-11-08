@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import type { PipelineActions } from '../../../components/common/PipelineRowParts'
+import { usePlugins } from '../../../queries/usePluginsQueries'
 import { useRefreshProviders } from '../../../queries/useRefreshQueries'
-import type { Pipeline, PipelineView, ViewDisplay } from '../../../types/domain'
+import type { PipelineActions } from '../../../types/pipelineRows'
+import type { Pipeline } from '../../../types/pipelines'
+import type { PipelineView, ViewDisplay } from '../../../types/views'
 import { useNotifyItems } from '../../notifications/hooks/useNotifyItems'
 import { useEnableWorkflow } from '../../runs/queries/useWorkflowQueries'
 import {
@@ -40,6 +42,7 @@ export function usePipelineActions({
   const { mutate: updateView } = useUpdatePipelineView()
   const { refresh: refreshProviders, refreshing } = useRefreshProviders()
   const { mutate: enableWorkflow } = useEnableWorkflow()
+  const { data: plugins } = usePlugins()
   const pinItem = usePinning()
   const { notifyItems } = useNotifyItems()
   const { cancelItem, dialog: cancelDialog } = useCancelActiveRuns()
@@ -75,6 +78,8 @@ export function usePipelineActions({
     pinItem,
     cancelItem,
     notifyItems,
+    terminology: (providerType) =>
+      plugins?.find((plugin) => plugin.provider_type === providerType)?.presentation.terminology,
   }
 
   const changeDisplay = (next: ViewDisplay) => {

@@ -10,7 +10,7 @@ import { useEffect } from 'react'
 import { queryKeys } from '../../../lib/queryKeys'
 import { hasLocalCore, isRemoteClient } from '../../../services/connection'
 import { mobileService } from '../../../services/mobile'
-import type { LocalNotificationSettings } from '../../../types/domain'
+import type { LocalNotificationSettings } from '../../../types/notifications'
 import { displayErrorNotification, displaySuccessNotification } from '../../../utils/errorDisplay'
 import { isMobilePlatform } from '../../../utils/platform'
 
