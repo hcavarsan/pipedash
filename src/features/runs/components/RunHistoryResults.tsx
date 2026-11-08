@@ -21,7 +21,6 @@ interface RunHistoryResultsProps {
 }
 
 function RunHistoryEmpty({ data }: { data: RunHistoryPageData }): ReactNode {
-  const { isMobile } = useIsMobile()
   const { labels, presentation } = useRunActions()
 
   if (!data.filtered) {
@@ -58,7 +57,7 @@ function RunHistoryEmpty({ data }: { data: RunHistoryPageData }): ReactNode {
       }
       action={
         <Group gap="sm">
-          {data.hasMore && isMobile && (
+          {data.hasMore && (
             <Button type="button" variant="default" size="sm" onClick={data.fetchMore}>
               Load more {labels.runs}
             </Button>
@@ -136,5 +135,20 @@ export function RunHistoryResults({
     )
   }
 
-  return empty ?? <RunHistoryTable data={data} columns={columns} selection={selection} />
+  if (empty) {
+    return empty
+  }
+
+  return (
+    <>
+      <RunHistoryTable data={data} columns={columns} selection={selection} />
+      {data.hasMore && data.runs.length < data.pageSize && (
+        <Group justify="center" mt="sm">
+          <Button type="button" variant="default" size="sm" loading={data.isFetchingMore} onClick={data.fetchMore}>
+            Search older {labels.runs}
+          </Button>
+        </Group>
+      )}
+    </>
+  )
 }

@@ -12,6 +12,7 @@ export interface RunHistoryQuery {
   utc_offset_minutes: number
   sort_column: string
   direction: SortDirection
+  scan_depth?: number | undefined
 }
 
 export interface RunHistoryPage {

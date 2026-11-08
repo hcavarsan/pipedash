@@ -23,6 +23,7 @@ pub struct RunHistoryQuery {
     pub utc_offset_minutes: i32,
     pub sort_column: String,
     pub direction: SortDirection,
+    pub scan_depth: usize,
 }
 
 impl Default for RunHistoryQuery {
@@ -38,6 +39,7 @@ impl Default for RunHistoryQuery {
             utc_offset_minutes: 0,
             sort_column: "run_number".to_string(),
             direction: SortDirection::Desc,
+            scan_depth: 1,
         }
     }
 }

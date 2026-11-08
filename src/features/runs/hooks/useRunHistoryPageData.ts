@@ -56,6 +56,10 @@ export function useRunHistoryPageData(pipeline: Pipeline | null): RunHistoryPage
     direction: runsTable?.default_sort_direction === 'asc' ? 'asc' : 'desc',
   }
 
+  const scanKey = JSON.stringify([page, debouncedSearch, status, branch, actor, dateRange, sortStatus])
+  const [depth, setDepth] = useState({ key: scanKey, value: 1 })
+  const scanDepth = depth.key === scanKey ? depth.value : 1
+
   const query = useMemo(
     () =>
       runHistoryQuery(page, PAGE_SIZE, {
@@ -66,10 +70,11 @@ export function useRunHistoryPageData(pipeline: Pipeline | null): RunHistoryPage
         date_range: isDateRange(dateRange) ? dateRange : undefined,
         sort_column: String(sortStatus.columnAccessor),
         direction: sortStatus.direction,
+        scan_depth: scanDepth,
       }),
-    [page, debouncedSearch, status, branch, actor, dateRange, sortStatus]
+    [page, debouncedSearch, status, branch, actor, dateRange, sortStatus, scanDepth]
   )
-  const { page: _page, ...infiniteQuery } = query
+  const { page: _page, scan_depth: _depth, ...infiniteQuery } = query
 
   const paged = useRunHistory(pipelineId, query, !isMobile)
   const infinite = useRunHistoryInfinite(isMobile ? pipelineId : '', infiniteQuery)
@@ -106,9 +111,13 @@ export function useRunHistoryPageData(pipeline: Pipeline | null): RunHistoryPage
     totalCount: lastPage?.total_count ?? 0,
     isComplete: lastPage?.is_complete ?? false,
     hasMore: lastPage?.has_more ?? false,
-    isFetchingMore: infinite.isFetchingNextPage,
+    isFetchingMore: isMobile ? infinite.isFetchingNextPage : paged.isFetching,
     fetchMore: () => {
-      if (isMobile && infinite.hasNextPage && !infinite.isFetchingNextPage) {
+      if (!isMobile) {
+        setDepth({ key: scanKey, value: scanDepth + 1 })
+        return
+      }
+      if (infinite.hasNextPage && !infinite.isFetchingNextPage) {
         void infinite.fetchNextPage()
       }
     },

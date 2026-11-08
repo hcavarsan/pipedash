@@ -60,7 +60,8 @@ impl PipelineService {
         let mut stalled = false;
         let mut capped = false;
         let mut fetched = false;
-        let scan_budget = page_target.max(SCAN_LIMIT.saturating_mul(query.page));
+        let depth = query.page.max(query.scan_depth);
+        let scan_budget = page_target.max(SCAN_LIMIT.saturating_mul(depth));
         let matched = loop {
             let matched: Vec<_> = cached
                 .iter()
