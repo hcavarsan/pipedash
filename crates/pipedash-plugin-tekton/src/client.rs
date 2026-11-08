@@ -53,7 +53,7 @@ pub(crate) const STEP_LOG_TAIL_LINES: usize = 10_000;
 
 impl TektonClient {
     pub async fn from_kubeconfig(
-        source: &KubeconfigSource<Option<String>>, context: Option<&str>,
+        source: &KubeconfigSource, context: Option<&str>,
     ) -> PluginResult<Self> {
         let source = source.clone();
         let client = kubernetes::connect(

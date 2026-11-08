@@ -10,7 +10,6 @@ license = "GPL-3.0"
 [dependencies]
 async-trait.workspace = true
 chrono.workspace = true
-dirs.workspace = true
 futures.workspace = true
 http.workspace = true
 kube.workspace = true
@@ -18,7 +17,6 @@ pipedash-plugin-api = { workspace = true, features = ["kubernetes"] }
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-shellexpand.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 

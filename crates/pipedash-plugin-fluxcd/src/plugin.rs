@@ -9,6 +9,7 @@ use futures::{
     StreamExt,
     TryStreamExt,
 };
+use pipedash_plugin_api::kubernetes::KubeconfigSource;
 use pipedash_plugin_api::logs::tagged::{
     TaggedLogDialect,
     TAGGED_MARKERS,
@@ -27,10 +28,7 @@ use self::catalog::{
 };
 use crate::{
     actions,
-    client::{
-        self,
-        FluxClient,
-    },
+    client::FluxClient,
     config::{
         self,
         Settings,
@@ -255,12 +253,16 @@ plugin_impl!(FluxcdPlugin [
     ) -> PluginResult<Vec<String>> {
         match field_key {
             "context" => {
-                client::config::available_contexts(config::kubeconfig_source(config)).await
+                let source = KubeconfigSource::from_config(config, config::KUBECONFIG_PATH_KEY);
+                let description = source.describe();
+                kubernetes::available_contexts(move || source.load(), description).await
             }
             "namespaces" => {
-                let client =
-                    FluxClient::connect(config::kubeconfig_source(config), config::context(config))
-                        .await?;
+                let client = FluxClient::connect(
+                    KubeconfigSource::from_config(config, config::KUBECONFIG_PATH_KEY),
+                    config::context(config),
+                )
+                .await?;
 
                 match client.namespaces().await {
                     Err(

@@ -42,17 +42,17 @@ fn create_config_schema() -> ConfigSchema {
     ConfigSchema::new()
         .add_field(
             ConfigField::text(
-                "kubeconfig_path",
+                config::KUBECONFIG_PATH_KEY,
                 ConfigSection::Authentication,
                 "Kubeconfig Path",
             )
             .description(
                 "Path to your Kubernetes config file(s). Multiple paths can be separated by ':' (Unix) or ';' (Windows). Uses $KUBECONFIG env var if set. Ignored when Kubeconfig Content is set.",
             )
-            .default_text(&config::get_default_kubeconfig_path()),
+            .default_text(&kubernetes::default_kubeconfig_path()),
         )
         .add_field(ConfigField::kubeconfig_content(
-            config::KUBECONFIG_CONTENT_KEY,
+            kubernetes::KUBECONFIG_CONTENT_KEY,
             "Kubeconfig Content",
         ))
         .add_field(
