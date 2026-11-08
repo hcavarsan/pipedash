@@ -127,7 +127,6 @@ pub(crate) fn trigger_inputs(inputs: Option<Value>) -> TriggerInputs {
         .filter_map(|(key, value)| {
             let name = key.strip_prefix(PARAMETER_PREFIX)?.to_string();
             let value = match value {
-                Value::String(text) if text.is_empty() => return None,
                 Value::Number(number) => match number.as_f64() {
                     Some(float) if float.fract() == 0.0 && float.abs() < 9.0e15 => {
                         Value::from(float as i64)

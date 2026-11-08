@@ -70,7 +70,7 @@ fn trigger_inputs_split_branch_definition_and_typed_parameters() {
     assert_eq!(inputs.definition.as_deref(), Some("def-1"));
     assert_eq!(
         Value::Object(inputs.parameters),
-        json!({"deploy": true, "retries": 3, "ratio": 0.5, "target": "production"})
+        json!({"deploy": true, "retries": 3, "ratio": 0.5, "release": "", "target": "production"})
     );
     let empty = trigger_inputs(None);
     assert!(empty.branch.is_none() && empty.parameters.is_empty());
