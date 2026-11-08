@@ -175,15 +175,12 @@ async fn cancel_runs_should_report_every_failure_and_keep_going() {
     let (provider_id, stub) = h.add_stub(StubProvider::new).await;
     *stub.cancelled.lock().unwrap() = Some(Vec::new());
     let build = pipeline(provider_id, "build", PipelineStatus::Running);
-    cache(
-        &h,
-        &build,
-        vec![
-            run_as(&build.id, 13, PipelineStatus::Running),
-            run_as(&build.id, 1, PipelineStatus::Running),
-        ],
-    )
-    .await;
+    let runs = vec![
+        run_as(&build.id, 13, PipelineStatus::Running),
+        run_as(&build.id, 1, PipelineStatus::Running),
+    ];
+    *stub.runs.lock().unwrap() = runs.clone();
+    cache(&h, &build, runs).await;
     let target = |pipeline_id: &str, run_number| RunTarget {
         pipeline_id: pipeline_id.to_string(),
         run_number,

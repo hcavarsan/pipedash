@@ -58,24 +58,33 @@ impl PipelineService {
             .await?;
         let mut complete = false;
         let mut stalled = false;
+        let mut capped = false;
         let mut fetched = false;
+        let scan_budget = page_target.max(SCAN_LIMIT.saturating_mul(query.page));
         let matched = loop {
             let matched: Vec<_> = cached
                 .iter()
                 .filter(|run| criteria.matches(run))
                 .cloned()
                 .collect();
-            if matched.len() > end || complete || stalled {
+            let fresh_enough = fetched || !policy.bounded;
+            if (matched.len() > end && fresh_enough) || complete || stalled {
                 break matched;
             }
             let limit = if policy.bounded {
                 usize::MAX
             } else {
-                page_target.max((cached.len() / FETCH_STEP + 1) * FETCH_STEP)
+                page_target.max((cached.len() * 2 / FETCH_STEP + 1) * FETCH_STEP)
             };
-            if limit > page_target.max(SCAN_LIMIT) && !policy.bounded {
+            if !policy.bounded && cached.len() >= scan_budget {
+                capped = true;
                 break matched;
             }
+            let limit = if policy.bounded {
+                limit
+            } else {
+                limit.min(scan_budget)
+            };
 
             let before = cached.len();
             let (api_runs, lease) = self.fetch_run_history_leased(pipeline, limit).await?;
@@ -88,6 +97,7 @@ impl PipelineService {
                 .await?;
             stalled = !complete && cached.len() <= before;
         };
+        let exhausted = policy.bounded || complete || stalled;
 
         if !fetched && !policy.bounded && query.page == 1 {
             if let Ok(lease) = self.provider_service.acquire(pipeline.provider_id).await {
@@ -105,8 +115,8 @@ impl PipelineService {
                 .take(query.page_size)
                 .collect(),
             total_count,
-            has_more: end < total_count,
-            is_complete: policy.bounded || complete,
+            has_more: end < total_count || (capped && !exhausted),
+            is_complete: exhausted,
             page: query.page,
             page_size: query.page_size,
             total_pages: total_count.div_ceil(query.page_size),

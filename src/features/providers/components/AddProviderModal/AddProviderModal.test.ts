@@ -184,12 +184,13 @@ test('credential fields and navigation stay locked while the save is pending', a
 
   await user.click(await view().findByRole('button', { name: /^Next/ }))
   const note = await view().findByRole('textbox', { name: 'Note' })
+  assert.ok(note instanceof HTMLInputElement)
+  await waitFor(() => assert.equal(note.disabled, false))
   await user.clear(note)
   await user.type(note, 'new')
   await user.click(view().getByRole('button', { name: 'Save' }))
 
   await waitFor(() => assert.equal(saved.length, 1))
-  assert.ok(note instanceof HTMLInputElement)
   assert.equal(note.disabled, true)
   assert.equal(view().getByRole('button', { name: 'Back' }).hasAttribute('disabled'), true)
   assert.equal(view().getByRole('button', { name: /^Next/ }).hasAttribute('disabled'), true)
@@ -213,13 +214,14 @@ test('a rejected save keeps the dialog open with the typed values and allows a r
 
   await user.click(await view().findByRole('button', { name: /^Next/ }))
   const note = await view().findByRole('textbox', { name: 'Note' })
+  assert.ok(note instanceof HTMLInputElement)
+  await waitFor(() => assert.equal(note.disabled, false))
   await user.clear(note)
   await user.type(note, 'kept')
   await user.click(view().getByRole('button', { name: 'Save' }))
 
   await view().findByText(/provider rejected the update/)
   assert.equal(closed.value, false)
-  assert.ok(note instanceof HTMLInputElement)
   assert.equal(note.value, 'kept')
   assert.equal(note.disabled, false)
 

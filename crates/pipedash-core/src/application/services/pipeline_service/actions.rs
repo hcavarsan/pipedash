@@ -44,17 +44,9 @@ impl PipelineService {
     async fn presented_run(
         &self, provider: &dyn Provider, pipeline: &Pipeline, run_number: i64,
     ) -> DomainResult<PipelineRun> {
-        let mut run = match self
-            .repository
-            .get_cached_run(&pipeline.id, run_number)
-            .await?
-        {
-            Some(cached) => cached,
-            None => {
-                self.fetch_run_details_from(provider, pipeline, run_number)
-                    .await?
-            }
-        };
+        let mut run = self
+            .fetch_run_details_from(provider, pipeline, run_number)
+            .await?;
         self.presenter
             .runs(pipeline, std::slice::from_mut(&mut run))
             .await?;

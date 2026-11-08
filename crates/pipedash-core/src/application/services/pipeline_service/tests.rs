@@ -515,9 +515,10 @@ async fn force_cancellation_only_invalidates_history_after_provider_acceptance()
     let mut cached_run = run(7, "running", 5, None);
     cached_run.pipeline_id.clone_from(&pipeline_id);
     h.repository
-        .cache_run_history(&pipeline_id, &[cached_run])
+        .cache_run_history(&pipeline_id, std::slice::from_ref(&cached_run))
         .await
         .unwrap();
+    *stub.run_response.lock().unwrap() = Some(Ok(cached_run));
     stub.force_cancel_rejected.store(true, Ordering::SeqCst);
 
     let rejected = h.pipeline_service.force_cancel_run(&pipeline_id, 7).await;
@@ -546,6 +547,42 @@ async fn force_cancellation_only_invalidates_history_after_provider_acceptance()
             .unwrap(),
         0
     );
+    assert!(h.bus.events().iter().any(|event| {
+        matches!(event, CoreEvent::RunCancelled { pipeline_id: id } if id == &pipeline_id)
+    }));
+}
+
+#[tokio::test]
+async fn run_actions_are_checked_against_fresh_run_details_not_the_cache() {
+    let h = Harness::new().await;
+    let (provider_id, stub) = h
+        .add_stub(|id| {
+            let mut provider = StubProvider::new(id);
+            provider.capabilities.force_cancel = true;
+            provider
+        })
+        .await;
+    let mut target = pipeline(provider_id, "build", PipelineStatus::Running);
+    target.provider_type = STUB_FORCE.to_string();
+    let pipeline_id = target.id.clone();
+    h.repository
+        .update_pipelines_cache(provider_id, &[target])
+        .await
+        .unwrap();
+    let mut stale = run(7, "success", 5, None);
+    stale.pipeline_id.clone_from(&pipeline_id);
+    h.repository
+        .cache_run_history(&pipeline_id, &[stale])
+        .await
+        .unwrap();
+    let mut fresh = run(7, "running", 5, None);
+    fresh.pipeline_id.clone_from(&pipeline_id);
+    *stub.run_response.lock().unwrap() = Some(Ok(fresh));
+
+    h.pipeline_service
+        .force_cancel_run(&pipeline_id, 7)
+        .await
+        .unwrap();
     assert!(h.bus.events().iter().any(|event| {
         matches!(event, CoreEvent::RunCancelled { pipeline_id: id } if id == &pipeline_id)
     }));

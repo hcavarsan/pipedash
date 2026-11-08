@@ -230,3 +230,101 @@ async fn query_run_history_should_fetch_deeper_history_until_filters_are_satisfi
     assert!(!page.is_complete);
     h.pipeline_service.settle().await;
 }
+
+#[tokio::test]
+async fn query_run_history_should_refresh_bounded_history_even_when_the_cache_fills_the_page() {
+    let h = Harness::new().await;
+    let (provider_id, _) = h
+        .add_stub(|id| {
+            let pipeline_id = format!("stub__{id}__web");
+            StubProvider::new(id).bounded_history().with_runs(
+                (1..=31)
+                    .rev()
+                    .map(|number| run_as(&pipeline_id, number, PipelineStatus::Success))
+                    .collect(),
+            )
+        })
+        .await;
+    let mut pipeline = pipeline(provider_id, "web", PipelineStatus::Success);
+    pipeline.provider_type = crate::application::test_support::plugins::STUB_BOUNDED.to_string();
+    h.repository
+        .update_pipelines_cache(provider_id, std::slice::from_ref(&pipeline))
+        .await
+        .unwrap();
+    let stale: Vec<_> = (1..=30)
+        .map(|number| run_as(&pipeline.id, number, PipelineStatus::Success))
+        .collect();
+    h.repository
+        .cache_run_history(&pipeline.id, &stale)
+        .await
+        .unwrap();
+
+    let page = h
+        .pipeline_service
+        .query_run_history(&pipeline.id, RunHistoryQuery::page(1, 10))
+        .await
+        .unwrap();
+
+    assert!(page.runs.iter().any(|run| run.run_number == 31));
+    assert_eq!(page.total_count, 31);
+    h.pipeline_service.settle().await;
+}
+
+#[tokio::test]
+async fn query_run_history_should_offer_more_pages_when_a_filtered_scan_hits_its_budget() {
+    let h = Harness::new().await;
+    let (provider_id, _) = h
+        .add_stub(|id| {
+            let pipeline_id = format!("stub__{id}__web");
+            StubProvider::new(id).with_runs(
+                (1..=1_200)
+                    .rev()
+                    .map(|number| {
+                        let status = if number == 1 {
+                            PipelineStatus::Failed
+                        } else {
+                            PipelineStatus::Success
+                        };
+                        run_as(&pipeline_id, number, status)
+                    })
+                    .collect(),
+            )
+        })
+        .await;
+    let pipeline = pipeline(provider_id, "web", PipelineStatus::Success);
+    h.repository
+        .update_pipelines_cache(provider_id, std::slice::from_ref(&pipeline))
+        .await
+        .unwrap();
+    let failed = |page| RunHistoryQuery {
+        page,
+        page_size: 10,
+        statuses: vec![PipelineStatus::Failed],
+        ..RunHistoryQuery::page(page, 10)
+    };
+
+    let first = h
+        .pipeline_service
+        .query_run_history(&pipeline.id, failed(1))
+        .await
+        .unwrap();
+    assert_eq!(first.total_count, 0);
+    assert!(first.has_more);
+    assert!(!first.is_complete);
+
+    let mut page = 2;
+    let last = loop {
+        let next = h
+            .pipeline_service
+            .query_run_history(&pipeline.id, failed(page))
+            .await
+            .unwrap();
+        if !next.has_more {
+            break next;
+        }
+        page += 1;
+    };
+    assert!(last.is_complete);
+    assert_eq!(last.total_count, 1);
+    h.pipeline_service.settle().await;
+}

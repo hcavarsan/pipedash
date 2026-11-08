@@ -23,6 +23,7 @@ fn serve_once(response: &'static str) -> (Url, mpsc::Receiver<String>) {
 }
 
 async fn fetch(url: &Url, from: Option<u64>) -> PluginResult<Response> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let client = reqwest::Client::new();
     send_log(&RetryPolicy::default(), url, from, "gone", || {
         client.get(url.clone())
