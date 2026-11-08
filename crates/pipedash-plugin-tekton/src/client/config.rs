@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::Path;
 
 use kube::config::Kubeconfig;
 use pipedash_plugin_api::kubernetes::{
@@ -10,15 +10,15 @@ use pipedash_plugin_api::{
     PluginResult,
 };
 
-fn merge_kubeconfigs(paths: Vec<String>) -> PluginResult<Kubeconfig> {
+fn merge_kubeconfigs(paths: &[String]) -> PluginResult<Kubeconfig> {
     let mut merged = Kubeconfig::default();
     let mut found_any = false;
 
-    for path in paths.into_iter().map(PathBuf::from) {
+    for path in paths.iter().map(Path::new) {
         if !path.exists() {
             continue;
         }
-        let Ok(kubeconfig) = Kubeconfig::read_from(&path) else {
+        let Ok(kubeconfig) = Kubeconfig::read_from(path) else {
             continue;
         };
         found_any = true;
@@ -42,7 +42,7 @@ fn merge_kubeconfigs(paths: Vec<String>) -> PluginResult<Kubeconfig> {
 pub(super) fn load_kubeconfig(source: &KubeconfigSource) -> PluginResult<Kubeconfig> {
     match source {
         KubeconfigSource::Content(content) => kubernetes::parse_kubeconfig_content(content),
-        KubeconfigSource::Path(paths) => merge_kubeconfigs(paths.clone()),
+        KubeconfigSource::Path(paths) => merge_kubeconfigs(paths),
     }
 }
 

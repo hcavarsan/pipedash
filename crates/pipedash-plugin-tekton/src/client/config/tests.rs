@@ -12,15 +12,10 @@ fn unreadable_files_are_skipped_and_readable_ones_concatenated() {
     std::fs::write(&broken, "users: {token: ").unwrap();
     let path = |path: &std::path::Path| path.to_string_lossy().into_owned();
 
-    let merged = merge_kubeconfigs(vec![
-        path(&broken),
-        path(&good),
-        path(&good),
-        path(&missing),
-    ])
-    .unwrap();
+    let merged =
+        merge_kubeconfigs(&[path(&broken), path(&good), path(&good), path(&missing)]).unwrap();
 
     assert_eq!(merged.contexts.len(), 4);
     assert_eq!(merged.current_context.as_deref(), Some("ctx"));
-    assert!(merge_kubeconfigs(vec![path(&broken), path(&missing)]).is_err());
+    assert!(merge_kubeconfigs(&[path(&broken), path(&missing)]).is_err());
 }

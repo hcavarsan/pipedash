@@ -86,14 +86,22 @@ fn expand_path(path: &str) -> String {
         .unwrap_or_else(|_| path.to_string())
 }
 
-pub fn kubeconfig_paths(value: &str) -> Vec<String> {
+fn split_paths(value: &str) -> impl Iterator<Item = &str> {
     let separator = if cfg!(windows) { ';' } else { ':' };
 
     value
         .split(separator)
         .map(str::trim)
         .filter(|path| !path.is_empty())
-        .map(expand_path)
+}
+
+pub fn kubeconfig_paths(value: &str) -> Vec<String> {
+    split_paths(value)
+        .flat_map(|path| {
+            split_paths(&expand_path(path))
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
         .collect()
 }
 

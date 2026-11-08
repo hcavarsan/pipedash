@@ -55,7 +55,10 @@ fn format_crate(repo: &Repo, spec: &Spec) -> Result<(), String> {
 fn generate(repo: &Repo, spec: &Spec, files: &[(String, String)]) -> Result<(), String> {
     let baseline = audit(repo);
     let original = repo.apply(spec, files)?;
-    format_crate(repo, spec)?;
+    if let Err(error) = format_crate(repo, spec) {
+        repo.rollback(spec, &original);
+        return Err(error);
+    }
     match (baseline, audit(repo)) {
         (Audit::Passed, Audit::Failed(report)) => {
             repo.rollback(spec, &original);

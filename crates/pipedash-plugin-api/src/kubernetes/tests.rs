@@ -63,6 +63,25 @@ fn blank_content_falls_back_to_the_split_and_trimmed_path() {
 }
 
 #[test]
+fn a_variable_holding_several_files_expands_to_each_file() {
+    let separator = if cfg!(windows) { ";" } else { ":" };
+    std::env::set_var(
+        "PIPEDASH_TEST_KUBECONFIG_LIST",
+        ["/a/one", " /a/two ", ""].join(separator),
+    );
+    let value = ["$PIPEDASH_TEST_KUBECONFIG_LIST", "/a/three"].join(separator);
+
+    assert_eq!(
+        KubeconfigSource::from_config(&config(&[("path", &value)]), "path"),
+        KubeconfigSource::Path(vec![
+            "/a/one".to_string(),
+            "/a/two".to_string(),
+            "/a/three".to_string()
+        ])
+    );
+}
+
+#[test]
 fn missing_or_blank_path_falls_back_to_the_default() {
     let default = KubeconfigSource::Path(kubeconfig_paths(&default_kubeconfig_path()));
 

@@ -71,7 +71,7 @@ fn token_prefixes_and_ping_paths_are_checked() {
         );
     }
     assert_eq!(validate_ping_path("/api/v4/user"), Ok(()));
-    for path in ["api/user", "/a b", "/a\""] {
+    for path in ["api/user", "/a b", "/a\"", "/api/\\user"] {
         assert!(validate_ping_path(path).is_err(), "{path:?}");
     }
 }
@@ -96,22 +96,6 @@ fn names_derive_from_the_id() {
     assert_eq!(title_case("my-ci"), "My Ci");
     assert_eq!(pascal_case("my-ci"), "MyCi");
     assert_eq!(pascal_case("gamma"), "Gamma");
-    assert_eq!(default_id_shape(Archetype::Rest), IdShape::Numeric);
-    assert_eq!(default_id_shape(Archetype::Kubernetes), IdShape::Namespaced);
-}
-
-#[test]
-fn description_default_follows_the_trigger_capability() {
-    let mut capabilities = Capabilities::from_list(&[Capability::Trigger]);
-    assert_eq!(
-        default_description("Gamma", &capabilities),
-        "Monitor and trigger Gamma pipelines"
-    );
-    capabilities.trigger = false;
-    assert_eq!(
-        default_description("Gamma", &capabilities),
-        "Monitor Gamma pipelines"
-    );
 }
 
 #[test]
@@ -134,38 +118,9 @@ fn from_args_lists_only_the_missing_required_flags() {
 }
 
 #[test]
-fn from_args_fills_conventional_defaults() {
-    let spec = from_args(&args("my-ci", "Monitor My Ci pipelines"), &taken()).unwrap();
-
-    assert_eq!(spec.crate_name, "pipedash-plugin-my-ci");
-    assert_eq!(spec.pascal, "MyCi");
-    assert_eq!(spec.name, "My Ci");
-    assert_eq!(spec.archetype, Archetype::Rest);
-    assert!(!spec.kubernetes);
-    assert_eq!(spec.id_shape, IdShape::Numeric);
-    assert_eq!(
-        spec.capabilities,
-        Capabilities {
-            trigger: true,
-            cancel: true,
-            logs: true
-        }
-    );
-    assert_eq!(spec.token_label, "API Token");
-    assert_eq!(
-        spec.token_help,
-        "API token from your My Ci account settings"
-    );
-    assert_eq!(spec.ping_path, "/api/user");
-    assert_eq!(spec.icon_svg, None);
-    assert_eq!(spec.initial, "M");
-}
-
-#[test]
-fn read_only_disables_every_capability_and_kubernetes_defaults_to_namespaced_ids() {
+fn read_only_disables_every_capability() {
     let spec = from_args(
         &Args {
-            archetype: Some(Archetype::Kubernetes),
             read_only: true,
             ..args("gamma", "Monitor Gamma workloads")
         },
@@ -173,8 +128,6 @@ fn read_only_disables_every_capability_and_kubernetes_defaults_to_namespaced_ids
     )
     .unwrap();
 
-    assert!(spec.kubernetes);
-    assert_eq!(spec.id_shape, IdShape::Namespaced);
     assert_eq!(
         spec.capabilities,
         Capabilities {

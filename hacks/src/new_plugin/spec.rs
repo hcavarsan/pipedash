@@ -115,9 +115,11 @@ pub(crate) fn validate_token_prefixes(prefixes: &[String]) -> Result<(), String>
 }
 
 pub(crate) fn validate_ping_path(path: &str) -> Result<(), String> {
-    if !path.starts_with('/') || path.contains(|c: char| c.is_whitespace() || c == '"') {
+    if !path.starts_with('/') || path.contains(|c: char| c.is_whitespace() || c == '"' || c == '\\')
+    {
         return Err(
-            "use an absolute API path without spaces or quotes, e.g. /api/user".to_string(),
+            "use an absolute API path without spaces, quotes or backslashes, e.g. /api/user"
+                .to_string(),
         );
     }
     Ok(())

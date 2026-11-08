@@ -110,8 +110,16 @@ impl Repo {
     }
 
     pub(crate) fn rollback(&self, spec: &Spec, original_manifest: &str) {
-        let _ = fs::remove_dir_all(self.crate_dir(spec));
-        let _ = fs::write(self.root.join(PLUGINS_MANIFEST), original_manifest);
+        let crate_dir = self.crate_dir(spec);
+        match fs::remove_dir_all(&crate_dir) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                eprintln!("warning: could not remove {}: {error}", crate_dir.display());
+            }
+            _ => {}
+        }
+        if let Err(error) = fs::write(self.root.join(PLUGINS_MANIFEST), original_manifest) {
+            eprintln!("warning: could not restore {PLUGINS_MANIFEST}: {error}");
+        }
     }
 }
 
@@ -169,7 +177,12 @@ pub(crate) fn insert_dependency(
         }
         at = Some(index + 1);
     }
-    let at = at.unwrap_or(end);
+    let at = at.unwrap_or_else(|| {
+        (start..end)
+            .rev()
+            .find(|&index| !lines[index].trim().is_empty())
+            .map_or(start, |index| index + 1)
+    });
     let line = dependency_line(crate_name, version);
     let mut output: Vec<&str> = lines[..at].to_vec();
     output.push(&line);

@@ -42,6 +42,19 @@ fn dependency_sorting_first_goes_before_other_plugins_but_after_the_api() {
 }
 
 #[test]
+fn the_first_plugin_goes_right_after_the_last_dependency() {
+    let manifest =
+        "[dependencies]\npipedash-plugin-api.workspace = true\n\n[lints]\nworkspace = true\n";
+
+    let updated = insert_dependency(manifest, "pipedash-plugin-beta", "1.0.0").unwrap();
+
+    let lines: Vec<&str> = updated.lines().collect();
+    assert_eq!(lines[1], "pipedash-plugin-api.workspace = true");
+    assert!(lines[2].starts_with("pipedash-plugin-beta = "));
+    assert_eq!(lines[3], "");
+}
+
+#[test]
 fn duplicate_or_missing_section_is_an_error() {
     assert!(insert_dependency(MANIFEST, "pipedash-plugin-alpha", "1.0.0").is_err());
     assert!(
