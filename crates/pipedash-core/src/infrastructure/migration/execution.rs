@@ -14,6 +14,9 @@ use super::{
 use crate::domain::DomainError;
 use crate::infrastructure::config::StorageManager;
 
+#[cfg(test)]
+mod tests;
+
 fn source_db_display(backups: &BackupPaths) -> String {
     backups
         .source_db
@@ -97,6 +100,15 @@ impl MigrationOrchestrator {
             result.duration_ms = start_time.elapsed().as_millis() as u64;
             return result;
         }
+
+        let plan = match self.plan_migration(plan.to, &options) {
+            Ok(plan) => plan,
+            Err(error) => {
+                result.errors.push(error.to_string());
+                result.duration_ms = start_time.elapsed().as_millis() as u64;
+                return result;
+            }
+        };
 
         let backup_manager = BackupManager::new(plan.from.data_dir());
         let backups = match backup_manager
