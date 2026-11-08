@@ -133,7 +133,7 @@ async fn applying_a_draft_completes_setup_and_starts_the_core() {
         "PIPEDASH_VAULT_PASSWORD",
     ]
     .map(|name| (name, std::env::var_os(name)));
-    std::env::remove_var("PIPEDASH_CONFIG_PATH");
+    std::env::set_var("PIPEDASH_CONFIG_PATH", data_dir.join("config.toml"));
     std::env::set_var("PIPEDASH_DATA_DIR", &data_dir);
     std::env::set_var("PIPEDASH_VAULT_PASSWORD", "x");
     let state = AppState::setup_mode(
