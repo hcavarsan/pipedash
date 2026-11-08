@@ -145,8 +145,14 @@ fn backup_database(
     let backup_name = format!("{}_{}.db.corrupt", prefix, timestamp);
     let backup_path = backup_dir.join(&backup_name);
     if let Err(e) = retry_while_locked(|| std::fs::rename(original, &backup_path)) {
+        if is_locked(&e) {
+            return Err(format!(
+                "Failed to back up corrupted {label} db, it is still in use: {}",
+                e
+            ));
+        }
         tracing::warn!("Could not backup {label} db: {}. Removing directly.", e);
-        retry_while_locked(|| std::fs::remove_file(original))
+        std::fs::remove_file(original)
             .map_err(|e| format!("Failed to remove corrupted {label} db: {}", e))?;
         return Ok(None);
     }
