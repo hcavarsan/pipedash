@@ -234,7 +234,7 @@ jobs:
 
       - name: Install cargo-llvm-cov and nextest
         if: matrix.os_name != 'linux'
-        uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2.89.0
         with:
           tool: cargo-llvm-cov,cargo-nextest
 
@@ -312,7 +312,7 @@ jobs:
         run: mise install
 
       - name: Install cargo-llvm-cov and nextest
-        uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2.89.0
         with:
           tool: cargo-llvm-cov,cargo-nextest
 
