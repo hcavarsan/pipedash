@@ -31,7 +31,10 @@ impl TektonPlugin {
     async fn client(&self) -> PluginResult<&client::TektonClient> {
         self.client
             .get_or_try_init(|| async {
-                let source = config::get_kubeconfig_source(&self.config);
+                let source = kubernetes::KubeconfigSource::from_config(
+                    &self.config,
+                    config::KUBECONFIG_PATH_KEY,
+                );
                 let context = config::get_context(&self.config);
 
                 client::TektonClient::from_kubeconfig(&source, context.as_deref()).await

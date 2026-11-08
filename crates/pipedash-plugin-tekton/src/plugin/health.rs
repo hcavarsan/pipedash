@@ -6,6 +6,7 @@ use futures::future::{
 };
 use k8s_openapi::api::apps::v1::Deployment;
 use pipedash_plugin_api::health::deployment_health;
+use pipedash_plugin_api::kubernetes::KubeconfigSource;
 use pipedash_plugin_api::{
     collect_controller_health,
     ComponentHealth,
@@ -90,7 +91,11 @@ impl TektonPlugin {
     ) -> PluginResult<Vec<String>> {
         match field_key {
             "context" => {
-                client::config::available_contexts(config::get_kubeconfig_source(config)).await
+                client::config::available_contexts(KubeconfigSource::from_config(
+                    config,
+                    config::KUBECONFIG_PATH_KEY,
+                ))
+                .await
             }
             "namespaces" => Ok(namespace_suggestions(config).await),
             _ => Ok(Vec::new()),
@@ -101,7 +106,7 @@ impl TektonPlugin {
 async fn namespace_suggestions(config: &HashMap<String, String>) -> Vec<String> {
     let context = config::get_context(config);
     let client = match client::TektonClient::from_kubeconfig(
-        &config::get_kubeconfig_source(config),
+        &KubeconfigSource::from_config(config, config::KUBECONFIG_PATH_KEY),
         context.as_deref(),
     )
     .await

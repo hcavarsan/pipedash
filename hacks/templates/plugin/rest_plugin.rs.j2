@@ -1,0 +1,44 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use pipedash_plugin_api::config::{
+    required_value,
+    selected_items,
+};
+use pipedash_plugin_api::*;
+
+use crate::{
+    client,
+    config,
+    metadata,
+};
+
+plugin_struct!(
+    {{ pascal }}Plugin,
+    client::{{ pascal }}Client,
+    metadata::create_metadata();
+    status_source: Option<StatusSource> = None
+);
+
+plugin_impl!({{ pascal }}Plugin [metadata, status_source] {
+    fn initialize(
+        &mut self, _provider_id: i64, config: HashMap<String, String>,
+        http_client: Option<Arc<reqwest::Client>>,
+    ) -> PluginResult<()> {
+        let client = client::{{ pascal }}Client::new(
+            require_client(http_client)?,
+            config::get_base_url(&config)?,
+            required_value(&config, "token", "Missing {{ name }} API token")?.to_string(),
+        );
+        self.status_source = custom_status_source(&config)?;
+        self.client = Some(client);
+        self.config = config;
+        Ok(())
+    }
+
+    async fn validate_credentials(&self) -> PluginResult<bool> {
+        self.client()?.ping().await.map(|()| true)
+    }
+
+{% include "stubs.rs.j2" %}
+});

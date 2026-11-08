@@ -1,0 +1,29 @@
+use super::*;
+
+{% if id_shape == "numeric" %}
+#[test]
+fn pipeline_ids_are_numbers() {
+    assert_eq!(parse_pipeline_id("42").unwrap(), 42);
+    assert!(parse_pipeline_id("abc").is_err());
+    assert!(parse_pipeline_id("").is_err());
+}
+{% elif id_shape == "path" %}
+#[test]
+fn pipeline_ids_are_owner_repo_and_workflow() {
+    assert_eq!(parse_pipeline_id("acme/api/ci.yml").unwrap(), ("acme", "api", "ci.yml"));
+    assert_eq!(
+        parse_pipeline_id("acme/api/workflows/ci.yml").unwrap(),
+        ("acme", "api", "workflows/ci.yml")
+    );
+    assert!(parse_pipeline_id("acme/api").is_err());
+    assert!(parse_pipeline_id("/api/ci.yml").is_err());
+}
+{% else %}
+#[test]
+fn pipeline_ids_are_namespace_and_name() {
+    assert_eq!(parse_pipeline_id("prod__deploy").unwrap(), ("prod", "deploy"));
+    assert_eq!(parse_pipeline_id("prod__a__b").unwrap(), ("prod", "a__b"));
+    assert!(parse_pipeline_id("deploy").is_err());
+    assert!(parse_pipeline_id("__deploy").is_err());
+}
+{% endif %}

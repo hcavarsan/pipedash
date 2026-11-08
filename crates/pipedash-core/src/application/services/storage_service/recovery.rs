@@ -3,6 +3,7 @@ use std::path::{
     Path,
     PathBuf,
 };
+use std::time::Duration;
 
 use super::blocking;
 use crate::domain::{
@@ -28,6 +29,23 @@ struct BackupInfo {
     main_db_original: Option<PathBuf>,
     metrics_db_backup: Option<PathBuf>,
     metrics_db_original: Option<PathBuf>,
+}
+
+const LOCK_RETRIES: u32 = 40;
+const LOCK_RETRY_DELAY: Duration = Duration::from_millis(50);
+
+fn is_locked(error: &std::io::Error) -> bool {
+    cfg!(windows) && matches!(error.raw_os_error(), Some(32 | 33))
+}
+
+fn retry_while_locked(mut op: impl FnMut() -> std::io::Result<()>) -> std::io::Result<()> {
+    for _ in 0..LOCK_RETRIES {
+        match op() {
+            Err(error) if is_locked(&error) => std::thread::sleep(LOCK_RETRY_DELAY),
+            result => return result,
+        }
+    }
+    op()
 }
 
 pub async fn build_with_recovery<F, Fut>(
@@ -126,7 +144,13 @@ fn backup_database(
 
     let backup_name = format!("{}_{}.db.corrupt", prefix, timestamp);
     let backup_path = backup_dir.join(&backup_name);
-    if let Err(e) = std::fs::rename(original, &backup_path) {
+    if let Err(e) = retry_while_locked(|| std::fs::rename(original, &backup_path)) {
+        if is_locked(&e) {
+            return Err(format!(
+                "Failed to back up corrupted {label} db, it is still in use: {}",
+                e
+            ));
+        }
         tracing::warn!("Could not backup {label} db: {}. Removing directly.", e);
         std::fs::remove_file(original)
             .map_err(|e| format!("Failed to remove corrupted {label} db: {}", e))?;
@@ -173,7 +197,7 @@ fn restore_backup(
         return Ok(false);
     }
 
-    std::fs::rename(backup, original)
+    retry_while_locked(|| std::fs::rename(backup, original))
         .map_err(|e| format!("Failed to restore {label} db from backup: {}", e))?;
     tracing::info!("Restored {label} database from backup");
     Ok(true)

@@ -1024,6 +1024,7 @@ struct StubState {
     etag: Option<String>,
     gate: Option<Arc<Gate>>,
     requests: Vec<FeedRequest>,
+    delay: Duration,
 }
 
 pub(crate) struct FeedStub {
@@ -1046,6 +1047,7 @@ impl FeedStub {
             etag: None,
             gate: None,
             requests: Vec::new(),
+            delay: Duration::ZERO,
         }));
         let shared = Arc::clone(&state);
         tokio::spawn(async move {
@@ -1094,6 +1096,10 @@ impl FeedStub {
         self.state.lock().unwrap().gate = gate.map(Arc::clone);
     }
 
+    pub(crate) fn delay_responses(&self, delay: Duration) {
+        self.state.lock().unwrap().delay = delay;
+    }
+
     pub(crate) fn requests(&self) -> Vec<FeedRequest> {
         self.state.lock().unwrap().requests.clone()
     }
@@ -1128,7 +1134,7 @@ async fn serve_feed(mut stream: tokio::net::TcpStream, state: Arc<Mutex<StubStat
         })
     };
     let if_none_match = header("if-none-match");
-    let gate = {
+    let (gate, delay) = {
         let mut state = state.lock().unwrap();
         state.requests.push(FeedRequest {
             path,
@@ -1136,10 +1142,13 @@ async fn serve_feed(mut stream: tokio::net::TcpStream, state: Arc<Mutex<StubStat
             accept: header("accept"),
             at: Instant::now(),
         });
-        state.gate.clone()
+        (state.gate.clone(), state.delay)
     };
     if let Some(gate) = gate {
         gate.pass().await;
+    }
+    if !delay.is_zero() {
+        let _ = tokio::task::spawn_blocking(move || std::thread::sleep(delay)).await;
     }
 
     let (status, body, mut headers) = {

@@ -39,10 +39,6 @@ pub(crate) struct ProwJobClient {
     client: kube::Client,
 }
 
-fn blocking_failed(error: tokio::task::JoinError) -> PluginError {
-    PluginError::Internal(format!("Kubeconfig loader task failed: {error}"))
-}
-
 fn prowjobs(namespace: &str) -> Request {
     Request::new(format!(
         "/apis/prow.k8s.io/v1/namespaces/{namespace}/prowjobs"
@@ -100,24 +96,8 @@ pub(crate) fn rerun_object(original: &Value, now: DateTime<Utc>) -> PluginResult
 
 impl ProwJobClient {
     pub(crate) async fn contexts(paths: Vec<String>) -> PluginResult<Vec<String>> {
-        tokio::task::spawn_blocking(move || {
-            let mut contexts: Vec<String> = read_kubeconfigs(&paths)?
-                .contexts
-                .into_iter()
-                .map(|context| context.name)
-                .collect();
-            if contexts.is_empty() {
-                return Err(PluginError::InvalidConfig(format!(
-                    "No contexts found in kubeconfig: {}",
-                    paths.join(", ")
-                )));
-            }
-            contexts.sort();
-            contexts.dedup();
-            Ok(contexts)
-        })
-        .await
-        .map_err(blocking_failed)?
+        let source = paths.join(", ");
+        kubernetes::available_contexts(move || read_kubeconfigs(&paths), source).await
     }
 
     pub(crate) async fn connect(settings: &KubeSettings) -> PluginResult<Self> {

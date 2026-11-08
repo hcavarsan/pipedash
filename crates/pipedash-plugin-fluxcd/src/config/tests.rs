@@ -98,35 +98,9 @@ fn kubeconfig_content_is_parsed_from_settings() {
 }
 
 #[test]
-fn kubeconfig_content_wins_over_the_path() {
-    let source = kubeconfig_source(&config(&[
-        ("kubeconfig", "/home/me/.kube/config"),
-        ("token", "apiVersion: v1"),
-    ]));
-
-    assert_eq!(
-        source,
-        KubeconfigSource::Content("apiVersion: v1".to_string())
-    );
-}
-
-#[test]
-fn blank_content_falls_back_to_the_path() {
-    let source = kubeconfig_source(&config(&[
-        ("kubeconfig", "/home/me/.kube/config"),
-        ("token", "  \n "),
-    ]));
-
-    assert_eq!(
-        source,
-        KubeconfigSource::Path(vec!["/home/me/.kube/config".to_string()])
-    );
-}
-
-#[test]
 fn kubeconfig_content_is_never_printed() {
     let settings = Settings::from_config(&config(&[("token", "token: s3cr3t-value")])).unwrap();
 
     assert!(!format!("{settings:?}").contains("s3cr3t-value"));
-    assert!(!describe(&settings.kubeconfig).contains("s3cr3t-value"));
+    assert!(!settings.kubeconfig.describe().contains("s3cr3t-value"));
 }

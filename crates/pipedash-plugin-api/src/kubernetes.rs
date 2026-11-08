@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
@@ -17,33 +18,123 @@ use crate::http::from_status;
 
 const MAX_RETRY_AFTER_SECONDS: u32 = 3600;
 
+pub const KUBECONFIG_CONTENT_KEY: &str = "token";
+
 #[derive(Clone, PartialEq, Eq)]
-pub enum KubeconfigSource<P> {
+pub enum KubeconfigSource {
     Content(String),
-    Path(P),
+    Path(Vec<String>),
 }
 
-impl<P: fmt::Debug> fmt::Debug for KubeconfigSource<P> {
+impl fmt::Debug for KubeconfigSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Content(_) => f.write_str("Content(<redacted>)"),
-            Self::Path(path) => f.debug_tuple("Path").field(path).finish(),
+            Self::Path(paths) => f.debug_tuple("Path").field(paths).finish(),
         }
     }
 }
 
-impl<P> KubeconfigSource<P> {
-    pub fn from_config(
-        config: &HashMap<String, String>, content_key: &str, path: impl FnOnce() -> P,
-    ) -> Self {
-        match config
-            .get(content_key)
+impl KubeconfigSource {
+    pub fn from_config(config: &HashMap<String, String>, path_key: &str) -> Self {
+        if let Some(content) = config
+            .get(KUBECONFIG_CONTENT_KEY)
             .filter(|content| !content.trim().is_empty())
         {
-            Some(content) => Self::Content(content.clone()),
-            None => Self::Path(path()),
+            return Self::Content(content.clone());
+        }
+        let configured = config
+            .get(path_key)
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty());
+        match configured {
+            Some(paths) => Self::Path(kubeconfig_paths(paths)),
+            None => Self::Path(kubeconfig_paths(&default_kubeconfig_path())),
         }
     }
+
+    pub fn describe(&self) -> String {
+        match self {
+            Self::Content(_) => "pasted kubeconfig content".to_string(),
+            Self::Path(paths) => paths.join(", "),
+        }
+    }
+
+    pub fn load(&self) -> PluginResult<Kubeconfig> {
+        match self {
+            Self::Content(content) => parse_kubeconfig_content(content),
+            Self::Path(paths) => read_kubeconfigs(paths),
+        }
+    }
+}
+
+pub fn default_kubeconfig_path() -> String {
+    if let Ok(kubeconfig) = std::env::var("KUBECONFIG") {
+        if !kubeconfig.trim().is_empty() {
+            return kubeconfig;
+        }
+    }
+
+    dirs::home_dir()
+        .map(|home| home.join(".kube/config").to_string_lossy().to_string())
+        .unwrap_or_else(|| "~/.kube/config".to_string())
+}
+
+fn expand_path(path: &str) -> String {
+    shellexpand::full(path)
+        .map(Cow::into_owned)
+        .unwrap_or_else(|_| path.to_string())
+}
+
+fn split_paths(value: &str) -> impl Iterator<Item = &str> {
+    let separator = if cfg!(windows) { ';' } else { ':' };
+
+    value
+        .split(separator)
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+}
+
+pub fn kubeconfig_paths(value: &str) -> Vec<String> {
+    split_paths(value)
+        .flat_map(|path| {
+            split_paths(&expand_path(path))
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+pub fn parse_kubeconfig_content(content: &str) -> PluginResult<Kubeconfig> {
+    Kubeconfig::from_yaml(content).map_err(|_| {
+        PluginError::InvalidConfig(
+            "The pasted kubeconfig content is not valid kubeconfig YAML".to_string(),
+        )
+    })
+}
+
+pub async fn available_contexts<F>(load: F, source: String) -> PluginResult<Vec<String>>
+where
+    F: FnOnce() -> PluginResult<Kubeconfig> + Send + 'static,
+{
+    tokio::task::spawn_blocking(move || {
+        let mut contexts: Vec<String> = load()?
+            .contexts
+            .into_iter()
+            .map(|context| context.name)
+            .collect();
+        if contexts.is_empty() {
+            return Err(PluginError::InvalidConfig(format!(
+                "No contexts found in kubeconfig: {source}"
+            )));
+        }
+        contexts.sort();
+        contexts.dedup();
+
+        Ok(contexts)
+    })
+    .await
+    .map_err(|error| PluginError::Internal(format!("Kubeconfig loader task failed: {error}")))?
 }
 
 pub fn read_kubeconfigs(paths: &[String]) -> PluginResult<Kubeconfig> {

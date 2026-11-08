@@ -18,7 +18,7 @@ These rules are mandatory. Read them before changing anything. When existing cod
 ## Providers are opaque plugins
 
 - **Outside `crates/pipedash-plugin-<id>/` and `crates/pipedash-plugins/`, nothing names a provider.** That means no provider names, no `provider_type ==` checks, no `"<id>__"` prefixes and no identifiers like `isFlux`, in any Rust (tests included), TS, Swift or Kotlin. `scripts/audit_structure.py` enforces this. Core acts only on metadata, capabilities and hooks.
-- **A new provider is one crate plus one line:**
+- **A new provider is one crate plus one line.** `mise run new:plugin` generates both; the parts are:
   - `Cargo.toml`: workspace version, edition and authors, `[lints] workspace = true`, and `description` (it is the UI description). Name extra spellings in `[package.metadata.pipedash] aliases = [...]` so the guard catches them.
   - `assets/icon.svg`. The build fails without it.
   - `src/lib.rs`: `pipedash_plugin_api::register_plugin!(MyPlugin);`.

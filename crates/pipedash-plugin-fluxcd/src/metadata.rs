@@ -1,3 +1,4 @@
+use pipedash_plugin_api::kubernetes;
 use pipedash_plugin_api::{
     status_page_field,
     ConfigField,
@@ -149,14 +150,14 @@ pub fn create_metadata() -> PluginMetadata {
 fn create_config_schema() -> ConfigSchema {
     ConfigSchema::new()
         .add_field(
-            ConfigField::text("kubeconfig", ConfigSection::Authentication, "Kubeconfig")
+            ConfigField::text(config::KUBECONFIG_PATH_KEY, ConfigSection::Authentication, "Kubeconfig")
                 .description(
                     "Path on the machine running Pipedash, not in your browser. Defaults to $KUBECONFIG or ~/.kube/config. Separate files with ':' (';' on Windows). Ignored when Kubeconfig content is set. Monitoring needs get/list permissions. Reconciliation also needs patch permission. Run logs also need list on events in each monitored namespace.",
                 )
-                .default_text(&config::default_kubeconfig()),
+                .default_text(&kubernetes::default_kubeconfig_path()),
         )
         .add_field(ConfigField::kubeconfig_content(
-            config::KUBECONFIG_CONTENT_KEY,
+            kubernetes::KUBECONFIG_CONTENT_KEY,
             "Kubeconfig content",
         ))
         .add_field(

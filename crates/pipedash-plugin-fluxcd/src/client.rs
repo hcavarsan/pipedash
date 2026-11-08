@@ -24,7 +24,6 @@ use serde_json::{
     Value,
 };
 
-use self::config::load_kubeconfig;
 use crate::{
     config::Target,
     types::{
@@ -34,7 +33,6 @@ use crate::{
 };
 
 mod cluster;
-pub(crate) mod config;
 
 const PAGE_LIMIT: u32 = 500;
 const FIELD_MANAGER: &str = "pipedash";
@@ -66,10 +64,8 @@ fn list_context(kind: Kind, namespace: Option<&str>) -> String {
 }
 
 impl FluxClient {
-    pub async fn connect(
-        source: KubeconfigSource<Vec<String>>, context: Option<String>,
-    ) -> PluginResult<Self> {
-        let client = kubernetes::connect(move || load_kubeconfig(&source), context, true).await?;
+    pub async fn connect(source: KubeconfigSource, context: Option<String>) -> PluginResult<Self> {
+        let client = kubernetes::connect(move || source.load(), context, true).await?;
 
         Ok(Self { client })
     }

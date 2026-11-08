@@ -359,9 +359,19 @@ impl World {
 
     async fn poll_after(&self, seconds: u64) {
         let expected = self.feed.request_count() + 1;
+        let gate = Gate::new();
+        self.feed.set_gate(Some(&gate));
         advance(seconds).await;
         until("the next feed request", || {
             self.feed.request_count() == expected
+        })
+        .await;
+        let mut snapshot = self.h.health.snapshot.clone();
+        snapshot.borrow_and_update();
+        self.feed.set_gate(None);
+        gate.open();
+        until("the health service to handle the feed response", || {
+            snapshot.has_changed().unwrap()
         })
         .await;
         quiesce().await;
@@ -1128,6 +1138,22 @@ async fn a_feed_that_keeps_failing_triggers_no_recovery_fetch() {
     }
 
     assert_eq!(p.stub.fetch_count(), 0);
+}
+
+#[tokio::test]
+async fn a_slow_failing_feed_is_polled_once_per_backoff_window() {
+    let w = World::new().await;
+    w.provider(ComponentFilter::All).await;
+    w.h.start().await;
+    w.start().await;
+    w.first_poll().await;
+    w.feed.respond(500, "down");
+    w.feed.delay_responses(Duration::from_millis(150));
+    for _ in 0..3 {
+        w.poll_after(1800).await;
+    }
+
+    assert_eq!(w.feed.request_count(), 4);
 }
 
 #[tokio::test]

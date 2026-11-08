@@ -228,6 +228,11 @@ run = "docker compose -f examples/demo/docker-compose.yml down -v"
 description = "Remove build artifacts"
 run = "cargo clean && rm -rf crates/pipedash-web/dist node_modules/.vite"
 
+[tasks."new:plugin"]
+description = "Scaffold a new provider plugin crate"
+raw = true
+run = "cargo run --quiet --manifest-path hacks/Cargo.toml --bin new_plugin --"
+
 [tasks.knip]
 description = "Find unused code"
 run = "bun run knip"

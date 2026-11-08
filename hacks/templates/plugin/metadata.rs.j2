@@ -1,0 +1,84 @@
+use pipedash_plugin_api::*;
+
+{% if kubernetes %}
+use crate::config;
+{% endif %}
+use crate::schema;
+
+pub fn create_metadata() -> PluginMetadata {
+{% if token_prefixes %}
+    PluginMetadata {
+        token_prefixes: [{{ token_prefixes|quote_list }}].map(str::to_string).to_vec(),
+        ..PluginMetadata::new(
+{% else %}
+    PluginMetadata::new(
+{% endif %}
+        "{{ name }}",
+        create_config_schema(),
+        schema::create_table_schema(),
+{% if capabilities.trigger and capabilities.cancel and capabilities.logs and not kubernetes %}
+        PluginCapabilities::standard(),
+{% else %}
+        PluginCapabilities {
+{% if not capabilities.trigger %}
+            trigger: false,
+{% endif %}
+{% if not capabilities.cancel %}
+            cancel: false,
+{% endif %}
+{% if not capabilities.logs %}
+            logs: false,
+{% endif %}
+{% if kubernetes %}
+            uses_http_proxy: false,
+{% endif %}
+            ..PluginCapabilities::standard()
+        },
+{% endif %}
+    )
+{% if token_prefixes %}
+    }
+{% endif %}
+}
+
+fn create_config_schema() -> ConfigSchema {
+    ConfigSchema::new()
+{% if kubernetes %}
+        .add_field(
+            ConfigField::text(
+                config::KUBECONFIG_PATH_KEY,
+                ConfigSection::Authentication,
+                "Kubeconfig Path",
+            )
+            .description(
+                "Kubeconfig file(s) on the machine running Pipedash, separated by ':' (';' on Windows). Ignored when Kubeconfig Content is set.",
+            )
+            .default_text(&kubernetes::default_kubeconfig_path()),
+        )
+        .add_field(ConfigField::kubeconfig_content(
+            kubernetes::KUBECONFIG_CONTENT_KEY,
+            "Kubeconfig Content",
+        ))
+        .add_field(
+            ConfigField::select(
+                config::CONTEXT_KEY,
+                ConfigSection::Authentication,
+                "Kubernetes Context",
+                &[],
+            )
+            .description("Context from your kubeconfig. Leave empty to use the current context."),
+        )
+{% else %}
+        .add_field(
+            ConfigField::text("base_url", ConfigSection::Connection, "{{ name }} URL")
+                .description("URL of your {{ name }} server, for example https://ci.example.com")
+                .required()
+                .http_url_validation(),
+        )
+        .add_field(ConfigField::token(
+            "{{ token_label }}",
+            "{{ token_help }}",
+        ))
+{% endif %}
+        .add_field(status_page_field())
+}

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use super::*;
 use crate::infrastructure::MemoryTokenStore;
@@ -23,6 +24,56 @@ fn corruption_errors_are_told_apart_from_bad_passwords() {
     assert!(!is_database_corruption_error(
         "failed to decrypt vault password"
     ));
+}
+
+#[cfg(windows)]
+fn hold(path: &Path) -> std::fs::File {
+    use std::os::windows::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(path)
+        .unwrap()
+}
+
+#[cfg(not(windows))]
+fn hold(path: &Path) -> std::fs::File {
+    std::fs::File::open(path).unwrap()
+}
+
+#[test]
+fn a_database_still_held_open_briefly_is_backed_up_once_released() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("pipedash.db");
+    std::fs::write(&db, b"not a database").unwrap();
+    let held = hold(&db);
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(200));
+        drop(held);
+    });
+
+    let backup = reset_corrupted_databases(dir.path()).unwrap();
+
+    release.join().unwrap();
+    assert!(!db.exists());
+    assert!(backup.main_db_backup.is_some_and(|path| path.is_file()));
+}
+
+#[cfg(windows)]
+#[test]
+fn a_database_that_stays_locked_is_kept_and_reported() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("pipedash.db");
+    std::fs::write(&db, b"not a database").unwrap();
+    let held = hold(&db);
+
+    let Err(error) = reset_corrupted_databases(dir.path()) else {
+        panic!("a database locked for the whole retry window must not be reset");
+    };
+
+    drop(held);
+    assert!(error.contains("still in use"), "{error}");
+    assert_eq!(std::fs::read(&db).unwrap(), b"not a database");
 }
 
 #[tokio::test]

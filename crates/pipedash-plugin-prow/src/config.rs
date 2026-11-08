@@ -9,6 +9,7 @@ use pipedash_plugin_api::http::{
     parse_http_url,
     sensitive_header,
 };
+use pipedash_plugin_api::kubernetes;
 use pipedash_plugin_api::{
     PluginError,
     PluginResult,
@@ -153,20 +154,8 @@ pub(crate) struct KubeSettings {
     pub context: Option<String>,
 }
 
-fn expand_path(path: &str) -> String {
-    shellexpand::full(path)
-        .map(|expanded| expanded.into_owned())
-        .unwrap_or_else(|_| path.to_string())
-}
-
 pub(crate) fn kube_settings(config: &HashMap<String, String>) -> Option<KubeSettings> {
-    let separator = if cfg!(windows) { ';' } else { ':' };
-    let paths: Vec<String> = value(config, KUBECONFIG_PATH)?
-        .split(separator)
-        .map(str::trim)
-        .filter(|path| !path.is_empty())
-        .map(expand_path)
-        .collect();
+    let paths = kubernetes::kubeconfig_paths(value(config, KUBECONFIG_PATH)?);
     if paths.is_empty() {
         return None;
     }

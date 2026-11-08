@@ -1,32 +1,24 @@
-use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::Path;
 
 use kube::config::Kubeconfig;
-use pipedash_plugin_api::kubernetes::KubeconfigSource;
+use pipedash_plugin_api::kubernetes::{
+    self,
+    KubeconfigSource,
+};
 use pipedash_plugin_api::{
     PluginError,
     PluginResult,
 };
 
-use crate::config;
-
-pub(crate) fn parse_kubeconfig_content(content: &str) -> PluginResult<Kubeconfig> {
-    Kubeconfig::from_yaml(content).map_err(|_| {
-        PluginError::InvalidConfig(
-            "The pasted kubeconfig content is not valid kubeconfig YAML".to_string(),
-        )
-    })
-}
-
-fn merge_kubeconfigs(paths: Vec<String>) -> PluginResult<Kubeconfig> {
+fn merge_kubeconfigs(paths: &[String]) -> PluginResult<Kubeconfig> {
     let mut merged = Kubeconfig::default();
     let mut found_any = false;
 
-    for path in paths.into_iter().map(PathBuf::from) {
+    for path in paths.iter().map(Path::new) {
         if !path.exists() {
             continue;
         }
-        let Ok(kubeconfig) = Kubeconfig::read_from(&path) else {
+        let Ok(kubeconfig) = Kubeconfig::read_from(path) else {
             continue;
         };
         found_any = true;
@@ -47,41 +39,16 @@ fn merge_kubeconfigs(paths: Vec<String>) -> PluginResult<Kubeconfig> {
     Ok(merged)
 }
 
-pub(super) fn load_kubeconfig(
-    source: &KubeconfigSource<Option<String>>,
-) -> PluginResult<Kubeconfig> {
+pub(super) fn load_kubeconfig(source: &KubeconfigSource) -> PluginResult<Kubeconfig> {
     match source {
-        KubeconfigSource::Content(content) => parse_kubeconfig_content(content),
-        KubeconfigSource::Path(path) => {
-            let paths = match path {
-                Some(path) => config::split_kubeconfig_paths(path),
-                None => config::split_kubeconfig_paths(&config::get_default_kubeconfig_path()),
-            };
-            merge_kubeconfigs(paths)
-        }
+        KubeconfigSource::Content(content) => kubernetes::parse_kubeconfig_content(content),
+        KubeconfigSource::Path(paths) => merge_kubeconfigs(paths),
     }
 }
 
-pub(crate) async fn available_contexts(
-    source: KubeconfigSource<Option<String>>,
-) -> PluginResult<Vec<String>> {
-    let kubeconfig = tokio::task::spawn_blocking(move || load_kubeconfig(&source))
-        .await
-        .map_err(|error| {
-            PluginError::Internal(format!("Kubeconfig loader task failed: {error}"))
-        })??;
-    let contexts: BTreeSet<String> = kubeconfig
-        .contexts
-        .into_iter()
-        .map(|context| context.name)
-        .collect();
-    if contexts.is_empty() {
-        return Err(PluginError::InvalidConfig(
-            "No valid kubeconfig files found or no contexts available".to_string(),
-        ));
-    }
-
-    Ok(contexts.into_iter().collect())
+pub(crate) async fn available_contexts(source: KubeconfigSource) -> PluginResult<Vec<String>> {
+    let description = source.describe();
+    kubernetes::available_contexts(move || load_kubeconfig(&source), description).await
 }
 
 #[cfg(test)]

@@ -19,7 +19,7 @@ use pipedash_plugin_api::{
 use crate::types::Kind;
 
 pub(crate) const DEFAULT_FLUX_NAMESPACE: &str = "flux-system";
-pub(crate) const KUBECONFIG_CONTENT_KEY: &str = "token";
+pub(crate) const KUBECONFIG_PATH_KEY: &str = "kubeconfig";
 pub(crate) const CONTROLLERS: [&str; 3] = [
     "source-controller",
     "kustomize-controller",
@@ -121,58 +121,6 @@ pub(crate) fn parse_pipeline_id(id: &str) -> PluginResult<Target> {
     Target::new(kind, namespace, name)
 }
 
-fn expand_path(path: &str) -> String {
-    shellexpand::full(path)
-        .map(|expanded| expanded.into_owned())
-        .unwrap_or_else(|_| path.to_string())
-}
-
-pub(crate) fn default_kubeconfig() -> String {
-    if let Ok(kubeconfig) = std::env::var("KUBECONFIG") {
-        if !kubeconfig.trim().is_empty() {
-            return kubeconfig;
-        }
-    }
-
-    dirs::home_dir()
-        .map(|home| home.join(".kube/config").to_string_lossy().to_string())
-        .unwrap_or_else(|| "~/.kube/config".to_string())
-}
-
-fn split_kubeconfig_paths(paths: &str) -> Vec<String> {
-    let separator = if cfg!(windows) { ';' } else { ':' };
-
-    paths
-        .split(separator)
-        .map(str::trim)
-        .filter(|path| !path.is_empty())
-        .map(expand_path)
-        .collect()
-}
-
-pub(crate) fn describe(source: &KubeconfigSource<Vec<String>>) -> String {
-    match source {
-        KubeconfigSource::Content(_) => "pasted kubeconfig content".to_string(),
-        KubeconfigSource::Path(paths) => paths.join(", "),
-    }
-}
-
-fn kubeconfig_paths(config: &HashMap<String, String>) -> Vec<String> {
-    let configured = config
-        .get("kubeconfig")
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty());
-
-    match configured {
-        Some(paths) => split_kubeconfig_paths(paths),
-        None => split_kubeconfig_paths(&default_kubeconfig()),
-    }
-}
-
-pub(crate) fn kubeconfig_source(config: &HashMap<String, String>) -> KubeconfigSource<Vec<String>> {
-    KubeconfigSource::from_config(config, KUBECONFIG_CONTENT_KEY, || kubeconfig_paths(config))
-}
-
 pub(crate) fn context(config: &HashMap<String, String>) -> Option<String> {
     value(config, "context").map(str::to_string)
 }
@@ -190,7 +138,7 @@ fn unique_csv(config: &HashMap<String, String>, key: &str) -> Vec<String> {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Settings {
-    pub kubeconfig: KubeconfigSource<Vec<String>>,
+    pub kubeconfig: KubeconfigSource,
     pub context: Option<String>,
     pub namespaces: Vec<String>,
     pub selection: Vec<Target>,
@@ -219,7 +167,7 @@ impl Settings {
         }
 
         let settings = Self {
-            kubeconfig: kubeconfig_source(config),
+            kubeconfig: KubeconfigSource::from_config(config, KUBECONFIG_PATH_KEY),
             context: context(config),
             namespaces,
             selection,
