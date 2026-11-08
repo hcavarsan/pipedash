@@ -25,6 +25,39 @@ fn corruption_errors_are_told_apart_from_bad_passwords() {
     ));
 }
 
+#[cfg(windows)]
+fn hold(path: &Path) -> std::fs::File {
+    use std::os::windows::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(path)
+        .unwrap()
+}
+
+#[cfg(not(windows))]
+fn hold(path: &Path) -> std::fs::File {
+    std::fs::File::open(path).unwrap()
+}
+
+#[test]
+fn a_database_still_held_open_briefly_is_backed_up_once_released() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("pipedash.db");
+    std::fs::write(&db, b"not a database").unwrap();
+    let held = hold(&db);
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(200));
+        drop(held);
+    });
+
+    let backup = reset_corrupted_databases(dir.path()).unwrap();
+
+    release.join().unwrap();
+    assert!(!db.exists());
+    assert!(backup.main_db_backup.is_some_and(|path| path.is_file()));
+}
+
 #[tokio::test]
 async fn recovery_resets_the_corrupt_database_in_the_configured_data_dir() {
     for custom in [false, true] {
