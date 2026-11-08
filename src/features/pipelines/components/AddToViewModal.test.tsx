@@ -19,9 +19,14 @@ const views = [
 Object.assign(window, { __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'linux' } })
 mockWindows('main')
 
-const server: { members: Record<string, string[]>; alphaGate: PromiseWithResolvers<void> } = {
+const server: {
+  members: Record<string, string[]>
+  alphaGate: PromiseWithResolvers<void>
+  membershipRequests: boolean[]
+} = {
   members: {},
   alphaGate: Promise.withResolvers<void>(),
+  membershipRequests: [],
 }
 
 function currentPage() {
@@ -68,6 +73,7 @@ const installIpc = () =>
             }
 
             server.members[id] = member ? ['p1'] : []
+            server.membershipRequests.push(member)
           })()
         default:
           throw new Error(`Unexpected command: ${command}`)
@@ -103,6 +109,7 @@ beforeEach(() => {
   installIpc()
   server.members = {}
   server.alphaGate = Promise.withResolvers<void>()
+  server.membershipRequests = []
 })
 
 afterEach(async () => {
@@ -156,4 +163,47 @@ test('a later successful toggle stays applied when an earlier toggle fails', asy
   })
 
   assert.equal(isChecked('Beta'), true)
+})
+
+test('saved membership stays checked despite an older inactive page and the next click removes it', async () => {
+  const user = userEvent.setup({ document })
+  const filtered = { ...query, search: 'Build' }
+
+  render(
+    <MantineProvider env="test">
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <PageObserver />
+          <AddToViewModal />
+        </MemoryRouter>
+      </QueryClientProvider>
+    </MantineProvider>
+  )
+  await waitFor(() => assert.ok(client.getQueryData(queryKeys.pipelines.page(query))))
+  client.setQueryData(queryKeys.pipelines.page(filtered), currentPage(), { updatedAt: 1 })
+  await act(async () => usePipelineViewStore.getState().openAddToView(['p1']))
+  await view().findByRole('checkbox', { name: 'Beta' })
+
+  await act(async () => {
+    await user.click(view().getByRole('checkbox', { name: 'Beta' }))
+    await waitFor(() => {
+      assert.deepEqual(server.members.beta, ['p1'])
+      assert.equal(client.isFetching(), 0)
+      assert.equal(client.isMutating(), 0)
+    })
+  })
+
+  assert.equal(isChecked('Beta'), true)
+
+  await act(async () => {
+    await user.click(view().getByRole('checkbox', { name: 'Beta' }))
+    await waitFor(() => {
+      assert.deepEqual(server.members.beta, [])
+      assert.equal(client.isFetching(), 0)
+      assert.equal(client.isMutating(), 0)
+    })
+  })
+
+  assert.equal(isChecked('Beta'), false)
+  assert.deepEqual(server.membershipRequests, [true, false])
 })

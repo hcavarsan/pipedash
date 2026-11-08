@@ -45,7 +45,13 @@ function useViewPipelines(ids: string[]): ViewPipeline[] {
   const wanted = new Set(ids)
   const found = new Map<string, ViewPipeline>()
 
-  for (const [, page] of queryClient.getQueriesData<PipelineViewPage>({ queryKey: queryKeys.pipelines.pages() })) {
+  const queries = cache
+    .findAll({ queryKey: queryKeys.pipelines.pages() })
+    .sort((a, b) => a.state.dataUpdatedAt - b.state.dataUpdatedAt)
+
+  for (const query of queries) {
+    const page = queryClient.getQueryData<PipelineViewPage>(query.queryKey)
+
     if (!page) {
       continue
     }
