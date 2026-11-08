@@ -1,84 +1,23 @@
 mod args;
+mod generate;
 mod prompt;
 mod render;
 mod repo;
 mod spec;
+#[cfg(test)]
+mod test_support;
 
 use std::io::IsTerminal;
-use std::process::{
-    Command,
-    ExitCode,
-};
+use std::process::ExitCode;
 
 use clap::Parser;
 
 use crate::args::Args;
+use crate::generate::generate;
 use crate::repo::{
     Repo,
     PLUGINS_MANIFEST,
 };
-use crate::spec::Spec;
-
-enum Audit {
-    Passed,
-    Failed(String),
-    Skipped,
-}
-
-fn audit(repo: &Repo) -> Audit {
-    let Ok(output) = Command::new("python3")
-        .arg("scripts/audit_structure.py")
-        .current_dir(&repo.root)
-        .output()
-    else {
-        return Audit::Skipped;
-    };
-    if output.status.success() {
-        return Audit::Passed;
-    }
-    Audit::Failed(String::from_utf8_lossy(&output.stdout).into_owned())
-}
-
-fn format_crate(repo: &Repo, spec: &Spec) -> Result<(), String> {
-    let output = Command::new("cargo")
-        .args(["fmt", "-p", &spec.crate_name])
-        .current_dir(&repo.root)
-        .output()
-        .map_err(|error| format!("cannot run cargo fmt: {error}"))?;
-    if output.status.success() {
-        return Ok(());
-    }
-    eprintln!("{}", String::from_utf8_lossy(&output.stderr));
-    Err("generated code failed to format; please report this template bug".to_string())
-}
-
-fn generate(repo: &Repo, spec: &Spec, files: &[(String, String)]) -> Result<(), String> {
-    let baseline = audit(repo);
-    let original = repo.apply(spec, files)?;
-    if let Err(error) = format_crate(repo, spec) {
-        repo.rollback(spec, &original);
-        return Err(error);
-    }
-    match (baseline, audit(repo)) {
-        (Audit::Passed, Audit::Failed(report)) => {
-            repo.rollback(spec, &original);
-            let names = std::iter::once(spec.id.as_str())
-                .chain(spec.aliases.iter().map(String::as_str))
-                .collect::<Vec<_>>()
-                .join(" or ");
-            Err(format!(
-                "{report}\n{names} clashes with names used outside provider crates; choose another id or alias"
-            ))
-        }
-        (Audit::Passed, _) => Ok(()),
-        _ => {
-            eprintln!(
-                "warning: lint:structure was already failing (or python3 is missing); name-collision check skipped"
-            );
-            Ok(())
-        }
-    }
-}
 
 fn run(args: &Args) -> Result<(), String> {
     let repo = Repo::discover()?;

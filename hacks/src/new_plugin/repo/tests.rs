@@ -1,6 +1,10 @@
 use super::*;
-
-const MANIFEST: &str = "[package]\nname = \"pipedash-plugins\"\n\n[dependencies]\npipedash-plugin-api.workspace = true\npipedash-plugin-alpha = { version = \"1.0.0\", path = \"../pipedash-plugin-alpha\" }\npipedash-plugin-gamma = { version = \"1.0.0\", path = \"../pipedash-plugin-gamma\" }\n\n[lints]\nworkspace = true\n";
+use crate::test_support::{
+    manifest,
+    spec,
+    temp_repo,
+    MANIFEST,
+};
 
 #[test]
 fn dependency_is_inserted_in_sorted_position() {
@@ -78,32 +82,10 @@ fn workspace_version_comes_from_workspace_package() {
     assert!(workspace_version("[workspace.package]\n\n[dependencies]\nversion = \"9\"\n").is_err());
 }
 
-fn repo_with_manifest() -> (tempfile::TempDir, Repo) {
-    let dir = tempfile::tempdir().unwrap();
-    let manifest = dir.path().join(PLUGINS_MANIFEST);
-    fs::create_dir_all(manifest.parent().unwrap()).unwrap();
-    fs::write(&manifest, MANIFEST).unwrap();
-    let repo = Repo {
-        root: dir.path().to_path_buf(),
-        taken: BTreeSet::new(),
-        version: "1.0.0".to_string(),
-    };
-    (dir, repo)
-}
-
-fn spec(crate_name: &str) -> Spec {
-    let args = crate::args::Args {
-        id: crate_name.strip_prefix(PROVIDER_PREFIX).map(str::to_string),
-        description: Some("x".to_string()),
-        ..crate::args::Args::default()
-    };
-    crate::spec::from_args(&args, &BTreeSet::new()).unwrap()
-}
-
 #[test]
 fn apply_writes_files_and_registers_the_crate_then_rollback_restores() {
-    let (_dir, repo) = repo_with_manifest();
-    let spec = spec("pipedash-plugin-beta");
+    let (_dir, repo) = temp_repo();
+    let spec = spec("beta");
     let files = vec![("src/lib.rs".to_string(), "x".to_string())];
 
     let original = repo.apply(&spec, &files).unwrap();
@@ -113,21 +95,17 @@ fn apply_writes_files_and_registers_the_crate_then_rollback_restores() {
         fs::read_to_string(repo.crate_dir(&spec).join("src/lib.rs")).unwrap(),
         "x"
     );
-    let manifest = fs::read_to_string(repo.root.join(PLUGINS_MANIFEST)).unwrap();
-    assert!(manifest.contains("pipedash-plugin-beta = "));
+    assert!(manifest(&repo).contains("pipedash-plugin-beta = "));
 
     repo.rollback(&spec, &original);
     assert!(!repo.crate_dir(&spec).exists());
-    assert_eq!(
-        fs::read_to_string(repo.root.join(PLUGINS_MANIFEST)).unwrap(),
-        MANIFEST
-    );
+    assert_eq!(manifest(&repo), MANIFEST);
 }
 
 #[test]
 fn apply_refuses_an_existing_crate_without_writing() {
-    let (_dir, repo) = repo_with_manifest();
-    let spec = spec("pipedash-plugin-beta");
+    let (_dir, repo) = temp_repo();
+    let spec = spec("beta");
     fs::create_dir_all(repo.crate_dir(&spec)).unwrap();
 
     let error = repo
@@ -135,8 +113,5 @@ fn apply_refuses_an_existing_crate_without_writing() {
         .unwrap_err();
 
     assert_eq!(error, "crates/pipedash-plugin-beta already exists");
-    assert_eq!(
-        fs::read_to_string(repo.root.join(PLUGINS_MANIFEST)).unwrap(),
-        MANIFEST
-    );
+    assert_eq!(manifest(&repo), MANIFEST);
 }
