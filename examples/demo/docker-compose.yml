@@ -20,7 +20,7 @@ services:
     restart: unless-stopped
 
   gitea:
-    image: gitea/gitea:1.25.5@sha256:f846d26a4fc389c5806a580a765e00bfdd1fd181e6f2060da98ea2669d914472
+    image: gitea/gitea:28.3.0@sha256:8967bf9deaf3c5c4adae13519436dc1b20c646ac83fe37ae810c933a1045227d
     environment:
       GITEA__security__INSTALL_LOCK: "true"
       GITEA__server__ROOT_URL: http://gitea:3000/
@@ -41,7 +41,7 @@ services:
     restart: unless-stopped
 
   gitea-seed:
-    image: gitea/gitea:1.25.5@sha256:f846d26a4fc389c5806a580a765e00bfdd1fd181e6f2060da98ea2669d914472
+    image: gitea/gitea:28.3.0@sha256:8967bf9deaf3c5c4adae13519436dc1b20c646ac83fe37ae810c933a1045227d
     entrypoint: ["/bin/sh", "/seed/seed.sh"]
     environment:
       GITEA_PASSWORD: ${DEMO_ADMIN_PASSWORD:-pipedash-admin}
@@ -110,7 +110,7 @@ services:
     restart: unless-stopped
 
   k8s-seed:
-    image: alpine/k8s:1.37.1@sha256:712dc5385d1c1a3f83b747fa9e40f64d433a97f72ff42f9755ff7dd1f62846e4
+    image: alpine/k8s:1.37.2@sha256:dcb7185e112a453aa72f426754849a97357727ef8f40168fb208c8cf59952042
     entrypoint: ["/bin/sh", "/seed/seed.sh"]
     environment:
       KUBECONFIG: /shared/kubeconfig
@@ -129,7 +129,7 @@ services:
     restart: "no"
 
   komodo-mongo:
-    image: mongo:8.0@sha256:b9924c330a8bbc5800fe9c69f04a84e221eca7b28fd049a0354147d9908fa142
+    image: mongo:9.0@sha256:452bdaf2127b8ff851e31410a267809b9829eded219979f2210e7c7efb85a058
     command: --quiet --wiredTigerCacheSizeGB 0.25
     environment:
       MONGO_INITDB_ROOT_USERNAME: komodo
@@ -189,7 +189,7 @@ services:
     restart: unless-stopped
 
   komodo-seed:
-    image: alpine/k8s:1.37.1@sha256:712dc5385d1c1a3f83b747fa9e40f64d433a97f72ff42f9755ff7dd1f62846e4
+    image: alpine/k8s:1.37.2@sha256:dcb7185e112a453aa72f426754849a97357727ef8f40168fb208c8cf59952042
     entrypoint: ["/bin/sh", "/seed/seed.sh"]
     environment:
       KOMODO_PASSWORD: ${DEMO_ADMIN_PASSWORD:-pipedash-admin}
@@ -318,7 +318,7 @@ services:
     restart: unless-stopped
 
   tunnel:
-    image: cloudflare/cloudflared:2026.10.5@sha256:1b1d34d0a9c0bfca9de72db8460d328db3f19edd2b96169114e3e893a97bbe53
+    image: cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
     command: tunnel --no-autoupdate run
     profiles: [public]
     environment:
