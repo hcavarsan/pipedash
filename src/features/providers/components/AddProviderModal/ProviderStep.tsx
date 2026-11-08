@@ -1,32 +1,15 @@
-import { Box, Button, Collapse, Stack, Text, TextInput } from '@mantine/core'
-import { IconChevronRight } from '@tabler/icons-react'
-import {
-  type ChangeEvent,
-  type Dispatch,
-  Fragment,
-  type ReactNode,
-  type RefObject,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
-import { ProviderIcon } from '../../../../components/atoms/ProviderIcon'
+import { Box, Stack, type TextInputProps } from '@mantine/core'
+import { type ChangeEvent, type Dispatch, Fragment, type ReactNode, type RefObject, useRef, useState } from 'react'
 import { FillScrollArea } from '../../../../components/common/FillScrollArea'
 import shell from '../../../../components/forms/ShellForm.module.css'
-import { IosGroup, IosRow } from '../../../../components/ios/IosList'
 import { useFormEnterNavigation } from '../../../../hooks/useFormEnterNavigation'
 import { useMobileShell } from '../../../../hooks/useIsMobile'
-import type { ConfigField, PluginMetadata } from '../../../../types/domain'
-import { fieldA11y } from '../../../../utils/formFields'
+import type { ConfigField, PluginMetadata } from '../../../../types/plugins'
 import { ProviderConfigField } from './ProviderConfigField'
-import { ProviderTypeCards, SelectedProviderType } from './ProviderTypeCards'
-import { ShellField, StepHeading } from './ShellForm'
+import { DesktopProviderDetails, DesktopProviderPicker } from './ProviderStepDesktop'
+import { ShellProviderDetails, ShellProviderPicker } from './ProviderStepShell'
 import type { FormAction, FormState } from './types'
 import { useCredentialFields } from './useCredentialFields'
-
-const NAME_HINT = 'A friendly name to identify this provider'
-const ADVANCED_LABEL = 'Advanced settings'
 
 interface ProviderStepProps {
   state: FormState
@@ -38,6 +21,7 @@ interface ProviderStepProps {
   submitting: boolean
   formRef: RefObject<HTMLFormElement | null>
   formId: string
+  validateKey: (key: string) => Promise<void>
 }
 
 export function ProviderStep({
@@ -50,16 +34,22 @@ export function ProviderStep({
   submitting,
   formRef,
   formId,
+  validateKey,
 }: ProviderStepProps): ReactNode {
   useFormEnterNavigation(formRef)
   const mobileShell = useMobileShell()
-  const advancedId = useId()
   const { selectedPlugin, providerName, configValues, fieldErrors } = state
-  const sortedPlugins = useMemo(() => plugins.toSorted((a, b) => a.name.localeCompare(b.name)), [plugins])
   const pickedProvider = useRef(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const { fields, lastTextKey, fieldStateFor, handleConfigChange, handleConfigBlur, handleNameChange, handleNameBlur } =
-    useCredentialFields({ selectedPlugin, providerName, configValues, fieldErrors, dispatch, step: 'provider' })
+    useCredentialFields({
+      selectedPlugin,
+      configValues,
+      fieldErrors,
+      dispatch,
+      validateKey,
+      step: 'provider',
+    })
   const advancedShown = advancedOpen || fields.some((field) => fieldErrors[field.key])
 
   const handlePluginSelect = (providerType: string | null): void => {
@@ -79,22 +69,25 @@ export function ProviderStep({
     }
   }
 
-  const nameProps = {
+  const nameProps: TextInputProps = {
     autoCapitalize: 'words',
     autoCorrect: 'off',
     spellCheck: false,
     autoComplete: 'off',
     enterKeyHint: advancedShown && lastTextKey ? 'next' : 'go',
     name: 'providerName',
-    placeholder: selectedPlugin?.provider_type === 'fluxcd' ? 'e.g. FluxCD (production)' : 'e.g. GitHub (work)',
+    placeholder: selectedPlugin?.presentation.wizard.name_placeholder ?? 'Provider name',
     value: providerName,
     onChange: (event: ChangeEvent<HTMLInputElement>) => handleNameChange(event.currentTarget.value),
     onBlur: handleNameBlur,
     disabled: submitting,
-  } as const
+  }
 
-  const renderFields = (): ReactNode =>
-    fields.map((field: ConfigField) => (
+  const advanced = {
+    available: fields.length > 0,
+    shown: advancedShown,
+    onToggle: () => setAdvancedOpen(!advancedShown),
+    content: fields.map((field: ConfigField) => (
       <Fragment key={field.key}>
         <ProviderConfigField
           field={field}
@@ -106,85 +99,30 @@ export function ProviderStep({
           onBlur={handleConfigBlur}
         />
       </Fragment>
-    ))
-
-  const advancedIcon = (
-    <IconChevronRight
-      size={16}
-      aria-hidden
-      style={{ transform: advancedShown ? 'rotate(90deg)' : undefined, transition: 'transform 150ms ease' }}
-    />
-  )
+    )),
+  }
 
   if (mobileShell) {
-    const nameId = `${formId}-providerName`
-
     return (
       <div key={selectedPlugin ? 'details' : 'picker'} className={shell.step}>
         {selectedPlugin ? (
-          <>
-            <StepHeading title="Provider" subtitle="Give it a name. Credentials come next." />
-
-            <IosGroup header="Provider type" footer={selectedPlugin.description}>
-              <IosRow
-                icon={<ProviderIcon name={selectedPlugin.name} icon={selectedPlugin.icon} size={30} />}
-                title={selectedPlugin.name}
-                chevron={!editMode}
-                {...(editMode ? {} : { onClick: () => handlePluginSelect(null) })}
-                disabled={submitting}
-              />
-            </IosGroup>
-
-            <ShellField
-              id={nameId}
-              label="Provider name"
-              required
-              description={NAME_HINT}
-              error={fieldErrors.providerName}
-            >
-              <TextInput
-                variant="unstyled"
-                aria-label="Provider name"
-                {...fieldA11y(nameId, { required: true, error: fieldErrors.providerName, description: NAME_HINT })}
-                {...nameProps}
-              />
-            </ShellField>
-
-            {fields.length > 0 && (
-              <>
-                <IosGroup>
-                  <IosRow
-                    title={ADVANCED_LABEL}
-                    accessory={advancedIcon}
-                    onClick={() => setAdvancedOpen(!advancedShown)}
-                    disabled={submitting}
-                  />
-                </IosGroup>
-                {advancedShown && renderFields()}
-              </>
-            )}
-          </>
+          <ShellProviderDetails
+            plugin={selectedPlugin}
+            editMode={editMode}
+            submitting={submitting}
+            formId={formId}
+            nameProps={nameProps}
+            nameError={fieldErrors.providerName}
+            advanced={advanced}
+            onClearPlugin={() => handlePluginSelect(null)}
+          />
         ) : (
-          <>
-            <StepHeading title="Choose a provider" subtitle="Select the service whose pipelines you want to monitor" />
-            {plugins.length > 0 ? (
-              <IosGroup>
-                {sortedPlugins.map((plugin) => (
-                  <IosRow
-                    key={plugin.provider_type}
-                    icon={<ProviderIcon name={plugin.name} icon={plugin.icon} size={30} />}
-                    title={plugin.name}
-                    subtitle={plugin.description}
-                    chevron
-                    onClick={() => handlePluginSelect(plugin.provider_type)}
-                    disabled={submitting}
-                  />
-                ))}
-              </IosGroup>
-            ) : (
-              !pluginsLoading && <p className={shell.note}>No provider types are available.</p>
-            )}
-          </>
+          <ShellProviderPicker
+            plugins={plugins}
+            pluginsLoading={pluginsLoading}
+            submitting={submitting}
+            onSelect={handlePluginSelect}
+          />
         )}
       </div>
     )
@@ -195,58 +133,24 @@ export function ProviderStep({
       <FillScrollArea type="auto">
         <Stack gap={isMobile ? 'md' : 'lg'} px="lg" pb="lg" pt="xs">
           {selectedPlugin ? (
-            <>
-              <SelectedProviderType
-                plugin={selectedPlugin}
-                disabled={submitting}
-                onChange={editMode ? undefined : () => handlePluginSelect(null)}
-              />
-
-              <TextInput
-                label="Provider name"
-                description={NAME_HINT}
-                {...nameProps}
-                error={fieldErrors.providerName}
-                required
-                autoFocus={pickedProvider.current}
-              />
-
-              {fields.length > 0 && (
-                <Box>
-                  <Button
-                    variant="subtle"
-                    color="gray"
-                    size="compact-sm"
-                    px={4}
-                    leftSection={advancedIcon}
-                    aria-expanded={advancedShown}
-                    aria-controls={advancedId}
-                    disabled={submitting}
-                    onClick={() => setAdvancedOpen(!advancedShown)}
-                  >
-                    {ADVANCED_LABEL}
-                  </Button>
-                  <Collapse expanded={advancedShown}>
-                    <Stack id={advancedId} gap="md" pt="md">
-                      {renderFields()}
-                    </Stack>
-                  </Collapse>
-                </Box>
-              )}
-            </>
-          ) : sortedPlugins.length > 0 ? (
-            <ProviderTypeCards
-              plugins={sortedPlugins}
-              disabled={submitting}
+            <DesktopProviderDetails
+              plugin={selectedPlugin}
+              editMode={editMode}
+              submitting={submitting}
+              autoFocus={pickedProvider.current}
+              nameProps={nameProps}
+              nameError={fieldErrors.providerName}
+              advanced={advanced}
+              onClearPlugin={() => handlePluginSelect(null)}
+            />
+          ) : (
+            <DesktopProviderPicker
+              plugins={plugins}
+              pluginsLoading={pluginsLoading}
+              submitting={submitting}
               autoFocus={pickedProvider.current}
               onSelect={handlePluginSelect}
             />
-          ) : (
-            !pluginsLoading && (
-              <Text size="sm" c="dimmed" ta="center" py="xl">
-                No provider types are available.
-              </Text>
-            )
           )}
         </Stack>
       </FillScrollArea>

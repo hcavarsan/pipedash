@@ -3,12 +3,12 @@ import { useState } from 'react'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
-import { usePlugins } from '../../../queries/usePluginsQueries'
+import { usePluginPresentation, usePlugins } from '../../../queries/usePluginsQueries'
 import { useRunLogTree } from '../../../queries/useRunLogQueries'
-import type { Pipeline } from '../../../types/domain'
-import { canForceCancelPipeline, getPipelineLabels } from '../../../utils/pipelinePresentation'
+import type { Pipeline } from '../../../types/pipelines'
 import { getPluginDisplayName } from '../../../utils/pluginHelpers'
 import { useRunDetailActions } from '../hooks/useRunDetailActions'
+import { resolveLogGroups } from '../lib/logTree'
 import { useRunDetails } from '../queries/useRunDetailsQuery'
 import { MobileRunJobs } from './MobileRunJobs'
 import { MobileRunLogModal } from './MobileRunLogModal'
@@ -22,14 +22,8 @@ interface WorkflowLogsModalProps {
   onClose: () => void
   pipelineId: string
   runNumber: number
-  providerId?: number | undefined
-  providerType?: string | undefined
   pipeline: Pipeline | undefined
   canViewLogs: boolean
-  canTrigger: boolean
-  triggerBlockedReason?: string | undefined
-  canCancel: boolean
-  rerunInPlace?: boolean | undefined
   onRerunSuccess?: ((pipelineId: string, newRunNumber: number) => void) | undefined
   onCancelSuccess?: (() => void) | undefined
 }
@@ -43,12 +37,6 @@ function WorkflowLogsSession({
   onClose,
   pipelineId,
   runNumber,
-  providerId,
-  providerType,
-  canTrigger,
-  triggerBlockedReason,
-  canCancel,
-  rerunInPlace,
   onRerunSuccess,
   onCancelSuccess,
   pipeline,
@@ -60,8 +48,8 @@ function WorkflowLogsSession({
   const [logNodeId, setLogNodeId] = useState<string | null>(null)
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
-  const labels = getPipelineLabels(providerType)
-  const isFlux = providerType === 'fluxcd'
+  const providerType = pipeline?.provider_type
+  const presentation = usePluginPresentation(providerType)
   const { data: plugins } = usePlugins()
   const providerName = providerType ? getPluginDisplayName(plugins, providerType) : 'provider'
   const { data: logTree } = useRunLogTree(pipelineId, runNumber, canViewLogs && mobileShell && opened)
@@ -77,7 +65,7 @@ function WorkflowLogsSession({
     runNumber,
     pipeline,
     run,
-    rerunInPlace: rerunInPlace === true,
+    forceConfirmation: presentation?.force_cancel_confirmation,
     onClose,
     onRerunSuccess,
     onCancelSuccess,
@@ -85,10 +73,10 @@ function WorkflowLogsSession({
   })
 
   const requestRerun = () => {
-    if (isFlux) {
-      actions.rerun('all').catch(() => undefined)
-    } else {
+    if (pipeline?.actions.rerun_strategy === 'in_place') {
       setConfirmingRerun(true)
+    } else {
+      actions.rerun('all').catch(() => undefined)
     }
   }
 
@@ -96,13 +84,10 @@ function WorkflowLogsSession({
     run,
     providerName,
     isMobile,
-    isFlux,
-    triggerLabel: labels.trigger,
+    rerunLabel: presentation?.rerun.label ?? '',
+    rerunCompactLabel: presentation?.rerun.compact_label ?? '',
+    triggerNote: presentation?.trigger.note,
     canViewLogs,
-    canTrigger,
-    canCancel,
-    canForceCancel: !!pipeline && canForceCancelPipeline(plugins, pipeline),
-    triggerBlockedReason,
     stopDisabled: !mobileShell && cancellationRequested,
     rerunPending: actions.rerunPending,
     cancelPending: actions.cancelPending,
@@ -116,29 +101,29 @@ function WorkflowLogsSession({
     },
   }
   const nodes = logTree?.nodes ?? []
+  const groups = logTree ? resolveLogGroups(logTree, true) : []
 
   const details = (
     <ErrorBoundary scope="feature" name="Run details" resetKeys={[pipelineId, runNumber]}>
       <RunDetailsContent
         pipelineId={pipelineId}
         runNumber={runNumber}
-        providerId={providerId}
+        providerId={pipeline?.provider_id}
         run={run}
         error={error}
         loading={isLoading}
         fetching={isFetching}
-        isFlux={isFlux}
+        presentation={presentation}
         isMobile={isMobile}
         mobileShell={mobileShell}
         cancellationRequested={cancellationRequested}
-        typicalSeconds={pipeline?.typical_duration_seconds}
         onRetry={() => {
           refetch().catch(() => undefined)
         }}
       >
         {mobileShell && runActionProps && (
           <>
-            {canViewLogs && <MobileRunJobs nodes={nodes} onSelect={setLogNodeId} />}
+            {canViewLogs && <MobileRunJobs groups={groups} onSelect={setLogNodeId} />}
             <MobileRunActions {...runActionProps} />
           </>
         )}
@@ -146,7 +131,7 @@ function WorkflowLogsSession({
     </ErrorBoundary>
   )
 
-  const title = isFlux ? 'Reconciliation details' : 'Run details'
+  const title = presentation?.run_details_title
   const footer = runActionProps ? <RunActionsFooter {...runActionProps} /> : null
 
   return (
@@ -196,7 +181,6 @@ function WorkflowLogsSession({
       <RerunConfirmModal
         run={confirmingRerun && run ? run : null}
         pipeline={pipeline}
-        providerName={providerName}
         onClose={() => setConfirmingRerun(false)}
         onConfirm={actions.rerun}
       />

@@ -5,7 +5,8 @@ import { StatusBadge } from '../../../components/atoms/StatusBadge'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { STATUS_META } from '../../../theme/status'
 import { TYPOGRAPHY } from '../../../theme/typography'
-import type { CellRenderer, PipelineRun, PipelineStatus } from '../../../types/domain'
+import type { PipelineRun, PipelineStatus } from '../../../types/pipelines'
+import type { CellRenderer } from '../../../types/plugins'
 import { getRunStatusLabel } from '../../../utils/pipelinePresentation'
 import { useTableDefinition } from '../queries/useTableSchemaQueries'
 import { filterVisibleColumns } from '../utils/columnBuilder'
@@ -101,40 +102,55 @@ interface RunDetailFieldsProps {
   isMobile: boolean
 }
 
+interface DetailRowProps {
+  field: DetailField
+  value: unknown
+  run: PipelineRun
+}
+
+function isLongText(field: DetailField, value: unknown): boolean {
+  return (
+    field.id === 'message' ||
+    ((field.renderer === 'Text' || field.renderer === 'TruncatedText') &&
+      typeof value === 'string' &&
+      value.length > 32)
+  )
+}
+
+function IosDetailRow({ field, value, run }: DetailRowProps): ReactNode {
+  const detailValue = <RunDetailValue field={field} value={value} run={run} />
+
+  if (isLongText(field, value)) {
+    // Long text wraps under its label; a truncated value would hide the rest on touch screens.
+    return <IosRow title={field.renderer === 'TruncatedText' ? String(value) : detailValue} subtitle={field.label} />
+  }
+
+  return <IosRow title={field.label} value={<span className={classes.value}>{detailValue}</span>} />
+}
+
+function DesktopDetailRow({ field, value, run, isMobile }: DetailRowProps & { isMobile: boolean }): ReactNode {
+  return (
+    <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xl">
+      <Text size={TYPOGRAPHY.FIELD_VALUE.size} c="dimmed" miw={isMobile ? 90 : 130}>
+        {field.label}
+      </Text>
+      <Box flex={1} miw={0}>
+        <Group justify="flex-end" ta="right">
+          <RunDetailValue field={field} value={value} run={run} />
+        </Group>
+      </Box>
+    </Group>
+  )
+}
+
 export function RunDetailFields({ rows, run, mobileShell, isMobile }: RunDetailFieldsProps): ReactNode {
   if (mobileShell) {
     return (
       <div data-selectable>
         <IosGroup>
-          {rows.map(({ field, value }) =>
-            field.id === 'message' ||
-            ((field.renderer === 'Text' || field.renderer === 'TruncatedText') &&
-              typeof value === 'string' &&
-              value.length > 32) ? (
-              // Long text wraps under its label; a truncated value would hide the rest on touch screens.
-              <IosRow
-                key={field.id}
-                title={
-                  field.renderer === 'TruncatedText' ? (
-                    String(value)
-                  ) : (
-                    <RunDetailValue field={field} value={value} run={run} />
-                  )
-                }
-                subtitle={field.label}
-              />
-            ) : (
-              <IosRow
-                key={field.id}
-                title={field.label}
-                value={
-                  <span className={classes.value}>
-                    <RunDetailValue field={field} value={value} run={run} />
-                  </span>
-                }
-              />
-            )
-          )}
+          {rows.map(({ field, value }) => (
+            <IosDetailRow key={field.id} field={field} value={value} run={run} />
+          ))}
         </IosGroup>
       </div>
     )
@@ -146,16 +162,7 @@ export function RunDetailFields({ rows, run, mobileShell, isMobile }: RunDetailF
         {rows.map(({ field, value }, index) => (
           <Fragment key={field.id}>
             {index > 0 && <Divider />}
-            <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xl">
-              <Text size={TYPOGRAPHY.FIELD_VALUE.size} c="dimmed" miw={isMobile ? 90 : 130}>
-                {field.label}
-              </Text>
-              <Box flex={1} miw={0}>
-                <Group justify="flex-end" ta="right">
-                  <RunDetailValue field={field} value={value} run={run} />
-                </Group>
-              </Box>
-            </Group>
+            <DesktopDetailRow field={field} value={value} run={run} isMobile={isMobile} />
           </Fragment>
         ))}
       </Stack>

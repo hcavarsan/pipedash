@@ -3,7 +3,7 @@ import { type UseQueryResult, useQuery } from '@tanstack/react-query'
 import { GC_TIMES, STALE_TIMES } from '../../../lib/cacheConfig'
 import { queryKeys } from '../../../lib/queryKeys'
 import { service } from '../../../services/service'
-import type { TableDefinition, TableSchema } from '../../../types/domain'
+import type { TableDefinition, TableSchema } from '../../../types/plugins'
 
 export function useProviderTableSchema(providerId: number): UseQueryResult<TableSchema, Error> {
   return useQuery({

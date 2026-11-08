@@ -158,7 +158,7 @@ test('cleared copy exports empty while the canvas keeps its editing hints', { ti
   const cleared = await raw('ios/watchos/422x514/en/01-no-device.png');
   const blank = await raw('ios/watchos/422x514/en/02-no-device.png');
   let differing = 0;
-  for (let i = 0; i < cleared.length; i++) if (Math.abs(cleared[i] - blank[i]) > 24) differing++;
+  for (let i = 0; i < cleared.length; i++) if (Math.abs((cleared[i] ?? 0) - (blank[i] ?? 0)) > 24) differing++;
   await expect(differing).toBeLessThan(cleared.length * 0.001);
 });
 
@@ -177,7 +177,7 @@ test('duo folded + open pairs the other display and never reuses the front captu
   await expect(screen.getByText('iPhone Duo outer screenshot', { exact: true })).toBeVisible();
   // The front device shows its capture; only the closed phone waits for one.
   await eventually(async () => {
-    await expect(await browser.evaluate(() => [...document.querySelectorAll('main')].map(m => m.textContent!.split('Drop a screenshot here').length - 1)[0])).toBe(1);
+    await expect(await browser.evaluate(() => [...document.querySelectorAll('main')].map(m => (m.textContent ?? '').split('Drop a screenshot here').length - 1)[0] ?? -1)).toBe(1);
   });
 
   await screen.getByRole('button', 'Export bundle', { exact: true }).tap();

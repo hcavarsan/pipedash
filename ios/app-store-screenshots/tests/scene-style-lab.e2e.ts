@@ -211,8 +211,9 @@ test('flowing spotlight lights every screen the same', async ({ app, browser, sc
     means.push(stats.channels.slice(0, 3).reduce((sum, c) => sum + c.mean, 0) / 3);
   }
   // A strip-wide vignette used to leave screens 2+ under a flat dark wash.
-  await expect(Math.abs(means[1] - means[0])).toBeLessThan(8);
-  await expect(Math.abs(means[2] - means[0])).toBeLessThan(8);
+  const [first = Number.NaN, second = Number.NaN, third = Number.NaN] = means;
+  await expect(Math.abs(second - first)).toBeLessThan(8);
+  await expect(Math.abs(third - first)).toBeLessThan(8);
 });
 
 test('looks keep per-screen headline sizes and the toast undo never reverts a later edit', async ({ app, browser, screen: ui }) => {

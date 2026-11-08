@@ -13,12 +13,11 @@ import type { ReactNode } from 'react'
 import type { ContextMenuItem } from '../../../components/common/ContextMenu'
 import { IosToolbar } from '../../../components/common/IosRunList'
 import toolbarClasses from '../../../components/common/IosRunList.module.css'
-import type { PipelineActions } from '../../../components/common/PipelineRowParts'
 import { ActionSheetCancel } from '../../../components/ios/ActionSheetCancel'
-import type { PipelineView, ViewPipeline } from '../../../types/domain'
-import { canAddSubView } from '../../../utils/viewTree'
+import type { PipelineActions } from '../../../types/pipelineRows'
+import type { PipelineView, ViewPipeline } from '../../../types/views'
 import type { PipelineViewPageModel } from '../hooks/usePipelineViewModel'
-import { usePipelineViews, useSetViewMembership } from '../queries/usePipelineViewQueries'
+import { useSetViewMembership, useViewEditorOptions } from '../queries/usePipelineViewQueries'
 import { usePipelineViewStore } from '../stores/pipelineViewStore'
 
 type SelectionAction = Extract<ContextMenuItem, { label: string }>
@@ -26,7 +25,7 @@ type SelectionAction = Extract<ContextMenuItem, { label: string }>
 interface SelectionActionsInput {
   selected: ViewPipeline[]
   view: PipelineView
-  allViews: PipelineView[]
+  canAddSubView: boolean
   actions: PipelineActions
   finish: () => void
   onRemove: ((ids: string[]) => void) | undefined
@@ -35,7 +34,7 @@ interface SelectionActionsInput {
 export function buildSelectionActions({
   selected,
   view,
-  allViews,
+  canAddSubView,
   actions,
   finish,
   onRemove,
@@ -77,8 +76,7 @@ export function buildSelectionActions({
     {
       label: 'New view',
       icon: <IconFolderPlus size={14} aria-hidden />,
-      onClick: () =>
-        usePipelineViewStore.getState().openEditor(null, selectedIds, canAddSubView(allViews, view) ? view.id : null),
+      onClick: () => usePipelineViewStore.getState().openEditor(null, selectedIds, canAddSubView ? view.id : null),
     },
     {
       label: 'Add to view…',
@@ -108,13 +106,13 @@ interface SelectionControlsProps {
 }
 
 function SelectionControls({ model, actions, view }: SelectionControlsProps): ReactNode {
-  const { selectedPipelines, finishSelection, labels, mobileShell } = model
-  const { data: allViews = [] } = usePipelineViews()
+  const { selectedPipelines, finishSelection, terminology, mobileShell } = model
+  const { data: options } = useViewEditorOptions(view.id, true)
   const { mutate: setMembership } = useSetViewMembership()
   const items = buildSelectionActions({
     selected: selectedPipelines,
     view,
-    allViews,
+    canAddSubView: options?.can_add_sub_view ?? false,
     actions,
     finish: finishSelection,
     onRemove:
@@ -123,9 +121,20 @@ function SelectionControls({ model, actions, view }: SelectionControlsProps): Re
         : undefined,
   })
   const count = selectedPipelines.length
-  const status = count === 0 ? `Select ${labels.items}` : `${count} selected`
+  const status = count === 0 ? `Select ${terminology?.items ?? 'items'}` : `${count} selected`
 
   if (mobileShell) {
+    const menuItems = items.map((item) => (
+      <Menu.Item
+        key={item.label}
+        leftSection={item.icon}
+        {...(item.color === undefined ? {} : { color: item.color })}
+        onClick={item.onClick}
+      >
+        {item.label}
+      </Menu.Item>
+    ))
+
     return (
       <IosToolbar label="Selected pipelines">
         <Button variant="subtle" onClick={finishSelection}>
@@ -142,16 +151,7 @@ function SelectionControls({ model, actions, view }: SelectionControlsProps): Re
           </Menu.Target>
           <Menu.Dropdown>
             <Menu.Label>{`${count} selected`}</Menu.Label>
-            {items.map((item) => (
-              <Menu.Item
-                key={item.label}
-                leftSection={item.icon}
-                {...(item.color === undefined ? {} : { color: item.color })}
-                onClick={item.onClick}
-              >
-                {item.label}
-              </Menu.Item>
-            ))}
+            {menuItems}
             <ActionSheetCancel />
           </Menu.Dropdown>
         </Menu>

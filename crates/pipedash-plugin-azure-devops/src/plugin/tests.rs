@@ -1,0 +1,1660 @@
+use std::net::SocketAddr;
+use std::sync::{
+    Mutex,
+    MutexGuard,
+};
+
+use serde_json::{
+    json,
+    Value,
+};
+use tokio::io::{
+    AsyncReadExt,
+    AsyncWriteExt,
+};
+use tokio::net::{
+    TcpListener,
+    TcpStream,
+};
+
+use super::*;
+use crate::log_tail::{
+    LogPosition,
+    Tally,
+    BOUNDARY_LINE_LIMIT,
+};
+
+const BASIC_AUTH: &str = "Basic OnN0dWItdG9rZW4=";
+
+struct Request {
+    method: String,
+    url: reqwest::Url,
+    authorization: Option<String>,
+    accept: Option<String>,
+    body: String,
+}
+
+impl Request {
+    fn query(&self, key: &str) -> Option<String> {
+        self.url
+            .query_pairs()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value.into_owned())
+    }
+}
+
+struct Reply {
+    status: u16,
+    content_type: &'static str,
+    continuation: Option<String>,
+    body: String,
+}
+
+impl Reply {
+    fn json(status: u16, body: Value) -> Self {
+        Self {
+            status,
+            content_type: "application/json; charset=utf-8",
+            continuation: None,
+            body: body.to_string(),
+        }
+    }
+
+    fn html(status: u16, body: &str) -> Self {
+        Self {
+            status,
+            content_type: "text/html; charset=utf-8",
+            continuation: None,
+            body: body.to_string(),
+        }
+    }
+
+    fn text(status: u16, body: &str) -> Self {
+        Self {
+            status,
+            content_type: "text/plain; charset=utf-8",
+            continuation: None,
+            body: body.to_string(),
+        }
+    }
+
+    fn not_found(request: &Request) -> Self {
+        Self::json(
+            404,
+            json!({"message": format!("unexpected {} {}", request.method, request.url)}),
+        )
+    }
+
+    fn continued(mut self, token: &str) -> Self {
+        self.continuation = Some(token.to_string());
+        self
+    }
+
+    fn to_http(&self) -> String {
+        let continuation = self
+            .continuation
+            .as_ref()
+            .map(|token| format!("x-ms-continuationtoken: {token}\r\n"))
+            .unwrap_or_default();
+        format!(
+            "HTTP/1.1 {} X\r\nContent-Type: {}\r\n{continuation}Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+            self.status,
+            self.content_type,
+            self.body.len(),
+            self.body
+        )
+    }
+}
+
+struct Stub {
+    base_url: String,
+    requests: Arc<Mutex<Vec<Request>>>,
+    server: tokio::task::JoinHandle<()>,
+}
+
+impl Stub {
+    fn requests(&self) -> MutexGuard<'_, Vec<Request>> {
+        self.requests.lock().unwrap()
+    }
+
+    fn requests_to(&self, method: &str, path: &str) -> Vec<(Option<String>, Option<String>)> {
+        self.requests()
+            .iter()
+            .filter(|request| request.method == method && request.url.path() == path)
+            .map(|request| (request.query("$top"), request.query("continuationToken")))
+            .collect()
+    }
+}
+
+impl Drop for Stub {
+    fn drop(&mut self) {
+        self.server.abort();
+    }
+}
+
+async fn read_request(stream: &mut TcpStream, addr: SocketAddr) -> Request {
+    let mut raw = Vec::new();
+    let mut buffer = [0; 4096];
+    let header_end = loop {
+        if let Some(position) = raw.windows(4).position(|window| window == b"\r\n\r\n") {
+            break position + 4;
+        }
+        let count = stream.read(&mut buffer).await.unwrap();
+        assert!(count > 0, "connection closed before the request head ended");
+        raw.extend_from_slice(&buffer[..count]);
+    };
+    let head = String::from_utf8(raw[..header_end].to_vec()).unwrap();
+    let header = |name: &str| {
+        head.lines()
+            .filter_map(|line| line.split_once(':'))
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.trim().to_string())
+    };
+    let length: usize = header("content-length")
+        .map(|value| value.parse().unwrap())
+        .unwrap_or(0);
+    while raw.len() < header_end + length {
+        let count = stream.read(&mut buffer).await.unwrap();
+        assert!(count > 0, "connection closed before the request body ended");
+        raw.extend_from_slice(&buffer[..count]);
+    }
+
+    let mut request_line = head.lines().next().unwrap().split_whitespace();
+    let method = request_line.next().unwrap().to_string();
+    let target = request_line.next().unwrap();
+    Request {
+        method,
+        url: reqwest::Url::parse(&format!("http://{addr}{target}")).unwrap(),
+        authorization: header("authorization"),
+        accept: header("accept"),
+        body: String::from_utf8(raw[header_end..header_end + length].to_vec()).unwrap(),
+    }
+}
+
+async fn serve(reply: fn(&Request) -> Reply) -> Stub {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&requests);
+    let server = tokio::spawn(async move {
+        loop {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let request = read_request(&mut stream, addr).await;
+            let answer = reply(&request);
+            recorded.lock().unwrap().push(request);
+            stream.write_all(answer.to_http().as_bytes()).await.unwrap();
+        }
+    });
+    Stub {
+        base_url: format!("http://{addr}"),
+        requests,
+        server,
+    }
+}
+
+fn plugin_for(stub: &Stub, organization_suffix: &str, selected: &str) -> AzureDevOpsPlugin {
+    let mut plugin = AzureDevOpsPlugin::new();
+    plugin
+        .initialize(
+            1,
+            HashMap::from([
+                (
+                    "server_url".to_string(),
+                    format!("{}/acme{organization_suffix}", stub.base_url),
+                ),
+                ("token".to_string(), "stub-token".to_string()),
+                ("selected_items".to_string(), selected.to_string()),
+            ]),
+            Some(Arc::new(reqwest::Client::new())),
+        )
+        .unwrap();
+    plugin
+}
+
+fn build_json(id: i64, status: &str, result: Option<&str>, definition_id: i64) -> Value {
+    let mut build = json!({
+        "id": id,
+        "buildNumber": format!("20261028.{}", id % 100),
+        "status": status,
+        "sourceBranch": "refs/heads/main",
+        "sourceVersion": format!("sha{id}"),
+        "queueTime": "2026-10-28T10:00:00.1234567Z",
+        "startTime": "2026-10-28T10:00:05.5Z",
+        "requestedFor": {"displayName": "Ada Lovelace"},
+        "definition": {"id": definition_id},
+        "_links": {"web": {"href": format!("https://dev.azure.com/acme/Alpha/_build/results?buildId={id}")}}
+    });
+    if let Some(result) = result {
+        build["result"] = json!(result);
+        build["finishTime"] = json!("2026-10-28T10:02:35.5Z");
+    }
+    build
+}
+
+fn azure_reply(request: &Request) -> Reply {
+    let token = request.query("continuationToken");
+    match (request.method.as_str(), request.url.path()) {
+        ("GET", "/acme/_apis/projects") => match token.as_deref() {
+            None => Reply::json(
+                200,
+                json!({"count": 2, "value": [
+                    {"id": "p1", "name": "Alpha", "description": "Main product"},
+                    {"id": "p2", "name": "Beta Team"}
+                ]}),
+            )
+            .continued("projects-2"),
+            Some("projects-2") => {
+                Reply::json(200, json!({"count": 1, "value": [{"id": "p3", "name": "Empty"}]}))
+            }
+            Some(_) => Reply::not_found(request),
+        },
+        ("GET", "/acme/Alpha/_apis/build/definitions") => match token.as_deref() {
+            None => Reply::json(
+                200,
+                json!({"count": 2, "value": [
+                    {"id": 1, "name": "CI", "latestBuild": build_json(903, "completed", Some("succeeded"), 1)},
+                    {"id": 2, "name": "Docs"}
+                ]}),
+            )
+            .continued("defs-2"),
+            Some("defs-2") => Reply::json(
+                200,
+                json!({"count": 2, "value": [
+                    {"id": 3, "name": "Deploy", "latestBuild": build_json(905, "inProgress", None, 3)},
+                    {"id": 4, "name": "Nightly", "latestBuild": build_json(906, "completed", Some("partiallySucceeded"), 4)}
+                ]}),
+            ),
+            Some(_) => Reply::not_found(request),
+        },
+        ("GET", "/acme/Beta%20Team/_apis/build/definitions") => Reply::json(
+            200,
+            json!({"count": 1, "value": [
+                {"id": 5, "name": "Mobile", "latestBuild": build_json(907, "completed", Some("canceled"), 5)}
+            ]}),
+        ),
+        ("GET", "/acme/Empty/_apis/build/definitions") => {
+            Reply::json(200, json!({"count": 0, "value": []}))
+        }
+        ("GET", "/acme/Alpha/_apis/build/definitions/2") => Reply::json(
+            200,
+            json!({
+                "id": 2, "name": "Docs",
+                "variables": {"Ref": {"value": "x", "allowOverride": true}}
+            }),
+        ),
+        ("GET", "/acme/Alpha/_apis/build/definitions/1") => Reply::json(
+            200,
+            json!({
+                "id": 1, "name": "CI",
+                "repository": {"defaultBranch": "refs/heads/main"},
+                "variables": {
+                    "deployTarget": {"value": "dev", "allowOverride": true},
+                    "fixed": {"value": "x"},
+                    "apiKey": {"isSecret": true, "allowOverride": true},
+                    "branch": {"value": "legacy", "allowOverride": true}
+                }
+            }),
+        ),
+        ("GET", "/acme/Alpha/_apis/build/builds") => {
+            let history = [
+                build_json(923, "inProgress", None, 1),
+                build_json(922, "completed", Some("failed"), 1),
+                build_json(921, "completed", Some("succeeded"), 1),
+            ];
+            let start = match token.as_deref() {
+                None => 0,
+                Some("builds-2") => 2,
+                Some(_) => return Reply::not_found(request),
+            };
+            let size = request
+                .query("$top")
+                .and_then(|top| top.parse().ok())
+                .unwrap_or(history.len())
+                .min(2);
+            let page: Vec<_> = history[start..].iter().take(size).collect();
+            let reply = Reply::json(200, json!({"count": page.len(), "value": page}));
+            if start + size < history.len() {
+                reply.continued("builds-2")
+            } else {
+                reply
+            }
+        }
+        ("GET", "/acme/Alpha/_apis/build/builds/923") => {
+            Reply::json(200, build_json(923, "inProgress", None, 1))
+        }
+        ("GET", "/acme/Alpha/_apis/build/builds/922") => {
+            Reply::json(200, build_json(922, "completed", Some("failed"), 1))
+        }
+        ("GET", "/acme/Alpha/_apis/build/builds/777") => {
+            Reply::json(200, build_json(777, "completed", Some("succeeded"), 9))
+        }
+        ("POST", "/acme/Alpha/_apis/build/builds") => {
+            Reply::json(200, build_json(930, "notStarted", None, 1))
+        }
+        ("PATCH", "/acme/Alpha/_apis/build/builds/923") => {
+            Reply::json(200, build_json(923, "cancelling", None, 1))
+        }
+        _ => Reply::not_found(request),
+    }
+}
+
+#[tokio::test]
+async fn projects_are_listed_across_continuation_pages_and_paged_for_the_picker() {
+    let stub = serve(azure_reply).await;
+    let plugin = plugin_for(&stub, "", "");
+
+    let first = plugin
+        .fetch_available_pipelines(Some(PaginationParams {
+            page: 1,
+            page_size: 2,
+        }))
+        .await
+        .unwrap();
+    let second = plugin
+        .fetch_available_pipelines(Some(PaginationParams {
+            page: 2,
+            page_size: 2,
+        }))
+        .await
+        .unwrap();
+
+    let names = |page: &PaginatedAvailablePipelines| {
+        page.items
+            .iter()
+            .map(|item| item.id.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names(&first), ["Alpha", "Beta Team"]);
+    assert!(first.has_more);
+    assert_eq!(first.total_count, 3);
+    assert_eq!(first.items[0].description.as_deref(), Some("Main product"));
+    assert_eq!(first.items[0].organization.as_deref(), Some("acme"));
+    assert_eq!(names(&second), ["Empty"]);
+    assert!(!second.has_more);
+
+    assert_eq!(
+        stub.requests_to("GET", "/acme/_apis/projects"),
+        [
+            (Some("100".to_string()), None),
+            (Some("100".to_string()), Some("projects-2".to_string())),
+            (Some("100".to_string()), None),
+            (Some("100".to_string()), Some("projects-2".to_string())),
+        ]
+    );
+    assert!(stub.requests().iter().all(|request| {
+        request.query("api-version").as_deref() == Some("7.0")
+            && request.authorization.as_deref() == Some(BASIC_AUTH)
+    }));
+}
+
+#[tokio::test]
+async fn picker_filters_by_organization_and_search_term() {
+    let stub = serve(azure_reply).await;
+    let plugin = plugin_for(&stub, "", "");
+
+    let found = plugin
+        .fetch_available_pipelines_filtered(
+            Some("acme".to_string()),
+            Some("TEAM".to_string()),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(found.items.len(), 1);
+    assert_eq!(found.items[0].name, "Beta Team");
+
+    let requests_before = stub.requests().len();
+    let other = plugin
+        .fetch_available_pipelines_filtered(Some("other".to_string()), None, None)
+        .await
+        .unwrap();
+    assert!(other.items.is_empty());
+    assert_eq!(stub.requests().len(), requests_before);
+
+    let organizations = plugin.fetch_organizations().await.unwrap();
+    assert_eq!(organizations.len(), 1);
+    assert_eq!(organizations[0].id, "acme");
+    assert_eq!(organizations[0].name, "acme");
+}
+
+#[tokio::test]
+async fn definitions_of_selected_projects_become_pipelines_across_continuation_pages() {
+    let stub = serve(azure_reply).await;
+    let plugin = plugin_for(&stub, "", "Alpha, Beta Team");
+
+    let pipelines = plugin.fetch_pipelines().await.unwrap();
+
+    let summary: Vec<_> = pipelines
+        .iter()
+        .map(|pipeline| {
+            (
+                pipeline.id.as_str(),
+                pipeline.name.as_str(),
+                pipeline.status,
+                pipeline.repository.as_str(),
+                pipeline.branch.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            (
+                "Alpha/1",
+                "CI",
+                PipelineStatus::Success,
+                "acme/Alpha",
+                Some("main")
+            ),
+            (
+                "Alpha/2",
+                "Docs",
+                PipelineStatus::Pending,
+                "acme/Alpha",
+                None
+            ),
+            (
+                "Alpha/3",
+                "Deploy",
+                PipelineStatus::Running,
+                "acme/Alpha",
+                Some("main")
+            ),
+            (
+                "Alpha/4",
+                "Nightly",
+                PipelineStatus::Failed,
+                "acme/Alpha",
+                Some("main")
+            ),
+            (
+                "Beta Team/5",
+                "Mobile",
+                PipelineStatus::Cancelled,
+                "acme/Beta Team",
+                Some("main")
+            ),
+        ]
+    );
+    assert_eq!(
+        stub.requests_to("GET", "/acme/Alpha/_apis/build/definitions"),
+        [
+            (Some("100".to_string()), None),
+            (Some("100".to_string()), Some("defs-2".to_string())),
+        ]
+    );
+    assert!(stub
+        .requests()
+        .iter()
+        .filter(|request| request.url.path().ends_with("/build/definitions"))
+        .all(|request| request.query("includeLatestBuilds").as_deref() == Some("true")));
+}
+
+#[tokio::test]
+async fn fetching_pipelines_without_selected_projects_is_a_configuration_error() {
+    let stub = serve(azure_reply).await;
+    let error = plugin_for(&stub, "", "")
+        .fetch_pipelines()
+        .await
+        .unwrap_err();
+    assert!(matches!(error, PluginError::InvalidConfig(_)), "{error}");
+}
+
+#[tokio::test]
+async fn a_trailing_slash_on_the_server_url_does_not_double_the_slash() {
+    let stub = serve(azure_reply).await;
+    let plugin = plugin_for(&stub, "/", "Alpha");
+
+    plugin.fetch_available_pipelines(None).await.unwrap();
+    plugin.fetch_pipelines().await.unwrap();
+    plugin.validate_credentials().await.unwrap();
+
+    let paths: Vec<_> = stub
+        .requests()
+        .iter()
+        .map(|request| request.url.path().to_string())
+        .collect();
+    assert!(!paths.is_empty());
+    assert!(paths.iter().all(|path| !path.contains("//")), "{paths:?}");
+    assert!(
+        paths.iter().all(|path| path.starts_with("/acme/")),
+        "{paths:?}"
+    );
+}
+
+#[tokio::test]
+async fn run_history_is_newest_first_and_follows_continuation_until_the_limit() {
+    let stub = serve(azure_reply).await;
+    let plugin = plugin_for(&stub, "", "Alpha");
+
+    let runs = plugin.fetch_run_history("Alpha/1", 3).await.unwrap();
+
+    let summary: Vec<_> = runs
+        .iter()
+        .map(|run| (run.run_number, run.status, run.id.as_str()))
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            (923, PipelineStatus::Running, "azure-devops-run-923"),
+            (922, PipelineStatus::Failed, "azure-devops-run-922"),
+            (921, PipelineStatus::Success, "azure-devops-run-921"),
+        ]
+    );
+    assert_eq!(runs[0].pipeline_id, "Alpha/1");
+    assert_eq!(runs[1].branch.as_deref(), Some("main"));
+    assert_eq!(runs[1].actor.as_deref(), Some("Ada Lovelace"));
+    assert_eq!(runs[1].duration_seconds, Some(150));
+    assert_eq!(runs[1].metadata["build_number"], json!("20261028.22"));
+
+    let requests = stub.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].query("definitions").as_deref(), Some("1"));
+    assert_eq!(
+        requests[0].query("queryOrder").as_deref(),
+        Some("queueTimeDescending")
+    );
+    assert_eq!(requests[0].query("$top").as_deref(), Some("3"));
+    assert_eq!(requests[0].query("continuationToken"), None);
+    assert_eq!(requests[1].query("$top").as_deref(), Some("1"));
+    assert_eq!(
+        requests[1].query("continuationToken").as_deref(),
+        Some("builds-2")
+    );
+}
+
+#[tokio::test]
+async fn run_history_stops_at_the_limit_without_following_the_continuation() {
+    let stub = serve(azure_reply).await;
+    let plugin = plugin_for(&stub, "", "Alpha");
+
+    let runs = plugin.fetch_run_history("Alpha/1", 1).await.unwrap();
+
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].run_number, 923);
+    assert_eq!(stub.requests().len(), 1);
+    assert!(plugin
+        .fetch_run_history("Alpha/1", 0)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(stub.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn run_details_are_fetched_by_build_id_and_checked_against_the_pipeline() {
+    let stub = serve(azure_reply).await;
+    let plugin = plugin_for(&stub, "", "Alpha");
+
+    let run = plugin.fetch_run_details("Alpha/1", 922).await.unwrap();
+    assert_eq!(run.run_number, 922);
+    assert_eq!(run.status, PipelineStatus::Failed);
+    assert_eq!(run.commit_sha.as_deref(), Some("sha922"));
+    assert_eq!(
+        run.logs_url,
+        "https://dev.azure.com/acme/Alpha/_build/results?buildId=922"
+    );
+    assert_eq!(run.inputs, Some(json!({"source-branch": "main"})));
+
+    let foreign = plugin.fetch_run_details("Alpha/1", 777).await.unwrap_err();
+    assert!(
+        matches!(foreign, PluginError::PipelineNotFound(_)),
+        "{foreign}"
+    );
+    let missing = plugin.fetch_run_details("Alpha/1", 404).await.unwrap_err();
+    assert!(
+        matches!(missing, PluginError::PipelineNotFound(_)),
+        "{missing}"
+    );
+    let malformed = plugin.fetch_run_details("Alpha", 922).await.unwrap_err();
+    assert!(
+        matches!(malformed, PluginError::InvalidConfig(_)),
+        "{malformed}"
+    );
+}
+
+#[tokio::test]
+async fn workflow_parameters_offer_the_default_branch_and_overridable_non_secret_variables() {
+    let stub = serve(azure_reply).await;
+    let plugin = plugin_for(&stub, "", "Alpha");
+
+    let parameters = plugin.fetch_workflow_parameters("Alpha/1").await.unwrap();
+
+    let summary: Vec<_> = parameters
+        .iter()
+        .map(|parameter| {
+            let WorkflowParameterType::String { default } = &parameter.param_type else {
+                panic!("expected a string parameter: {}", parameter.name);
+            };
+            (
+                parameter.name.as_str(),
+                default.as_deref(),
+                parameter.required,
+            )
+        })
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            ("source-branch", Some("main"), false),
+            ("branch", Some("legacy"), false),
+            ("deployTarget", Some("dev"), false),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn trigger_queues_a_build_on_the_branch_with_the_overridden_variable() {
+    let stub = serve(azure_reply).await;
+    let plugin = plugin_for(&stub, "", "Alpha");
+
+    let result = plugin
+        .trigger_pipeline(TriggerParams {
+            workflow_id: "Alpha/1".to_string(),
+            inputs: Some(json!({"source-branch": "feature/x", "deployTarget": "staging"})),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(
+        result,
+        TriggerResult {
+            run_id: None,
+            run_number: Some(930),
+        }
+    );
+    let requests = stub.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].method, "GET");
+    assert_eq!(
+        requests[0].url.path(),
+        "/acme/Alpha/_apis/build/definitions/1"
+    );
+    let queued = &requests[1];
+    assert_eq!(queued.method, "POST");
+    assert_eq!(queued.url.path(), "/acme/Alpha/_apis/build/builds");
+    assert_eq!(queued.query("api-version").as_deref(), Some("7.0"));
+    assert_eq!(queued.authorization.as_deref(), Some(BASIC_AUTH));
+    let body: Value = serde_json::from_str(&queued.body).unwrap();
+    assert_eq!(
+        body,
+        json!({
+            "definition": {"id": 1},
+            "sourceBranch": "refs/heads/feature/x",
+            "parameters": r#"{"deployTarget":"staging"}"#
+        })
+    );
+}
+
+#[tokio::test]
+async fn a_variable_named_branch_is_sent_as_a_variable_not_as_the_source_branch() {
+    let stub = serve(azure_reply).await;
+    let plugin = plugin_for(&stub, "", "Alpha");
+
+    plugin
+        .trigger_pipeline(TriggerParams {
+            workflow_id: "Alpha/1".to_string(),
+            inputs: Some(json!({"source-branch": "main", "branch": "legacy"})),
+        })
+        .await
+        .unwrap();
+
+    let requests = stub.requests();
+    assert_eq!(
+        requests[0].url.path(),
+        "/acme/Alpha/_apis/build/definitions/1"
+    );
+    let body: Value = serde_json::from_str(&requests[1].body).unwrap();
+    assert_eq!(
+        body,
+        json!({
+            "definition": {"id": 1},
+            "sourceBranch": "refs/heads/main",
+            "parameters": r#"{"branch":"legacy"}"#
+        })
+    );
+}
+
+async fn queued_body(
+    plugin: &AzureDevOpsPlugin, stub: &Stub, pipeline: &str, inputs: Value,
+) -> Value {
+    plugin
+        .trigger_pipeline(TriggerParams {
+            workflow_id: pipeline.to_string(),
+            inputs: Some(inputs),
+        })
+        .await
+        .unwrap();
+    let requests = stub.requests();
+    let queued = requests
+        .iter()
+        .find(|request| request.method == "POST")
+        .unwrap();
+    serde_json::from_str(&queued.body).unwrap()
+}
+
+#[tokio::test]
+async fn an_overridable_ref_variable_is_sent_even_when_it_equals_the_branch() {
+    let stub = serve(azure_reply).await;
+    let plugin = plugin_for(&stub, "", "Alpha");
+
+    let body = queued_body(
+        &plugin,
+        &stub,
+        "Alpha/2",
+        json!({"source-branch": "main", "ref": "main"}),
+    )
+    .await;
+
+    assert_eq!(
+        body,
+        json!({
+            "definition": {"id": 2},
+            "sourceBranch": "refs/heads/main",
+            "parameters": r#"{"ref":"main"}"#
+        })
+    );
+}
+
+#[tokio::test]
+async fn the_rerun_ref_echo_is_dropped_when_the_definition_has_no_overridable_ref() {
+    let stub = serve(azure_reply).await;
+    let plugin = plugin_for(&stub, "", "Alpha");
+
+    let body = queued_body(
+        &plugin,
+        &stub,
+        "Alpha/1",
+        json!({"source-branch": "main", "ref": "main"}),
+    )
+    .await;
+
+    assert_eq!(
+        body,
+        json!({"definition": {"id": 1}, "sourceBranch": "refs/heads/main"})
+    );
+}
+
+#[tokio::test]
+async fn inputs_that_are_not_overridable_variables_are_not_sent() {
+    let stub = serve(azure_reply).await;
+    let plugin = plugin_for(&stub, "", "Alpha");
+
+    let body = queued_body(
+        &plugin,
+        &stub,
+        "Alpha/1",
+        json!({"DEPLOYtarget": "prod", "fixed": "x", "apiKey": "s3cret", "unknown": "y"}),
+    )
+    .await;
+
+    assert_eq!(
+        body,
+        json!({"definition": {"id": 1}, "parameters": r#"{"DEPLOYtarget":"prod"}"#})
+    );
+}
+
+#[tokio::test]
+async fn cancel_patches_the_build_status_to_cancelling() {
+    let stub = serve(azure_reply).await;
+    let plugin = plugin_for(&stub, "", "Alpha");
+
+    plugin.cancel_run("Alpha/1", 923).await.unwrap();
+
+    let requests = stub.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].method, "GET");
+    assert_eq!(requests[0].url.path(), "/acme/Alpha/_apis/build/builds/923");
+    assert_eq!(requests[1].method, "PATCH");
+    assert_eq!(requests[1].url.path(), "/acme/Alpha/_apis/build/builds/923");
+    assert_eq!(requests[1].query("api-version").as_deref(), Some("7.0"));
+    let body: Value = serde_json::from_str(&requests[1].body).unwrap();
+    assert_eq!(body, json!({"status": "cancelling"}));
+    assert!(plugin.metadata().capabilities.cancel);
+}
+
+#[tokio::test]
+async fn cancel_refuses_a_build_of_another_definition_without_patching() {
+    let stub = serve(azure_reply).await;
+    let plugin = plugin_for(&stub, "", "Alpha");
+
+    let error = plugin.cancel_run("Alpha/1", 777).await.unwrap_err();
+
+    assert!(matches!(error, PluginError::PipelineNotFound(_)), "{error}");
+    assert!(error.to_string().contains("does not belong"), "{error}");
+    assert!(stub
+        .requests()
+        .iter()
+        .all(|request| request.method == "GET"));
+}
+
+#[tokio::test]
+async fn ids_with_ci_keeps_projects_that_have_definitions() {
+    let stub = serve(azure_reply).await;
+    let plugin = plugin_for(&stub, "", "");
+
+    let kept = plugin
+        .ids_with_ci(vec!["Alpha".to_string(), "Empty".to_string()])
+        .await
+        .unwrap();
+
+    assert_eq!(kept, ["Alpha"]);
+}
+
+#[tokio::test]
+async fn validate_accepts_a_working_token_with_a_single_cheap_call() {
+    let stub = serve(|_| Reply::json(200, json!({"count": 0, "value": []}))).await;
+
+    assert!(plugin_for(&stub, "", "")
+        .validate_credentials()
+        .await
+        .unwrap());
+
+    let requests = stub.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].url.path(), "/acme/_apis/projects");
+    assert_eq!(requests[0].query("$top").as_deref(), Some("1"));
+}
+
+#[tokio::test]
+async fn validate_maps_401_to_authentication_failed() {
+    let stub = serve(|_| Reply::json(401, json!({"message": "TF400813: not authorized"}))).await;
+
+    let error = plugin_for(&stub, "", "")
+        .validate_credentials()
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(error, PluginError::AuthenticationFailed(_)),
+        "{error}"
+    );
+    assert_eq!(stub.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn validate_maps_a_203_sign_in_page_to_authentication_failed() {
+    let stub = serve(|_| Reply::html(203, "<html><title>Sign In</title></html>")).await;
+
+    let error = plugin_for(&stub, "", "")
+        .validate_credentials()
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(error, PluginError::AuthenticationFailed(_)),
+        "{error}"
+    );
+    assert!(error.to_string().contains("sign-in page"), "{error}");
+    assert_eq!(stub.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn validate_maps_a_200_html_sign_in_page_to_authentication_failed() {
+    let stub = serve(|_| Reply::html(200, "<html><title>Sign In</title></html>")).await;
+
+    let error = plugin_for(&stub, "", "")
+        .validate_credentials()
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(error, PluginError::AuthenticationFailed(_)),
+        "{error}"
+    );
+}
+
+#[tokio::test]
+async fn validate_maps_403_to_permission_denied() {
+    let stub = serve(|_| Reply::json(403, json!({"message": "TF401444: no access"}))).await;
+
+    let error = plugin_for(&stub, "", "")
+        .validate_credentials()
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, PluginError::PermissionDenied(_)), "{error}");
+}
+
+#[test]
+fn initialize_requires_a_server_url_and_a_token() {
+    let missing_url = AzureDevOpsPlugin::new()
+        .initialize(
+            1,
+            HashMap::from([("token".to_string(), "t".to_string())]),
+            None,
+        )
+        .unwrap_err();
+    let missing_token = AzureDevOpsPlugin::new()
+        .initialize(
+            1,
+            HashMap::from([(
+                "server_url".to_string(),
+                "https://dev.azure.com/acme".to_string(),
+            )]),
+            None,
+        )
+        .unwrap_err();
+
+    assert!(matches!(missing_url, PluginError::InvalidConfig(_)));
+    assert!(matches!(missing_token, PluginError::InvalidConfig(_)));
+}
+
+#[tokio::test]
+async fn a_list_cut_short_by_the_page_cap_is_an_error() {
+    let stub = serve(|_| {
+        Reply::json(
+            200,
+            json!({"count": 1, "value": [{"id": "p", "name": "Alpha"}]}),
+        )
+        .continued("again")
+    })
+    .await;
+
+    let error = plugin_for(&stub, "", "")
+        .fetch_available_pipelines(None)
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, PluginError::ApiError(_)), "{error}");
+    assert!(error.to_string().contains("more items"), "{error}");
+    assert!(stub.requests().len() > 1);
+}
+
+const STAGE: &str = "a0000000-0000-4000-8000-000000000001";
+const PHASE: &str = "b0000000-0000-4000-8000-000000000001";
+const JOB_LINUX: &str = "c0000000-0000-4000-8000-000000000001";
+const JOB_DOCS: &str = "c0000000-0000-4000-8000-000000000002";
+const JOB_PRUNED: &str = "c0000000-0000-4000-8000-000000000003";
+const JOB_EXPIRED: &str = "c0000000-0000-4000-8000-000000000004";
+const TASK_INIT: &str = "d0000000-0000-4000-8000-000000000001";
+const TASK_TESTS: &str = "d0000000-0000-4000-8000-000000000002";
+const TASK_PUBLISH: &str = "d0000000-0000-4000-8000-000000000003";
+const TASK_DOCS: &str = "d0000000-0000-4000-8000-000000000004";
+const CHECKPOINT: &str = "e0000000-0000-4000-8000-000000000001";
+const LINUX_LOG: &str = "\u{feff}2026-10-28T10:00:00.0000000Z ##[section]Starting: Linux tests\n\
+    2026-10-28T10:00:01.1000000Z ##[section]Starting: Initialize job\n\
+    2026-10-28T10:00:02.0000000Z ##[section]Finishing: Initialize job\n\
+    2026-10-28T10:00:03.0000000Z ##[section]Starting: Run tests\n\
+    2026-10-28T10:00:03.1000000Z ##[command]make test\n\
+    2026-10-28T10:00:09.0000000Z ##[error]Bash exited with code '2'.\n\
+    2026-10-28T10:00:09.5000000Z ##[section]Finishing: Run tests\n";
+
+type Outcome = (&'static str, Option<&'static str>);
+
+const SUCCEEDED: Outcome = ("completed", Some("succeeded"));
+const FAILED: Outcome = ("completed", Some("failed"));
+const SKIPPED: Outcome = ("completed", Some("skipped"));
+
+fn record(
+    id: &str, parent: Option<&str>, kind: &str, name: &str, order: i64, outcome: Outcome,
+    log: Option<i64>,
+) -> Value {
+    let mut record = json!({
+        "id": id,
+        "parentId": parent,
+        "type": kind,
+        "name": name,
+        "order": order,
+        "state": outcome.0,
+        "result": outcome.1,
+        "startTime": "2026-10-28T10:00:00.5000000Z",
+        "finishTime": "2026-10-28T10:00:09.5000000Z"
+    });
+    if let Some(log) = log {
+        record["log"] = json!({"id": log, "type": "Container"});
+    }
+    record
+}
+
+fn timeline_922() -> Value {
+    let mut publish = record(
+        TASK_PUBLISH,
+        Some(JOB_LINUX),
+        "Task",
+        "Publish results",
+        3,
+        SKIPPED,
+        None,
+    );
+    publish["startTime"] = Value::Null;
+    publish["finishTime"] = Value::Null;
+    json!({"id": "f0000000-0000-4000-8000-000000000001", "records": [
+        record(TASK_TESTS, Some(JOB_LINUX), "Task", "Run tests", 2, FAILED, Some(9)),
+        record(JOB_DOCS, Some(PHASE), "Job", "Docs", 2, SUCCEEDED, Some(12)),
+        record(STAGE, None, "Stage", "Build", 1, FAILED, None),
+        record(PHASE, Some(STAGE), "Phase", "Linux", 1, FAILED, None),
+        record(JOB_LINUX, Some(PHASE), "Job", "Linux tests", 1, FAILED, Some(7)),
+        record(CHECKPOINT, Some(STAGE), "Checkpoint", "Checkpoint", 0, SUCCEEDED, None),
+        record(TASK_INIT, Some(JOB_LINUX), "Task", "Initialize job", 1, SUCCEEDED, Some(8)),
+        publish,
+        record(TASK_DOCS, Some(JOB_DOCS), "Task", "Build docs", 1, SUCCEEDED, Some(13))
+    ]})
+}
+
+fn timeline_921() -> Value {
+    json!({"id": "f0000000-0000-4000-8000-000000000002", "records": [
+        record(PHASE, None, "Phase", "Phase 1", 1, FAILED, None),
+        record(JOB_PRUNED, Some(PHASE), "Job", "Build", 1, SUCCEEDED, Some(4)),
+        record(JOB_EXPIRED, Some(PHASE), "Job", "Test", 2, FAILED, Some(5))
+    ]})
+}
+
+fn log_reply(request: &Request) -> Reply {
+    match (request.method.as_str(), request.url.path()) {
+        ("GET", "/acme/Alpha/_apis/build/builds/922/timeline") => Reply::json(200, timeline_922()),
+        ("GET", "/acme/Alpha/_apis/build/builds/922/logs/7") => Reply::text(200, LINUX_LOG),
+        ("GET", "/acme/Alpha/_apis/build/builds/921/timeline") => Reply::json(200, timeline_921()),
+        ("GET", "/acme/Alpha/_apis/build/builds/921/logs/4") => {
+            Reply::json(404, json!({"message": "TF400898: log not found"}))
+        }
+        ("GET", "/acme/Alpha/_apis/build/builds/921/logs/5") => {
+            Reply::json(410, json!({"message": "log expired"}))
+        }
+        _ => Reply::not_found(request),
+    }
+}
+
+fn build_of_pipeline(run_number: i64, metadata: &HashMap<String, Value>) -> RunRef<'_> {
+    RunRef {
+        pipeline_id: "Alpha/1",
+        run_number,
+        run_id: "azure-devops-run",
+        metadata,
+    }
+}
+
+async fn resume_job_log(
+    plugin: &AzureDevOpsPlugin, run_number: i64, node_id: &str, from: Option<&LogCursor>,
+) -> PluginResult<(Vec<u8>, LogRead, bool)> {
+    let metadata = HashMap::new();
+    let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+    let mut sink = LogSink::new(tx);
+    let result = plugin
+        .read_log(
+            build_of_pipeline(run_number, &metadata),
+            node_id,
+            from,
+            &mut sink,
+        )
+        .await;
+    let restarted = sink.restarted();
+    drop(sink);
+    let mut bytes = Vec::new();
+    while let Some(chunk) = rx.recv().await {
+        bytes.extend_from_slice(&chunk);
+    }
+    result.map(|read| (bytes, read, restarted))
+}
+
+async fn read_job_log(
+    plugin: &AzureDevOpsPlugin, run_number: i64, node_id: &str,
+) -> PluginResult<Vec<u8>> {
+    resume_job_log(plugin, run_number, node_id, None)
+        .await
+        .map(|(bytes, _, _)| bytes)
+}
+
+#[tokio::test]
+async fn timeline_becomes_stage_job_and_step_nodes_in_order() {
+    let stub = serve(log_reply).await;
+    let plugin = plugin_for(&stub, "", "Alpha");
+    let metadata = HashMap::new();
+
+    let nodes = plugin
+        .fetch_log_nodes(build_of_pipeline(922, &metadata))
+        .await
+        .unwrap();
+
+    let summary: Vec<_> = nodes
+        .iter()
+        .map(|node| {
+            (
+                node.id.as_str(),
+                node.parent_id.as_deref(),
+                node.kind,
+                node.name.as_str(),
+                node.status,
+                node.log,
+            )
+        })
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            (
+                STAGE,
+                None,
+                LogNodeKind::Stage,
+                "Build",
+                PipelineStatus::Failed,
+                None
+            ),
+            (
+                JOB_LINUX,
+                Some(STAGE),
+                LogNodeKind::Job,
+                "Linux tests",
+                PipelineStatus::Failed,
+                Some(LogAvailability::Ready)
+            ),
+            (
+                TASK_INIT,
+                Some(JOB_LINUX),
+                LogNodeKind::Step,
+                "Initialize job",
+                PipelineStatus::Success,
+                None
+            ),
+            (
+                TASK_TESTS,
+                Some(JOB_LINUX),
+                LogNodeKind::Step,
+                "Run tests",
+                PipelineStatus::Failed,
+                None
+            ),
+            (
+                TASK_PUBLISH,
+                Some(JOB_LINUX),
+                LogNodeKind::Step,
+                "Publish results",
+                PipelineStatus::Skipped,
+                None
+            ),
+            (
+                JOB_DOCS,
+                Some(STAGE),
+                LogNodeKind::Job,
+                "Docs",
+                PipelineStatus::Success,
+                Some(LogAvailability::Ready)
+            ),
+            (
+                TASK_DOCS,
+                Some(JOB_DOCS),
+                LogNodeKind::Step,
+                "Build docs",
+                PipelineStatus::Success,
+                None
+            ),
+        ]
+    );
+    assert_eq!(
+        nodes[1].started_at.unwrap().to_rfc3339(),
+        "2026-10-28T10:00:00.500+00:00"
+    );
+    assert_eq!(nodes[4].started_at, None);
+    assert_eq!(nodes[4].finished_at, None);
+    let requests = stub.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        requests[0].url.path(),
+        "/acme/Alpha/_apis/build/builds/922/timeline"
+    );
+    assert_eq!(requests[0].query("api-version").as_deref(), Some("7.0"));
+}
+
+#[tokio::test]
+async fn build_without_stages_lists_its_jobs_at_the_top() {
+    let stub = serve(log_reply).await;
+    let plugin = plugin_for(&stub, "", "Alpha");
+    let metadata = HashMap::new();
+
+    let nodes = plugin
+        .fetch_log_nodes(build_of_pipeline(921, &metadata))
+        .await
+        .unwrap();
+
+    let summary: Vec<_> = nodes
+        .iter()
+        .map(|node| (node.id.as_str(), node.parent_id.as_deref(), node.kind))
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            (JOB_PRUNED, None, LogNodeKind::Job),
+            (JOB_EXPIRED, None, LogNodeKind::Job)
+        ]
+    );
+}
+
+#[tokio::test]
+async fn build_without_a_timeline_has_no_log_nodes() {
+    let stub = serve(log_reply).await;
+    let plugin = plugin_for(&stub, "", "Alpha");
+    let metadata = HashMap::new();
+
+    let error = plugin
+        .fetch_log_nodes(build_of_pipeline(999, &metadata))
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, PluginError::PipelineNotFound(_)), "{error}");
+}
+
+#[tokio::test]
+async fn job_log_streams_as_text_through_the_id_the_timeline_lists() {
+    let stub = serve(log_reply).await;
+    let plugin = plugin_for(&stub, "", "Alpha");
+
+    let log = read_job_log(&plugin, 922, JOB_LINUX).await.unwrap();
+
+    assert_eq!(log, LINUX_LOG.as_bytes());
+    let requests = stub.requests();
+    let paths: Vec<_> = requests
+        .iter()
+        .map(|request| request.url.path().to_string())
+        .collect();
+    assert_eq!(
+        paths,
+        [
+            "/acme/Alpha/_apis/build/builds/922/timeline",
+            "/acme/Alpha/_apis/build/builds/922/logs/7"
+        ]
+    );
+    assert_eq!(requests[1].accept.as_deref(), Some("text/plain"));
+    assert_eq!(requests[1].query("api-version").as_deref(), Some("7.0"));
+    assert!(requests
+        .iter()
+        .all(|request| request.authorization.as_deref() == Some(BASIC_AUTH)));
+}
+
+#[tokio::test]
+async fn log_the_server_no_longer_has_is_not_found() {
+    let stub = serve(log_reply).await;
+    let plugin = plugin_for(&stub, "", "Alpha");
+
+    for job in [JOB_PRUNED, JOB_EXPIRED] {
+        let error = read_job_log(&plugin, 921, job).await.unwrap_err();
+        assert!(
+            matches!(&error, PluginError::PipelineNotFound(message) if message.contains("no longer available")),
+            "{job}: {error:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn node_ids_outside_the_guid_alphabet_are_rejected_without_a_request() {
+    let stub = serve(log_reply).await;
+    let plugin = plugin_for(&stub, "", "Alpha");
+
+    let rejected = [
+        "",
+        "../../logs/7",
+        "c0000000-0000-4000-8000-000000000001/../x",
+        "x?y=1",
+        "c0000000 0000",
+        "c0000000-0000-4000-8000-00000000000g",
+        "7/../../builds/1",
+    ];
+    for node_id in rejected {
+        let error = read_job_log(&plugin, 922, node_id).await.unwrap_err();
+        assert!(
+            matches!(error, PluginError::InvalidConfig(_)),
+            "{node_id}: {error:?}"
+        );
+    }
+    assert!(stub.requests().is_empty());
+}
+
+#[tokio::test]
+async fn node_the_timeline_does_not_list_as_a_job_log_never_reaches_the_log_endpoint() {
+    let stub = serve(log_reply).await;
+    let plugin = plugin_for(&stub, "", "Alpha");
+
+    let unlisted = [
+        TASK_TESTS,
+        STAGE,
+        PHASE,
+        CHECKPOINT,
+        "ffffffff-0000-4000-8000-000000000000",
+        "7",
+    ];
+    for node_id in unlisted {
+        let error = read_job_log(&plugin, 922, node_id).await.unwrap_err();
+        assert!(
+            matches!(error, PluginError::PipelineNotFound(_)),
+            "{node_id}: {error:?}"
+        );
+    }
+    let requests = stub.requests();
+    assert_eq!(requests.len(), unlisted.len());
+    assert!(requests
+        .iter()
+        .all(|request| request.url.path().ends_with("/timeline")));
+}
+
+const LIVE_LINES: [&str; 5] = [
+    "2026-10-28T10:00:00.0000000Z ##[section]Starting: Linux tests",
+    "2026-10-28T10:00:01.0000000Z ##[command]make build",
+    "2026-10-28T10:00:02.0000000Z compiling",
+    "2026-10-28T10:00:03.0000000Z compiling",
+    "2026-10-28T10:00:04.0000000Z ##[section]Finishing: Linux tests",
+];
+const REPEATED_LINES: [&str; 4] = ["q", "z", "z", "z"];
+const LIVE_BUILDS: [(&str, i64, i64); 4] =
+    [("924", 7, 1), ("925", 8, 2), ("926", 9, 1), ("927", 10, 1)];
+
+fn joined(lines: &[impl AsRef<str>]) -> String {
+    lines
+        .iter()
+        .map(|line| format!("{}\n", line.as_ref()))
+        .collect()
+}
+
+fn live_text(lines: std::ops::Range<usize>) -> String {
+    joined(&LIVE_LINES[lines])
+}
+
+fn oversized_lines() -> Vec<String> {
+    vec![
+        "a".to_string(),
+        "b".to_string(),
+        "x".repeat(BOUNDARY_LINE_LIMIT + 10),
+        "new".to_string(),
+    ]
+}
+
+fn server_lines(build: &str) -> Vec<String> {
+    match build {
+        "926" => REPEATED_LINES.iter().map(|line| line.to_string()).collect(),
+        "927" => oversized_lines(),
+        _ => LIVE_LINES.iter().map(|line| line.to_string()).collect(),
+    }
+}
+
+fn job_timeline(log: i64, attempt: i64) -> Value {
+    let mut job = record(
+        JOB_LINUX,
+        None,
+        "Job",
+        "Linux tests",
+        1,
+        SUCCEEDED,
+        Some(log),
+    );
+    job["attempt"] = json!(attempt);
+    json!({"records": [job]})
+}
+
+fn live_log(request: &Request, first_line: u64) -> Reply {
+    let path = request.url.path();
+    let Some((build, log, attempt)) = LIVE_BUILDS
+        .iter()
+        .find(|(build, ..)| path.starts_with(&format!("/acme/Alpha/_apis/build/builds/{build}/")))
+    else {
+        return Reply::not_found(request);
+    };
+    if path.ends_with("/timeline") {
+        return Reply::json(200, job_timeline(*log, *attempt));
+    }
+    if !path.ends_with(&format!("/logs/{log}")) {
+        return Reply::not_found(request);
+    }
+    let skip = request.query("startLine").map_or(0, |line| {
+        line.parse::<u64>().unwrap().saturating_sub(first_line) as usize
+    });
+    let lines = server_lines(build);
+    Reply::text(200, &joined(&lines[skip.min(lines.len())..]))
+}
+
+fn zero_based_log(request: &Request) -> Reply {
+    live_log(request, 0)
+}
+
+fn one_based_log(request: &Request) -> Reply {
+    live_log(request, 1)
+}
+
+type LiveServer = (fn(&Request) -> Reply, u64);
+
+const LIVE_SERVERS: [LiveServer; 2] = [(zero_based_log, 0), (one_based_log, 1)];
+
+fn position_over(
+    build: i64, log: i64, attempt: i64, text: &str, first_line: Option<u64>,
+) -> LogPosition {
+    let mut tally = Tally::default();
+    tally.feed(text.as_bytes());
+    let mut position = tally.position(build, log, attempt);
+    if first_line.is_some() {
+        position.first_line = first_line;
+        position.anchor = None;
+    }
+    position
+}
+
+fn cursor_over(
+    build: i64, log: i64, attempt: i64, text: &str, first_line: Option<u64>,
+) -> LogCursor {
+    LogCursor::new(&position_over(build, log, attempt, text, first_line)).unwrap()
+}
+
+fn log_requests(stub: &Stub) -> Vec<Option<String>> {
+    stub.requests()
+        .iter()
+        .filter(|request| request.url.path().contains("/logs/"))
+        .map(|request| request.query("startLine"))
+        .collect()
+}
+
+fn lines_asked(lines: &[Option<u64>]) -> Vec<Option<String>> {
+    lines
+        .iter()
+        .map(|line| line.map(|line| line.to_string()))
+        .collect()
+}
+
+#[tokio::test]
+async fn first_read_is_the_whole_log_with_a_cursor_at_its_end() {
+    let stub = serve(zero_based_log).await;
+    let plugin = plugin_for(&stub, "", "Alpha");
+
+    let (log, read, restarted) = resume_job_log(&plugin, 924, JOB_LINUX, None).await.unwrap();
+
+    assert_eq!(log, live_text(0..5).as_bytes());
+    assert_eq!(
+        read,
+        LogRead::replace(Some(cursor_over(924, 7, 1, &live_text(0..5), None)))
+    );
+    assert!(!restarted);
+    assert_eq!(log_requests(&stub), [None]);
+}
+
+#[tokio::test]
+async fn resumed_read_appends_only_the_new_lines_whichever_line_the_server_counts_from() {
+    for (serve_log, first) in LIVE_SERVERS {
+        let stub = serve(serve_log).await;
+        let plugin = plugin_for(&stub, "", "Alpha");
+        let cursor = cursor_over(924, 7, 1, &live_text(0..3), None);
+
+        let (log, read, restarted) = resume_job_log(&plugin, 924, JOB_LINUX, Some(&cursor))
+            .await
+            .unwrap();
+
+        assert_eq!(log, live_text(3..5).as_bytes());
+        assert_eq!(
+            read,
+            LogRead::append(cursor_over(924, 7, 1, &live_text(0..5), Some(first)))
+        );
+        assert!(!restarted);
+        assert_eq!(
+            log_requests(&stub),
+            lines_asked(&[Some(2), Some(2 + first)])
+        );
+    }
+}
+
+#[tokio::test]
+async fn once_the_numbering_is_known_a_resume_asks_for_the_boundary_line_only() {
+    for (serve_log, first) in LIVE_SERVERS {
+        let stub = serve(serve_log).await;
+        let plugin = plugin_for(&stub, "", "Alpha");
+        let cursor = cursor_over(924, 7, 1, &live_text(0..3), Some(first));
+
+        let (log, read, restarted) = resume_job_log(&plugin, 924, JOB_LINUX, Some(&cursor))
+            .await
+            .unwrap();
+
+        assert_eq!(log, live_text(3..5).as_bytes());
+        assert_eq!(
+            read,
+            LogRead::append(cursor_over(924, 7, 1, &live_text(0..5), Some(first)))
+        );
+        assert!(!restarted);
+        assert_eq!(log_requests(&stub), lines_asked(&[Some(2 + first)]));
+    }
+}
+
+#[tokio::test]
+async fn repeated_lines_at_the_boundary_do_not_swallow_the_new_line() {
+    let before = joined(&REPEATED_LINES[..3]);
+    let after = joined(&REPEATED_LINES);
+    for (serve_log, first) in LIVE_SERVERS {
+        for known in [None, Some(first)] {
+            let stub = serve(serve_log).await;
+            let plugin = plugin_for(&stub, "", "Alpha");
+            let cursor = cursor_over(926, 9, 1, &before, known);
+
+            let (log, read, restarted) = resume_job_log(&plugin, 926, JOB_LINUX, Some(&cursor))
+                .await
+                .unwrap();
+
+            assert_eq!(log, b"z\n", "{known:?}");
+            assert_eq!(
+                read,
+                LogRead::append(cursor_over(926, 9, 1, &after, Some(first))),
+                "{known:?}"
+            );
+            assert!(!restarted, "{known:?}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn resumed_read_with_nothing_new_writes_nothing_and_keeps_the_cursor() {
+    for (serve_log, first) in LIVE_SERVERS {
+        let stub = serve(serve_log).await;
+        let plugin = plugin_for(&stub, "", "Alpha");
+        let cursor = cursor_over(924, 7, 1, &live_text(0..5), None);
+
+        let (log, read, restarted) = resume_job_log(&plugin, 924, JOB_LINUX, Some(&cursor))
+            .await
+            .unwrap();
+
+        assert!(log.is_empty());
+        assert_eq!(
+            read,
+            LogRead::append(cursor_over(924, 7, 1, &live_text(0..5), Some(first)))
+        );
+        assert!(!restarted);
+    }
+}
+
+#[tokio::test]
+async fn resumed_read_continues_a_last_line_that_had_no_newline_on_a_fresh_line() {
+    for (serve_log, first) in LIVE_SERVERS {
+        let stub = serve(serve_log).await;
+        let plugin = plugin_for(&stub, "", "Alpha");
+        let unterminated = live_text(0..3);
+        let unterminated = unterminated.trim_end_matches('\n');
+        let cursor = cursor_over(924, 7, 1, unterminated, None);
+
+        let (log, read, restarted) = resume_job_log(&plugin, 924, JOB_LINUX, Some(&cursor))
+            .await
+            .unwrap();
+
+        assert_eq!(log, format!("\n{}", live_text(3..5)).as_bytes());
+        assert_eq!(
+            read,
+            LogRead::append(cursor_over(924, 7, 1, &live_text(0..5), Some(first)))
+        );
+        assert!(!restarted);
+    }
+}
+
+#[tokio::test]
+async fn boundary_line_longer_than_the_limit_restarts_with_a_full_streamed_read() {
+    let full = joined(&oversized_lines());
+    let seen = joined(&oversized_lines()[..3]);
+    for (serve_log, first) in LIVE_SERVERS {
+        let stub = serve(serve_log).await;
+        let plugin = plugin_for(&stub, "", "Alpha");
+        let cursor = cursor_over(927, 10, 1, &seen, Some(first));
+
+        let (bytes, read, restarted) = resume_job_log(&plugin, 927, JOB_LINUX, Some(&cursor))
+            .await
+            .unwrap();
+
+        assert_eq!(bytes, full.as_bytes());
+        assert_eq!(
+            read,
+            LogRead::replace(Some(cursor_over(927, 10, 1, &full, None)))
+        );
+        assert!(restarted);
+        assert_eq!(log_requests(&stub), lines_asked(&[Some(2 + first), None]));
+    }
+}
+
+#[tokio::test]
+async fn cursor_that_cannot_continue_the_log_restarts_with_the_whole_log() {
+    let malformed = LogCursor::new(&"junk").unwrap();
+
+    for (serve_log, first) in LIVE_SERVERS {
+        let cases = [
+            (
+                924,
+                7,
+                cursor_over(924, 7, 1, &"longer\n".repeat(9), Some(first)),
+                3,
+            ),
+            (
+                924,
+                7,
+                cursor_over(924, 7, 1, &"rewritten\n".repeat(5), Some(first)),
+                3,
+            ),
+            (924, 7, cursor_over(924, 7, 1, "a\nb\nc\n", None), 3),
+            (924, 7, cursor_over(924, 7, 1, "z\nz\nz\n", None), 2),
+            (
+                924,
+                7,
+                cursor_over(924, 6, 1, &live_text(0..3), Some(first)),
+                2,
+            ),
+            (
+                925,
+                8,
+                cursor_over(925, 8, 1, &live_text(0..3), Some(first)),
+                2,
+            ),
+            (924, 7, malformed.clone(), 2),
+        ];
+        for (build, log, cursor, requests) in &cases {
+            let stub = serve(serve_log).await;
+            let plugin = plugin_for(&stub, "", "Alpha");
+
+            let (bytes, read, restarted) = resume_job_log(&plugin, *build, JOB_LINUX, Some(cursor))
+                .await
+                .unwrap();
+
+            assert_eq!(bytes, live_text(0..5).as_bytes(), "{cursor:?}");
+            let attempt = if *build == 925 { 2 } else { 1 };
+            assert_eq!(
+                read,
+                LogRead::replace(Some(cursor_over(
+                    *build,
+                    *log,
+                    attempt,
+                    &live_text(0..5),
+                    None
+                ))),
+                "{cursor:?}"
+            );
+            assert!(restarted, "{cursor:?}");
+            assert_eq!(stub.requests().len(), *requests, "{cursor:?}");
+            assert_eq!(log_requests(&stub).last(), Some(&None), "{cursor:?}");
+        }
+    }
+}

@@ -1,5 +1,5 @@
 import { isRemoteClient } from '../services/connection'
-import type { Biometry, VaultStatusResponse } from '../types/domain'
+import type { Biometry, VaultStatusResponse } from '../types/vault'
 
 import { isAndroidPlatform } from './platform'
 

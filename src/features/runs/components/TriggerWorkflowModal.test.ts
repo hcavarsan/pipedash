@@ -3,13 +3,21 @@ import { after, afterEach, beforeEach, mock, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement } from 'react'
-
-import type { Pipeline, WorkflowParameter } from '../../../types/domain'
+import { pipelineActionsFixture, pluginPresentationFixture } from '../../../testing/presentation'
+import type { PreferenceChange } from '../../../types/notification_preferences'
+import type { Pipeline, WorkflowParameter } from '../../../types/pipelines'
+import { isRecord } from '../../../utils/isRecord'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
-const state: { params: WorkflowParameter[]; paramsFailure: boolean; triggerFailure: boolean } = {
+const state: {
+  params: WorkflowParameter[]
+  values: Record<string, unknown>
+  paramsFailure: boolean
+  triggerFailure: boolean
+} = {
   params: [],
+  values: {},
   paramsFailure: false,
   triggerFailure: false,
 }
@@ -19,12 +27,28 @@ Object.assign(window, {
   __TAURI_INTERNALS__: {
     invoke: async (command: string, args?: Record<string, unknown>) => {
       switch (command) {
-        case 'get_workflow_parameters':
+        case 'get_available_plugins':
+          return []
+        case 'prepare_pipeline_trigger': {
           if (state.paramsFailure) {
             throw new Error('parameters unavailable')
           }
 
-          return state.params
+          const values = isRecord(args?.inputs) ? args.inputs : state.values
+
+          return {
+            parameters: state.params,
+            values,
+            fields: [],
+            errors: Object.fromEntries(
+              state.params
+                .filter((param) => param.required && (values[param.name] ?? '') === '')
+                .map((param) => [param.name, `${param.label} is required`])
+            ),
+            availability: { allowed: true, reason: null },
+            copy: { ...pluginPresentationFixture().trigger, label: 'Trigger workflow', compact_label: 'Trigger' },
+          }
+        }
         case 'trigger_pipeline':
           triggers.push(args ?? {})
 
@@ -32,7 +56,7 @@ Object.assign(window, {
             throw new Error('provider rejected the trigger')
           }
 
-          return JSON.stringify({ run_number: 42 })
+          return { run_id: null, run_number: 42 }
         default:
           throw new Error(`Unexpected command: ${command}`)
       }
@@ -48,9 +72,8 @@ const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanst
 const { TriggerWorkflowModal } = await import('./TriggerWorkflowModal')
 const { apiService } = await import('../../../services/api')
 const { tauriService } = await import('../../../services/tauri')
-const { DEFAULT_NOTIFICATION_PREFERENCES, pendingWatches, useNotificationStore } = await import(
-  '../../../stores/notificationStore'
-)
+const { DEFAULT_NOTIFICATION_PREFERENCES, useNotificationStore } = await import('../../../stores/notificationStore')
+const preferenceChanges: PreferenceChange[] = []
 const view = () => within(document.body)
 
 const branchParam: WorkflowParameter = {
@@ -72,6 +95,7 @@ const pipeline: Pipeline = {
   repository: 'owner/repo',
   branch: 'main',
   workflow_file: 'build.yml',
+  actions: pipelineActionsFixture(),
 }
 
 let client = new QueryClient()
@@ -79,12 +103,23 @@ let client = new QueryClient()
 beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   state.params = [branchParam]
+  state.values = {}
   state.paramsFailure = false
   state.triggerFailure = false
   triggers.length = 0
-  useNotificationStore.setState({ preferences: DEFAULT_NOTIFICATION_PREFERENCES, notifyTriggeredRuns: true })
-  mock.method(apiService, 'getWorkflowParameters', tauriService.getWorkflowParameters)
+  preferenceChanges.length = 0
+  useNotificationStore.setState({
+    preferences: DEFAULT_NOTIFICATION_PREFERENCES,
+    pipelineStates: {},
+    notifyTriggeredRuns: true,
+  })
+  mock.method(apiService, 'preparePipelineTrigger', tauriService.preparePipelineTrigger)
+  mock.method(apiService, 'getAvailablePlugins', tauriService.getAvailablePlugins)
   mock.method(apiService, 'triggerPipeline', tauriService.triggerPipeline)
+  mock.method(tauriService, 'changeNotificationPreference', async (change: PreferenceChange) => {
+    preferenceChanges.push(change)
+    return { preferences: DEFAULT_NOTIFICATION_PREFERENCES, pipeline_states: {} }
+  })
   notifyManager.setNotifyFunction((callback) => act(callback))
 })
 
@@ -100,7 +135,7 @@ after(async () => {
   await GlobalRegistrator.unregister()
 })
 
-function renderModal(options: { initialInputs?: Record<string, unknown> } = {}) {
+function renderModal(options: { rerunOf?: number } = {}) {
   const successes: Array<[string, number]> = []
   const closed = { value: false }
 
@@ -156,7 +191,8 @@ test('a missing required value blocks the request and reports the field', async 
 
 test('replayed zero is shown in text fields', async () => {
   state.params = [{ name: 'retries', label: 'Retries', description: null, type: 'string', required: false }]
-  renderModal({ initialInputs: { retries: 0 } })
+  state.values = { retries: 0 }
+  renderModal({ rerunOf: 7 })
 
   const input = await view().findByRole('textbox', { name: 'Retries' })
   assert.ok(input instanceof HTMLInputElement)
@@ -211,7 +247,7 @@ test('a background parameter refetch does not overwrite a dirty draft', async ()
 })
 
 const pendingFinishes = () =>
-  pendingWatches(useNotificationStore.getState().preferences).map((watch) => watch.pipeline_id)
+  preferenceChanges.flatMap((change) => (change.type === 'watch_next_finish' ? [change.pipeline_id] : []))
 
 async function triggerWithBranch() {
   const user = userEvent.setup({ document })
@@ -256,7 +292,7 @@ test('a rejected trigger leaves no pending finish notification', async () => {
 
 test('a watched pipeline needs no checkbox and gets no extra request', async () => {
   useNotificationStore.setState({
-    preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, watched_pipelines: [pipeline.id] },
+    pipelineStates: { [pipeline.id]: 'watching' },
   })
   const { closed } = renderModal()
 

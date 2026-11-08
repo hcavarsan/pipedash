@@ -1,5 +1,11 @@
 use std::path::Path;
 
+use pipedash_plugin_api::build_watch::{
+    BuildWatchMonitoring,
+    BuildWatchSnapshot,
+    BuildWatchStatus,
+    BuildWatchStopReason,
+};
 use serde::{
     de::DeserializeOwned,
     Deserialize,
@@ -21,10 +27,6 @@ use tauri::{
 use crate::{
     Accessibility,
     Appearance,
-    BuildWatchMonitoring,
-    BuildWatchSnapshot,
-    BuildWatchStatus,
-    BuildWatchStopReason,
     Error,
     HapticKind,
     LocalNotificationSettings,
@@ -171,7 +173,7 @@ impl<R: Runtime> PipedashNative<R> {
     }
 
     pub async fn start_build_watch(&self, watch: &BuildWatchSnapshot) -> Result<BuildWatchStatus> {
-        watch.validate()?;
+        watch.validate().map_err(Error::Native)?;
         if watch.monitoring != BuildWatchMonitoring::Watching {
             return Err(Error::Native(
                 "Only an active build can be watched".to_string(),
@@ -181,7 +183,7 @@ impl<R: Runtime> PipedashNative<R> {
     }
 
     pub async fn update_build_watch(&self, watch: &BuildWatchSnapshot) -> Result<BuildWatchStatus> {
-        watch.validate()?;
+        watch.validate().map_err(Error::Native)?;
         self.call("updateBuildWatch", watch).await
     }
 

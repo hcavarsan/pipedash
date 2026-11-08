@@ -11,8 +11,8 @@ import { queryKeys } from '../lib/queryKeys'
 import { mobileService } from '../services/mobile'
 import { service } from '../services/service'
 import { useAuthStore } from '../stores/authStore'
-import type { AppLockStatus, UnlockVaultResponse, VaultStatusResponse } from '../types/domain'
 import { getHttpStatus } from '../types/errors'
+import type { AppLockStatus, UnlockVaultResponse, VaultStatusResponse } from '../types/vault'
 import { displayErrorNotification, errorMessage } from '../utils/errorDisplay'
 
 export function useVaultPasswordStatus(options?: {

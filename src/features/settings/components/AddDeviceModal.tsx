@@ -9,7 +9,7 @@ import { LoadingState } from '@/components/common/LoadingState'
 import { StandardModal } from '@/components/common/StandardModal'
 import { useCreatePairingCode } from '@/features/connection/queries/useConnectionQueries'
 import { logger } from '@/lib/logger'
-import { events } from '@/services/service'
+import { listenEvent } from '@/services/events'
 import { WS_EVENTS } from '@/services/websocket'
 
 interface AddDeviceModalProps {
@@ -93,8 +93,7 @@ export function AddDeviceModal({ opened, onClose }: AddDeviceModalProps): ReactN
     let active = true
     let unlisten: (() => void) | undefined
 
-    events
-      .listen<PairedDevice>(WS_EVENTS.DEVICE_PAIRED, setPaired)
+    listenEvent<PairedDevice>(WS_EVENTS.DEVICE_PAIRED, setPaired)
       .then((stopListening) => {
         if (active) {
           unlisten = stopListening

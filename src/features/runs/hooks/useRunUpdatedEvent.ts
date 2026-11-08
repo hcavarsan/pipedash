@@ -1,9 +1,9 @@
 import { useEffect, useEffectEvent } from 'react'
 
 import { logger } from '../../../lib/logger'
-import { events } from '../../../services/service'
-import type { PipelineRun } from '../../../types/domain'
+import { listenEvent } from '../../../services/events'
 import type { EventPayloadMap } from '../../../types/events'
+import type { PipelineRun } from '../../../types/pipelines'
 
 export function useRunUpdatedEvent(
   pipelineId: string | undefined,
@@ -20,12 +20,11 @@ export function useRunUpdatedEvent(
     let mounted = true
     let unlisten: (() => void) | undefined
 
-    events
-      .listen<EventPayloadMap['run-updated']>('run-updated', (payload) => {
-        if (mounted && payload?.pipelineId === pipelineId && payload.run) {
-          handle(payload.run)
-        }
-      })
+    listenEvent<EventPayloadMap['run-updated']>('run-updated', (payload) => {
+      if (mounted && payload?.pipelineId === pipelineId && payload.run) {
+        handle(payload.run)
+      }
+    })
       .then((remove) => {
         if (mounted) {
           unlisten = remove

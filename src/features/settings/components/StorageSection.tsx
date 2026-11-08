@@ -1,12 +1,11 @@
-import { Alert, Box, Button, Card, Group, Loader, SimpleGrid, Stack, Text } from '@mantine/core'
-import { IconAlertCircle, IconCheck, IconCloudUpload, IconLock, IconServer2, IconSettings } from '@tabler/icons-react'
+import { Box, Button } from '@mantine/core'
+import { IconServer2, IconSettings } from '@tabler/icons-react'
 import { type ReactNode, useState } from 'react'
 import { EmptyState } from '../../../components/common/EmptyState'
 import { ErrorState } from '../../../components/common/ErrorState'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import { LiveStatus } from '../../../components/forms/LiveStatus'
-import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { STORAGE_BACKEND_LABELS } from '../../../constants/storageLabels'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { logger } from '../../../lib/logger'
@@ -25,6 +24,7 @@ import { isMobilePlatform, secureStoreLabel } from '../../../utils/platform'
 import { SetupWizard } from '../../setup/components/SetupWizard/SetupWizard'
 import { AppLockCard } from '../../vault/components/AppLockCard'
 import { ConfigEditorModal } from './ConfigEditorModal'
+import { StorageOverview } from './StorageOverview'
 import { StoragePathsDisplay } from './StoragePathsDisplay'
 
 const LocalStorageSection = (): ReactNode => {
@@ -48,19 +48,18 @@ const LocalStorageSection = (): ReactNode => {
 
   const { data: vaultStatus } = useVaultStatus()
   const lockVaultMutation = useLockVault()
-  const canLockVault = vaultStatus && lockMeansSomething(vaultStatus) && vaultStatus.is_unlocked
+  const canLockVault = Boolean(vaultStatus && lockMeansSomething(vaultStatus) && vaultStatus.is_unlocked)
 
   const [setupWizardOpen, setSetupWizardOpen] = useState(false)
   const [configEditorOpen, setConfigEditorOpen] = useState(false)
 
   const { data: connectionResult, error: connectionError, isPending: testingConnection } = testConnectionMutation
-  const connectionStatus = connectionResult
-    ? connectionResult.success
-      ? 'success'
-      : 'error'
-    : connectionError
-      ? 'error'
-      : null
+  let connectionStatus: 'success' | 'error' | null = null
+  if (connectionResult) {
+    connectionStatus = connectionResult.success ? 'success' : 'error'
+  } else if (connectionError) {
+    connectionStatus = 'error'
+  }
   const connectionMessage = connectionResult
     ? connectionResult.message || (connectionResult.success ? 'Connection successful' : 'Connection failed')
     : (connectionError?.message ?? '')
@@ -131,157 +130,49 @@ const LocalStorageSection = (): ReactNode => {
       )
     }
 
-    const pathsPanel = storagePathsError ? (
-      <ErrorState
-        title="Couldn't load storage paths"
-        error={storagePathsError}
-        onRetry={() => void refetchStoragePaths()}
-        retrying={isRefetchingPaths}
-      />
-    ) : storagePaths ? (
-      <StoragePathsDisplay paths={storagePaths} config={storageConfig.config} onEditConfig={openConfigEditor} />
-    ) : (
-      <LoadingState message="Loading storage paths..." />
-    )
-
-    if (mobileShell) {
-      return (
-        <Stack gap="lg">
-          <IosGroup>
-            <IosRow title="Storage backend" value={STORAGE_BACKEND_LABELS[backend]} />
-            <IosRow
-              title="Credentials"
-              value={
-                vaultStatus?.password_source === 'keyring'
-                  ? secureStoreLabel()
-                  : `Encrypted in ${STORAGE_BACKEND_LABELS[backend]}`
-              }
-            />
-            <IosRow title="Cache backend" value={isPostgres ? STORAGE_BACKEND_LABELS.postgres : 'Local filesystem'} />
-          </IosGroup>
-
-          {pathsPanel}
-
-          <IosGroup
-            footer={
-              connectionStatus && (
-                <Text span inherit c={connectionStatus === 'success' ? 'green' : 'red'}>
-                  {connectionMessage}
-                </Text>
-              )
-            }
-          >
-            <IosRow
-              title="Test connection"
-              onClick={testConnection}
-              disabled={testingConnection}
-              accessory={testingConnection ? <Loader size={18} aria-hidden /> : undefined}
-            />
-            {canLockVault && (
-              <IosRow
-                title="Lock vault"
-                onClick={() => lockVaultMutation.mutate()}
-                disabled={lockVaultMutation.isPending}
-                accessory={lockVaultMutation.isPending ? <Loader size={18} aria-hidden /> : undefined}
-              />
-            )}
-          </IosGroup>
-        </Stack>
+    let pathsPanel: ReactNode
+    if (storagePathsError) {
+      pathsPanel = (
+        <ErrorState
+          title="Couldn't load storage paths"
+          error={storagePathsError}
+          onRetry={() => void refetchStoragePaths()}
+          retrying={isRefetchingPaths}
+        />
       )
+    } else if (storagePaths) {
+      pathsPanel = (
+        <StoragePathsDisplay paths={storagePaths} config={storageConfig.config} onEditConfig={openConfigEditor} />
+      )
+    } else {
+      pathsPanel = <LoadingState message="Loading storage paths..." />
+    }
+
+    let credentialsLabel = `Encrypted in ${STORAGE_BACKEND_LABELS[backend]}`
+    if (vaultStatus?.password_source === 'keyring') {
+      credentialsLabel = mobileShell ? secureStoreLabel() : 'System keyring'
     }
 
     return (
-      <Stack gap="md">
-        <Card padding="md">
-          <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="lg">
-            <Stack gap="3xs">
-              <Text size="xs" c="dimmed">
-                Storage backend
-              </Text>
-              <Text size="sm" fw={500}>
-                {STORAGE_BACKEND_LABELS[backend]}
-              </Text>
-            </Stack>
-
-            <Stack gap="3xs">
-              <Text size="xs" c="dimmed">
-                Credentials
-              </Text>
-              <Text size="sm" fw={500}>
-                {vaultStatus?.password_source === 'keyring'
-                  ? 'System keyring'
-                  : `Encrypted in ${STORAGE_BACKEND_LABELS[backend]}`}
-              </Text>
-            </Stack>
-
-            <Stack gap="3xs">
-              <Text size="xs" c="dimmed">
-                Cache backend
-              </Text>
-              <Text size="sm" fw={500}>
-                {isPostgres ? STORAGE_BACKEND_LABELS.postgres : 'Local filesystem'}
-              </Text>
-            </Stack>
-          </SimpleGrid>
-        </Card>
-
-        {pathsPanel}
-
-        <Card padding="md">
-          <Stack gap="sm">
-            {connectionStatus === 'success' && (
-              <Alert icon={<IconCheck size={16} aria-hidden />} color="green" variant="light">
-                {connectionMessage}
-              </Alert>
-            )}
-
-            {connectionStatus === 'error' && (
-              <Alert icon={<IconAlertCircle size={16} aria-hidden />} color="red" variant="light">
-                {connectionMessage}
-              </Alert>
-            )}
-
-            <Group grow>
-              <Button
-                variant="light"
-                color="gray"
-                leftSection={<IconCloudUpload size={16} aria-hidden />}
-                onClick={testConnection}
-                loading={testingConnection}
-              >
-                Test connection
-              </Button>
-              {!isMobilePlatform() && (
-                <Button
-                  variant="light"
-                  color="gray"
-                  leftSection={<IconSettings size={16} aria-hidden />}
-                  onClick={() => setSetupWizardOpen(true)}
-                >
-                  Configure storage
-                </Button>
-              )}
-              {canLockVault && (
-                <Button
-                  variant="light"
-                  color="gray"
-                  leftSection={<IconLock size={16} aria-hidden />}
-                  onClick={() => lockVaultMutation.mutate()}
-                  loading={lockVaultMutation.isPending}
-                >
-                  Lock vault
-                </Button>
-              )}
-            </Group>
-
-            {hasLocalCore() && !isMobilePlatform() && backend === 'sqlite' && !vaultStatus?.requires_password && (
-              <Text size="xs" c="dimmed" ta="center">
-                Configure storage to migrate to an encrypted database or PostgreSQL
-              </Text>
-            )}
-          </Stack>
-        </Card>
-      </Stack>
+      <StorageOverview
+        mobile={mobileShell}
+        backendLabel={STORAGE_BACKEND_LABELS[backend]}
+        credentialsLabel={credentialsLabel}
+        cacheLabel={isPostgres ? STORAGE_BACKEND_LABELS.postgres : 'Local filesystem'}
+        pathsPanel={pathsPanel}
+        connectionStatus={connectionStatus}
+        connectionMessage={connectionMessage}
+        testingConnection={testingConnection}
+        onTestConnection={testConnection}
+        canLockVault={canLockVault}
+        lockPending={lockVaultMutation.isPending}
+        onLockVault={() => lockVaultMutation.mutate()}
+        showConfigure={!isMobilePlatform()}
+        onConfigure={() => setSetupWizardOpen(true)}
+        showMigrateHint={
+          hasLocalCore() && !isMobilePlatform() && backend === 'sqlite' && !vaultStatus?.requires_password
+        }
+      />
     )
   }
 

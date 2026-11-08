@@ -28,6 +28,7 @@ jobs:
   play-checks:
     name: Unsigned AAB and Google Play checks
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -37,6 +38,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Android build
+        id: android
         uses: $/.github/actions/setup-android
         with:
           rust-targets: aarch64-linux-android
@@ -50,12 +52,16 @@ jobs:
         run: bun install --frozen-lockfile && bun run test
 
       - name: Build and check
+        env:
+          NDK_HOME: ${{ steps.android.outputs.ndk-home }}
+          BUNDLETOOL_JAR: ${{ steps.android.outputs.bundletool-jar }}
         working-directory: android
         run: bundle exec fastlane android check
 
   emulator:
     name: Launch on Android emulator
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -65,6 +71,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Android build
+        id: android
         uses: $/.github/actions/setup-android
         with:
           rust-targets: x86_64-linux-android
@@ -76,11 +83,17 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Build debug APK
+        env:
+          NDK_HOME: ${{ steps.android.outputs.ndk-home }}
+          BUNDLETOOL_JAR: ${{ steps.android.outputs.bundletool-jar }}
         working-directory: android
         run: bundle exec fastlane android debug_apk
 
       - name: Launch and take screenshots
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        env:
+          NDK_HOME: ${{ steps.android.outputs.ndk-home }}
+          BUNDLETOOL_JAR: ${{ steps.android.outputs.bundletool-jar }}
         with:
           api-level: 36
           arch: x86_64

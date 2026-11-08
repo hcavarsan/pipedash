@@ -45,7 +45,6 @@
     "react-dom": "^19.3.1",
     "react-router-dom": "^7.18.5",
     "recharts": "^3.10.1",
-    "smol-toml": "^1.9.1",
     "zustand": "^5.0.16"
   },
   "devDependencies": {
@@ -60,6 +59,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
+    "jscpd": "4",
     "knip": "^6.44.1",
     "postcss": "^8.5.32",
     "postcss-preset-mantine": "^1.18.0",
@@ -70,6 +70,7 @@
     "vite": "^8.3.5"
   },
   "overrides": {
-    "dompurify": "^3.4.17"
+    "dompurify": "^3.4.17",
+    "zod": "^4.6.6"
   }
 }

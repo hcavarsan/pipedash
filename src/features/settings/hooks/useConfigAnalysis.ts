@@ -6,7 +6,7 @@ import { GC_TIMES, STALE_TIMES } from '../../../lib/cacheConfig'
 import { logger } from '../../../lib/logger'
 import { queryKeys } from '../../../lib/queryKeys'
 import { service } from '../../../services/service'
-import type { ConfigAnalysisResponse } from '../../../types/domain'
+import type { ConfigAnalysisResponse } from '../../../types/storage'
 
 async function analyzeConfigContent(content: string): Promise<ConfigAnalysisResponse> {
   try {

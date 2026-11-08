@@ -8,7 +8,7 @@ use serde::{
     Serialize,
 };
 
-use super::RemoteError;
+use super::model::RemoteError;
 use crate::credential;
 
 const FILE_NAME: &str = "connection.json";
@@ -108,71 +108,31 @@ pub fn delete_token() -> Result<(), RemoteError> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn client() -> SavedConnection {
-        SavedConnection {
-            mode: SavedMode::Client {
-                server_url: "http://192.168.1.20:8080".to_string(),
-                device_id: "d1".to_string(),
-                host_kind: HostKind::Desktop,
-                host_name: Some("Studio".to_string()),
-            },
-            allow_private_http: true,
-            alerts_seen: Some(7),
-            preferences_pending: true,
-        }
-    }
-
-    #[test]
-    fn every_mode_round_trips_through_the_file() {
-        let dir = tempfile::tempdir().unwrap();
-        for saved in [
-            SavedConnection::default(),
-            SavedConnection {
-                mode: SavedMode::Standalone,
-                allow_private_http: false,
-                alerts_seen: None,
-                preferences_pending: false,
-            },
-            client(),
-        ] {
-            write(dir.path(), &saved).unwrap();
-            assert_eq!(read(dir.path()), Some(saved));
-        }
-        assert!(!dir.path().join(TMP_FILE_NAME).exists());
-    }
-
-    #[test]
-    fn the_file_is_flat_and_holds_no_token() {
-        let dir = tempfile::tempdir().unwrap();
-        write(dir.path(), &client()).unwrap();
-
-        let value: serde_json::Value =
-            serde_json::from_slice(&fs::read(dir.path().join(FILE_NAME)).unwrap()).unwrap();
-        assert_eq!(
-            value,
-            serde_json::json!({
-                "mode": "client",
-                "server_url": "http://192.168.1.20:8080",
-                "device_id": "d1",
-                "host_kind": "desktop",
-                "host_name": "Studio",
-                "allow_private_http": true,
-                "alerts_seen": 7,
-                "preferences_pending": true,
-            })
-        );
-    }
-
-    #[test]
-    fn a_missing_or_unreadable_file_reads_as_none() {
-        let dir = tempfile::tempdir().unwrap();
-        assert_eq!(read(dir.path()), None);
-
-        fs::write(dir.path().join(FILE_NAME), b"{not json").unwrap();
-        assert_eq!(read(dir.path()), None);
+fn restore_token(previous: Option<&str>) {
+    let restored = match previous {
+        Some(token) => set_token(token),
+        None => delete_token(),
+    };
+    if let Err(error) = restored {
+        tracing::warn!(%error, "Couldn't restore the previous device token");
     }
 }
+
+pub fn save_pairing(
+    dir: &Path, saved: &SavedConnection, token: &str, known_token: Option<String>,
+) -> Result<(), RemoteError> {
+    let previous = known_token.or_else(|| get_token().ok().flatten());
+    set_token(token)?;
+    write(dir, saved).inspect_err(|_| restore_token(previous.as_deref()))
+}
+
+pub async fn run_blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, RemoteError> + Send + 'static,
+) -> Result<T, RemoteError> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|_| RemoteError::Storage)?
+}
+
+#[cfg(test)]
+mod tests;

@@ -6,7 +6,7 @@ import { FormErrorDisplay } from '../../../components/common/FormErrorDisplay'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { TYPOGRAPHY } from '../../../theme/typography'
-import type { PipelineRun } from '../../../types/domain'
+import type { PipelineRun } from '../../../types/pipelines'
 
 import {
   buildColumnItems,

@@ -22,8 +22,11 @@ import { notifications } from '../../lib/notifications'
 import { queryKeys } from '../../lib/queryKeys'
 import { setProviderPipelines } from '../../queries/usePipelinesQueries'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
-import { DEFAULT_NOTIFICATION_PREFERENCES, pendingWatches, useNotificationStore } from '../../stores/notificationStore'
-import type { LocalNotificationSettings, Pipeline } from '../../types/domain'
+import { DEFAULT_NOTIFICATION_PREFERENCES, useNotificationStore } from '../../stores/notificationStore'
+import { installNotificationCenterDouble } from '../../testing/notificationCenter'
+import { pipelineActionsFixture } from '../../testing/presentation'
+import type { LocalNotificationSettings } from '../../types/notifications'
+import type { Pipeline } from '../../types/pipelines'
 import { showSystemNotification } from '../../utils/systemNotifications'
 import { useNotificationEvents } from '../useNotificationEvents'
 
@@ -43,6 +46,7 @@ const pipeline: Pipeline = {
   status: 'failed',
   last_run: '2026-10-26T12:00:00Z',
   last_updated: '2026-10-26T12:01:00Z',
+  actions: pipelineActionsFixture(),
 }
 let mutation: UseMutationResult<LocalNotificationSettings, Error, boolean> | undefined
 function Hooks() {
@@ -81,10 +85,12 @@ async function publish(name: string, payload: unknown) {
   })
 }
 
+installNotificationCenterDouble()
+
 afterEach(async () => {
   await act(async () => cleanup())
   client.clear()
-  useNotificationCenterStore.setState({ items: [], selection: null })
+  useNotificationCenterStore.setState({ items: [], revision: 0, unread: 0, selection: null })
   useNotificationStore.setState({ notificationsEnabled: false, preferences: DEFAULT_NOTIFICATION_PREFERENCES })
   delivered.length = 0
   mutation = undefined
@@ -221,7 +227,10 @@ test('a one-time request the device already used is marked used when the app syn
   await waitFor(() =>
     assert.deepEqual(useNotificationStore.getState().preferences.watch_once, [{ ...used, fired_at: firedAt }, waiting])
   )
-  assert.deepEqual(pendingWatches(useNotificationStore.getState().preferences), [waiting])
+  assert.deepEqual(
+    useNotificationStore.getState().preferences.watch_once.filter((item) => !item.fired_at),
+    [waiting]
+  )
 })
 
 test('a backend that already has notifications on reports them on', async () => {
@@ -283,15 +292,15 @@ test('shared notification hooks keep mobile history and read actions local', asy
   })
   const first = result.current.items[0]
   assert.ok(first)
-  act(() => result.current.markRead(first.key))
-  assert.equal(result.current.items[0]?.read, true)
-  act(() => useNotificationCenterStore.getState().push({ ...first, key: 'second' }))
-  act(() => result.current.markAllRead())
-  assert.ok(result.current.items.every((item) => item.read))
+  await act(async () => result.current.markRead(first.key))
+  await waitFor(() => assert.equal(result.current.items[0]?.read, true))
+  await act(async () => useNotificationCenterStore.getState().push({ ...first, key: 'second' }))
+  await act(async () => result.current.markAllRead())
+  await waitFor(() => assert.ok(result.current.items.every((item) => item.read)))
   act(() => result.current.open({ type: 'notification', key: first.key }))
   assert.deepEqual(useNotificationCenterStore.getState().selection, { type: 'notification', key: first.key })
-  act(() => result.current.clear())
-  assert.deepEqual(result.current.items, [])
+  await act(async () => result.current.clear())
+  await waitFor(() => assert.deepEqual(result.current.items, []))
   assert.equal(client.getQueryData(desktopNotificationsKey), undefined)
   assert.equal(
     native.calls.some((call) => call.command.includes('desktop_notifications')),

@@ -2,9 +2,9 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { providerSummaryFixture } from '../testing/fixtures'
-import type { ProviderSummary } from '../types/domain'
+import type { ProviderSummary } from '../types/providers'
 
-import { dataAge, describeFetch, providerTone, worstTone } from './fetchInfo'
+import { dataAge, describeFetch, providerTone } from './fetchInfo'
 import { formatRelativeTime } from './formatRelativeTime'
 
 const NOW = Date.parse('2026-10-28T12:00:00Z')
@@ -62,13 +62,6 @@ test('a fresh provider turns stale once stale_at has passed', () => {
 
 test('a non-fresh state ignores stale_at', () => {
   assert.equal(providerTone(provider({ freshness: { state: 'down', stale_at: '2026-10-28T11:00:00Z' } }), NOW), 'down')
-})
-
-test('the worst tone wins', () => {
-  assert.equal(worstTone(['fresh', 'never', 'stale']), 'stale')
-  assert.equal(worstTone(['fresh', 'down', 'stale']), 'down')
-  assert.equal(worstTone(['fresh', 'never']), 'never')
-  assert.equal(worstTone([]), 'fresh')
 })
 
 test('data age counts from the last successful fetch and names a stale or down state', () => {

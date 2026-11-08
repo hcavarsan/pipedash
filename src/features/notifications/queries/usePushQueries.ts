@@ -9,7 +9,7 @@ import {
 import { STALE_TIMES } from '../../../lib/cacheConfig'
 import { queryKeys } from '../../../lib/queryKeys'
 import { apiService } from '../../../services/api'
-import type { MobileDevicesResponse, PushRelaySettings } from '../../../types/domain'
+import type { MobileDevicesResponse, PushRelaySettings } from '../../../types/notifications'
 import { displayErrorNotification, displaySuccessNotification } from '../../../utils/errorDisplay'
 
 export function usePushRelay(): UseQueryResult<PushRelaySettings, Error> {

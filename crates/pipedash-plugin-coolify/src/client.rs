@@ -1,16 +1,22 @@
 use std::sync::Arc;
 
+use pipedash_plugin_api::http::{
+    api_url,
+    bearer_request,
+    decode_json,
+    get_json,
+    send,
+    send_checked,
+};
 use pipedash_plugin_api::{
     check_response,
     map_send_error,
-    redact_url,
     PluginError,
     PluginResult,
     RetryPolicy,
 };
 use reqwest::{
     Method,
-    RequestBuilder,
     Url,
 };
 use serde::de::DeserializeOwned;
@@ -48,11 +54,11 @@ impl CoolifyClient {
         let url = self.url("/version", &[])?;
         self.retry_policy
             .retry(|| async {
-                let response = self
-                    .request(Method::GET, &url)
-                    .send()
-                    .await
-                    .map_err(|e| map_send_error(e, &url))?;
+                let response = send(
+                    &url,
+                    bearer_request(&self.http_client, Method::GET, &url, &self.token),
+                )
+                .await?;
                 let text = check_response(response)
                     .await?
                     .text()
@@ -130,13 +136,7 @@ impl CoolifyClient {
         let response = self
             .post("/deploy", &[("uuid", app_uuid.to_string())])
             .await?;
-        let url = redact_url(response.url());
-        response.json().await.map_err(|e| {
-            PluginError::ApiError(format!(
-                "Failed to parse Coolify API response from {url}: {}",
-                e.without_url()
-            ))
-        })
+        decode_json(response, "Coolify API response").await
     }
 
     pub async fn cancel(&self, deployment_uuid: &str) -> PluginResult<()> {
@@ -146,48 +146,29 @@ impl CoolifyClient {
     }
 
     fn url(&self, path: &str, query: &[(&str, String)]) -> PluginResult<Url> {
-        let mut url = Url::parse(&format!("{}/api/v1{path}", self.server_url))
-            .map_err(|e| PluginError::InvalidConfig(format!("Invalid Coolify URL: {e}")))?;
-        if !query.is_empty() {
-            url.query_pairs_mut().extend_pairs(query);
-        }
-        Ok(url)
-    }
-
-    fn request(&self, method: Method, url: &Url) -> RequestBuilder {
-        self.http_client
-            .request(method, url.clone())
-            .bearer_auth(&self.token)
+        api_url(
+            &format!("{}/api/v1", self.server_url),
+            path,
+            query,
+            "Coolify",
+        )
     }
 
     async fn get<T: DeserializeOwned>(
         &self, path: &str, query: &[(&str, String)],
     ) -> PluginResult<T> {
         let url = self.url(path, query)?;
-        self.retry_policy
-            .retry(|| async {
-                let response = self
-                    .request(Method::GET, &url)
-                    .send()
-                    .await
-                    .map_err(|e| map_send_error(e, &url))?;
-                check_response(response).await?.json().await.map_err(|e| {
-                    PluginError::ApiError(format!(
-                        "Failed to parse Coolify API response from {}: {}",
-                        redact_url(&url),
-                        e.without_url()
-                    ))
-                })
-            })
-            .await
+        get_json(&self.retry_policy, &url, "Coolify API response", || {
+            bearer_request(&self.http_client, Method::GET, &url, &self.token)
+        })
+        .await
     }
 
     async fn post(&self, path: &str, query: &[(&str, String)]) -> PluginResult<reqwest::Response> {
         let url = self.url(path, query)?;
-        let response = self
-            .retry_policy
-            .retry_unsent(&url, || self.request(Method::POST, &url).send())
-            .await?;
-        check_response(response).await
+        send_checked(&self.retry_policy, &url, || {
+            bearer_request(&self.http_client, Method::POST, &url, &self.token)
+        })
+        .await
     }
 }

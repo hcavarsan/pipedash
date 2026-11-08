@@ -3,7 +3,8 @@ import { test } from 'node:test'
 
 import { QueryClient } from '@tanstack/react-query'
 
-import type { ProviderConfig, ProviderSummary } from '../types/domain'
+import { providerAttentionFixture } from '../testing/fixtures'
+import type { ProviderConfig, ProviderSummary } from '../types/providers'
 
 import { applyProviderStatus } from './providerStatusSync'
 import { queryKeys } from './queryKeys'
@@ -26,6 +27,7 @@ const summary = (name: string, level: ProviderSummary['health']['level']): Provi
   freshness: { state: 'never', stale_at: null },
   recovery: null,
   health: { level, signals: [], next_attempt_at: null, in_flight: false, status_page: null },
+  attention: providerAttentionFixture(),
 })
 
 test('a list request that resolves after a status event does not overwrite it, and the detail cache is untouched', async () => {

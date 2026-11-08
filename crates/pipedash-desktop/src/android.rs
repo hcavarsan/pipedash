@@ -56,7 +56,7 @@ pub fn run_refresh<'local>(
     env.with_env(|env| {
         init_headless(env, &context)?;
         let data_dir = data_dir.try_to_string(env)?;
-        let notices = crate::local_notifications::refresh_headless(Path::new(&data_dir));
+        let notices = crate::local_notifications::headless::run(Path::new(&data_dir));
         JString::new(
             env,
             serde_json::to_string(&notices).unwrap_or_else(|_| "[]".to_owned()),
@@ -67,5 +67,5 @@ pub fn run_refresh<'local>(
 
 #[jni::jni_mangle("com.henrique.pipedash.plugin.RefreshBridge")]
 pub fn cancel_refresh<'local>(_env: EnvUnowned<'local>, _class: JClass<'local>) {
-    crate::local_notifications::cancel_headless();
+    crate::local_notifications::headless::cancel();
 }

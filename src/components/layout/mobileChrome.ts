@@ -109,7 +109,13 @@ function ownChrome(pathname: string, search: string): MobileChrome {
         return { title: 'Pinned', back: null, tab: 'pinned' }
       }
 
-      const title = params.has('provider') ? 'Provider' : params.has('view') ? 'View' : 'All pipelines'
+      let title = 'All pipelines'
+
+      if (params.has('provider')) {
+        title = 'Provider'
+      } else if (params.has('view')) {
+        title = 'View'
+      }
 
       return { title, back: BROWSE_BACK, tab: 'pipelines' }
     }

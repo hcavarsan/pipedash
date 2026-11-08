@@ -2,7 +2,8 @@ import { Anchor, Badge, Code, Text } from '@mantine/core'
 import { StatusBadge } from '../../../components/atoms/StatusBadge'
 import { RunDuration } from '../../../components/common/RunDuration'
 import { STATUS_META } from '../../../theme/status'
-import type { CellRenderer, PipelineRun } from '../../../types/domain'
+import type { PipelineRun } from '../../../types/pipelines'
+import type { CellRenderer } from '../../../types/plugins'
 import { formatDateTime } from '../../../utils/formatDateTime'
 import { formatDuration } from '../../../utils/formatDuration'
 import { isOneOf } from '../../../utils/isOneOf'
@@ -10,7 +11,6 @@ import { isRecord } from '../../../utils/isRecord'
 import { isHttpUrl } from '../../../utils/openExternal'
 import { TableCells } from '../../../utils/tableCells'
 import { typedKeys } from '../../../utils/typedKeys'
-import { useRunActions } from '../components/RunActionsContext'
 
 export type CellValue = string | number | boolean | null | undefined | Record<string, unknown> | unknown[]
 
@@ -53,11 +53,9 @@ const renderDuration = (value: CellValue): React.ReactNode => {
 }
 
 function LiveRunDurationCell({ run }: { run: PipelineRun }): React.ReactNode {
-  const { pipeline } = useRunActions()
-
   return (
     <Text size="sm">
-      <RunDuration run={run} typicalSeconds={pipeline?.typical_duration_seconds} />
+      <RunDuration run={run} />
     </Text>
   )
 }

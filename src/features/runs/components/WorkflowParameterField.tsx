@@ -2,7 +2,7 @@ import { NativeSelect, NumberInput, Select, Switch, Text, TextInput } from '@man
 import type { ReactNode } from 'react'
 import shell from '../../../components/forms/ShellForm.module.css'
 import { IosRow } from '../../../components/ios/IosList'
-import type { WorkflowParameter } from '../../../types/domain'
+import type { WorkflowParameter } from '../../../types/pipelines'
 import { errorId, fieldA11y, fieldAttributes, helpId, withoutType } from '../../../utils/formFields'
 import { comparable } from '../lib/triggerParams'
 
@@ -15,7 +15,6 @@ interface WorkflowParameterFieldProps {
   mobileShell: boolean
   pending: boolean
   onChange: (value: unknown) => void
-  onBlur: () => void
 }
 
 const rightAligned = {
@@ -30,7 +29,7 @@ const rightAligned = {
 const choiceOptions = (param: WorkflowParameter): string[] =>
   param.type === 'choice' ? [...new Set(param.options)] : []
 
-function ShellField({ param, value, error, formId, last, pending, onChange, onBlur }: WorkflowParameterFieldProps) {
+function ShellField({ param, value, error, formId, last, pending, onChange }: WorkflowParameterFieldProps) {
   const label = param.label || param.name
   const id = `${formId}-${param.name}`
   const a11y = fieldA11y(id, { required: param.required, error, description: param.description })
@@ -88,7 +87,6 @@ function ShellField({ param, value, error, formId, last, pending, onChange, onBl
           aria-label={label}
           {...a11y}
           disabled={pending}
-          onBlur={onBlur}
           variant="unstyled"
           data={[{ value: '', label: param.required ? 'Select' : 'None' }, ...choiceOptions(param)]}
           value={typeof value === 'string' ? value : ''}
@@ -107,7 +105,6 @@ function ShellField({ param, value, error, formId, last, pending, onChange, onBl
           {...a11y}
           {...withoutType(attributes)}
           disabled={pending}
-          onBlur={onBlur}
           value={typeof value === 'number' || typeof value === 'string' ? value : ''}
           onChange={onChange}
           variant="unstyled"
@@ -126,7 +123,6 @@ function ShellField({ param, value, error, formId, last, pending, onChange, onBl
           {...a11y}
           {...attributes}
           disabled={pending}
-          onBlur={onBlur}
           value={comparable(value)}
           onChange={(event) => onChange(event.currentTarget.value)}
           variant="unstyled"
@@ -140,7 +136,7 @@ function ShellField({ param, value, error, formId, last, pending, onChange, onBl
   return <IosRow title={title} subtitle={subtitle} accessory={accessory} />
 }
 
-function DesktopField({ param, value, error, last, pending, onChange, onBlur }: WorkflowParameterFieldProps) {
+function DesktopField({ param, value, error, last, pending, onChange }: WorkflowParameterFieldProps) {
   const label = param.label || param.name
   const description = param.description || undefined
   const attributes = fieldAttributes({
@@ -174,7 +170,6 @@ function DesktopField({ param, value, error, last, pending, onChange, onBlur }: 
           description={description}
           placeholder="Select an option"
           disabled={pending}
-          onBlur={onBlur}
           data={options}
           value={typeof value === 'string' && value !== '' && options.includes(value) ? value : null}
           onChange={onChange}
@@ -190,7 +185,6 @@ function DesktopField({ param, value, error, last, pending, onChange, onBlur }: 
         <NumberInput
           {...withoutType(attributes)}
           disabled={pending}
-          onBlur={onBlur}
           value={typeof value === 'number' || typeof value === 'string' ? value : ''}
           onChange={onChange}
           label={label}
@@ -206,7 +200,6 @@ function DesktopField({ param, value, error, last, pending, onChange, onBlur }: 
         <TextInput
           {...attributes}
           disabled={pending}
-          onBlur={onBlur}
           value={comparable(value)}
           onChange={(event) => onChange(event.currentTarget.value)}
           label={label}

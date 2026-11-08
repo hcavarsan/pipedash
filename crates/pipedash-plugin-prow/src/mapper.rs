@@ -8,6 +8,7 @@ use chrono::{
     DateTime,
     Utc,
 };
+use pipedash_plugin_api::utils::duration_seconds;
 use pipedash_plugin_api::{
     AvailablePipeline,
     LogAvailability,
@@ -103,7 +104,7 @@ fn insert_text(metadata: &mut HashMap<String, Value>, key: &str, value: &str) {
 }
 
 fn duration(started: DateTime<Utc>, finished: Option<DateTime<Utc>>) -> Option<i64> {
-    finished.map(|finished| (finished - started).num_seconds().max(0))
+    duration_seconds(Some(started), finished).map(|seconds| seconds.max(0))
 }
 
 fn deck_root(deck: &Url) -> &str {
@@ -234,7 +235,7 @@ pub(crate) enum Latest<'a> {
 }
 
 pub(crate) fn map_pipeline(
-    provider_id: i64, selection: &Selection, latest: Latest<'_>, deck: &Url, read_only: bool,
+    selection: &Selection, latest: Latest<'_>, deck: &Url, read_only: bool,
 ) -> Pipeline {
     let (status, last_run) = match &latest {
         Latest::Deck(job) => (map_state(&job.status.state), job.status.start_time),
@@ -258,9 +259,7 @@ pub(crate) fn map_pipeline(
     }
 
     Pipeline {
-        id: config::build_pipeline_id(provider_id, selection),
-        provider_id,
-        provider_type: config::PROVIDER_TYPE.to_string(),
+        id: selection.token(),
         name: selection.job.clone(),
         status,
         last_run,

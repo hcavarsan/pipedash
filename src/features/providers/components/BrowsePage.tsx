@@ -19,7 +19,8 @@ import { useRowMenuLongPress } from '../../../hooks/useLongPress'
 import { useProviders } from '../../../queries/useProvidersQueries'
 import { useNotificationCenterStore } from '../../../stores/notificationCenterStore'
 import { useProviderStore } from '../../../stores/providerStore'
-import type { PipelineView, ProviderSummary } from '../../../types/domain'
+import type { ProviderSummary } from '../../../types/providers'
+import type { PipelineView } from '../../../types/views'
 import { useNotifyItems } from '../../notifications/hooks/useNotifyItems'
 import { usePipelineViews } from '../../pipelines/queries/usePipelineViewQueries'
 import { useProviderNavigation } from '../queries/useProviderNavigation'
@@ -42,6 +43,30 @@ function ProviderRow({ provider, onEdit, onRemove }: ProviderRowProps) {
   const signIn = useProviderSignIn()
   const openStatus = useNotificationCenterStore((state) => state.open)
   const mute = useNotifyItems().providerItem(provider)
+
+  const items = [
+    provider.recovery === 'sign_in' && (
+      <Menu.Item key="sign-in" leftSection={<IconLogin size={16} aria-hidden />} onClick={() => signIn(provider.id)}>
+        Sign in
+      </Menu.Item>
+    ),
+    <Menu.Item
+      key="status"
+      leftSection={<IconActivity size={16} aria-hidden />}
+      onClick={() => openStatus({ type: 'provider', providerId: provider.id })}
+    >
+      Provider status
+    </Menu.Item>,
+    <Menu.Item key="mute" leftSection={mute.icon} onClick={mute.onClick}>
+      {mute.label}
+    </Menu.Item>,
+    <Menu.Item key="edit" leftSection={<IconEdit size={16} aria-hidden />} onClick={onEdit}>
+      Edit
+    </Menu.Item>,
+    <Menu.Item key="remove" color="red" leftSection={<IconTrash size={16} aria-hidden />} onClick={onRemove}>
+      Remove
+    </Menu.Item>,
+  ]
 
   return (
     <div ref={pressRef} className={classes.shell}>
@@ -66,26 +91,7 @@ function ProviderRow({ provider, onEdit, onRemove }: ProviderRowProps) {
           </Menu.Target>
           <Menu.Dropdown>
             <Menu.Label>{provider.name}</Menu.Label>
-            {provider.recovery === 'sign_in' && (
-              <Menu.Item leftSection={<IconLogin size={16} aria-hidden />} onClick={() => signIn(provider.id)}>
-                Sign in
-              </Menu.Item>
-            )}
-            <Menu.Item
-              leftSection={<IconActivity size={16} aria-hidden />}
-              onClick={() => openStatus({ type: 'provider', providerId: provider.id })}
-            >
-              Provider status
-            </Menu.Item>
-            <Menu.Item leftSection={mute.icon} onClick={mute.onClick}>
-              {mute.label}
-            </Menu.Item>
-            <Menu.Item leftSection={<IconEdit size={16} aria-hidden />} onClick={onEdit}>
-              Edit
-            </Menu.Item>
-            <Menu.Item color="red" leftSection={<IconTrash size={16} aria-hidden />} onClick={onRemove}>
-              Remove
-            </Menu.Item>
+            {items}
             <ActionSheetCancel />
           </Menu.Dropdown>
         </Menu>

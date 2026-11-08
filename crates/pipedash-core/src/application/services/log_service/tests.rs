@@ -1,7 +1,26 @@
+use std::collections::HashSet;
+use std::io;
+use std::sync::atomic::Ordering;
+use std::sync::{
+    Arc,
+    PoisonError,
+};
+use std::time::Duration;
+
+use bytes::Bytes;
 use chrono::Utc;
 use futures::StreamExt;
+use tokio::time::Instant;
 
-use super::*;
+use super::tree::tree_from_nodes;
+use super::{
+    LogService,
+    INGEST_PERMITS,
+    PROVIDER_CHANGED,
+    PROVIDER_MISBEHAVED,
+    REVISION_GONE,
+    SEARCH_PERMITS,
+};
 use crate::application::test_support::{
     pipeline,
     stub_run,
@@ -10,13 +29,27 @@ use crate::application::test_support::{
     StubLogMode,
     StubProvider,
 };
+use crate::domain::DomainError;
 use crate::domain::{
+    LogAvailability,
     LogCursor,
     LogDocumentMeta,
+    LogLinesQuery,
+    LogNode,
+    LogNodeKind,
+    LogSearchQuery,
     PipelineStatus,
+    RunLogDocument,
 };
+use crate::event::CoreEvent;
 use crate::infrastructure::run_logs::testing as logs;
-use crate::infrastructure::run_logs::SEARCH_MAX_QUERY_CHARS;
+use crate::infrastructure::run_logs::{
+    BlockLimits,
+    DocKey,
+    LogStore,
+    StoredTree,
+    SEARCH_MAX_QUERY_CHARS,
+};
 
 const RUN: i64 = 7;
 
@@ -97,7 +130,7 @@ impl Fixture {
         let h = Harness::new().await;
         let (id, stub) = h
             .add_stub(|id| {
-                let pipeline_id = format!("github__{id}__web");
+                let pipeline_id = format!("stub__{id}__web");
                 build(
                     StubProvider::new(id)
                         .with_logs(nodes, chunks)
@@ -113,7 +146,7 @@ impl Fixture {
         Self {
             h,
             id,
-            pipeline_id: format!("github__{id}__web"),
+            pipeline_id: format!("stub__{id}__web"),
             stub,
             live: false,
         }
@@ -215,10 +248,7 @@ impl Fixture {
                 &self.pipeline_id,
                 RUN,
                 &meta.node_id,
-                meta.revision,
-                0,
-                100,
-                4096,
+                first_lines(meta.revision, 100),
             )
             .await
             .unwrap()
@@ -226,6 +256,15 @@ impl Fixture {
             .into_iter()
             .map(|line| line.text)
             .collect()
+    }
+}
+
+fn first_lines(revision: i64, count: u32) -> LogLinesQuery {
+    LogLinesQuery {
+        revision,
+        start: 0,
+        count,
+        max_line_units: 4096,
     }
 }
 
@@ -266,7 +305,7 @@ async fn open_downloads_once_then_serves_the_cached_document() {
     assert_eq!(ready, meta.revision);
     let page = f
         .svc()
-        .read_lines(&f.pipeline_id, RUN, "1", meta.revision, 0, 10, 4096)
+        .read_lines(&f.pipeline_id, RUN, "1", first_lines(meta.revision, 10))
         .await
         .unwrap();
     let text: Vec<_> = page.lines.iter().map(|line| line.text.as_str()).collect();
@@ -353,6 +392,7 @@ async fn reopening_a_legacy_tree_refreshes_only_when_the_provider_version_change
             Arc::clone(&f.h.provider_service),
             Arc::clone(&f.h.repository),
             f.h.bus.clone(),
+            Arc::clone(&f.h.presenter),
         );
         let tree = Arc::new(reopened)
             .run_log_tree(&f.pipeline_id, RUN)
@@ -420,6 +460,7 @@ async fn upgrading_a_tree_keeps_downloaded_logs_when_tasks_disappear() {
                 Arc::clone(&f.h.provider_service),
                 Arc::clone(&f.h.repository),
                 f.h.bus.clone(),
+                Arc::clone(&f.h.presenter),
             ));
             let tree = reopened.run_log_tree(&f.pipeline_id, RUN).await.unwrap();
             for saved in &legacy.tree.nodes {
@@ -447,7 +488,12 @@ async fn upgrading_a_tree_keeps_downloaded_logs_when_tasks_disappear() {
             );
             assert_eq!(document.revision, meta.revision);
             let page = reopened
-                .read_lines(&f.pipeline_id, RUN, "gone", document.revision, 0, 10, 4096)
+                .read_lines(
+                    &f.pipeline_id,
+                    RUN,
+                    "gone",
+                    first_lines(document.revision, 10),
+                )
                 .await
                 .unwrap();
             assert_eq!(
@@ -495,6 +541,7 @@ async fn failed_tree_upgrades_keep_downloaded_logs_and_retry() {
         Arc::clone(&f.h.provider_service),
         Arc::clone(&f.h.repository),
         f.h.bus.clone(),
+        Arc::clone(&f.h.presenter),
     ));
     let document = meta_of(
         reopened
@@ -504,7 +551,7 @@ async fn failed_tree_upgrades_keep_downloaded_logs_and_retry() {
     );
     assert_eq!(document.revision, meta.revision);
     let page = reopened
-        .read_lines(&f.pipeline_id, RUN, "1", document.revision, 0, 10, 4096)
+        .read_lines(&f.pipeline_id, RUN, "1", first_lines(document.revision, 10))
         .await
         .unwrap();
     assert_eq!(
@@ -727,6 +774,7 @@ async fn an_old_core_shutting_down_leaves_the_new_one_working() {
         Arc::clone(&f.h.provider_service),
         Arc::clone(&f.h.repository),
         f.h.bus.clone(),
+        Arc::clone(&f.h.presenter),
     ));
 
     f.open("1").await;
@@ -1352,6 +1400,7 @@ async fn a_second_writer_on_the_same_store_cannot_replace_a_newer_revision() {
         Arc::clone(&f.h.provider_service),
         Arc::clone(&f.h.repository),
         f.h.bus.clone(),
+        Arc::clone(&f.h.presenter),
     ));
 
     f.open("1").await;
@@ -1515,7 +1564,7 @@ async fn reading_a_revision_that_is_gone_is_not_found() {
 
     let err = f
         .svc()
-        .read_lines(&f.pipeline_id, RUN, "1", meta.revision + 1, 0, 10, 4096)
+        .read_lines(&f.pipeline_id, RUN, "1", first_lines(meta.revision + 1, 10))
         .await
         .unwrap_err();
 
@@ -1617,7 +1666,7 @@ async fn providers_without_the_logs_capability_are_not_supported() {
 
     let err = h
         .log_service
-        .run_log_tree(&format!("github__{id}__web"), RUN)
+        .run_log_tree(&format!("stub__{id}__web"), RUN)
         .await
         .unwrap_err();
 
@@ -1630,7 +1679,7 @@ async fn an_unknown_pipeline_is_not_found() {
 
     let err = h
         .log_service
-        .run_log_tree("github__1__missing", RUN)
+        .run_log_tree("stub__1__missing", RUN)
         .await
         .unwrap_err();
 
@@ -1816,7 +1865,7 @@ fn live_run_events_carry_camel_case_payloads() {
     let updated = CoreEvent::RunUpdated {
         pipeline_id: "p".into(),
         run_number: 3,
-        run: run.clone(),
+        run: Box::new(run.clone()),
     };
     assert_eq!(updated.event_name(), "run-updated");
     assert_eq!(

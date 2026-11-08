@@ -1,10 +1,14 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use pipedash_plugin_api::http::{
+    api_url,
+    bearer_request,
+    decode_json,
+    get_json,
+    send_checked,
+};
 use pipedash_plugin_api::{
-    check_response,
-    map_send_error,
-    redact_url,
     PluginError,
     PluginResult,
     RetryPolicy,
@@ -121,7 +125,9 @@ impl WoodpeckerClient {
         if response.status() == StatusCode::NO_CONTENT {
             return Ok(None);
         }
-        parse(response).await.map(Some)
+        decode_json(response, "Woodpecker API response")
+            .await
+            .map(Some)
     }
 
     pub async fn cancel_pipeline(&self, repo_id: i64, number: i64) -> PluginResult<()> {
@@ -131,18 +137,7 @@ impl WoodpeckerClient {
     }
 
     fn url(&self, path: &str, query: &[(&str, String)]) -> PluginResult<Url> {
-        let mut url = Url::parse(&format!("{}/api{path}", self.base_url))
-            .map_err(|e| PluginError::InvalidConfig(format!("Invalid Woodpecker URL: {e}")))?;
-        if !query.is_empty() {
-            url.query_pairs_mut().extend_pairs(query);
-        }
-        Ok(url)
-    }
-
-    fn request(&self, method: Method, url: &Url) -> reqwest::RequestBuilder {
-        self.http_client
-            .request(method, url.clone())
-            .bearer_auth(&self.token)
+        api_url(&format!("{}/api", self.base_url), path, query, "Woodpecker")
     }
 
     async fn get<T: DeserializeOwned>(
@@ -154,43 +149,27 @@ impl WoodpeckerClient {
     async fn get_url<T: DeserializeOwned>(
         &self, url: &Url, timeout: Option<Duration>,
     ) -> PluginResult<T> {
-        self.retry_policy
-            .retry(|| async {
-                let mut request = self.request(Method::GET, url);
-                if let Some(timeout) = timeout {
-                    request = request.timeout(timeout);
-                }
-                let response = request.send().await.map_err(|e| map_send_error(e, url))?;
-                parse(check_response(response).await?).await
-            })
-            .await
+        get_json(&self.retry_policy, url, "Woodpecker API response", || {
+            let request = bearer_request(&self.http_client, Method::GET, url, &self.token);
+            match timeout {
+                Some(timeout) => request.timeout(timeout),
+                None => request,
+            }
+        })
+        .await
     }
 
     async fn post(
         &self, path: &str, body: Option<&serde_json::Value>,
     ) -> PluginResult<reqwest::Response> {
         let url = self.url(path, &[])?;
-        let response = self
-            .retry_policy
-            .retry_unsent(&url, || {
-                let request = self.request(Method::POST, &url);
-                match body {
-                    Some(body) => request.json(body),
-                    None => request,
-                }
-                .send()
-            })
-            .await?;
-        check_response(response).await
+        send_checked(&self.retry_policy, &url, || {
+            let request = bearer_request(&self.http_client, Method::POST, &url, &self.token);
+            match body {
+                Some(body) => request.json(body),
+                None => request,
+            }
+        })
+        .await
     }
-}
-
-async fn parse<T: DeserializeOwned>(response: reqwest::Response) -> PluginResult<T> {
-    let url = redact_url(response.url());
-    response.json().await.map_err(|e| {
-        PluginError::ApiError(format!(
-            "Failed to parse Woodpecker API response from {url}: {}",
-            e.without_url()
-        ))
-    })
 }

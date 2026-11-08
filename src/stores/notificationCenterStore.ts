@@ -1,24 +1,7 @@
 import { create } from 'zustand'
-
-import type { AlertLink, HealthLevel } from '../types/domain'
-
-export const MAX_CENTER_NOTIFICATIONS = 50
-
-export type CenterNotificationTone = 'danger' | 'warning' | 'success'
-
-export interface CenterNotification {
-  key: string
-  at: number
-  read: boolean
-  tone: CenterNotificationTone
-  level: HealthLevel | null
-  title: string
-  body: string
-  providerIds: number[]
-  pipelineId: string | null
-  link: AlertLink | null
-  runNumber?: number | null
-}
+import { logger } from '../lib/logger'
+import { service } from '../services/service'
+import type { CenterNotification, NotificationCenterChange } from '../types/notifications'
 
 export type NotificationInput = Omit<CenterNotification, 'read'>
 
@@ -26,47 +9,59 @@ export type CenterSelection = { type: 'provider'; providerId: number } | { type:
 
 interface NotificationCenterState {
   items: CenterNotification[]
+  revision: number
+  unread: number
   selection: CenterSelection | null
-  push: (input: NotificationInput) => void
-  markAllRead: () => void
-  markRead: (key: string) => void
-  clear: () => void
+  push: (input: NotificationInput) => Promise<void>
+  insertMissed: (input: NotificationInput) => Promise<void>
+  markAllRead: () => Promise<void>
+  markRead: (key: string) => Promise<void>
+  clear: () => Promise<void>
   open: (selection: CenterSelection) => void
   close: () => void
 }
 
-export const useNotificationCenterStore = create<NotificationCenterState>()((set, get) => ({
-  items: [],
-  selection: null,
+let pending: Promise<void> = Promise.resolve()
 
-  push: (input) =>
-    set((state) => ({
-      items: [{ ...input, read: false }, ...state.items.filter((existing) => existing.key !== input.key)].slice(
-        0,
-        MAX_CENTER_NOTIFICATIONS
-      ),
-    })),
+export const useNotificationCenterStore = create<NotificationCenterState>()((set, get) => {
+  const update = (change: NotificationCenterChange): Promise<void> => {
+    pending = pending
+      .then(async () => {
+        const { items, revision, unread } = get()
+        const next = await service.updateNotificationCenter({ items, revision, unread }, change)
 
-  markAllRead: () => {
-    set((state) =>
-      state.items.every((item) => item.read) ? state : { items: state.items.map((item) => ({ ...item, read: true })) }
-    )
-  },
+        set({ items: next.items, revision: next.revision, unread: next.unread })
+      })
+      .catch((error: unknown) =>
+        logger.warn('notificationCenterStore', "Couldn't update the notification center", error)
+      )
 
-  markRead: (key) => {
-    set((state) => ({ items: state.items.map((item) => (item.key === key ? { ...item, read: true } : item)) }))
-  },
+    return pending
+  }
 
-  clear: () => {
-    set({ items: [] })
-  },
+  return {
+    items: [],
+    revision: 0,
+    unread: 0,
+    selection: null,
 
-  open: (selection) => {
-    set({ selection })
-    if (selection.type === 'notification') {
-      get().markRead(selection.key)
-    }
-  },
+    push: (input) => update({ type: 'push', notice: { ...input, read: false } }),
 
-  close: () => set({ selection: null }),
-}))
+    insertMissed: (input) => update({ type: 'insert_missed', notice: { ...input, read: false } }),
+
+    markAllRead: () => update({ type: 'read', key: null }),
+
+    markRead: (key) => update({ type: 'read', key }),
+
+    clear: () => update({ type: 'clear' }),
+
+    open: (selection) => {
+      set({ selection })
+      if (selection.type === 'notification') {
+        void get().markRead(selection.key)
+      }
+    },
+
+    close: () => set({ selection: null }),
+  }
+})

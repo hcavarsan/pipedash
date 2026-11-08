@@ -1,5 +1,5 @@
-@import 'tailwindcss';
-@plugin 'tailwindcss-animate';
+@import "tailwindcss";
+@plugin "tailwindcss-animate";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -133,15 +133,6 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
-
-  /* Hints only where the text can be edited. Export and thumbnail canvases
-     render contenteditable="false", and html-to-image copies pseudo-elements,
-     so a bare [contenteditable] selector baked "LABEL" and "Headline goes
-     here" into exported PNGs of cleared copy (issue 41). */
-  [contenteditable]:not([contenteditable="false"]):empty::before {
-    content: attr(data-placeholder);
-    opacity: 0.4;
-  }
 }
 
 /* react-rnd editable element hint: subtle outline + visible resize handles on hover */
@@ -204,7 +195,7 @@
 }
 
 .midnight-headline {
-  padding-bottom: .08em;
+  padding-bottom: 0.08em;
 }
 
 [data-midnight] .midnight-lit,

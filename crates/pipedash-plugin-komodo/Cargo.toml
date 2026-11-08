@@ -3,7 +3,7 @@ name = "pipedash-plugin-komodo"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-description = "Komodo plugin for Pipedash"
+description = "Monitor and deploy Komodo Stacks"
 repository = "https://github.com/hcavarsan/pipedash"
 license = "GPL-3.0"
 
@@ -19,3 +19,6 @@ tracing.workspace = true
 [dev-dependencies]
 rustls.workspace = true
 tokio.workspace = true
+
+[lints]
+workspace = true

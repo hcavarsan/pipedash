@@ -1,0 +1,22 @@
+{
+  "threshold": 1,
+  "minLines": 6,
+  "minTokens": 50,
+  "format": ["rust", "typescript", "tsx"],
+  "path": ["crates", "src", "ios/app-store-screenshots/src"],
+  "ignore": [
+    "**/tests.rs",
+    "**/tests/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/test_support.rs",
+    "**/testing.rs",
+    "**/fixtures/**",
+    "**/node_modules/**",
+    "**/target/**",
+    "**/dist/**",
+    "**/gen/**"
+  ],
+  "reporters": ["console"],
+  "gitignore": true
+}

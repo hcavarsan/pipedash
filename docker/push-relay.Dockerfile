@@ -1,4 +1,4 @@
-FROM lukemathwalker/cargo-chef:latest-rust-alpine AS chef
+FROM lukemathwalker/cargo-chef:0.1.78-rust-1.99.1-alpine@sha256:000cac9096459ebc31e55e1a99bed090b1ce3511f006b4b101fd2d4f4bcb4d1e AS chef
 
 RUN apk add --no-cache musl-dev
 

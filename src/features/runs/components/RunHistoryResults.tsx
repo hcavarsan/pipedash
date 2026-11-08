@@ -22,18 +22,14 @@ interface RunHistoryResultsProps {
 
 function RunHistoryEmpty({ data }: { data: RunHistoryPageData }): ReactNode {
   const { isMobile } = useIsMobile()
-  const { labels, isFlux } = useRunActions()
+  const { labels, presentation } = useRunActions()
 
-  if (data.sourceRuns.length === 0) {
+  if (!data.filtered) {
     return (
       <EmptyState
         icon={<IconHistory size={24} aria-hidden />}
         title={`No ${labels.runs} yet`}
-        description={
-          isFlux
-            ? 'Flux has not recorded a reconciliation for this resource yet.'
-            : 'This workflow has no recorded runs.'
-        }
+        description={presentation.empty_history_description}
         action={
           <Button
             type="button"

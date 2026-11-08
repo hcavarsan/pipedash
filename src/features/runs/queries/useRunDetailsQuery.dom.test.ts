@@ -4,13 +4,14 @@ import { after, afterEach, beforeEach, type TestContext, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, type ReactNode } from 'react'
 
-import type { PipelineRun } from '../../../types/domain'
+import { runPresentationFixture } from '../../../testing/presentation'
+import type { PipelineRun } from '../../../types/pipelines'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
 const { act, cleanup, renderHook } = await import('@testing-library/react')
 const { environmentManager, notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
-const { events } = await import('../../../services/service')
+const { wsClient } = await import('../../../services/websocket')
 const { apiService } = await import('../../../services/api')
 const { tauriService } = await import('../../../services/tauri')
 const { useRunDetails } = await import('./useRunDetailsQuery')
@@ -35,6 +36,7 @@ const run = (status: PipelineRun['status']): PipelineRun => ({
   commit_message: null,
   branch: null,
   actor: null,
+  ...runPresentationFixture(),
 })
 
 beforeEach(() => {
@@ -65,7 +67,7 @@ function setup(context: TestContext, status: () => PipelineRun['status']) {
   const fetchDetails = context.mock.fn(async () => run(status()))
   context.mock.method(apiService, 'getWorkflowRunDetails', fetchDetails)
   context.mock.method(tauriService, 'getWorkflowRunDetails', fetchDetails)
-  context.mock.method(events, 'listen', async (name: string, callback: (payload: unknown) => void) => {
+  context.mock.method(wsClient, 'listen', async (name: string, callback: (payload: unknown) => void) => {
     handlers.set(name, callback)
 
     return () => handlers.delete(name)

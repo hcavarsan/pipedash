@@ -15,11 +15,8 @@ import {
   type DesktopNotificationSnapshot,
   desktopService,
 } from '../../../services/desktop'
-import {
-  type CenterNotification,
-  type CenterSelection,
-  useNotificationCenterStore,
-} from '../../../stores/notificationCenterStore'
+import { type CenterSelection, useNotificationCenterStore } from '../../../stores/notificationCenterStore'
+import type { CenterNotification } from '../../../types/notifications'
 import { displayErrorNotification } from '../../../utils/errorDisplay'
 import { isRecord } from '../../../utils/isRecord'
 import { isDesktopTauri } from '../../../utils/platform'
@@ -82,7 +79,7 @@ export function useNotificationActions(): {
       if (isDesktopTauri()) {
         mutate({ type: 'read', key })
       } else {
-        useNotificationCenterStore.getState().markRead(key)
+        void useNotificationCenterStore.getState().markRead(key)
       }
     },
     [mutate]
@@ -91,14 +88,14 @@ export function useNotificationActions(): {
     if (isDesktopTauri()) {
       mutate({ type: 'read', key: null })
     } else {
-      useNotificationCenterStore.getState().markAllRead()
+      void useNotificationCenterStore.getState().markAllRead()
     }
   }, [mutate])
   const clear = useCallback(() => {
     if (isDesktopTauri()) {
       mutate({ type: 'clear' })
     } else {
-      useNotificationCenterStore.getState().clear()
+      void useNotificationCenterStore.getState().clear()
     }
   }, [mutate])
   const open = useCallback(

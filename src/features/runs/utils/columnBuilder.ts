@@ -1,7 +1,8 @@
 import type { DataTableColumn } from 'mantine-datatable'
 
 import { logger } from '../../../lib/logger'
-import type { ColumnDefinition, PipelineRun } from '../../../types/domain'
+import type { PipelineRun } from '../../../types/pipelines'
+import type { ColumnDefinition } from '../../../types/plugins'
 import { getRunStatusLabel } from '../../../utils/pipelinePresentation'
 import { isLiveRun } from '../../../utils/runTiming'
 import { renderCellValue, renderLiveRunDuration } from './dynamicRenderers'

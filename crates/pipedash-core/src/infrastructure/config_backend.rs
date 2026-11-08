@@ -60,8 +60,6 @@ pub trait ConfigBackend: Send + Sync {
         &self, provider_id: i64, permissions: &StoredPermissions,
     ) -> DomainResult<()>;
 
-    async fn get_permissions(&self, provider_id: i64) -> DomainResult<Option<StoredPermissions>>;
-
     async fn export_all(&self) -> DomainResult<ConfigExport>;
 
     async fn import_all(&self, data: &ConfigExport) -> DomainResult<HashMap<i64, i64>>;

@@ -1,9 +1,7 @@
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 
-export type TriggerModalState =
-  | { open: false }
-  | { open: true; pipelineId: string; initialInputs: Record<string, unknown> | undefined }
+export type TriggerModalState = { open: false } | { open: true; pipelineId: string; rerunOf: number | undefined }
 
 export type LogsModalState = { open: false } | { open: true; pipelineId: string; runNumber: number }
 
@@ -13,7 +11,7 @@ interface ModalStoreState {
 }
 
 interface ModalStoreActions {
-  openTriggerModal: (pipelineId: string, initialInputs?: Record<string, unknown>) => void
+  openTriggerModal: (pipelineId: string, rerunOf?: number) => void
   closeTriggerModal: () => void
   openLogsModal: (pipelineId: string, runNumber: number) => void
   closeLogsModal: () => void
@@ -31,9 +29,9 @@ export const useModalStore = create<ModalStore>()(
     (set) => ({
       ...initialState,
 
-      openTriggerModal: (pipelineId, initialInputs) =>
+      openTriggerModal: (pipelineId, rerunOf) =>
         set({
-          triggerModal: { open: true, pipelineId, initialInputs },
+          triggerModal: { open: true, pipelineId, rerunOf },
         }),
 
       closeTriggerModal: () => set({ triggerModal: { open: false } }),

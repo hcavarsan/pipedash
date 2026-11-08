@@ -5,7 +5,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import type { RefObject } from 'react'
 
 import type { LogDocumentMeta, LogLinesPage, LogSearchQuery, LogSearchResult, RunLogNode } from '../../../types/logs'
-import type { LogViewerHandle } from './LogViewer'
+import type { LogViewerHandle } from '../lib/logViewerTypes'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
@@ -15,7 +15,7 @@ const { MantineProvider } = await import('@mantine/core')
 const { environmentManager, notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 const { MemoryRouter } = await import('react-router-dom')
 const { createElement, createRef } = await import('react')
-const { events } = await import('../../../services/service')
+const { wsClient } = await import('../../../services/websocket')
 const { apiService } = await import('../../../services/api')
 const { tauriService } = await import('../../../services/tauri')
 const { LogViewer } = await import('./LogViewer')
@@ -158,7 +158,7 @@ function stubService(context: TestContext, search: Search) {
     context.mock.method(target, 'readRunLogLines', read)
     context.mock.method(target, 'searchRunLog', find)
   }
-  context.mock.method(events, 'listen', async () => () => undefined)
+  context.mock.method(wsClient, 'listen', async () => () => undefined)
 }
 
 function mount(ref: RefObject<LogViewerHandle | null>) {

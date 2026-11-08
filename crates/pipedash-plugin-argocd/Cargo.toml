@@ -3,14 +3,13 @@ name = "pipedash-plugin-argocd"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-description = "ArgoCD plugin for Pipedash"
+description = "Monitor and manage ArgoCD applications and deployments"
 repository = "https://github.com/hcavarsan/pipedash"
 license = "GPL-3.0"
 
 [dependencies]
 async-trait.workspace = true
 chrono.workspace = true
-futures.workspace = true
 pipedash-plugin-api.workspace = true
 reqwest.workspace = true
 serde.workspace = true
@@ -20,3 +19,9 @@ tracing.workspace = true
 
 [dev-dependencies]
 rustls.workspace = true
+
+[lints]
+workspace = true
+
+[package.metadata.pipedash]
+aliases = ["argo"]

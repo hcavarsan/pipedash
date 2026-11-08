@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 
 import { logger } from '../../../lib/logger'
-import { events } from '../../../services/service'
+import { listenEvent } from '../../../services/events'
 import { isRecord } from '../../../utils/isRecord'
 import { useInvalidatePipelineMetrics } from '../queries/useMetricsQueries'
 
@@ -73,7 +73,7 @@ export function useMetricsEventListeners({
     const setupListeners = async () => {
       try {
         for (const eventType of METRICS_EVENT_TYPES) {
-          const unlisten = await events.listen<unknown>(eventType, (payload) => {
+          const unlisten = await listenEvent<unknown>(eventType, (payload) => {
             handleEvent(eventType, payload)
           })
 

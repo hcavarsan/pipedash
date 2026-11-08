@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import { PageHeader } from '../../../components/common/PageHeader'
 import { NavBarMenu } from '../../../components/layout/NavBarMenu'
 import { useMobileTitle } from '../../../stores/mobileNavStore'
-import type { PipelineViewPage, ViewDisplay } from '../../../types/domain'
+import type { PipelineViewPage, ViewDisplay } from '../../../types/views'
 import type { PipelineViewPageModel } from '../hooks/usePipelineViewModel'
 import { usePipelineViewStore } from '../stores/pipelineViewStore'
 import { PipelineViewTabs } from './PipelineViewTabs'
@@ -18,7 +18,7 @@ interface PipelineViewToolbarProps {
 }
 
 function viewOptions(
-  { view, page, kind, showHidden, labels, collapsibleIds, setAll, setFilter }: PipelineViewPageModel,
+  { view, page, kind, showHidden, terminology, collapsibleIds, setAll, setFilter }: PipelineViewPageModel,
   onDisplayChange: (display: ViewDisplay) => void
 ): ViewOptionsProps | null {
   if (!view) {
@@ -35,7 +35,7 @@ function viewOptions(
       : undefined
   const options: ViewOptionsProps = {
     view,
-    groupTitle: labels.groupTitle,
+    groupTitle: terminology?.group_title ?? '',
     onChange: onDisplayChange,
     onExpandAll: collapsibleIds.length > 0 ? (open: boolean) => setAll(collapsibleIds, open) : undefined,
     hidden,

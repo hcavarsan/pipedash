@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react'
-import { FilterBar, type FilterSheet } from '../../../components/common/FilterBar'
-import { getStatusOptions } from '../../../utils/pipelinePresentation'
-
+import { FilterBar } from '../../../components/common/FilterBar'
+import type { FilterSheet } from '../../../components/common/filterTypes'
 import type { PipelineViewPageModel } from '../hooks/usePipelineViewModel'
 
 interface PipelineViewFiltersProps {
@@ -10,7 +9,7 @@ interface PipelineViewFiltersProps {
 }
 
 export function PipelineViewFilters({ model, sheet }: PipelineViewFiltersProps): ReactNode {
-  const { page, filters, setFilter, selectStatus, clearFilters, isFluxView, labels, providerOptions } = model
+  const { page, filters, setFilter, selectStatus, clearFilters, providerOptions } = model
 
   if (!page) {
     return null
@@ -23,13 +22,13 @@ export function PipelineViewFilters({ model, sheet }: PipelineViewFiltersProps):
         search: {
           value: filters.search,
           onChange: (value) => setFilter('search', value),
-          placeholder: isFluxView ? 'Search resources, namespaces, sources…' : 'Search repositories, workflows…',
+          placeholder: page.presentation.copy.search_placeholder,
         },
         status: {
           value: filters.status,
           onSelect: selectStatus,
           onClear: () => setFilter('status', []),
-          options: getStatusOptions(isFluxView ? 'fluxcd' : undefined),
+          options: page.presentation.status_options,
         },
         provider: {
           value: filters.provider,
@@ -40,8 +39,8 @@ export function PipelineViewFilters({ model, sheet }: PipelineViewFiltersProps):
           value: filters.organization,
           onChange: (value) => setFilter('organization', value),
           options: page.facets.organizations,
-          label: labels.groupTitle,
-          allLabel: `All ${labels.groups}`,
+          label: page.presentation.terminology.group_title,
+          allLabel: `All ${page.presentation.terminology.groups}`,
         },
         dateRange: {
           value: filters.dateRange,

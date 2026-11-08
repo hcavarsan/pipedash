@@ -1,7 +1,7 @@
 import { getHotkeyHandler } from '@mantine/hooks'
 import type { KeyboardEvent } from 'react'
 
-import type { LogViewerHandle } from '../../logs/components/LogViewer'
+import type { LogViewerHandle } from '../../logs/lib/logViewerTypes'
 
 export function createLogShortcutHandler(
   viewer: () => LogViewerHandle | null

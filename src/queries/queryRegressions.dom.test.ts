@@ -4,17 +4,15 @@ import { after, afterEach, beforeEach, type TestContext, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, type ReactNode } from 'react'
 
-import { pipelineViewFixture, providerSummaryFixture, viewPipelineFixture } from '../testing/fixtures'
-import type {
-  AggregatedMetrics,
-  PaginatedRunHistory,
-  PipelineViewPage,
-  PipelineViewQuery,
-  ProviderConfig,
-  ProviderSummary,
-  RefreshResult,
-  ViewMember,
-} from '../types/domain'
+import { runHistoryQuery } from '../lib/runHistoryQuery'
+import { pipelineViewFixture, providerSummaryFixture } from '../testing/fixtures'
+import { viewPresentationFixture } from '../testing/presentation'
+import type { RefreshResult } from '../types/health'
+import type { MetricsDashboard } from '../types/metrics'
+import type { ProviderDraft } from '../types/provider_draft'
+import type { ProviderSummary } from '../types/providers'
+import type { RunHistoryPage } from '../types/run_history'
+import type { PipelineViewPage, PipelineViewQuery } from '../types/views'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
@@ -24,14 +22,11 @@ const { MemoryRouter } = await import('react-router-dom')
 const { apiService } = await import('../services/api')
 const { tauriService } = await import('../services/tauri')
 const { queryKeys } = await import('../lib/queryKeys')
-const { useAggregatedMetrics } = await import('../features/metrics/queries/useMetricsQueries')
-const { useRunHistory, useSaveTablePreferences } = await import('./useRunHistoryQueries')
-const { useReorderPinned, useToggleHidden, useTogglePin } = await import(
-  '../features/pipelines/queries/usePipelineViewQueries'
-)
-const { useAddProvider, useUpdateProvider } = await import('./useProvidersQueries')
+const { useMetricsDashboard } = await import('../features/metrics/queries/useMetricsQueries')
+const { useRunHistory } = await import('./useRunHistoryQueries')
+const { useSaveTablePreferences } = await import('../features/runs/queries/useTablePreferences')
+const { useSaveProviderDraft } = await import('./useProvidersQueries')
 const { useRefreshProviders } = await import('./useRefreshQueries')
-const { useRerunWorkflow } = await import('../features/runs/queries/useRunDetailsQuery')
 const { useFactoryReset } = await import('../features/settings/queries/usePlatformQueries')
 const { useLogViewerPrefs } = await import('../stores/logViewerPrefsStore')
 const { useNotificationCenterStore } = await import('../stores/notificationCenterStore')
@@ -44,16 +39,10 @@ const wrapper = ({ children }: { children: ReactNode }) =>
 
 type Stubbed =
   | 'fetchRunHistory'
-  | 'queryAggregatedMetrics'
+  | 'getMetricsDashboard'
   | 'saveTablePreferences'
-  | 'setPipelineViewMembership'
-  | 'setPipelineHidden'
-  | 'updatePipelineView'
-  | 'updateProvider'
-  | 'addProvider'
+  | 'saveProviderDraft'
   | 'refreshProvider'
-  | 'triggerPipeline'
-  | 'getWorkflowRunDetails'
   | 'factoryReset'
 
 function stub<K extends Stubbed>(context: TestContext, method: K, impl: (typeof tauriService)[K]) {
@@ -73,7 +62,7 @@ after(async () => {
   await GlobalRegistrator.unregister()
 })
 
-const historyOfSize = (size: number): PaginatedRunHistory => ({
+const historyOfSize = (size: number): RunHistoryPage => ({
   runs: [],
   total_count: size,
   has_more: false,
@@ -81,13 +70,18 @@ const historyOfSize = (size: number): PaginatedRunHistory => ({
   page: 1,
   page_size: size,
   total_pages: 1,
+  branches: [],
+  actors: [],
 })
 
-const metrics: AggregatedMetrics = {
-  metrics: [],
-  total_count: 0,
-  metric_type: 'run_duration',
-  aggregation_period: 'daily',
+const metrics: MetricsDashboard = {
+  data: { metrics: [], total_count: 0, metric_type: 'run_duration', aggregation_period: 'daily' },
+  observed: [],
+  stats: { average: null, latest: null, max: null, observed: 0, total: 0 },
+  table_indices: [],
+  ranges: [],
+  widest_range: '24h',
+  aggregation_type: 'avg',
 }
 
 const viewQuery: PipelineViewQuery = { view: 'v', show_hidden: false, utc_offset_minutes: 0 }
@@ -99,34 +93,37 @@ const viewPage = (): PipelineViewPage => ({
   total: 1,
   hidden_count: 0,
   filters_active: false,
+  section_count: 0,
   facets: { organizations: [], provider_ids: [] },
+  presentation: viewPresentationFixture(),
 })
 
-const providerConfig: ProviderConfig = {
+const providerDraft = (providerId: number | null): ProviderDraft => ({
+  provider_type: 'stub',
   name: 'New',
-  provider_type: 'github',
-  token: 'secret',
-  config: {},
-  refresh_interval: 60,
-}
+  auth_mode: 'token',
+  values: { token: 'secret' },
+  selected_pipeline_ids: null,
+  provider_id: providerId,
+})
 
 test('run history with a different page size is fetched separately', async (context) => {
-  const fetchRuns = stub(context, 'fetchRunHistory', async (_id, _page, size) => historyOfSize(size ?? 0))
+  const fetchRuns = stub(context, 'fetchRunHistory', async (_id, query) => historyOfSize(query.page_size))
 
-  const small = renderHook(() => useRunHistory('p1', 1, 20), { wrapper })
+  const small = renderHook(() => useRunHistory('p1', runHistoryQuery(1, 20)), { wrapper })
   await waitFor(() => assert.equal(small.result.current.data?.total_count, 20))
-  const large = renderHook(() => useRunHistory('p1', 1, 50), { wrapper })
+  const large = renderHook(() => useRunHistory('p1', runHistoryQuery(1, 50)), { wrapper })
   await waitFor(() => assert.equal(large.result.current.data?.total_count, 50))
   assert.equal(fetchRuns.mock.callCount(), 2)
 })
 
 test('aggregated metrics with a different limit are fetched separately', async (context) => {
-  const query = stub(context, 'queryAggregatedMetrics', async () => metrics)
+  const query = stub(context, 'getMetricsDashboard', async () => metrics)
   const params = { metricType: 'run_duration', aggregationPeriod: 'daily', pipelineId: 'p1', dateRange: '24h' } as const
 
-  const first = renderHook(() => useAggregatedMetrics({ ...params, limit: 10 }), { wrapper })
+  const first = renderHook(() => useMetricsDashboard({ ...params, limit: 10 }), { wrapper })
   await waitFor(() => assert.equal(first.result.current.isSuccess, true))
-  const second = renderHook(() => useAggregatedMetrics({ ...params, limit: 500 }), { wrapper })
+  const second = renderHook(() => useMetricsDashboard({ ...params, limit: 500 }), { wrapper })
   await waitFor(() => assert.equal(second.result.current.isSuccess, true))
   assert.equal(query.mock.callCount(), 2)
 })
@@ -146,107 +143,32 @@ test('failed table preference save without a cached value leaves no optimistic e
   assert.equal(client.getQueryData(queryKeys.tablePreferences.detail(1, 'runs')), undefined)
 })
 
-for (const [name, useToggle, method] of [
-  ['pin', useTogglePin, 'setPipelineViewMembership'],
-  ['hide', useToggleHidden, 'setPipelineHidden'],
-] as const) {
-  test(`a rejected ${name} toggle restores the cached view page`, async (context) => {
-    stub(context, method, async () => {
-      throw new Error('nope')
-    })
-    const row = viewPipelineFixture({ id: 'a', pinned: false, hidden: false })
-    const initial: PipelineViewPage = {
-      ...viewPage(),
-      sections: [
-        {
-          id: 's',
-          kind: 'view',
-          title: 'S',
-          organization: null,
-          provider_ids: [],
-          status: null,
-          status_pipeline_id: null,
-          last_run: null,
-          pending_fetch: false,
-          pipelines: [row],
-        },
-      ],
-    }
-    client.setQueryData(queryKeys.pipelines.page(viewQuery), initial)
-    const { result } = renderHook(() => useToggle(), { wrapper })
-
-    await act(async () => {
-      await result.current.mutateAsync(row).catch(() => undefined)
-    })
-
-    const restored = client.getQueryData<PipelineViewPage>(queryKeys.pipelines.page(viewQuery))?.sections[0]
-      ?.pipelines[0]
-    assert.deepEqual([restored?.pinned, restored?.hidden], [false, false])
-  })
-}
-
-test('a pinned reorder across sections moves the member order and a rejection restores it', async (context) => {
-  const request = Promise.withResolvers<never>()
-  stub(context, 'updatePipelineView', () => request.promise)
-  const key = queryKeys.pipelines.viewMembers('pinned')
-  const member = (id: string): ViewMember => ({
-    pipeline_id: id,
-    name: null,
-    repository: null,
-    provider_id: 1,
-    available: true,
-  })
-  const memberIds = () => client.getQueryData<ViewMember[]>(key)?.map((item) => item.pipeline_id)
-  client.setQueryData(key, [member('a'), member('b'), member('c')])
-  const { result } = renderHook(() => useReorderPinned(), { wrapper })
-
-  let mutation: Promise<unknown> = Promise.resolve()
-  act(() => {
-    mutation = result.current.mutateAsync(['a', 'c', 'b']).catch(() => undefined)
-  })
-  await waitFor(() => assert.deepEqual(memberIds(), ['a', 'c', 'b']))
-
-  await act(async () => {
-    request.reject(new Error('nope'))
-    await mutation
-  })
-
-  assert.deepEqual(memberIds(), ['a', 'b', 'c'])
-})
-
-test('provider edit does not seed an absent list and keeps credentials out of summaries', async (context) => {
-  stub(context, 'updateProvider', async () => undefined)
-  const { result } = renderHook(() => useUpdateProvider(), { wrapper })
-
-  await act(async () => {
-    await result.current.mutateAsync({ id: 1, config: providerConfig })
-  })
-  assert.equal(client.getQueryData(queryKeys.providers.list()), undefined)
-
-  client.setQueryData<ProviderSummary[]>(queryKeys.providers.list(), [providerSummaryFixture({ id: 1 })])
-  const pending = Promise.withResolvers<undefined>()
-  stub(context, 'updateProvider', () => pending.promise)
-  let mutation: Promise<void> = Promise.resolve()
-  await act(async () => {
-    mutation = result.current.mutateAsync({ id: 1, config: providerConfig })
-  })
-  const summary = client.getQueryData<ProviderSummary[]>(queryKeys.providers.list())?.[0]
-  assert.equal(summary?.name, 'New')
-  assert.equal(summary !== undefined && 'token' in summary, false)
-  pending.resolve(undefined)
-  await act(async () => mutation)
-})
-
-test('adding a provider invalidates cached pipelines', async (context) => {
-  stub(context, 'addProvider', async () => 7)
+test('saving a provider draft invalidates the provider list and cached pipelines', async (context) => {
+  stub(context, 'saveProviderDraft', async () => 7)
   client.setQueryData(queryKeys.pipelines.page(viewQuery), viewPage())
-  const { result } = renderHook(() => useAddProvider(), { wrapper })
+  client.setQueryData<ProviderSummary[]>(queryKeys.providers.list(), [providerSummaryFixture({ id: 1 })])
+  const { result } = renderHook(() => useSaveProviderDraft(), { wrapper })
 
   await act(async () => {
-    await result.current.mutateAsync(providerConfig)
+    await result.current.mutateAsync(providerDraft(null))
   })
 
   assert.equal(client.getQueryState(queryKeys.pipelines.page(viewQuery))?.isInvalidated, true)
+  assert.equal(client.getQueryState(queryKeys.providers.list())?.isInvalidated, true)
+})
+
+test('saving an edited provider draft keeps credentials out of the cached summaries', async (context) => {
+  const save = stub(context, 'saveProviderDraft', async () => 1)
+  client.setQueryData<ProviderSummary[]>(queryKeys.providers.list(), [providerSummaryFixture({ id: 1 })])
+  const { result } = renderHook(() => useSaveProviderDraft(), { wrapper })
+
+  await act(async () => {
+    await result.current.mutateAsync(providerDraft(1))
+  })
+
+  const summary = client.getQueryData<ProviderSummary[]>(queryKeys.providers.list())?.[0]
+  assert.equal(save.mock.callCount() > 0, true)
+  assert.equal(summary !== undefined && 'token' in summary, false)
 })
 
 test('refreshing providers keeps in-flight ids marked when another provider fails', async (context) => {
@@ -264,22 +186,6 @@ test('refreshing providers keeps in-flight ids marked when another provider fail
   slow.resolve({ provider_id: 2, state: 'ok', kind: null, message: null })
   await act(async () => batch)
   await waitFor(() => assert.equal(result.current.refreshing.size, 0))
-})
-
-test('rerun succeeds as soon as the trigger succeeds even if details are not available yet', async (context) => {
-  stub(context, 'triggerPipeline', async () => JSON.stringify({ run_number: 9 }))
-  const details = stub(context, 'getWorkflowRunDetails', () => Promise.reject(new Error('not yet')))
-  const { result } = renderHook(() => useRerunWorkflow(), { wrapper })
-  const started = Date.now()
-  let created: { newRunNumber: number } | undefined
-
-  await act(async () => {
-    created = await result.current.mutateAsync({ pipelineId: 'github__1__o/r' })
-  })
-
-  assert.ok(Date.now() - started < 1500)
-  assert.equal(created?.newRunNumber, 9)
-  assert.ok(details.mock.callCount() <= 1)
 })
 
 test('factory reset also resets log preferences and the notification center', async (context) => {

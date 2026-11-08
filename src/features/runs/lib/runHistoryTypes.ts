@@ -1,4 +1,4 @@
-import type { PipelineRun } from '../../../types/domain'
+import type { PipelineRun } from '../../../types/pipelines'
 
 export interface RunPageSelection {
   selectedRuns: PipelineRun[]

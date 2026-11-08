@@ -3,8 +3,11 @@ import { after, afterEach, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 
+import { pluginFixture } from '../../features/providers/components/AddProviderModal/pluginFixture'
+import { queryKeys } from '../../lib/queryKeys'
 import { pipelineFixture } from '../../testing/fixtures'
-import type { PipelineRun } from '../../types/domain'
+import { runPresentationFixture } from '../../testing/presentation'
+import type { PipelineRun } from '../../types/pipelines'
 
 GlobalRegistrator.register({ width: 393, height: 852 })
 
@@ -62,6 +65,7 @@ test('relative start times keep advancing while the list props stay unchanged', 
     commit_message: null,
     branch: null,
     actor: null,
+    ...runPresentationFixture(),
   }
   const runs = [run]
   const props = {
@@ -72,6 +76,8 @@ test('relative start times keep advancing while the list props stay unchanged', 
     isSelectable: () => false,
     onToggle: () => undefined,
   }
+
+  client.setQueryData(queryKeys.plugins.list(), [pluginFixture({ provider_type: 'stub' })])
 
   render(
     <MantineProvider>

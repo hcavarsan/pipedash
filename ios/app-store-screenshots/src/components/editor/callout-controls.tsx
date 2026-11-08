@@ -1,14 +1,16 @@
-"use client";
-import * as React from "react";
-import { Circle, Search, Square, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { img } from "@/lib/image-cache";
-import { resolveScreenshot } from "@/lib/locale";
-import { CALLOUT_ZOOM_MAX, CALLOUT_ZOOM_MIN, DEFAULT_CALLOUT } from "@/lib/scene";
-import { cn } from "@/lib/utils";
-import type { Callout, Device, ElementId, Orientation, Slide } from "@/lib/types";
-import { getElementTransform, SCREEN_WIDTH_FRACTION } from "./slide-canvas";
+'use client'
+import { Circle, Search, Square, Trash2 } from 'lucide-react'
+import type { ReactNode, PointerEvent as ReactPointerEvent } from 'react'
+import { useRef } from 'react'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { getElementTransform, SCREEN_WIDTH_FRACTION } from '@/lib/canvas-geometry'
+import { img } from '@/lib/image-cache'
+import { resolveScreenshot } from '@/lib/locale'
+import { CALLOUT_ZOOM_MAX, CALLOUT_ZOOM_MIN, DEFAULT_CALLOUT } from '@/lib/scene'
+import type { Callout, Device, ElementId, Orientation, Patch, Slide } from '@/lib/types'
+import { cn } from '@/lib/utils'
+import { PlainImg } from './plain-img'
 
 /** Inspector section for the per-screen magnified callout ("Magnifier"). */
 export function CalloutControls({
@@ -20,36 +22,44 @@ export function CalloutControls({
   onChange,
   onSelectElement,
 }: {
-  slide: Slide;
-  device: Device;
-  orientation: Orientation;
-  locale: string;
-  available: boolean;
-  onChange: (patch: Partial<Slide>) => void;
-  onSelectElement: (id: ElementId | null) => void;
-}) {
-  const callout = slide.callout;
-  const screenshot = img(resolveScreenshot(slide.screenshot, locale));
+  slide: Slide
+  device: Device
+  orientation: Orientation
+  locale: string
+  available: boolean
+  onChange: (patch: Patch<Slide>) => void
+  onSelectElement: (id: ElementId | null) => void
+}): ReactNode {
+  const callout = slide.callout
+  const screenshot = img(resolveScreenshot(slide.screenshot, locale))
 
   function patch(next: Partial<Callout>) {
-    if (!callout) return;
-    const merged = { ...callout, ...next };
-    const saved = slide.transforms?.callout;
-    // A circle is always round: square up a frame that was stretched as a rounded rect.
-    if (next.shape === "circle" && saved && saved.width !== saved.height) {
-      const size = Math.min(saved.width, saved.height);
-      onChange({ callout: merged, transforms: { ...slide.transforms, callout: { ...saved, width: size, height: size } } });
-      return;
+    if (!callout) {
+      return
     }
-    onChange({ callout: merged });
+    const merged = { ...callout, ...next }
+    const saved = slide.transforms?.callout
+    // A circle is always round: square up a frame that was stretched as a rounded rect.
+    if (next.shape === 'circle' && saved && saved.width !== saved.height) {
+      const size = Math.min(saved.width, saved.height)
+      onChange({
+        callout: merged,
+        transforms: { ...slide.transforms, callout: { ...saved, width: size, height: size } },
+      })
+      return
+    }
+    onChange({ callout: merged })
   }
 
-  if (!available) return null;
+  if (!available) {
+    return null
+  }
 
   // Share of the screenshot's width the lens actually shows, for the picker ring.
-  const lensW = getElementTransform(slide, device, orientation, "callout")?.width;
-  const deviceW = getElementTransform(slide, device, orientation, "device")?.width;
-  const coverage = callout && lensW && deviceW ? Math.min(1, lensW / (deviceW * SCREEN_WIDTH_FRACTION * callout.zoom)) : 0.3;
+  const lensW = getElementTransform(slide, device, orientation, 'callout')?.width
+  const deviceW = getElementTransform(slide, device, orientation, 'device')?.width
+  const coverage =
+    callout && lensW && deviceW ? Math.min(1, lensW / (deviceW * SCREEN_WIDTH_FRACTION * callout.zoom)) : 0.3
 
   if (!callout) {
     return (
@@ -64,15 +74,15 @@ export function CalloutControls({
           size="sm"
           className="h-7 shrink-0 px-2 text-xs"
           onClick={() => {
-            onChange({ callout: { ...DEFAULT_CALLOUT } });
-            onSelectElement("callout");
+            onChange({ callout: { ...DEFAULT_CALLOUT } })
+            onSelectElement('callout')
           }}
         >
           <Search className="h-3.5 w-3.5" />
           Add
         </Button>
       </div>
-    );
+    )
   }
 
   return (
@@ -87,9 +97,9 @@ export function CalloutControls({
           aria-label="Remove magnifier"
           title="Remove magnifier"
           onClick={() => {
-            const { callout: _removed, ...rest } = slide.transforms || {};
-            onChange({ callout: undefined, transforms: Object.keys(rest).length ? rest : undefined });
-            onSelectElement(null);
+            const { callout: _removed, ...rest } = slide.transforms || {}
+            onChange({ callout: undefined, transforms: Object.keys(rest).length ? rest : undefined })
+            onSelectElement(null)
           }}
         >
           <Trash2 className="h-3.5 w-3.5" />
@@ -101,7 +111,7 @@ export function CalloutControls({
         x={callout.focusX}
         y={callout.focusY}
         coverage={coverage}
-        round={callout.shape === "circle"}
+        round={callout.shape === 'circle'}
         onChange={(focusX, focusY) => patch({ focusX, focusY })}
       />
 
@@ -124,27 +134,27 @@ export function CalloutControls({
       </div>
 
       <div className="grid grid-cols-2 gap-1" role="radiogroup" aria-label="Magnifier shape">
-        {(["circle", "rounded"] as const).map((shape) => (
+        {(['circle', 'rounded'] as const).map((shape) => (
           <Button
             key={shape}
             type="button"
             role="radio"
             aria-checked={callout.shape === shape}
-            variant={callout.shape === shape ? "secondary" : "outline"}
+            variant={callout.shape === shape ? 'secondary' : 'outline'}
             size="sm"
             className="h-7 gap-1.5 text-xs"
             onClick={() => patch({ shape })}
           >
-            {shape === "circle" ? <Circle className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
-            {shape === "circle" ? "Circle" : "Rounded"}
+            {shape === 'circle' ? <Circle className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
+            {shape === 'circle' ? 'Circle' : 'Rounded'}
           </Button>
         ))}
       </div>
     </div>
-  );
+  )
 }
 
-const KEY_STEP = 0.02;
+const KEY_STEP = 0.02
 
 function FocusPicker({
   src,
@@ -154,23 +164,25 @@ function FocusPicker({
   round,
   onChange,
 }: {
-  src: string;
-  x: number;
-  y: number;
-  coverage: number;
-  round: boolean;
-  onChange: (x: number, y: number) => void;
-}) {
-  const ref = React.useRef<HTMLDivElement>(null);
-  const clamp = (v: number) => Math.min(1, Math.max(0, v));
+  src: string
+  x: number
+  y: number
+  coverage: number
+  round: boolean
+  onChange: (x: number, y: number) => void
+}): ReactNode {
+  const ref = useRef<HTMLDivElement>(null)
+  const clamp = (v: number) => Math.min(1, Math.max(0, v))
 
-  function fromPointer(e: React.PointerEvent) {
-    const box = ref.current?.getBoundingClientRect();
-    if (!box || !box.width || !box.height) return;
+  function fromPointer(e: ReactPointerEvent) {
+    const box = ref.current?.getBoundingClientRect()
+    if (!box?.width || !box.height) {
+      return
+    }
     onChange(
       Math.round(clamp((e.clientX - box.left) / box.width) * 1000) / 1000,
-      Math.round(clamp((e.clientY - box.top) / box.height) * 1000) / 1000,
-    );
+      Math.round(clamp((e.clientY - box.top) / box.height) * 1000) / 1000
+    )
   }
 
   return (
@@ -186,33 +198,37 @@ function FocusPicker({
         aria-valuenow={Math.round(y * 100)}
         aria-valuetext={`${Math.round(x * 100)}% across, ${Math.round(y * 100)}% down`}
         className={cn(
-          "relative mx-auto w-24 cursor-crosshair touch-none select-none overflow-hidden rounded-md border bg-neutral-900 outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
-          !src && "aspect-9/19.5",
+          'relative mx-auto w-24 cursor-crosshair touch-none select-none overflow-hidden rounded-md border bg-neutral-900 outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
+          !src && 'aspect-9/19.5'
         )}
         onPointerDown={(e) => {
-          e.currentTarget.setPointerCapture(e.pointerId);
-          fromPointer(e);
+          e.currentTarget.setPointerCapture(e.pointerId)
+          fromPointer(e)
         }}
         onPointerMove={(e) => {
-          if (e.currentTarget.hasPointerCapture(e.pointerId)) fromPointer(e);
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+            fromPointer(e)
+          }
         }}
         onKeyDown={(e) => {
-          const step = e.shiftKey ? KEY_STEP * 5 : KEY_STEP;
+          const step = e.shiftKey ? KEY_STEP * 5 : KEY_STEP
           const moves: Record<string, [number, number]> = {
             ArrowLeft: [-step, 0],
             ArrowRight: [step, 0],
             ArrowUp: [0, -step],
             ArrowDown: [0, step],
-          };
-          const move = moves[e.key];
-          if (!move) return;
-          e.preventDefault();
-          e.stopPropagation();
-          onChange(clamp(x + move[0]), clamp(y + move[1]));
+          }
+          const move = moves[e.key]
+          if (!move) {
+            return
+          }
+          e.preventDefault()
+          e.stopPropagation()
+          onChange(clamp(x + move[0]), clamp(y + move[1]))
         }}
       >
         {src ? (
-          <img src={src} alt="" draggable={false} className="block w-full" />
+          <PlainImg src={src} alt="" draggable={false} className="block w-full" />
         ) : (
           <span className="absolute inset-0 flex items-center justify-center p-2 text-center text-[10px] text-neutral-400">
             Add a screenshot first
@@ -221,12 +237,12 @@ function FocusPicker({
         <span
           aria-hidden
           className={cn(
-            "pointer-events-none absolute aspect-square -translate-x-1/2 -translate-y-1/2 border-2 border-white bg-white/10 shadow-[0_0_0_1px_rgba(0,0,0,0.55),0_0_0_999px_rgba(0,0,0,0.35)]",
-            round ? "rounded-full" : "rounded-[14%]",
+            'pointer-events-none absolute aspect-square -translate-x-1/2 -translate-y-1/2 border-2 border-white bg-white/10 shadow-[0_0_0_1px_rgba(0,0,0,0.55),0_0_0_999px_rgba(0,0,0,0.35)]',
+            round ? 'rounded-full' : 'rounded-[14%]'
           )}
           style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${coverage * 100}%` }}
         />
       </div>
     </div>
-  );
+  )
 }

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use pipedash_plugin_api::http::decode_json;
 use pipedash_plugin_api::{
     check_response,
     from_status,
@@ -134,7 +135,11 @@ impl KomodoClient {
                     .await
                     .map_err(|e| map_send_error(e, &url))?;
                 if response.status() != reqwest::StatusCode::INTERNAL_SERVER_ERROR {
-                    return parse_json(check_response(response).await?, "GetUpdate").await;
+                    return decode_json(
+                        check_response(response).await?,
+                        "Komodo GetUpdate response",
+                    )
+                    .await;
                 }
                 let wait = retry_after(response.headers(), chrono::Utc::now());
                 let body = response.text().await.map_err(|e| map_send_error(e, &url))?;
@@ -165,7 +170,11 @@ impl KomodoClient {
             .retry_policy
             .retry_unsent(&url, || self.request(&url, "DeployStack", &params).send())
             .await?;
-        parse_json(check_response(response).await?, "DeployStack").await
+        decode_json(
+            check_response(response).await?,
+            "Komodo DeployStack response",
+        )
+        .await
     }
 
     async fn list_updates(&self, query: Value, page: u32) -> PluginResult<ListUpdatesResponse> {
@@ -184,7 +193,11 @@ impl KomodoClient {
                     .send()
                     .await
                     .map_err(|e| map_send_error(e, &url))?;
-                parse_json(check_response(response).await?, request_type).await
+                decode_json(
+                    check_response(response).await?,
+                    &format!("Komodo {request_type} response"),
+                )
+                .await
             })
             .await
     }
@@ -205,15 +218,4 @@ impl KomodoClient {
 
 fn stack_target(stack_id: &str) -> Value {
     json!({ "target.type": "Stack", "target.id": stack_id })
-}
-
-async fn parse_json<T: DeserializeOwned>(
-    response: reqwest::Response, request_type: &str,
-) -> PluginResult<T> {
-    response.json().await.map_err(|e| {
-        PluginError::ApiError(format!(
-            "Failed to parse Komodo {request_type} response: {}",
-            e.without_url()
-        ))
-    })
 }

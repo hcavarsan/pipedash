@@ -1,12 +1,21 @@
 use std::future::Future;
 use std::task::Poll;
 
-use pipedash_plugin_api::ComponentFilter;
+use pipedash_plugin_api::{
+    ComponentFilter,
+    ComponentHealth,
+};
 use serde_json::{
     json,
     Value,
 };
+use tokio::time::Instant;
 
+use super::feed::{
+    FEED_INVALID,
+    FEED_UNREACHABLE,
+};
+use super::state::FeedState;
 use super::*;
 use crate::application::test_support::{
     statuspage_body,
@@ -17,6 +26,10 @@ use crate::application::test_support::{
     StubProvider,
 };
 use crate::application::RefreshMode;
+use crate::domain::{
+    DomainError,
+    EvidenceView,
+};
 use crate::event::{
     AlertLink,
     AlertLinkKind,

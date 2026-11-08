@@ -11,3 +11,5 @@ export const API_TIMEOUTS = {
 } as const
 
 export const REFRESH_TIMEOUT_MS = 35_000
+
+export const RUN_LOG_SEARCH_TIMEOUT_MS = 60000

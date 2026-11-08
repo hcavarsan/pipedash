@@ -7,7 +7,9 @@ import {
   providerSummaryFixture,
   viewPipelineFixture,
 } from '../../../testing/fixtures'
-import type { ProviderSummary, ViewMember, ViewSection } from '../../../types/domain'
+import { sectionPresentationFixture } from '../../../testing/presentation'
+import type { ProviderSummary } from '../../../types/providers'
+import type { ViewMember, ViewSection } from '../../../types/views'
 
 import { accessorSort, buildPhoneRows, buildPipelineRows, inMemberOrder, pinnedFromBlocks } from './pipelineRows'
 
@@ -25,7 +27,9 @@ function section(overrides: Partial<ViewSection>): ViewSection {
     status_pipeline_id: null,
     last_run: null,
     pending_fetch: false,
+    presentation: sectionPresentationFixture(),
     pipelines: [viewPipelineFixture({ id: 'a', name: 'build' }), viewPipelineFixture({ id: 'b', name: 'deploy' })],
+    freshness: { state: 'fresh', stale_at: null },
     ...overrides,
   }
 }

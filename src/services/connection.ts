@@ -1,4 +1,4 @@
-import type { SharingStatus } from '../types/domain'
+import type { SharingStatus } from '../types/native'
 
 import { isTauri } from './isTauri'
 import { call } from './mobile'

@@ -13,7 +13,7 @@ import {
 } from '@/features/connection/queries/useConnectionQueries'
 import { useMobileShell } from '@/hooks/useIsMobile'
 import { useNow } from '@/hooks/useNow'
-import type { PairedDevice } from '@/types/domain'
+import type { PairedDevice } from '@/types/native'
 import { openConfirm } from '@/utils/confirm'
 import { formatRelativeTime } from '@/utils/formatRelativeTime'
 
@@ -68,6 +68,34 @@ function deviceDetails(device: PairedDevice, now: number): string {
     : 'Never connected'
 
   return `${PLATFORM_LABELS[device.platform]} · Paired ${paired} · ${seen}${device.push ? ' · Push alerts on' : ''}`
+}
+interface PairedDeviceRowProps {
+  device: PairedDevice
+  now: number
+  actions: ReactNode
+}
+
+function PairedDeviceRow({ device, now, actions }: PairedDeviceRowProps): ReactNode {
+  return (
+    <Group justify="space-between" wrap="nowrap" gap="sm">
+      <Stack gap={0} miw={0}>
+        <Group gap="xs" wrap="nowrap">
+          <Text size="sm" fw={500} truncate>
+            {device.name}
+          </Text>
+          {device.current && (
+            <Text size="xs" c="dimmed">
+              This device
+            </Text>
+          )}
+        </Group>
+        <Text size="xs" c="dimmed" truncate>
+          {deviceDetails(device, now)}
+        </Text>
+      </Stack>
+      {actions}
+    </Group>
+  )
 }
 
 export function PairedDevicesCard({ sharing }: PairedDevicesCardProps): ReactNode {
@@ -133,6 +161,20 @@ export function PairedDevicesCard({ sharing }: PairedDevicesCardProps): ReactNod
     )
   }
 
+  const mobileRows = data?.map((device) => (
+    <IosRow
+      key={device.id}
+      title={device.name}
+      subtitle={deviceDetails(device, now)}
+      value={device.current ? 'This device' : undefined}
+      accessory={device.removable ? removeButton(device) : undefined}
+    />
+  ))
+
+  const desktopRows = data?.map((device) => (
+    <PairedDeviceRow key={device.id} device={device} now={now} actions={device.removable && removeButton(device)} />
+  ))
+
   if (mobileShell) {
     return (
       <>
@@ -142,15 +184,7 @@ export function PairedDevicesCard({ sharing }: PairedDevicesCardProps): ReactNod
             headerAction={<AddDeviceButton blocked={blocked} onClick={openAdd} variant="light" />}
             footer={DESCRIPTION}
           >
-            {data?.map((device) => (
-              <IosRow
-                key={device.id}
-                title={device.name}
-                subtitle={deviceDetails(device, now)}
-                value={device.current ? 'This device' : undefined}
-                accessory={device.removable ? removeButton(device) : undefined}
-              />
-            ))}
+            {mobileRows}
           </IosGroup>
         )}
         {modal}
@@ -173,30 +207,7 @@ export function PairedDevicesCard({ sharing }: PairedDevicesCardProps): ReactNod
           {data && data.length > 0 && <AddDeviceButton blocked={blocked} onClick={openAdd} variant="default" />}
         </Group>
 
-        {state ?? (
-          <Stack gap="sm">
-            {data?.map((device) => (
-              <Group key={device.id} justify="space-between" wrap="nowrap" gap="sm">
-                <Stack gap={0} miw={0}>
-                  <Group gap="xs" wrap="nowrap">
-                    <Text size="sm" fw={500} truncate>
-                      {device.name}
-                    </Text>
-                    {device.current && (
-                      <Text size="xs" c="dimmed">
-                        This device
-                      </Text>
-                    )}
-                  </Group>
-                  <Text size="xs" c="dimmed" truncate>
-                    {deviceDetails(device, now)}
-                  </Text>
-                </Stack>
-                {device.removable && removeButton(device)}
-              </Group>
-            ))}
-          </Stack>
-        )}
+        {state ?? <Stack gap="sm">{desktopRows}</Stack>}
       </Stack>
       {modal}
     </Card>

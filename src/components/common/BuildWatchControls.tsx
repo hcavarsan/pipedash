@@ -21,14 +21,15 @@ import { useMobileShell } from '../../hooks/useIsMobile'
 import { useBuildWatch } from '../../queries/useBuildWatchQueries'
 import { mobileService } from '../../services/mobile'
 import { STATUS_META } from '../../theme/status'
-import type { PipelineStatus } from '../../types/domain'
+import type { BuildWatchSnapshot } from '../../types/notifications'
+import type { PipelineStatus } from '../../types/pipelines'
 import { displayErrorNotification, errorMessage } from '../../utils/errorDisplay'
 import { isDesktopTauri } from '../../utils/platform'
 import { StatusIcon } from '../atoms/StatusBadge'
 import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 import { IosGroup } from '../ios/IosList'
 import { IosPipelineRow } from './IosPipelineList'
-import { SectionHeading } from './PipelineRowParts'
+import { SectionHeading } from './SectionHeading'
 
 function openWatchSettings(navigate: NavigateFunction): void {
   if (isDesktopTauri()) {
@@ -49,6 +50,38 @@ function BackgroundWatchGuidance({ watching }: { watching: boolean }): ReactNode
       Background mode is off. Keep Pipedash open to watch this run, or turn on background mode in{' '}
       <Link to="/settings/general">General settings</Link>.
     </Text>
+  )
+}
+
+function watchHint(watching: boolean, sameRun: boolean, available: boolean, reason: string | null): string {
+  if (watching && !sameRun) {
+    return 'Stop the current watch before watching another run.'
+  }
+  if (!available) {
+    return reason ?? 'Background monitoring is unavailable on this device.'
+  }
+  if (isDesktopTauri()) {
+    return 'Watch this run while Pipedash is running. Closing the window keeps watching only when background mode is on. Stopping a watch does not cancel the run.'
+  }
+  return 'Watch on this device without a server. iOS may interrupt monitoring. Stopping a watch does not cancel the run.'
+}
+
+interface WatchSummaryProps {
+  watch: BuildWatchSnapshot
+  state: string | null
+}
+
+function WatchSummary({ watch, state }: WatchSummaryProps): ReactNode {
+  return (
+    <>
+      <Text size="sm" fw={600} truncate>
+        {watch.pipelineName} #{watch.runNumber}
+      </Text>
+      <Text size="xs" c="dimmed" truncate>
+        {STATUS_META[watch.status].label}
+        {state && ` · ${state}`}
+      </Text>
+    </>
   )
 }
 
@@ -81,13 +114,7 @@ export function BuildWatchControls({ pipelineId, runNumber, status }: BuildWatch
         {sameRun ? 'Stop watching' : 'Watch run'}
       </Button>
       <Text size="xs" c="dimmed">
-        {watching && !sameRun
-          ? 'Stop the current watch before watching another run.'
-          : !watch.data.available
-            ? (watch.data.reason ?? 'Background monitoring is unavailable on this device.')
-            : isDesktopTauri()
-              ? 'Watch this run while Pipedash is running. Closing the window keeps watching only when background mode is on. Stopping a watch does not cancel the run.'
-              : 'Watch on this device without a server. iOS may interrupt monitoring. Stopping a watch does not cancel the run.'}
+        {watchHint(watching, sameRun, watch.data.available, watch.data.reason)}
       </Text>
       {!watch.data.available && (
         <Button variant="subtle" size="xs" mih={44} onClick={() => openWatchSettings(navigate)}>
@@ -170,13 +197,7 @@ export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps): ReactN
               aria-label={`View run #${current.runNumber}`}
               onClick={() => onViewRun(current.pipelineId, current.runNumber)}
             >
-              <Text size="sm" fw={600} truncate>
-                {current.pipelineName} #{current.runNumber}
-              </Text>
-              <Text size="xs" c="dimmed" truncate>
-                {STATUS_META[current.status].label}
-                {state && ` · ${state}`}
-              </Text>
+              <WatchSummary watch={current} state={state} />
             </UnstyledButton>
             <StatusIcon status={current.status} />
           </Group>

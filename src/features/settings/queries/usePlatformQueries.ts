@@ -36,7 +36,7 @@ export function useFactoryReset(): UseMutationResult<FactoryResetResult, Error, 
       queryClient.clear()
       useNotificationStore.setState(useNotificationStore.getInitialState(), true)
       useLogViewerPrefs.setState(useLogViewerPrefs.getInitialState(), true)
-      useNotificationCenterStore.setState({ items: [], selection: null })
+      useNotificationCenterStore.setState({ items: [], revision: 0, unread: 0, selection: null })
       localStorage.clear()
       if (isDesktopTauri()) {
         void refreshDesktopStatus(queryClient).catch((error: unknown) =>

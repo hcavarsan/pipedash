@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 import { logger } from '../lib/logger'
 import { notifications } from '../lib/notifications'
 import { queryKeys } from '../lib/queryKeys'
-import type { ProviderSummary } from '../types/domain'
+import type { ProviderSummary } from '../types/providers'
 
 export function useProviderFilterReconciliation(): void {
   const queryClient = useQueryClient()

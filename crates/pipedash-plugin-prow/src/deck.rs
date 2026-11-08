@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
+use pipedash_plugin_api::logs::fetch::send_log;
 use pipedash_plugin_api::{
     body_preview,
     check_response,
@@ -25,7 +26,6 @@ use reqwest::header::{
     CONTENT_ENCODING,
     CONTENT_LENGTH,
     CONTENT_TYPE,
-    RANGE,
 };
 use reqwest::{
     RequestBuilder,
@@ -40,7 +40,6 @@ use crate::types::{
 
 const OMIT: &str = "annotations,labels,decoration_config,pod_spec";
 const LIST_TIMEOUT: Duration = Duration::from_secs(120);
-const LOG_TIMEOUT: Duration = Duration::from_secs(900);
 const PROBE_JOB: &str = "pipedash-credential-check";
 const MAX_BODY_BYTES: usize = 64 << 20;
 const MAX_DECODED_BYTES: usize = 256 << 20;
@@ -220,27 +219,13 @@ impl DeckClient {
             .append_pair("job", job)
             .append_pair("id", build_id);
         let url = &url;
+        let gone = &format!("Deck no longer has the pod log of build {build_id}");
         sink.pipe_resumed(offset, |from| async move {
-            let response = self
-                .retry_policy
-                .retry_unsent(url, || {
-                    let request = self
-                        .authorize(url, self.http.get(url.clone()))
-                        .header(ACCEPT, "text/plain")
-                        .timeout(LOG_TIMEOUT);
-                    match from {
-                        Some(from) => request.header(RANGE, format!("bytes={from}-")),
-                        None => request,
-                    }
-                    .send()
-                })
-                .await?;
-
-            if matches!(response.status().as_u16(), 404 | 410) {
-                return Err(PluginError::PipelineNotFound(format!(
-                    "Deck no longer has the pod log of build {build_id}"
-                )));
-            }
+            let response = send_log(&self.retry_policy, url, from, gone, || {
+                self.authorize(url, self.http.get(url.clone()))
+                    .header(ACCEPT, "text/plain")
+            })
+            .await?;
             if response.status().is_success() {
                 reject_sign_in_page(&response)?;
             }
@@ -323,26 +308,4 @@ async fn action_outcome(response: Response) -> PluginResult<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::io::Write;
-
-    use flate2::write::GzEncoder;
-    use flate2::Compression;
-
-    use super::*;
-
-    #[test]
-    fn job_list_that_unpacks_past_the_limit_is_refused() {
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-        encoder.write_all(&[b'x'; 2 << 20]).unwrap();
-        let body = encoder.finish().unwrap();
-
-        match decode_jobs(true, &body, "deck.example", 1 << 20) {
-            Err(PluginError::ApiError(message)) => {
-                assert!(message.contains("1 MiB unpacked limit"), "{message}");
-                assert!(message.contains("deck.example"), "{message}");
-            }
-            other => panic!("expected the size limit error, got {other:?}"),
-        }
-    }
-}
+mod tests;

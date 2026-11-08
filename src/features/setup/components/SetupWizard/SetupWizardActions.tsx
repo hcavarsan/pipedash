@@ -89,33 +89,15 @@ export function ShellFooter({ primary, isPending, onBack }: ShellFooterProps): R
   )
 }
 
-interface SkipTransferChanges {
-  databaseBackend: boolean
-  credentialStorage: boolean
-  dataDirectory: boolean
-}
-
-export function confirmSkipTransfer(changed: SkipTransferChanges, onConfirm: () => void): void {
-  const changes = []
-
-  if (changed.databaseBackend) {
-    changes.push('database backend')
-  }
-  if (changed.credentialStorage) {
-    changes.push('credential storage (keyring → encrypted)')
-  }
-  if (changed.dataDirectory) {
-    changes.push('data directory')
-  }
-
+export function confirmSkipTransfer(onConfirm: () => void): void {
   openConfirm({
     title: 'Skip data transfer?',
     centered: true,
     zIndex: 400,
     children: (
       <Text size="sm">
-        You are changing <strong>{changes.join(' and ')}</strong> without transferring data. Existing providers,
-        credentials and history stay in the previous location and won't be available after switching.
+        You are changing the storage <strong>without transferring data</strong>. Existing providers, credentials and
+        history stay in the previous location and won't be available after switching.
       </Text>
     ),
     labels: {

@@ -1,3 +1,5 @@
+pub(crate) mod plugins;
+
 use std::collections::HashMap;
 use std::sync::atomic::{
     AtomicBool,
@@ -19,6 +21,7 @@ use pipedash_plugin_api::{
     PluginCapabilities,
     RateLimit,
     StatusSource,
+    TriggerResult,
     WorkflowParameter,
 };
 use sqlx::SqlitePool;
@@ -34,6 +37,8 @@ use tokio::sync::{
 };
 use tokio::time::Instant;
 
+use super::services::presenter::Presenter;
+use super::services::provider_service::ProviderDeps;
 use super::{
     FetchResult,
     FetchScheduler,
@@ -118,9 +123,9 @@ impl Gate {
 
 pub(crate) fn pipeline(provider_id: i64, name: &str, status: PipelineStatus) -> Pipeline {
     Pipeline {
-        id: format!("github__{provider_id}__{name}"),
+        id: format!("stub__{provider_id}__{name}"),
         provider_id,
-        provider_type: "github".to_string(),
+        provider_type: "stub".to_string(),
         name: name.to_string(),
         status,
         last_run: None,
@@ -132,6 +137,7 @@ pub(crate) fn pipeline(provider_id: i64, name: &str, status: PipelineStatus) -> 
         metadata: HashMap::new(),
         overdue_run: None,
         typical_duration_seconds: None,
+        actions: Default::default(),
     }
 }
 
@@ -176,8 +182,11 @@ pub(crate) struct StubProvider {
     pub(crate) runs: Mutex<Vec<PipelineRun>>,
     pub(crate) run_response: Mutex<Option<DomainResult<PipelineRun>>>,
     pub(crate) force_cancel_rejected: AtomicBool,
+    pub(crate) cancelled: Mutex<Option<Vec<i64>>>,
     pub(crate) parameters: Mutex<DomainResult<Vec<WorkflowParameter>>>,
     pub(crate) rate_limit: Mutex<Option<RateLimit>>,
+    pub(crate) rate_limit_gate: Option<Arc<Gate>>,
+    pub(crate) rate_limit_checks: AtomicUsize,
     pub(crate) capabilities: PluginCapabilities,
     pub(crate) source: Option<StatusSource>,
     pub(crate) health: Mutex<DomainResult<Vec<ComponentHealth>>>,
@@ -195,6 +204,7 @@ pub(crate) struct StubProvider {
     pub(crate) log_mode: Mutex<StubLogMode>,
     pub(crate) log_epoch: AtomicU64,
     pub(crate) log_requests: Mutex<Vec<Option<LogCursor>>>,
+    pub(crate) history_policy: pipedash_plugin_api::RunHistoryPolicy,
 }
 
 impl StubProvider {
@@ -218,8 +228,11 @@ impl StubProvider {
             runs: Mutex::new(Vec::new()),
             run_response: Mutex::new(None),
             force_cancel_rejected: AtomicBool::new(false),
+            cancelled: Mutex::new(None),
             parameters: Mutex::new(Ok(vec![parameter("branch")])),
             rate_limit: Mutex::new(None),
+            rate_limit_gate: None,
+            rate_limit_checks: AtomicUsize::new(0),
             capabilities: PluginCapabilities::default(),
             source: None,
             health: Mutex::new(Ok(Vec::new())),
@@ -237,6 +250,7 @@ impl StubProvider {
             log_mode: Mutex::new(StubLogMode::Snapshot),
             log_epoch: AtomicU64::new(0),
             log_requests: Mutex::new(Vec::new()),
+            history_policy: pipedash_plugin_api::RunHistoryPolicy::default(),
         }
     }
 
@@ -252,6 +266,24 @@ impl StubProvider {
 
     pub(crate) fn parameter_gated(mut self, gate: &Arc<Gate>) -> Self {
         self.parameter_gate = Some(Arc::clone(gate));
+        self
+    }
+
+    pub(crate) fn rate_limit_gated(mut self, gate: &Arc<Gate>) -> Self {
+        self.rate_limit_gate = Some(Arc::clone(gate));
+        self
+    }
+
+    pub(crate) fn rate_limit_check_count(&self) -> usize {
+        self.rate_limit_checks.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn bounded_history(mut self) -> Self {
+        self.history_policy = pipedash_plugin_api::RunHistoryPolicy {
+            bounded: true,
+            order: pipedash_plugin_api::RunHistoryOrder::StartedAt,
+            tracks_overdue: false,
+        };
         self
     }
 
@@ -424,12 +456,21 @@ impl Provider for StubProvider {
             .ok_or_else(|| DomainError::PipelineNotFound(pipeline_id.to_string()))
     }
 
-    async fn trigger_pipeline(&self, _params: TriggerParams) -> DomainResult<String> {
+    async fn trigger_pipeline(&self, _params: TriggerParams) -> DomainResult<TriggerResult> {
         Err(DomainError::NotSupported("stub".to_string()))
     }
 
-    async fn cancel_run(&self, _pipeline_id: &str, _run_number: i64) -> DomainResult<()> {
-        Err(DomainError::NotSupported("stub".to_string()))
+    async fn cancel_run(&self, _pipeline_id: &str, run_number: i64) -> DomainResult<()> {
+        match self.cancelled.lock().unwrap().as_mut() {
+            Some(cancelled) if run_number != 13 => {
+                cancelled.push(run_number);
+                Ok(())
+            }
+            Some(_) => Err(DomainError::PermissionDenied(
+                "run 13 is locked".to_string(),
+            )),
+            None => Err(DomainError::NotSupported("stub".to_string())),
+        }
     }
 
     async fn force_cancel_run(&self, _pipeline_id: &str, _run_number: i64) -> DomainResult<()> {
@@ -470,15 +511,11 @@ impl Provider for StubProvider {
     }
 
     async fn fetch_rate_limit(&self) -> DomainResult<Option<RateLimit>> {
+        self.rate_limit_checks.fetch_add(1, Ordering::SeqCst);
+        if let Some(gate) = &self.rate_limit_gate {
+            gate.pass().await;
+        }
         Ok(self.rate_limit.lock().unwrap().clone())
-    }
-
-    async fn validate_credentials(&self) -> DomainResult<bool> {
-        Ok(true)
-    }
-
-    fn provider_type(&self) -> &str {
-        "github"
     }
 
     fn capabilities(&self) -> &PluginCapabilities {
@@ -487,6 +524,19 @@ impl Provider for StubProvider {
 
     fn status_source(&self) -> Option<&StatusSource> {
         self.source.as_ref()
+    }
+
+    fn run_history_policy(&self) -> pipedash_plugin_api::RunHistoryPolicy {
+        self.history_policy
+    }
+
+    fn can_archive_run(&self, _pipeline: &Pipeline, run: &PipelineRun) -> bool {
+        self.history_policy.bounded
+            && run.metadata.get("archivable") == Some(&serde_json::Value::Bool(true))
+            && !matches!(
+                run.status,
+                PipelineStatus::Running | PipelineStatus::Pending
+            )
     }
 
     async fn check_health(&self) -> DomainResult<Vec<ComponentHealth>> {
@@ -724,12 +774,12 @@ pub(crate) struct Harness {
     health_inputs: Option<Mutex<mpsc::UnboundedReceiver<HealthInput>>>,
     pub(crate) provider_service: Arc<ProviderService>,
     pub(crate) pipeline_service: Arc<PipelineService>,
+    pub(crate) presenter: Arc<Presenter>,
     pub(crate) refresh_manager: Arc<RefreshManager>,
     pub(crate) metrics: Option<Arc<MetricsService>>,
     pub(crate) log_store: Arc<LogStore>,
     pub(crate) log_service: Arc<super::LogService>,
     pub(crate) stubs: Arc<StubFactory>,
-    pub(crate) argocd_url: String,
     clock: AtomicU64,
     names: AtomicU64,
 }
@@ -763,9 +813,9 @@ impl Harness {
             token_store.clone(),
         ));
         let metrics = metrics.then(|| {
-            Arc::new(MetricsService::new(Arc::new(MetricsRepository::new(
-                pool.clone(),
-            ))))
+            Arc::new(MetricsService::new(Arc::new(
+                MetricsRepository::new_from_pool(DatabasePool::Sqlite(pool.clone())),
+            )))
         });
         let bus = Arc::new(RecordingBus::default());
         let scheduler = Arc::new(FetchScheduler::default());
@@ -774,10 +824,12 @@ impl Harness {
         let (mode_tx, mode_rx) = watch::channel(RefreshMode::Active);
         let stubs = Arc::new(StubFactory::default());
         let http = Arc::new(HttpClientManager::new().unwrap());
+        let plugin_registry = plugins::registry();
         let config_state = ConfigState::from_config(
             PipedashConfig::default(),
             temp_dir.path().join("config.toml"),
             token_store.clone(),
+            Arc::clone(&plugin_registry),
         );
         config_state.attach_health(health.clone());
 
@@ -785,14 +837,17 @@ impl Harness {
             .await
             .unwrap();
         let mut provider_service = ProviderService::new(
-            Arc::clone(&repository),
-            Arc::clone(&http),
+            ProviderDeps {
+                repository: Arc::clone(&repository),
+                http_client_manager: Arc::clone(&http),
+                config_state: Arc::clone(&config_state),
+                log_store: Arc::clone(&log_store),
+                plugin_registry: Arc::clone(&plugin_registry),
+            },
             bus.clone(),
             Arc::clone(&scheduler),
             health.clone(),
             dispatcher,
-            Arc::clone(&config_state),
-            Arc::clone(&log_store),
         );
         if stubbed {
             let stubs = Arc::clone(&stubs);
@@ -813,12 +868,17 @@ impl Harness {
         } else {
             (None, Some(Mutex::new(receivers.inputs)))
         };
+        let presenter = Arc::new(Presenter::new(
+            Arc::clone(&plugin_registry),
+            Arc::clone(&provider_service),
+        ));
         let pipeline_service = Arc::new(PipelineService::new(
             Arc::clone(&repository),
             Arc::clone(&provider_service),
             metrics.clone(),
             bus.clone(),
             mode_rx,
+            Arc::clone(&presenter),
         ));
         let refresh_manager = Arc::new(RefreshManager::new(
             Arc::clone(&pipeline_service),
@@ -831,6 +891,7 @@ impl Harness {
             Arc::clone(&provider_service),
             Arc::clone(&repository),
             bus.clone(),
+            Arc::clone(&presenter),
         ));
 
         Self {
@@ -846,12 +907,12 @@ impl Harness {
             health_inputs,
             provider_service,
             pipeline_service,
+            presenter,
             refresh_manager,
             metrics,
             log_store,
             log_service,
             stubs,
-            argocd_url: json_stub(serde_json::json!({ "items": [] })).await,
             clock: AtomicU64::new(0),
             names: AtomicU64::new(0),
         }
@@ -865,9 +926,9 @@ impl Harness {
         ProviderConfig {
             id: None,
             name: name.to_string(),
-            provider_type: "argocd".to_string(),
+            provider_type: "stub".to_string(),
             token: "token".to_string(),
-            config: HashMap::from([("server_url".to_string(), self.argocd_url.clone())]),
+            config: HashMap::new(),
             refresh_interval,
             version: None,
         }
@@ -942,37 +1003,6 @@ impl Harness {
         names.sort();
         names
     }
-}
-
-pub(crate) async fn json_stub(body: serde_json::Value) -> String {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    let body = body.to_string();
-    tokio::spawn(async move {
-        loop {
-            let Ok((mut stream, _)) = listener.accept().await else {
-                return;
-            };
-            let body = body.clone();
-            tokio::spawn(async move {
-                let mut request = Vec::new();
-                let mut buffer = [0; 4096];
-                while !request.windows(4).any(|window| window == b"\r\n\r\n") {
-                    match stream.read(&mut buffer).await {
-                        Ok(0) | Err(_) => return,
-                        Ok(count) => request.extend_from_slice(&buffer[..count]),
-                    }
-                }
-                let response = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                    body.len()
-                );
-                let _ = stream.write_all(response.as_bytes()).await;
-            });
-        }
-    });
-
-    format!("http://{addr}")
 }
 
 #[derive(Debug, Clone)]

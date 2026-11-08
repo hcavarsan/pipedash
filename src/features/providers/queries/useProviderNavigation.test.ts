@@ -4,7 +4,7 @@ import { after, afterEach, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 
-import { providerSummaryFixture } from '../../../testing/fixtures'
+import { providerAttentionFixture, providerSummaryFixture } from '../../../testing/fixtures'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
@@ -32,9 +32,7 @@ after(async () => {
 test('a failed provider opens its page beneath status and stays there after dismissal', async () => {
   const provider = providerSummaryFixture({
     id: 7,
-    last_fetch_status: 'error',
-    last_fetch_error_kind: 'network',
-    freshness: { state: 'down', stale_at: null },
+    attention: providerAttentionFixture({ open_action: 'status' }),
   })
   const hook = renderHook(() => ({ open: useProviderNavigation(), location: useLocation() }), { wrapper })
 

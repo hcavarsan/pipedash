@@ -5,8 +5,9 @@ import { ErrorState } from '../../../components/common/ErrorState'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { useRunLogTree } from '../../../queries/useRunLogQueries'
 import type { RunLogNode } from '../../../types/logs'
-import { LogViewer, type LogViewerHandle } from '../../logs/components/LogViewer'
-import { groupLogNodes } from '../lib/logTree'
+import { LogViewer } from '../../logs/components/LogViewer'
+import type { LogViewerHandle } from '../../logs/lib/logViewerTypes'
+import { resolveLogGroups } from '../lib/logTree'
 import { LogJobList } from './LogJobList'
 
 interface RunLogsPanelProps {
@@ -30,7 +31,7 @@ export const RunLogsPanel = ({
   const { data: tree, isLoading, error, refetch, isFetching } = useRunLogTree(pipelineId, runNumber, true)
 
   const selectData = useMemo(() => {
-    const groups = groupLogNodes(tree?.nodes ?? [])
+    const groups = tree ? resolveLogGroups(tree) : []
     const items = (nodes: RunLogNode[]) => nodes.map((n) => ({ value: n.id, label: n.name }))
     const [first] = groups
 

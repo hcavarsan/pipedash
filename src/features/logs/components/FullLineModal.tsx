@@ -8,7 +8,7 @@ import { StandardModal } from '../../../components/common/StandardModal'
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import { queryKeys } from '../../../lib/queryKeys'
 import { service } from '../../../services/service'
-import type { DocRef } from '../lib/lineCache'
+import type { DocRef } from '../lib/lineCacheTypes'
 import { FULL_LINE_UNITS } from '../lib/logActions'
 
 interface FullLineModalProps {

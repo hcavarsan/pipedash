@@ -11,7 +11,8 @@ import { queryKeys } from '../../../lib/queryKeys'
 import { type ConnectionInfo, connectionService, sharingService } from '../../../services/connection'
 import { mobileService } from '../../../services/mobile'
 import { service } from '../../../services/service'
-import type { AlertHostInfo, PairedDevice, PairingCode, SharingStatus } from '../../../types/domain'
+import type { PairedDevice, PairingCode, SharingStatus } from '../../../types/native'
+import type { AlertHostInfo } from '../../../types/notifications'
 import { displayErrorNotification, displaySuccessNotification } from '../../../utils/errorDisplay'
 
 export interface PairInput {

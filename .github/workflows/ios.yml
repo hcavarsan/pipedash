@@ -34,6 +34,7 @@ jobs:
   ios:
     name: Build and upload iOS app
     runs-on: macos-26
+    timeout-minutes: 140
     environment: app-store
     permissions:
       contents: read # checkout the repository

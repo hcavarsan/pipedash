@@ -3,7 +3,7 @@ name = "pipedash-plugin-github"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-description = "GitHub Actions plugin for Pipedash"
+description = "Monitor and trigger GitHub Actions workflows"
 repository = "https://github.com/hcavarsan/pipedash"
 license = "GPL-3.0"
 
@@ -23,3 +23,6 @@ tracing.workspace = true
 
 [dev-dependencies]
 rustls.workspace = true
+
+[lints]
+workspace = true

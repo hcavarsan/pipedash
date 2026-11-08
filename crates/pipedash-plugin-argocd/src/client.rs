@@ -1,6 +1,12 @@
 use std::sync::Arc;
-use std::time::Duration;
 
+use pipedash_plugin_api::http::{
+    bearer_request,
+    decode_json,
+    parse_http_url,
+    send_checked,
+};
+use pipedash_plugin_api::logs::fetch::send_log;
 use pipedash_plugin_api::{
     check_response,
     map_send_error,
@@ -10,22 +16,25 @@ use pipedash_plugin_api::{
     RetryPolicy,
     LOG_CHUNK_STALL_TIMEOUT,
 };
-use reqwest::Url;
+use reqwest::{
+    Method,
+    Url,
+};
 use serde::de::DeserializeOwned;
 use tracing::debug;
 
-use crate::logs::{
-    PodLogDecoder,
-    POD_LOG_TAIL_LINES,
-};
-use crate::types::{
-    Application,
-    ApplicationList,
+use crate::logs::decoder::PodLogDecoder;
+use crate::logs::POD_LOG_TAIL_LINES;
+use crate::types::logs::{
     ApplicationTree,
     Event,
     EventList,
     Pod,
     ResourceManifest,
+};
+use crate::types::{
+    Application,
+    ApplicationList,
     Settings,
     SyncRequest,
     SyncStrategy,
@@ -43,7 +52,7 @@ pub struct PodLogRequest<'a> {
 pub struct ArgocdClient {
     http_client: Arc<reqwest::Client>,
     api_url: String,
-    auth_header: String,
+    token: String,
     retry_policy: RetryPolicy,
 }
 
@@ -52,7 +61,7 @@ impl ArgocdClient {
         Self {
             http_client,
             api_url: Self::build_api_url(server_url),
-            auth_header: format!("Bearer {}", token),
+            token: token.to_string(),
             retry_policy: RetryPolicy::default(),
         }
     }
@@ -64,25 +73,25 @@ impl ArgocdClient {
     pub async fn fetch_settings(
         http_client: &reqwest::Client, server_url: &str,
     ) -> PluginResult<Settings> {
-        let raw = format!("{}/settings", Self::build_api_url(server_url));
-        let url = Url::parse(&raw)
-            .map_err(|e| PluginError::InvalidConfig(format!("Invalid URL: {}", e)))?;
+        let url = parse_http_url(
+            &format!("{}/settings", Self::build_api_url(server_url)),
+            "ArgoCD",
+        )?;
         read_json(http_client.get(url.clone()), &url).await
     }
 
     fn endpoint(&self, path: &str) -> PluginResult<Url> {
-        let raw = format!("{}{}", self.api_url, path);
-        Url::parse(&raw).map_err(|e| PluginError::InvalidConfig(format!("Invalid URL: {}", e)))
+        parse_http_url(&format!("{}{}", self.api_url, path), "ArgoCD")
     }
 
     async fn get_json<T: DeserializeOwned>(&self, url: &Url) -> PluginResult<T> {
         self.retry_policy
             .retry(|| async {
-                let request = self
-                    .http_client
-                    .get(url.clone())
-                    .header(reqwest::header::AUTHORIZATION, &self.auth_header);
-                read_json(request, url).await
+                read_json(
+                    bearer_request(&self.http_client, Method::GET, url, &self.token),
+                    url,
+                )
+                .await
             })
             .await
     }
@@ -156,16 +165,11 @@ impl ArgocdClient {
             url.query_pairs_mut().append_pair("previous", "true");
         }
 
-        let response = self
-            .retry_policy
-            .retry_unsent(&url, || {
-                self.http_client
-                    .get(url.clone())
-                    .header(reqwest::header::AUTHORIZATION, &self.auth_header)
-                    .timeout(Duration::from_secs(900))
-                    .send()
-            })
-            .await?;
+        let gone = format!("Logs of pod {} are no longer available", request.pod);
+        let response = send_log(&self.retry_policy, &url, None, &gone, || {
+            bearer_request(&self.http_client, Method::GET, &url, &self.token)
+        })
+        .await?;
         let mut response = check_response(response).await?;
 
         let mut decoder = PodLogDecoder::default();
@@ -207,36 +211,21 @@ impl ArgocdClient {
 
         debug!(?sync_request, "Sending sync request to ArgoCD API");
 
-        let response = self
-            .retry_policy
-            .retry_unsent(&url, || {
-                self.http_client
-                    .post(url.clone())
-                    .header(reqwest::header::AUTHORIZATION, &self.auth_header)
-                    .json(&sync_request)
-                    .send()
-            })
-            .await?;
-
-        check_response(response).await?;
-        Ok(())
+        send_checked(&self.retry_policy, &url, || {
+            bearer_request(&self.http_client, Method::POST, &url, &self.token).json(&sync_request)
+        })
+        .await
+        .map(drop)
     }
 
     pub async fn terminate_operation(&self, app_name: &str) -> PluginResult<()> {
         let url = self.endpoint(&format!("/applications/{}/operation", app_name))?;
 
-        let response = self
-            .retry_policy
-            .retry_unsent(&url, || {
-                self.http_client
-                    .delete(url.clone())
-                    .header(reqwest::header::AUTHORIZATION, &self.auth_header)
-                    .send()
-            })
-            .await?;
-
-        check_response(response).await?;
-        Ok(())
+        send_checked(&self.retry_policy, &url, || {
+            bearer_request(&self.http_client, Method::DELETE, &url, &self.token)
+        })
+        .await
+        .map(drop)
     }
 }
 
@@ -244,16 +233,7 @@ async fn read_json<T: DeserializeOwned>(
     request: reqwest::RequestBuilder, url: &Url,
 ) -> PluginResult<T> {
     let response = request.send().await.map_err(|e| map_send_error(e, url))?;
-    check_response(response)
-        .await?
-        .json::<T>()
-        .await
-        .map_err(|e| {
-            PluginError::ApiError(format!(
-                "Failed to parse ArgoCD API response: {}",
-                e.without_url()
-            ))
-        })
+    decode_json(check_response(response).await?, "ArgoCD API response").await
 }
 
 fn sync_strategy(force: bool, apply_only: bool) -> Option<SyncStrategy> {
@@ -273,37 +253,4 @@ fn sync_strategy(force: bool, apply_only: bool) -> Option<SyncStrategy> {
 }
 
 #[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-
-    fn strategy_json(force: bool, apply_only: bool) -> serde_json::Value {
-        serde_json::to_value(sync_strategy(force, apply_only)).unwrap()
-    }
-
-    #[test]
-    fn apply_only_sync_skips_hooks() {
-        assert_eq!(
-            strategy_json(false, true),
-            json!({ "apply": { "force": false }, "hook": null })
-        );
-        assert_eq!(
-            strategy_json(true, true),
-            json!({ "apply": { "force": true }, "hook": null })
-        );
-    }
-
-    #[test]
-    fn force_sync_keeps_hooks() {
-        assert_eq!(
-            strategy_json(true, false),
-            json!({ "apply": null, "hook": { "force": true } })
-        );
-    }
-
-    #[test]
-    fn plain_sync_sends_no_strategy() {
-        assert_eq!(strategy_json(false, false), serde_json::Value::Null);
-    }
-}
+mod tests;

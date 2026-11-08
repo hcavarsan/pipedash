@@ -1,24 +1,21 @@
 use std::sync::Arc;
-use std::time::Duration;
 
-use bytes::Bytes;
+use pipedash_plugin_api::http::{
+    decode_json,
+    send,
+};
 use pipedash_plugin_api::{
     check_response,
-    map_send_error,
-    next_log_chunk,
     redact_url,
-    LogCursor,
-    LogRead,
-    LogSink,
     PluginError,
     PluginResult,
     RetryPolicy,
 };
+use reqwest::header::{
+    ACCEPT,
+    CONTENT_TYPE,
+};
 use reqwest::{
-    header::{
-        ACCEPT,
-        CONTENT_TYPE,
-    },
     Method,
     StatusCode,
     Url,
@@ -29,12 +26,6 @@ use serde_json::{
     Value,
 };
 
-use crate::log_tail::{
-    BoundaryScan,
-    LogPosition,
-    Scan,
-    Tally,
-};
 use crate::types::{
     Build,
     Definition,
@@ -44,11 +35,12 @@ use crate::types::{
     Timeline,
 };
 
+mod logs;
+
 const API_VERSION: &str = "7.0";
 const CONTINUATION_HEADER: &str = "x-ms-continuationtoken";
 const PAGE_SIZE: usize = 100;
 const MAX_PAGES: usize = 100;
-const LOG_TIMEOUT: Duration = Duration::from_secs(900);
 
 pub(crate) struct AzureDevOpsClient {
     http_client: Arc<reqwest::Client>,
@@ -136,129 +128,11 @@ impl AzureDevOpsClient {
         Ok(timeline)
     }
 
-    pub async fn stream_build_log(
-        &self, project: &str, build_id: i64, log_id: i64, attempt: i64, from: Option<&LogCursor>,
-        sink: &mut LogSink,
-    ) -> PluginResult<LogRead> {
-        let mut resume = match from {
-            None => None,
-            Some(cursor) => {
-                let known = cursor
-                    .parse::<LogPosition>()
-                    .filter(|position| position.is_for(build_id, log_id, attempt));
-                if known.is_none() {
-                    sink.restart()?;
-                }
-                known
-            }
-        };
-        let mut opened = None;
-        if let Some(position) = resume.as_mut() {
-            opened = self
-                .open_after_boundary(project, build_id, log_id, position)
-                .await?;
-            if opened.is_none() {
-                sink.restart()?;
-                resume = None;
-            }
-        }
-        let (mut response, rest) = match opened {
-            Some(opened) => opened,
-            None => (
-                self.open_build_log(project, build_id, log_id, None).await?,
-                Bytes::new(),
-            ),
-        };
-
-        let mut tally = resume.as_ref().map_or_else(Tally::default, Tally::resume);
-        let mut eol = resume.as_ref().is_some_and(|position| position.open);
-        let mut chunk = Some(rest);
-        while let Some(bytes) = chunk {
-            if !bytes.is_empty() {
-                if std::mem::take(&mut eol) {
-                    sink.write(Bytes::from_static(b"\n")).await?;
-                }
-                tally.feed(&bytes);
-                sink.write(bytes).await?;
-            }
-            chunk = next_log_chunk(&mut response).await?;
-        }
-
-        let appended = resume.is_some();
-        let next = match resume {
-            Some(position) if !tally.fed() => position,
-            _ => tally.position(build_id, log_id, attempt),
-        };
-        let cursor = LogCursor::new(&next)?;
-        Ok(if appended {
-            LogRead::append(cursor)
-        } else {
-            LogRead::replace(Some(cursor))
-        })
-    }
-
-    async fn open_after_boundary(
-        &self, project: &str, build_id: i64, log_id: i64, position: &mut LogPosition,
-    ) -> PluginResult<Option<(reqwest::Response, Bytes)>> {
-        if position.lines == 0 {
-            let response = self.open_build_log(project, build_id, log_id, None).await?;
-            return Ok(Some((response, Bytes::new())));
-        }
-        if position.first_line.is_none() {
-            let Some(start) = position.probe_line() else {
-                return Ok(None);
-            };
-            let mut probe = self
-                .open_build_log(project, build_id, log_id, Some(start))
-                .await?;
-            match first_line_hash(&mut probe).await? {
-                Some((hash, _)) if position.settle(hash) => {}
-                _ => return Ok(None),
-            }
-        }
-        let Some(start) = position.boundary_line() else {
-            return Ok(None);
-        };
-        let mut response = self
-            .open_build_log(project, build_id, log_id, Some(start))
-            .await?;
-        Ok(match first_line_hash(&mut response).await? {
-            Some((hash, rest)) if hash == position.last => Some((response, rest)),
-            _ => None,
-        })
-    }
-
-    async fn open_build_log(
-        &self, project: &str, build_id: i64, log_id: i64, start_line: Option<u64>,
-    ) -> PluginResult<reqwest::Response> {
-        let path = format!("_apis/build/builds/{build_id}/logs/{log_id}");
-        let query: Vec<_> = start_line
-            .map(|line| ("startLine", line.to_string()))
-            .into_iter()
-            .collect();
-        let url = self.url(Some(project), &path, &query)?;
-        let response = self
-            .retry_policy
-            .retry_unsent(&url, || {
-                self.authorized(Method::GET, &url)
-                    .header(ACCEPT, "text/plain")
-                    .timeout(LOG_TIMEOUT)
-                    .send()
-            })
-            .await?;
-        if matches!(response.status(), StatusCode::NOT_FOUND | StatusCode::GONE) {
-            return Err(PluginError::PipelineNotFound(format!(
-                "Log {log_id} of build {build_id} is no longer available"
-            )));
-        }
-        signed_in(response).await
-    }
-
     pub async fn queue_build(&self, project: &str, body: &Value) -> PluginResult<Build> {
         let response = self
             .send_json(Method::POST, project, "_apis/build/builds", body)
             .await?;
-        parse(response).await
+        decode_json(response, "Azure DevOps API response").await
     }
 
     pub async fn cancel_build(&self, project: &str, build_id: i64) -> PluginResult<()> {
@@ -318,11 +192,7 @@ impl AzureDevOpsClient {
         let url = self.url(project, path, query)?;
         self.retry_policy
             .retry(|| async {
-                let response = self
-                    .request(Method::GET, &url)
-                    .send()
-                    .await
-                    .map_err(|e| map_send_error(e, &url))?;
+                let response = send(&url, self.request(Method::GET, &url)).await?;
                 let response = signed_in(response).await?;
                 let continuation = response
                     .headers()
@@ -330,7 +200,10 @@ impl AzureDevOpsClient {
                     .and_then(|value| value.to_str().ok())
                     .filter(|token| !token.is_empty())
                     .map(str::to_string);
-                Ok((parse(response).await?, continuation))
+                Ok((
+                    decode_json(response, "Azure DevOps API response").await?,
+                    continuation,
+                ))
             })
             .await
     }
@@ -368,18 +241,6 @@ impl AzureDevOpsClient {
     }
 }
 
-async fn first_line_hash(response: &mut reqwest::Response) -> PluginResult<Option<(u64, Bytes)>> {
-    let mut scan = BoundaryScan::new();
-    while let Some(chunk) = next_log_chunk(response).await? {
-        match scan.feed(chunk) {
-            Scan::More => {}
-            Scan::Line(hash, rest) => return Ok(Some((hash, rest))),
-            Scan::TooLong => return Ok(None),
-        }
-    }
-    Ok(scan.finish().map(|hash| (hash, Bytes::new())))
-}
-
 async fn signed_in(response: reqwest::Response) -> PluginResult<reqwest::Response> {
     let response = check_response(response).await?;
     let status = response.status();
@@ -397,14 +258,4 @@ async fn signed_in(response: reqwest::Response) -> PluginResult<reqwest::Respons
         )));
     }
     Ok(response)
-}
-
-async fn parse<T: DeserializeOwned>(response: reqwest::Response) -> PluginResult<T> {
-    let url = redact_url(response.url());
-    response.json().await.map_err(|e| {
-        PluginError::ApiError(format!(
-            "Failed to parse Azure DevOps API response from {url}: {}",
-            e.without_url()
-        ))
-    })
 }

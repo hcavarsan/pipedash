@@ -4,14 +4,14 @@ import { FillScrollArea } from '../../../../components/common/FillScrollArea'
 import shell from '../../../../components/forms/ShellForm.module.css'
 import { useFormEnterNavigation } from '../../../../hooks/useFormEnterNavigation'
 import { useMobileShell } from '../../../../hooks/useIsMobile'
-import type { AuthMode, ConfigField, ConfigSection } from '../../../../types/domain'
+import type { AuthMode, ConfigField, ConfigSection } from '../../../../types/plugins'
 import { SIGN_IN_KEY, TOKEN_KEY } from '../../lib/credentials'
 import { ProviderConfigField } from './ProviderConfigField'
 import { StepHeading } from './ShellForm'
 import { SignInField } from './SignInField'
 import type { FormAction, FormState } from './types'
 import { useCredentialFields } from './useCredentialFields'
-import { activeConfigFields, STEP_SECTIONS, validateConfigField } from './validation'
+import { STEP_SECTIONS } from './validation'
 
 const SECTION_TITLES: Partial<Record<ConfigSection, string>> = {
   connection: 'Connection',
@@ -25,6 +25,8 @@ interface CredentialsStepProps {
   submitting: boolean
   formRef: RefObject<HTMLFormElement | null>
   formId: string
+  validateKey: (key: string) => Promise<void>
+  missingLabels: string[]
   permissionRow?: ReactNode | undefined
   secondaryRow?: ReactNode | undefined
   scopeNote?: string | undefined
@@ -37,19 +39,21 @@ export function CredentialsStep({
   submitting,
   formRef,
   formId,
+  validateKey,
+  missingLabels,
   permissionRow,
   secondaryRow,
   scopeNote,
 }: CredentialsStepProps): ReactNode {
   useFormEnterNavigation(formRef)
   const mobileShell = useMobileShell()
-  const { selectedPlugin, providerName, authMode, configValues, fieldErrors } = state
+  const { selectedPlugin, authMode, configValues, fieldErrors } = state
   const { fields, fieldStateFor, handleConfigChange, handleConfigBlur } = useCredentialFields({
     selectedPlugin,
-    providerName,
     configValues,
     fieldErrors,
     dispatch,
+    validateKey,
     step: 'credentials',
   })
   const authModes = selectedPlugin?.config_schema.auth_modes
@@ -131,9 +135,7 @@ export function CredentialsStep({
           id={`${formId}-${SIGN_IN_KEY}`}
           providerType={selectedPlugin.provider_type}
           configValues={configValues}
-          missing={activeConfigFields(fields, 'sign_in', authModes)
-            .filter((config) => validateConfigField(config, configValues[config.key] || '') !== null)
-            .map((config) => config.label)}
+          missing={missingLabels}
           error={fieldErrors[SIGN_IN_KEY]}
           disabled={submitting}
           shell={mobileShell}
@@ -180,14 +182,7 @@ export function CredentialsStep({
   if (mobileShell) {
     return (
       <div className={shell.step}>
-        <StepHeading
-          title="Credentials"
-          subtitle={
-            selectedPlugin?.provider_type === 'fluxcd'
-              ? 'Connect to your Kubernetes cluster'
-              : 'Enter your API credentials'
-          }
-        />
+        <StepHeading title="Credentials" subtitle={selectedPlugin?.presentation.wizard.credentials_description ?? ''} />
         {renderSections()}
         {permissionRow}
         {scopeNote && <p className={shell.note}>{scopeNote}</p>}

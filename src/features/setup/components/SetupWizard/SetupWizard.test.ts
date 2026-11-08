@@ -4,6 +4,8 @@ import { after, afterEach, beforeEach, mock, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement } from 'react'
 
+import { isRecord } from '../../../../utils/isRecord'
+
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
 const backend: { storageFails: boolean; calls: string[] } = { storageFails: true, calls: [] }
@@ -11,7 +13,7 @@ const backend: { storageFails: boolean; calls: string[] } = { storageFails: true
 Object.assign(window, {
   __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'linux' },
   __TAURI_INTERNALS__: {
-    invoke: async (command: string) => {
+    invoke: async (command: string, args?: unknown) => {
       backend.calls.push(command)
       switch (command) {
         case 'get_storage_config':
@@ -24,6 +26,19 @@ Object.assign(window, {
           return { is_set: false, env_var_name: 'PIPEDASH_VAULT_PASSWORD' }
         case 'get_default_data_dir':
           return '/home/user/.pipedash'
+        case 'prepare_setup_draft': {
+          const draft = isRecord(args) && isRecord(args.draft) ? args.draft : {}
+          const errors: Record<string, string> = {}
+
+          if (String(draft.vault_password ?? '').length < 8) {
+            errors.vault_password = 'Use at least 8 characters'
+          }
+          if (draft.vault_password !== draft.vault_password_confirm) {
+            errors.vault_password_confirm = 'Passwords do not match'
+          }
+
+          return { config: {}, errors, password_warnings: [], needs_migration: false }
+        }
         default:
           throw new Error(`Unexpected command: ${command}`)
       }

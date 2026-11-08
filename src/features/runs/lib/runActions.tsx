@@ -1,10 +1,12 @@
 import { IconCheck, IconEye, IconFileText, IconPlayerPlay, IconSquare, IconX } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import type { SwipeAction } from '../../../components/ios/swipeAction'
-import type { Pipeline, PipelineRun, ReviewDecision } from '../../../types/domain'
-import type { PipelineLabels } from '../../../utils/pipelinePresentation'
+import type { Pipeline, PipelineRun, ReviewDecision } from '../../../types/pipelines'
+import type { PluginPresentation } from '../../../types/plugin_presentation'
+import type { PipelineTerminology } from '../../../types/presentation'
 import { isDesktopTauri } from '../../../utils/platform'
-import type { RerunMode } from '../../../utils/rerunSummary'
+
+export type RerunMode = 'all' | 'failed'
 
 type RunActionId = 'watch' | 'approve' | 'reject' | 'cancel' | 'force-cancel' | 'rerun' | 'details'
 
@@ -20,12 +22,10 @@ export interface RunAction {
 }
 
 export interface RunActionsValue {
-  pipeline: Pipeline | null
-  labels: PipelineLabels
-  isFlux: boolean
-  canRerun: boolean
+  pipeline: Pipeline
+  presentation: PluginPresentation
+  labels: PipelineTerminology
   canCancel: boolean
-  canForceCancel: boolean
   cancellingRun: number | null
   forceCancellingRun: number | null
   reviewingRun: number | null
@@ -46,19 +46,13 @@ export interface RunActionsValue {
 }
 
 export function buildRunActions(value: RunActionsValue, run: PipelineRun): RunAction[] {
-  const { pipeline } = value
-
-  if (!pipeline) {
-    return []
-  }
-
+  const { presentation } = value
   const number = run.run_number
-  const active = run.status === 'running' || run.status === 'pending'
-  const awaitingReview = run.metadata?.awaiting_review === true
+  const state = run.actions
   const reviewBusy = value.reviewingRun !== null
   const actions: RunAction[] = []
 
-  if (active && value.watch.supported) {
+  if (state.watch && value.watch.supported) {
     actions.push({
       id: 'watch',
       label: value.watch.available
@@ -76,7 +70,7 @@ export function buildRunActions(value: RunActionsValue, run: PipelineRun): RunAc
     })
   }
 
-  if (awaitingReview) {
+  if (state.review.allowed) {
     actions.push(
       {
         id: 'approve',
@@ -100,7 +94,7 @@ export function buildRunActions(value: RunActionsValue, run: PipelineRun): RunAc
     )
   }
 
-  if (active && value.canCancel && !awaitingReview) {
+  if (state.cancel.allowed) {
     const cancelling = value.cancellingRun === number
 
     actions.push({
@@ -113,21 +107,21 @@ export function buildRunActions(value: RunActionsValue, run: PipelineRun): RunAc
       swipe: { label: 'Cancel', tone: 'red', primary: true },
       execute: () => value.cancel(run),
     })
-  } else if (!active && value.canRerun) {
+  } else if (state.rerun.allowed) {
     const busy = value.rerunningRuns.has(number) || value.rerunningFailedRun === number
 
     actions.push({
       id: 'rerun',
-      label: value.isFlux ? `Reconcile ${pipeline.name}` : `Rerun run #${number}`,
+      label: `${presentation.rerun.label} #${number}`,
       icon: <IconPlayerPlay size={16} aria-hidden />,
       disabled: busy,
       pending: busy,
-      swipe: { label: value.isFlux ? 'Reconcile' : 'Rerun', tone: 'blue', primary: true },
+      swipe: { label: presentation.rerun.compact_label, tone: 'blue', primary: true },
       execute: () => value.requestRerun(run),
     })
   }
 
-  if (run.status === 'running' && value.canForceCancel) {
+  if (state.force_cancel.allowed) {
     actions.push({
       id: 'force-cancel',
       label: `Force cancel run #${number}`,

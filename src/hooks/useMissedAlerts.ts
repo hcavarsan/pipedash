@@ -2,8 +2,8 @@ import { useEffect } from 'react'
 
 import { logger } from '../lib/logger'
 import { isRemoteClient } from '../services/connection'
+import { listenEvent } from '../services/events'
 import { mobileService } from '../services/mobile'
-import { events } from '../services/service'
 import { WS_EVENTS } from '../services/websocket'
 import { useNotificationCenterStore } from '../stores/notificationCenterStore'
 
@@ -20,23 +20,17 @@ export function useMissedAlerts(): void {
       mobileService
         .takeMissedAlerts()
         .then((alerts) => {
-          const { push } = useNotificationCenterStore.getState()
+          const { insertMissed } = useNotificationCenterStore.getState()
 
           for (const alert of alerts) {
-            const providerIds = alert.provider_ids?.length
-              ? alert.provider_ids
-              : alert.provider_id === null
-                ? []
-                : [alert.provider_id]
-
-            push({
+            void insertMissed({
               key: alert.key,
               at: Date.parse(alert.created_at),
               tone: alert.tone,
               level: null,
               title: alert.title,
               body: alert.body,
-              providerIds,
+              providerIds: alert.provider_ids,
               pipelineId: alert.pipeline_id,
               link: null,
             })
@@ -45,12 +39,11 @@ export function useMissedAlerts(): void {
         .catch((error: unknown) => logger.warn('useMissedAlerts', "Couldn't read the missed alerts", error))
     }
 
-    events
-      .listen<{ status: string }>(WS_EVENTS.CONNECTION_STATUS, ({ status }) => {
-        if (status === 'connected') {
-          take()
-        }
-      })
+    listenEvent<{ status: string }>(WS_EVENTS.CONNECTION_STATUS, ({ status }) => {
+      if (status === 'connected') {
+        take()
+      }
+    })
       .then((fn) => {
         if (active) {
           unlisten = fn

@@ -2,13 +2,13 @@ import { useEffect } from 'react'
 
 import { logger } from '../../../lib/logger'
 import { isRemoteClient } from '../../../services/connection'
+import { listenEvent } from '../../../services/events'
 import { isTauri } from '../../../services/isTauri'
 import { mobileService } from '../../../services/mobile'
-import { events } from '../../../services/service'
 import { WS_EVENTS } from '../../../services/websocket'
 import { useNotificationStore } from '../../../stores/notificationStore'
 
-const PREFERENCES_DELAY_MS = 300
+import { recordFired, refreshPreferenceStates } from './changePreference'
 
 export function useNotificationPreferencesSync(): void {
   useEffect(() => {
@@ -16,29 +16,24 @@ export function useNotificationPreferencesSync(): void {
       return
     }
     const client = isRemoteClient()
-    let timer: ReturnType<typeof setTimeout> | undefined
-    let adopting = false
     let active = true
     let unlisten: (() => void) | undefined
 
     const send = () => {
-      clearTimeout(timer)
-      timer = undefined
       mobileService
         .setNotificationPreferences(useNotificationStore.getState().preferences)
-        .then((fired) => useNotificationStore.getState().markFired(fired))
+        .then(recordFired)
         .catch((error: unknown) =>
           logger.warn('useNotificationPreferencesSync', "Couldn't save the notification preferences", error)
         )
     }
 
     const sync = async () => {
-      if (!client || timer !== undefined) {
+      if (!client) {
         send()
 
         return
       }
-      const before = useNotificationStore.getState().preferences
 
       try {
         const loaded = await mobileService.loadNotificationPreferences()
@@ -46,10 +41,9 @@ export function useNotificationPreferencesSync(): void {
         if (!active) {
           return
         }
-        if (loaded && useNotificationStore.getState().preferences === before) {
-          adopting = true
+        if (loaded) {
           useNotificationStore.getState().adoptPreferences(loaded)
-          adopting = false
+          void refreshPreferenceStates()
 
           return
         }
@@ -59,25 +53,18 @@ export function useNotificationPreferencesSync(): void {
       }
     }
 
-    const unsubscribe = useNotificationStore.subscribe((state, previous) => {
-      if (!adopting && state.preferences !== previous.preferences) {
-        clearTimeout(timer)
-        timer = setTimeout(send, PREFERENCES_DELAY_MS)
-      }
-    })
     const resend = () => {
-      if (document.visibilityState === 'visible' || timer !== undefined) {
+      if (document.visibilityState === 'visible') {
         send()
       }
     }
 
     if (client) {
-      events
-        .listen<{ status: string }>(WS_EVENTS.CONNECTION_STATUS, ({ status }) => {
-          if (status === 'connected') {
-            void sync()
-          }
-        })
+      listenEvent<{ status: string }>(WS_EVENTS.CONNECTION_STATUS, ({ status }) => {
+        if (status === 'connected') {
+          void sync()
+        }
+      })
         .then((fn) => {
           if (active) {
             unlisten = fn
@@ -96,10 +83,6 @@ export function useNotificationPreferencesSync(): void {
     return () => {
       active = false
       unlisten?.()
-      unsubscribe()
-      if (timer !== undefined) {
-        send()
-      }
       document.removeEventListener('visibilitychange', resend)
       window.removeEventListener('focus', resend)
     }

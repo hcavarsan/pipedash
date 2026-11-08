@@ -38,10 +38,16 @@ export const SettingsPage = ({ activeSection, onRefresh }: SettingsPageProps): R
   const mobileShell = useMobileShell()
   const sectionTitle = SETTINGS_SECTIONS.find((section) => section.id === activeSection)?.label
 
+  let padding: string | number = 'xl'
+  if (mobileShell) {
+    padding = 0
+  } else if (isMobile) {
+    padding = 'md'
+  }
   const content = (
     <ScrollArea flex={1}>
       <Box
-        p={mobileShell ? 0 : isMobile ? 'md' : 'xl'}
+        p={padding}
         {...(mobileShell ? { pt: 'sm', className: 'settings-pushed' } : {})}
         {...(isMobile ? {} : { maw: 720 })}
       >

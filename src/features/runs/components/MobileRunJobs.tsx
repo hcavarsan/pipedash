@@ -5,12 +5,11 @@ import { VirtualList } from '../../../components/common/VirtualList'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import type { RunLogNode } from '../../../types/logs'
 import { NodeDuration } from '../../logs/components/NodeDuration'
-import { groupLogNodes } from '../lib/logTree'
+import type { LogNodeGroup } from '../lib/logTree'
 
 type JobListItem = { kind: 'stage'; stage: string; key: string } | { kind: 'job'; node: RunLogNode; key: string }
 
-function flattenJobs(nodes: readonly RunLogNode[]): JobListItem[] {
-  const groups = groupLogNodes(nodes, true)
+function flattenJobs(groups: LogNodeGroup[]): JobListItem[] {
   const staged = groups.some((group) => group.stage !== null)
 
   return groups.flatMap((group) => [
@@ -22,12 +21,12 @@ function flattenJobs(nodes: readonly RunLogNode[]): JobListItem[] {
 }
 
 interface MobileRunJobsProps {
-  nodes: readonly RunLogNode[]
+  groups: LogNodeGroup[]
   onSelect: (nodeId: string) => void
 }
 
-export function MobileRunJobs({ nodes, onSelect }: MobileRunJobsProps): ReactNode {
-  const items = flattenJobs(nodes)
+export function MobileRunJobs({ groups, onSelect }: MobileRunJobsProps): ReactNode {
+  const items = flattenJobs(groups)
 
   if (items.length === 0) {
     return null

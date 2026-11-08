@@ -31,6 +31,11 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps): 
   }
 
   const failed = [config, vault, defaultDir].find((query) => query.isError)
+  const retryFailed = (): void => {
+    for (const query of [config, vault, defaultDir].filter((item) => item.isError)) {
+      void query.refetch()
+    }
+  }
   const retrying = config.isFetching || vault.isFetching || defaultDir.isFetching
 
   return (
@@ -54,13 +59,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps): 
         <ErrorState
           title="Couldn't load storage configuration"
           error={failed.error}
-          onRetry={() => {
-            for (const query of [config, vault, defaultDir]) {
-              if (query.isError) {
-                void query.refetch()
-              }
-            }
-          }}
+          onRetry={retryFailed}
           retrying={retrying}
         />
       ) : (

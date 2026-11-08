@@ -1,9 +1,9 @@
-import { ActionIcon, Group, Menu, Stack, Text, Tooltip } from '@mantine/core'
-import { IconDots, IconSend, IconTrash } from '@tabler/icons-react'
+import { ActionIcon, Group, Stack, Text, Tooltip } from '@mantine/core'
+import { IconSend, IconTrash } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
-import { ActionSheetCancel } from '../../../components/ios/ActionSheetCancel'
 import { IosRow } from '../../../components/ios/IosList'
 import { useMobileShell } from '../../../hooks/useIsMobile'
+import { PushDeviceActions } from './PushDeviceActions'
 
 interface PushDeviceRowProps {
   title: string
@@ -34,25 +34,7 @@ export const PushDeviceRow = ({
         title={title}
         subtitle={subtitle}
         longPressMenu
-        accessory={
-          <Menu position="bottom-end">
-            <Menu.Target>
-              <ActionIcon data-row-menu aria-label={`Actions for ${title}`} loading={testing || removing}>
-                <IconDots size={20} aria-hidden />
-              </ActionIcon>
-            </Menu.Target>
-            <Menu.Dropdown>
-              <Menu.Label>{title}</Menu.Label>
-              <Menu.Item leftSection={<IconSend size={18} aria-hidden />} onClick={onTest}>
-                Send test push
-              </Menu.Item>
-              <Menu.Item color="red" leftSection={<IconTrash size={18} aria-hidden />} onClick={onRemove}>
-                Remove
-              </Menu.Item>
-              <ActionSheetCancel />
-            </Menu.Dropdown>
-          </Menu>
-        }
+        accessory={<PushDeviceActions title={title} busy={testing || removing} onTest={onTest} onRemove={onRemove} />}
       />
     )
   }

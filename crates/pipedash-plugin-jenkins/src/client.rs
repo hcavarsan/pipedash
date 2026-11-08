@@ -2,20 +2,22 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use chrono::Utc;
+use pipedash_plugin_api::http::{
+    decode_json,
+    parse_http_url,
+    send,
+    send_checked,
+};
 use pipedash_plugin_api::{
     check_response,
-    map_send_error,
     AvailablePipeline,
-    LogCursor,
-    LogRead,
-    LogSink,
     Pipeline,
-    PluginError,
     PluginResult,
     RetryPolicy,
 };
 use reqwest::{
     Client,
+    Method,
     Url,
 };
 use serde::de::DeserializeOwned;
@@ -26,9 +28,7 @@ use crate::{
     types,
 };
 
-fn parse_url(url: &str) -> PluginResult<Url> {
-    Url::parse(url).map_err(|e| PluginError::InvalidConfig(format!("Invalid Jenkins URL: {e}")))
-}
+mod logs;
 
 pub(crate) struct JenkinsClient {
     http_client: std::sync::Arc<Client>,
@@ -53,27 +53,26 @@ impl JenkinsClient {
         &self.server_url
     }
 
+    fn authorized(&self, method: Method, url: &Url) -> reqwest::RequestBuilder {
+        self.http_client
+            .request(method, url.clone())
+            .header(reqwest::header::AUTHORIZATION, &self.auth_header)
+    }
+
     async fn get_json<T: DeserializeOwned>(
         &self, url: &str, timeout: Option<Duration>,
     ) -> PluginResult<T> {
-        let url = parse_url(url)?;
+        let url = parse_http_url(url, "Jenkins")?;
 
         self.retry_policy
             .retry(|| async {
-                let mut request = self
-                    .http_client
-                    .get(url.clone())
-                    .header(reqwest::header::AUTHORIZATION, &self.auth_header);
+                let mut request = self.authorized(Method::GET, &url);
                 if let Some(timeout) = timeout {
                     request = request.timeout(timeout);
                 }
-                let response = request.send().await.map_err(|e| map_send_error(e, &url))?;
+                let response = send(&url, request).await?;
 
-                check_response(response)
-                    .await?
-                    .json()
-                    .await
-                    .map_err(|e| map_send_error(e, &url))
+                decode_json(check_response(response).await?, "Jenkins response").await
             })
             .await
     }
@@ -183,79 +182,6 @@ impl JenkinsClient {
         self.get_json(&url, Some(Duration::from_secs(30))).await
     }
 
-    pub async fn stream_console_log(
-        &self, job_path: &str, build_number: i64, from: Option<&LogCursor>, sink: &mut LogSink,
-    ) -> PluginResult<LogRead> {
-        let resume = match from {
-            None => None,
-            Some(cursor) => {
-                let known = cursor
-                    .parse::<types::ConsoleCursor>()
-                    .filter(|cursor| cursor.build == build_number);
-                if known.is_none() {
-                    sink.restart()?;
-                }
-                known.map(|cursor| cursor.offset)
-            }
-        };
-        let encoded_path = config::encode_job_name(job_path);
-        let url = parse_url(&format!(
-            "{}/job/{}/{}/logText/progressiveText?start={}",
-            self.server_url,
-            encoded_path,
-            build_number,
-            resume.unwrap_or(0)
-        ))?;
-
-        let response = self
-            .retry_policy
-            .retry_unsent(&url, || {
-                self.http_client
-                    .get(url.clone())
-                    .header(reqwest::header::AUTHORIZATION, &self.auth_header)
-                    .timeout(Duration::from_secs(900))
-                    .send()
-            })
-            .await?;
-
-        if matches!(response.status().as_u16(), 404 | 410) {
-            return Err(PluginError::PipelineNotFound(format!(
-                "Console log of build #{build_number} is no longer available"
-            )));
-        }
-
-        let response = check_response(response).await?;
-        let size = response
-            .headers()
-            .get("X-Text-Size")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.trim().parse::<u64>().ok());
-        match (resume, size) {
-            (Some(_), None) => {
-                return Err(PluginError::ApiError(
-                    "Jenkins did not report the console text size".into(),
-                ))
-            }
-            (Some(start), Some(size)) if size < start => sink.restart()?,
-            _ => {}
-        }
-
-        sink.pipe(response).await?;
-
-        let cursor = size
-            .map(|offset| {
-                LogCursor::new(&types::ConsoleCursor {
-                    build: build_number,
-                    offset,
-                })
-            })
-            .transpose()?;
-        Ok(match cursor {
-            Some(cursor) if resume.is_some() && !sink.restarted() => LogRead::append(cursor),
-            cursor => LogRead::replace(cursor),
-        })
-    }
-
     pub async fn trigger_build(
         &self, job_path: &str, form_data: Vec<(String, String)>,
     ) -> PluginResult<()> {
@@ -265,10 +191,10 @@ impl JenkinsClient {
         } else {
             "buildWithParameters"
         };
-        let url = parse_url(&format!(
-            "{}/job/{}/{endpoint}",
-            self.server_url, encoded_path
-        ))?;
+        let url = parse_http_url(
+            &format!("{}/job/{}/{endpoint}", self.server_url, encoded_path),
+            "Jenkins",
+        )?;
         let parameter_names = form_data
             .iter()
             .map(|(name, _)| name.as_str())
@@ -277,17 +203,11 @@ impl JenkinsClient {
 
         tracing::debug!(job_path = %job_path, parameters = %parameter_names, "Triggering Jenkins build");
 
-        let response = self
-            .retry_policy
-            .retry_unsent(&url, || {
-                self.http_client
-                    .post(url.clone())
-                    .header(reqwest::header::AUTHORIZATION, &self.auth_header)
-                    .form(&form_data)
-                    .send()
-            })
-            .await?;
-        check_response(response).await.inspect_err(|e| {
+        send_checked(&self.retry_policy, &url, || {
+            self.authorized(Method::POST, &url).form(&form_data)
+        })
+        .await
+        .inspect_err(|e| {
             tracing::error!(job_path = %job_path, parameters = %parameter_names, error = %e, "Jenkins trigger failed");
         })?;
 
@@ -295,9 +215,7 @@ impl JenkinsClient {
         Ok(())
     }
 
-    pub async fn fetch_pipeline(
-        &self, provider_id: i64, job_path: String,
-    ) -> PluginResult<Pipeline> {
+    pub async fn fetch_pipeline(&self, job_path: String) -> PluginResult<Pipeline> {
         let pipeline_start = std::time::Instant::now();
         tracing::debug!(job_path = %job_path, "Fetching Jenkins pipeline");
 
@@ -331,9 +249,7 @@ impl JenkinsClient {
         tracing::debug!(elapsed = ?pipeline_start.elapsed(), "Total Jenkins pipeline fetch time");
 
         Ok(Pipeline {
-            id: format!("jenkins__{provider_id}__{job_path}"),
-            provider_id,
-            provider_type: "jenkins".to_string(),
+            id: job_path,
             name: job.name,
             status,
             last_run,
@@ -348,23 +264,20 @@ impl JenkinsClient {
 
     pub async fn cancel_build(&self, job_path: &str, build_number: i64) -> PluginResult<()> {
         let encoded_path = config::encode_job_name(job_path);
-        let url = parse_url(&format!(
-            "{}/job/{}/{}/stop",
-            self.server_url, encoded_path, build_number
-        ))?;
+        let url = parse_http_url(
+            &format!(
+                "{}/job/{}/{}/stop",
+                self.server_url, encoded_path, build_number
+            ),
+            "Jenkins",
+        )?;
 
         tracing::info!(build_number = build_number, job_path = %job_path, "Cancelling Jenkins build");
 
-        let response = self
-            .retry_policy
-            .retry_unsent(&url, || {
-                self.http_client
-                    .post(url.clone())
-                    .header(reqwest::header::AUTHORIZATION, &self.auth_header)
-                    .send()
-            })
-            .await?;
-        check_response(response).await?;
+        send_checked(&self.retry_policy, &url, || {
+            self.authorized(Method::POST, &url)
+        })
+        .await?;
 
         tracing::info!(
             build_number = build_number,
@@ -402,206 +315,4 @@ impl JenkinsClient {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::atomic::{
-        AtomicUsize,
-        Ordering,
-    };
-    use std::sync::Arc;
-
-    use super::*;
-    use crate::test_support::{
-        stub_server,
-        Reply,
-    };
-
-    fn unauthorized(_: &str) -> Reply {
-        Reply {
-            status: "401 Unauthorized",
-            headers: "Content-Type: text/html\r\n",
-            body: "<html><body><h2>HTTP ERROR 401 Unauthorized</h2></body></html>",
-        }
-    }
-
-    fn not_found(_: &str) -> Reply {
-        Reply {
-            status: "404 Not Found",
-            headers: "",
-            body: "<html><body><h2>HTTP ERROR 404 Not Found</h2></body></html>",
-        }
-    }
-
-    fn rate_limited(_: &str) -> Reply {
-        Reply {
-            status: "429 Too Many Requests",
-            headers: "Retry-After: 120\r\n",
-            body: "slow down",
-        }
-    }
-
-    fn unavailable(_: &str) -> Reply {
-        Reply {
-            status: "503 Service Unavailable",
-            headers: "",
-            body: "maintenance",
-        }
-    }
-
-    fn created(_: &str) -> Reply {
-        Reply {
-            status: "201 Created",
-            headers: "",
-            body: "",
-        }
-    }
-
-    async fn client_for(
-        reply: fn(&str) -> Reply, delay: Duration,
-    ) -> (JenkinsClient, Arc<AtomicUsize>) {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let requests = Arc::new(AtomicUsize::new(0));
-        let server_url = stub_server(requests.clone(), delay, reply).await;
-        let http_client = Client::builder()
-            .timeout(Duration::from_millis(300))
-            .build()
-            .unwrap();
-        let client = JenkinsClient::new(
-            Arc::new(http_client),
-            server_url,
-            "Basic YWxpY2U6d3Jvbmc=".to_string(),
-        );
-        (client, requests)
-    }
-
-    #[tokio::test]
-    async fn rejected_credentials_fail_as_auth_error_without_retry() {
-        let (client, requests) = client_for(unauthorized, Duration::ZERO).await;
-
-        let results = [
-            client.discover_all_jobs().await.err(),
-            client.fetch_job_details("build").await.err(),
-            client.fetch_build_details("build", 1).await.err(),
-            client.fetch_build_history("build", 10).await.err(),
-            client.fetch_job_parameters("build").await.err(),
-        ];
-
-        for error in results {
-            assert!(
-                matches!(error, Some(PluginError::AuthenticationFailed(_))),
-                "{error:?}"
-            );
-        }
-        assert_eq!(requests.load(Ordering::SeqCst), 5);
-    }
-
-    #[tokio::test]
-    async fn missing_job_is_pipeline_not_found() {
-        let (client, requests) = client_for(not_found, Duration::ZERO).await;
-
-        let error = client.fetch_job_details("gone").await.unwrap_err();
-
-        assert!(
-            matches!(error, PluginError::PipelineNotFound(_)),
-            "{error:?}"
-        );
-        assert_eq!(requests.load(Ordering::SeqCst), 1);
-    }
-
-    #[tokio::test]
-    async fn rate_limit_carries_retry_after_and_is_not_retried() {
-        let (client, requests) = client_for(rate_limited, Duration::ZERO).await;
-
-        let error = client.fetch_job_details("build").await.unwrap_err();
-
-        assert!(
-            matches!(error, PluginError::RateLimited { .. }),
-            "{error:?}"
-        );
-        assert_eq!(error.retry_after(), Some(Duration::from_secs(120)));
-        assert_eq!(requests.load(Ordering::SeqCst), 1);
-    }
-
-    #[tokio::test]
-    async fn server_error_is_service_unavailable_and_retried() {
-        let (client, requests) = client_for(unavailable, Duration::ZERO).await;
-
-        let error = client.fetch_job_details("build").await.unwrap_err();
-
-        assert!(
-            matches!(error, PluginError::ServiceUnavailable { .. }),
-            "{error:?}"
-        );
-        assert_eq!(requests.load(Ordering::SeqCst), 3);
-    }
-
-    #[tokio::test]
-    async fn timed_out_mutations_are_not_sent_again() {
-        let (client, requests) = client_for(created, Duration::from_secs(2)).await;
-
-        let trigger = client
-            .trigger_build("build", vec![("name".to_string(), "value".to_string())])
-            .await
-            .unwrap_err();
-        let cancel = client.cancel_build("build", 7).await.unwrap_err();
-
-        assert!(
-            matches!(trigger, PluginError::NetworkError(_)),
-            "{trigger:?}"
-        );
-        assert!(matches!(cancel, PluginError::NetworkError(_)), "{cancel:?}");
-        assert_eq!(requests.load(Ordering::SeqCst), 2);
-    }
-
-    #[tokio::test]
-    async fn failed_trigger_error_has_no_parameter_values() {
-        let (client, requests) = client_for(unavailable, Duration::ZERO).await;
-        let secret = "s3cr3t-".repeat(20);
-
-        let error = client
-            .trigger_build(
-                "build",
-                vec![
-                    ("DEPLOY_TOKEN".to_string(), secret.clone()),
-                    ("short".to_string(), "hunter2".to_string()),
-                ],
-            )
-            .await
-            .unwrap_err();
-
-        assert!(
-            matches!(error, PluginError::ServiceUnavailable { .. }),
-            "{error:?}"
-        );
-        let text = error.to_string();
-        assert!(
-            !text.contains("s3cr3t") && !text.contains("hunter2"),
-            "{text}"
-        );
-        assert_eq!(requests.load(Ordering::SeqCst), 1);
-    }
-
-    fn multibranch(path: &str) -> Reply {
-        let body = if path.starts_with("/job/app/") {
-            r#"{"_class":"org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject","jobs":[{"_class":"org.jenkinsci.plugins.workflow.job.WorkflowJob","name":"main","url":"x"},{"_class":"org.jenkinsci.plugins.workflow.job.WorkflowJob","name":"feature-x","url":"x"}]}"#
-        } else {
-            r#"{"_class":"hudson.model.Hudson","jobs":[{"_class":"org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject","name":"app","url":"x"}]}"#
-        };
-        Reply {
-            status: "200 OK",
-            headers: "Content-Type: application/json\r\n",
-            body,
-        }
-    }
-
-    #[tokio::test]
-    async fn multibranch_pipeline_lists_its_branch_jobs() {
-        let (client, requests) = client_for(multibranch, Duration::ZERO).await;
-
-        let jobs = client.discover_all_jobs().await.unwrap();
-
-        let mut paths: Vec<&str> = jobs.iter().map(|job| job.full_path.as_str()).collect();
-        paths.sort_unstable();
-        assert_eq!(paths, ["app/feature-x", "app/main"]);
-        assert_eq!(requests.load(Ordering::SeqCst), 2);
-    }
-}
+mod tests;

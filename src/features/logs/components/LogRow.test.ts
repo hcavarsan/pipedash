@@ -3,7 +3,7 @@ import { after, afterEach, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 
-import type { LineState } from '../lib/lineCache'
+import type { LineState } from '../lib/lineCacheTypes'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 

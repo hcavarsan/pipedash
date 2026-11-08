@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
+use pipedash_plugin_api::PluginRegistry;
 use serde::Serialize;
 
+use super::validation::ConfigValidator;
 use super::{
     ConfigLoader,
     PipedashConfig,
@@ -57,13 +59,19 @@ pub struct ConfigAnalysis {
 
 pub async fn analyze_config(
     new_content: &str, storage_manager: &StorageManager, event_bus: Option<Arc<dyn EventBus>>,
-    target_token_store: Option<Arc<dyn TokenStore>>,
+    target_token_store: Option<Arc<dyn TokenStore>>, registry: &PluginRegistry,
 ) -> DomainResult<ConfigAnalysis> {
-    let new_config = ConfigLoader::parse(new_content).map_err(|_| {
-        DomainError::InvalidConfig("Invalid config fields or environment references".to_string())
-    })?;
+    let content = new_content.to_owned();
+    let new_config = tokio::task::spawn_blocking(move || ConfigLoader::parse(&content))
+        .await
+        .map_err(|e| DomainError::InternalError(format!("Config parse task failed: {e}")))?
+        .map_err(|_| {
+            DomainError::InvalidConfig(
+                "Invalid config fields or environment references".to_string(),
+            )
+        })?;
 
-    let validation = new_config.validate();
+    let validation = ConfigValidator::validate_with_plugins(&new_config, registry);
 
     let errors = validation
         .errors
@@ -208,106 +216,4 @@ async fn test_postgres_connection(connection_string: &str) -> ConnectionTestResu
 }
 
 #[cfg(test)]
-mod tests {
-    use tempfile::TempDir;
-
-    use super::*;
-    use crate::infrastructure::token_store::MemoryTokenStore;
-
-    async fn sqlite_manager(data_dir: &TempDir) -> StorageManager {
-        let mut config = PipedashConfig::default();
-        config.storage.data_dir = data_dir.path().to_string_lossy().to_string();
-
-        StorageManager::with_token_store(config, Arc::new(MemoryTokenStore::new()), true)
-            .await
-            .unwrap()
-    }
-
-    #[tokio::test]
-    async fn switching_sqlite_to_postgres_returns_a_migration_plan() {
-        let data_dir = TempDir::new().unwrap();
-        let manager = sqlite_manager(&data_dir).await;
-        let content = format!(
-            "[storage]\ndata_dir = {:?}\nbackend = \"postgres\"\n\n[storage.postgres]\nconnection_string = \"postgres://user:pass@127.0.0.1:1/pipedash\"\n",
-            data_dir.path().to_string_lossy()
-        );
-
-        let analysis = analyze_config(&content, &manager, None, None)
-            .await
-            .unwrap();
-
-        let plan = analysis.migration_plan.expect("migration plan");
-        assert_eq!(plan.to.storage.backend, StorageBackend::Postgres);
-        assert!(!plan.steps.is_empty());
-        assert!(analysis.stats.is_some());
-        assert!(
-            !analysis
-                .postgres_connection
-                .expect("connection test")
-                .success
-        );
-    }
-
-    #[tokio::test]
-    async fn unchanged_storage_returns_no_migration_plan() {
-        let data_dir = TempDir::new().unwrap();
-        let manager = sqlite_manager(&data_dir).await;
-        let content = format!(
-            "[storage]\ndata_dir = {:?}\nbackend = \"sqlite\"\n",
-            data_dir.path().to_string_lossy()
-        );
-
-        let analysis = analyze_config(&content, &manager, None, None)
-            .await
-            .unwrap();
-
-        assert!(analysis.valid);
-        assert!(analysis.migration_plan.is_none());
-        assert!(analysis.postgres_connection.is_none());
-    }
-
-    #[tokio::test]
-    async fn analysis_expands_backend_references_before_validation() {
-        let data_dir = TempDir::new().unwrap();
-        let manager = sqlite_manager(&data_dir).await;
-        let content = format!(
-            "[storage]\ndata_dir = {:?}\nbackend = \"${{PIPEDASH_ANALYSIS_TEST_BACKEND:-sqlite}}\"\n",
-            data_dir.path().to_string_lossy()
-        );
-
-        let analysis = analyze_config(&content, &manager, None, None)
-            .await
-            .unwrap();
-
-        assert!(analysis.valid);
-        assert!(analysis.migration_plan.is_none());
-        assert!(analysis.postgres_connection.is_none());
-    }
-
-    #[tokio::test]
-    async fn analysis_parse_errors_do_not_include_expanded_values() {
-        let data_dir = TempDir::new().unwrap();
-        let manager = sqlite_manager(&data_dir).await;
-        let content =
-            "[storage]\nbackend = \"${PIPEDASH_ANALYSIS_TEST_SECRET:-editor-secret-value}\"\n";
-
-        let error = analyze_config(content, &manager, None, None)
-            .await
-            .unwrap_err();
-
-        assert!(matches!(error, DomainError::InvalidConfig(_)));
-        assert!(!error.to_string().contains("editor-secret-value"));
-    }
-
-    #[tokio::test]
-    async fn invalid_toml_is_an_invalid_config_error() {
-        let data_dir = TempDir::new().unwrap();
-        let manager = sqlite_manager(&data_dir).await;
-
-        let err = analyze_config("[storage", &manager, None, None)
-            .await
-            .unwrap_err();
-
-        assert!(matches!(err, DomainError::InvalidConfig(_)));
-    }
-}
+mod tests;

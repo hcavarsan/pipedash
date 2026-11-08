@@ -2,8 +2,8 @@ import { ActionIcon, Center, Divider, Loader, ScrollArea, Stack, Tooltip } from 
 import { IconAlertTriangle, IconStack2 } from '@tabler/icons-react'
 import type { MouseEvent, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-
-import type { PipelineView, ProviderSummary } from '../../../types/domain'
+import type { ProviderSummary } from '../../../types/providers'
+import type { PipelineView } from '../../../types/views'
 import { formatCount } from '../../../utils/formatCount'
 import { ProviderAvatar, providerStatus } from '../../providers/components/ProviderPresentation'
 import { useProviderNavigation } from '../../providers/queries/useProviderNavigation'
@@ -54,6 +54,60 @@ const RailItem = ({ label, to, active, icon, menu, onClick }: RailItemProps): Re
   </Tooltip>
 )
 
+type RailProvidersProps = Pick<
+  NavbarRailProps,
+  'providers' | 'providerId' | 'loading' | 'error' | 'retrying' | 'onRetry' | 'providerMenu'
+>
+
+function RailProviders({
+  providers,
+  providerId,
+  loading,
+  error,
+  retrying,
+  onRetry,
+  providerMenu,
+}: RailProvidersProps): ReactNode {
+  const openProvider = useProviderNavigation()
+
+  if (loading) {
+    return (
+      <Center h={44}>
+        <Loader size="sm" />
+      </Center>
+    )
+  }
+
+  if (error) {
+    return (
+      <Tooltip label="Couldn't load providers. Retry" position="right">
+        <ActionIcon
+          size={44}
+          radius="sm"
+          color="red"
+          aria-label="Couldn't load providers. Retry"
+          loading={retrying}
+          onClick={onRetry}
+        >
+          <IconAlertTriangle size={20} aria-hidden />
+        </ActionIcon>
+      </Tooltip>
+    )
+  }
+
+  return providers.map((provider) => (
+    <RailItem
+      key={provider.id}
+      label={`${provider.name} · ${providerStatus(provider).text}`}
+      to={`/pipelines?provider=${provider.id}`}
+      active={providerId === String(provider.id)}
+      icon={<ProviderAvatar provider={provider} size={ICON_TILE.rail} />}
+      menu={providerMenu(provider)}
+      onClick={(event) => openProvider(provider, event)}
+    />
+  ))
+}
+
 export const NavbarRail = ({
   providers,
   viewNodes,
@@ -67,7 +121,6 @@ export const NavbarRail = ({
   providerMenu,
   viewMenu,
 }: NavbarRailProps): ReactNode => {
-  const openProvider = useProviderNavigation()
   const totalPipelines = providers.reduce((sum, p) => sum + p.pipeline_count, 0)
 
   return (
@@ -90,36 +143,15 @@ export const NavbarRail = ({
           />
         ))}
         <Divider w={32} my="3xs" />
-        {loading ? (
-          <Center h={44}>
-            <Loader size="sm" />
-          </Center>
-        ) : error ? (
-          <Tooltip label="Couldn't load providers. Retry" position="right">
-            <ActionIcon
-              size={44}
-              radius="sm"
-              color="red"
-              aria-label="Couldn't load providers. Retry"
-              loading={retrying}
-              onClick={onRetry}
-            >
-              <IconAlertTriangle size={20} aria-hidden />
-            </ActionIcon>
-          </Tooltip>
-        ) : (
-          providers.map((provider) => (
-            <RailItem
-              key={provider.id}
-              label={`${provider.name} · ${providerStatus(provider).text}`}
-              to={`/pipelines?provider=${provider.id}`}
-              active={providerId === String(provider.id)}
-              icon={<ProviderAvatar provider={provider} size={ICON_TILE.rail} />}
-              menu={providerMenu(provider)}
-              onClick={(event) => openProvider(provider, event)}
-            />
-          ))
-        )}
+        <RailProviders
+          providers={providers}
+          providerId={providerId}
+          loading={loading}
+          error={error}
+          retrying={retrying}
+          onRetry={onRetry}
+          providerMenu={providerMenu}
+        />
       </Stack>
     </ScrollArea>
   )

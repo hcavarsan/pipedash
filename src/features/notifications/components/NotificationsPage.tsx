@@ -1,4 +1,4 @@
-import { Box, Stack, Text, VisuallyHidden } from '@mantine/core'
+import { Box, Stack, Text } from '@mantine/core'
 import { IconBellCheck } from '@tabler/icons-react'
 import { type ReactNode, useEffect } from 'react'
 import { ProviderIcon } from '../../../components/atoms/ProviderIcon'
@@ -7,14 +7,13 @@ import { PageHeader } from '../../../components/common/PageHeader'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useNow } from '../../../hooks/useNow'
-import type { CenterNotification } from '../../../stores/notificationCenterStore'
+import type { CenterNotification } from '../../../types/notifications'
 import { openConfirm } from '../../../utils/confirm'
-import { formatRelativeTime } from '../../../utils/formatRelativeTime'
 
-import { notificationIcon, notificationLabel, TONE_COLORS } from '../lib/labels'
 import { useNotificationActions, useNotificationItems } from '../queries/useDesktopNotifications'
 
 import { NotificationList, useAffectedProviders } from './NotificationCenter'
+import { NotificationListItem } from './NotificationListItem'
 
 const DAY_MS = 86_400_000
 const DAY_FORMAT = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' })
@@ -62,6 +61,12 @@ function ShellNotificationList() {
       onConfirm: clear,
     })
 
+  const markAllReadTitle = (
+    <Text span inherit c="var(--mantine-color-blue-light-color)">
+      Mark all as read
+    </Text>
+  )
+
   if (items.length === 0 && affected.length === 0) {
     return (
       <Stack align="center" gap={6} px="xl" pt={72}>
@@ -97,57 +102,15 @@ function ShellNotificationList() {
 
       {groupByDay(items, now).map((group) => (
         <IosGroup key={group.label} header={group.label}>
-          {group.items.map((item) => {
-            const ItemIcon = notificationIcon(item)
-
-            return (
-              <IosRow
-                key={item.key}
-                icon={<ItemIcon size={18} color={TONE_COLORS[item.tone]} aria-hidden />}
-                title={
-                  <Text span inherit fw={item.read ? 400 : 600}>
-                    {item.title}
-                  </Text>
-                }
-                subtitle={`${notificationLabel(item)} · ${formatRelativeTime(item.at, now)}`}
-                accessory={
-                  item.read ? undefined : (
-                    <Box w={10} h={10} bg="blue" style={{ borderRadius: '50%' }}>
-                      <VisuallyHidden>Unread</VisuallyHidden>
-                    </Box>
-                  )
-                }
-                chevron
-                onClick={() => open({ type: 'notification', key: item.key })}
-                {...(item.read
-                  ? {}
-                  : {
-                      swipeActions: [
-                        {
-                          key: 'read',
-                          label: 'Mark read',
-                          tone: 'blue' as const,
-                          primary: true,
-                          onSelect: () => markRead(item.key),
-                        },
-                      ],
-                    })}
-              />
-            )
-          })}
+          {group.items.map((item) => (
+            <NotificationListItem key={item.key} item={item} now={now} onOpen={open} onMarkRead={markRead} />
+          ))}
         </IosGroup>
       ))}
 
       {unread && (
         <IosGroup>
-          <IosRow
-            title={
-              <Text span inherit c="var(--mantine-color-blue-light-color)">
-                Mark all as read
-              </Text>
-            }
-            onClick={markAllRead}
-          />
+          <IosRow title={markAllReadTitle} onClick={markAllRead} />
         </IosGroup>
       )}
 

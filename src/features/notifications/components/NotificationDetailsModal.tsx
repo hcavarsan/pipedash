@@ -1,119 +1,117 @@
 import { Button, Group, Modal, Stack, Text, ThemeIcon } from '@mantine/core'
-import { IconBell, IconBellOff, IconExternalLink, IconHeartbeat, IconHistory } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
-import { pushState } from '../../../components/layout/mobileChrome'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useNow } from '../../../hooks/useNow'
-import { usePipelines } from '../../../queries/usePipelinesQueries'
-import { useProviders } from '../../../queries/useProvidersQueries'
-import { useModalStore } from '../../../stores/modalStore'
 import { useNotificationCenterStore } from '../../../stores/notificationCenterStore'
+import type { CenterNotification } from '../../../types/notifications'
 import { formatRelativeTime } from '../../../utils/formatRelativeTime'
-import { useNotifyItems } from '../hooks/useNotifyItems'
-
+import { type NotificationDetailAction, useNotificationDetailActions } from '../hooks/useNotificationDetailActions'
 import { notificationIcon, notificationLabel, TONE_COLORS } from '../lib/labels'
-import { openNotificationLink } from '../lib/openNotificationLink'
 import { useNotificationItems } from '../queries/useDesktopNotifications'
 
-const LINK_LABELS = { incident: 'View incident', status_page: 'Open status page' } as const
+interface DetailsViewProps {
+  notification: CenterNotification
+  actions: NotificationDetailAction[]
+  now: number
+}
+
+function MobileDetails({ notification, actions, now }: DetailsViewProps): ReactNode {
+  const HeaderIcon = notificationIcon(notification)
+
+  return (
+    <Stack gap={24}>
+      <IosGroup>
+        <IosRow
+          icon={<HeaderIcon size={18} color={TONE_COLORS[notification.tone]} aria-hidden />}
+          title={notificationLabel(notification)}
+          value={formatRelativeTime(notification.at, now)}
+        />
+      </IosGroup>
+
+      {notification.body && (
+        <IosGroup header="Details">
+          <IosRow title={notification.body} />
+        </IosGroup>
+      )}
+
+      {actions.length > 0 && (
+        <IosGroup>
+          {actions.map((action) => (
+            <IosRow
+              key={action.key}
+              icon={action.icon(18)}
+              title={action.label}
+              chevron={action.chevron}
+              onClick={action.onClick}
+            />
+          ))}
+        </IosGroup>
+      )}
+    </Stack>
+  )
+}
+
+function DesktopTitle({ notification, now }: Pick<DetailsViewProps, 'notification' | 'now'>): ReactNode {
+  const HeaderIcon = notificationIcon(notification)
+
+  return (
+    <Group gap="sm" wrap="nowrap">
+      <ThemeIcon variant="default" size="md" aria-hidden>
+        <HeaderIcon size={16} />
+      </ThemeIcon>
+      <Stack gap={0}>
+        <Text fw={600}>{notification.title}</Text>
+        <Text size="xs" c="dimmed">
+          {notificationLabel(notification)} · {formatRelativeTime(notification.at, now)}
+        </Text>
+      </Stack>
+    </Group>
+  )
+}
+
+function DesktopDetails({ notification, actions }: Pick<DetailsViewProps, 'notification' | 'actions'>): ReactNode {
+  return (
+    <Stack gap="md">
+      {notification.body && (
+        <Text size="sm" style={{ overflowWrap: 'anywhere' }}>
+          {notification.body}
+        </Text>
+      )}
+
+      <Group gap="xs">
+        {actions.map((action) => (
+          <Button
+            key={action.key}
+            size="compact-sm"
+            variant="default"
+            leftSection={action.icon(14)}
+            onClick={action.onClick}
+          >
+            {action.label}
+          </Button>
+        ))}
+      </Group>
+    </Stack>
+  )
+}
 
 export function NotificationDetailsModal(): ReactNode {
   const selection = useNotificationCenterStore((state) => state.selection)
-  const items = useNotificationItems()
-  const open = useNotificationCenterStore((state) => state.open)
   const close = useNotificationCenterStore((state) => state.close)
-  const { data: providers } = useProviders()
-  const { data: pipelines } = usePipelines()
-  const navigate = useNavigate()
-  const location = useLocation()
-  const openHistory = (pipelineId: string, runNumber?: number | null) => {
-    close()
-    void navigate(`/pipelines/${encodeURIComponent(pipelineId)}`, {
-      state: pushState(location.pathname, location.search, location.state),
-    })
-    if (runNumber) {
-      useModalStore.getState().openLogsModal(pipelineId, runNumber)
-    }
-  }
+  const items = useNotificationItems()
   const now = useNow(30_000)
   const mobileShell = useMobileShell()
 
   const notification =
     selection?.type === 'notification' ? (items.find((item) => item.key === selection.key) ?? null) : null
-  const related = notification
-    ? (providers ?? []).filter((provider) => notification.providerIds.includes(provider.id))
-    : []
-  const HeaderIcon = notification ? notificationIcon(notification) : null
-  const { pipelineItem, providerItem, watchItem } = useNotifyItems()
-  const pipelineId = notification?.pipelineId ?? null
-  const pipelineName = pipelines?.find((pipeline) => pipeline.id === pipelineId)?.name ?? 'this pipeline'
-  const [onlyProvider] = related
-  const mute = pipelineId
-    ? { item: pipelineItem({ id: pipelineId, name: pipelineName }), target: 'pipeline' }
-    : related.length === 1 && onlyProvider
-      ? { item: providerItem(onlyProvider), target: 'provider' }
-      : null
-  const watch = pipelineId ? watchItem({ id: pipelineId, name: pipelineName }) : null
-  const MuteIcon = mute?.item.muted ? IconBell : IconBellOff
-  const muteLabel = mute && `${mute.item.muted ? 'Unmute' : 'Mute'} ${mute.target}`
+  const actions = useNotificationDetailActions(notification)
 
   if (mobileShell) {
     return (
       <Modal opened={Boolean(notification)} onClose={close} title={notification?.title}>
-        {notification && HeaderIcon && (
-          <Stack gap={24}>
-            <IosGroup>
-              <IosRow
-                icon={<HeaderIcon size={18} color={TONE_COLORS[notification.tone]} aria-hidden />}
-                title={notificationLabel(notification)}
-                value={formatRelativeTime(notification.at, now)}
-              />
-            </IosGroup>
-
-            {notification.body && (
-              <IosGroup header="Details">
-                <IosRow title={notification.body} />
-              </IosGroup>
-            )}
-
-            {(notification.link || notification.pipelineId || related.length > 0) && (
-              <IosGroup>
-                {notification.link && (
-                  <IosRow
-                    icon={<IconExternalLink size={18} aria-hidden />}
-                    title={LINK_LABELS[notification.link.kind]}
-                    chevron
-                    onClick={() => notification.link && openNotificationLink(notification.link.url)}
-                  />
-                )}
-                {notification.pipelineId && (
-                  <IosRow
-                    icon={<IconHistory size={18} aria-hidden />}
-                    title={notification.runNumber ? 'Open run' : 'Open run history'}
-                    chevron
-                    onClick={() => openHistory(notification.pipelineId ?? '', notification.runNumber)}
-                  />
-                )}
-                {watch && <IosRow icon={watch.icon} title={watch.label} onClick={watch.onClick} />}
-                {mute && (
-                  <IosRow icon={<MuteIcon size={18} aria-hidden />} title={muteLabel} onClick={mute.item.onClick} />
-                )}
-                {related.map((provider) => (
-                  <IosRow
-                    key={provider.id}
-                    icon={<IconHeartbeat size={18} aria-hidden />}
-                    title={related.length > 1 ? `${provider.name} status` : 'View service status'}
-                    chevron
-                    onClick={() => open({ type: 'provider', providerId: provider.id })}
-                  />
-                ))}
-              </IosGroup>
-            )}
-          </Stack>
-        )}
+        {notification && <MobileDetails notification={notification} actions={actions} now={now} />}
       </Modal>
     )
   }
@@ -123,82 +121,9 @@ export function NotificationDetailsModal(): ReactNode {
       opened={Boolean(notification)}
       onClose={close}
       size="md"
-      title={
-        notification && (
-          <Group gap="sm" wrap="nowrap">
-            {HeaderIcon && (
-              <ThemeIcon variant="default" size="md" aria-hidden>
-                <HeaderIcon size={16} />
-              </ThemeIcon>
-            )}
-            <Stack gap={0}>
-              <Text fw={600}>{notification.title}</Text>
-              <Text size="xs" c="dimmed">
-                {notificationLabel(notification)} · {formatRelativeTime(notification.at, now)}
-              </Text>
-            </Stack>
-          </Group>
-        )
-      }
+      title={notification && <DesktopTitle notification={notification} now={now} />}
     >
-      {notification && (
-        <Stack gap="md">
-          {notification.body && (
-            <Text size="sm" style={{ overflowWrap: 'anywhere' }}>
-              {notification.body}
-            </Text>
-          )}
-
-          <Group gap="xs">
-            {notification.link && (
-              <Button
-                size="compact-sm"
-                variant="default"
-                leftSection={<IconExternalLink size={14} aria-hidden />}
-                onClick={() => notification.link && openNotificationLink(notification.link.url)}
-              >
-                {LINK_LABELS[notification.link.kind]}
-              </Button>
-            )}
-            {notification.pipelineId && (
-              <Button
-                size="compact-sm"
-                variant="default"
-                leftSection={<IconHistory size={14} aria-hidden />}
-                onClick={() => openHistory(notification.pipelineId ?? '', notification.runNumber)}
-              >
-                {notification.runNumber ? 'Open run' : 'Open run history'}
-              </Button>
-            )}
-            {watch && (
-              <Button size="compact-sm" variant="default" leftSection={watch.icon} onClick={watch.onClick}>
-                {watch.label}
-              </Button>
-            )}
-            {mute && (
-              <Button
-                size="compact-sm"
-                variant="default"
-                leftSection={<MuteIcon size={14} aria-hidden />}
-                onClick={mute.item.onClick}
-              >
-                {muteLabel}
-              </Button>
-            )}
-            {related.map((provider) => (
-              <Button
-                key={provider.id}
-                size="compact-sm"
-                variant="default"
-                leftSection={<IconHeartbeat size={14} aria-hidden />}
-                onClick={() => open({ type: 'provider', providerId: provider.id })}
-              >
-                {related.length > 1 ? `${provider.name} status` : 'View service status'}
-              </Button>
-            ))}
-          </Group>
-        </Stack>
-      )}
+      {notification && <DesktopDetails notification={notification} actions={actions} />}
     </StandardModal>
   )
 }

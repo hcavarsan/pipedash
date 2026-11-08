@@ -66,7 +66,7 @@ impl<R: Runtime + 'static> EventBus for TauriEventBus<R> {
         let shown = self.admit(&event);
         #[cfg(desktop)]
         {
-            crate::desktop::observe(&self.app_handle, &event);
+            crate::desktop::projection::observe(&self.app_handle, &event);
             if let Some(shown) = &shown {
                 crate::desktop::notifications::record_shown(
                     &self.app_handle,
@@ -84,7 +84,7 @@ impl<R: Runtime + 'static> EventBus for TauriEventBus<R> {
         }
         #[cfg(mobile)]
         {
-            crate::local_notifications::on_event(&self.app_handle, &event).await;
+            crate::local_notifications::events::on_event(&self.app_handle, &event).await;
             if let CoreEvent::ProviderRemoved { provider, .. } = &event {
                 crate::build_watch::interrupt_provider(&self.app_handle, provider.id);
             }
@@ -95,7 +95,10 @@ impl<R: Runtime + 'static> EventBus for TauriEventBus<R> {
             }
         }
         #[cfg(desktop)]
-        if let Some(host) = self.app_handle.try_state::<crate::host::HostEvents>() {
+        if let Some(host) = self
+            .app_handle
+            .try_state::<crate::host::desktop::HostEvents>()
+        {
             let _ = host.0.send(event);
         }
     }
@@ -123,69 +126,4 @@ pub fn create_tauri_event_bus<R: Runtime + 'static>(
 }
 
 #[cfg(test)]
-mod tests {
-    use chrono::Utc;
-    use pipedash_core::application::{
-        LocalNotification,
-        ObservedNotification,
-    };
-    use pipedash_core::domain::{
-        AlertKind,
-        NotificationPreferences,
-    };
-
-    use super::*;
-
-    fn observed(kind: AlertKind) -> CoreEvent {
-        CoreEvent::NotificationObserved {
-            notification: ObservedNotification {
-                id: 7,
-                at: Utc::now(),
-                notice: LocalNotification {
-                    key: "pipeline:github__1__api".to_owned(),
-                    title: "api failed".to_owned(),
-                    body: "main".to_owned(),
-                    pipeline_id: Some("github__1__api".to_owned()),
-                    provider_id: Some(1),
-                    provider_ids: vec![1],
-                    kind,
-                    finish: None,
-                    level: None,
-                    link: None,
-                },
-            },
-        }
-    }
-
-    #[test]
-    fn an_observed_notification_reaches_the_webview_only_as_what_the_app_copy_admits() {
-        let state = LocalNotificationsState::default();
-        let event = observed(AlertKind::Failed);
-
-        let shown = admit(&state, &event);
-        let (name, payload) = webview_payload(&event, shown.as_ref()).unwrap();
-        assert_eq!(name, "notification");
-        assert_eq!(payload["id"], 7);
-        assert_eq!(payload["key"], "pipeline:github__1__api");
-        assert_eq!(payload["tone"], "danger");
-        assert!(payload["fired"].is_null());
-
-        state.merge_preferences(&NotificationPreferences {
-            failed: false,
-            ..NotificationPreferences::default()
-        });
-        let shown = admit(&state, &event);
-        assert!(shown.is_none());
-        assert!(webview_payload(&event, shown.as_ref()).is_none());
-    }
-
-    #[test]
-    fn other_events_keep_their_own_name_and_payload() {
-        let event = CoreEvent::ProvidersChanged;
-
-        let (name, payload) = webview_payload(&event, None).unwrap();
-
-        assert_eq!(name, event.event_name());
-        assert_eq!(payload, event.to_json_payload());
-    }
-}
+mod tests;

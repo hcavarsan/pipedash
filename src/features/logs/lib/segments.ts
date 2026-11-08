@@ -73,7 +73,10 @@ export function segmentsFor(text: string, spans: readonly LogSpan[], highlights:
 
     for (const [from, to, current] of highlights) {
       if (from <= start && to >= end && to > from) {
-        match = current ? 2 : match === 2 ? 2 : 1
+        const level = current ? 2 : 1
+        if (level > match) {
+          match = level
+        }
       }
     }
 

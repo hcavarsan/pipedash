@@ -4,11 +4,9 @@ import type { ReactNode } from 'react'
 import { EmptyState } from '../../../components/common/EmptyState'
 import { type DateRange, getDateRangeLabel, getDateRangeStart } from '../../../utils/dateRange'
 
-import { getWidestRange } from '../lib/metricsUtils'
-
 interface MetricsEmptyStateProps {
   range: DateRange
-  retentionDays: number
+  widest: DateRange
   onRangeChange: (range: DateRange) => void
   onRefresh: () => void
   refreshing: boolean
@@ -16,12 +14,11 @@ interface MetricsEmptyStateProps {
 
 export const MetricsEmptyState = ({
   range,
-  retentionDays,
+  widest,
   onRangeChange,
   onRefresh,
   refreshing,
 }: MetricsEmptyStateProps): ReactNode => {
-  const widest = getWidestRange(retentionDays)
   const canWiden = (getDateRangeStart(widest)?.getTime() ?? 0) < (getDateRangeStart(range)?.getTime() ?? 0)
 
   return (

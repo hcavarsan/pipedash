@@ -1,8 +1,8 @@
 import type { DataTableColumn } from 'mantine-datatable'
 import { useMemo } from 'react'
-import { useTablePreferences } from '../../../queries/useRunHistoryQueries'
-import type { PipelineRun } from '../../../types/domain'
+import type { PipelineRun } from '../../../types/pipelines'
 import { RunActionButtons } from '../components/RunActionControls'
+import { useTablePreferences } from '../queries/useTablePreferences'
 import { useTableColumns } from './useTableColumns'
 
 export interface RunHistoryColumns {

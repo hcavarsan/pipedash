@@ -1,5 +1,9 @@
 use std::collections::HashMap;
 
+use pipedash_plugin_api::config::{
+    invalid_pipeline_id,
+    PIPELINE_ID_SEPARATOR,
+};
 use pipedash_plugin_api::{
     ComponentFilter,
     FeedFormat,
@@ -8,24 +12,12 @@ use pipedash_plugin_api::{
     StatusSource,
 };
 
-pub(crate) fn parse_pipeline_id(id: &str) -> PluginResult<(i64, String, String)> {
-    let parts: Vec<&str> = id.split("__").collect();
-
-    if parts.len() < 4 || parts[0] != "bitbucket" {
-        return Err(PluginError::InvalidConfig(format!(
-            "Invalid pipeline ID format: {}",
-            id
-        )));
-    }
-
-    let provider_id = parts[1]
-        .parse::<i64>()
-        .map_err(|_| PluginError::InvalidConfig(format!("Invalid provider ID in: {}", id)))?;
-
-    let workspace = parts[2].to_string();
-    let repo_slug = parts[3].to_string();
-
-    Ok((provider_id, workspace, repo_slug))
+pub(crate) fn parse_pipeline_id(id: &str) -> PluginResult<(String, String)> {
+    let (workspace, rest) = id
+        .split_once(PIPELINE_ID_SEPARATOR)
+        .ok_or_else(|| invalid_pipeline_id(id))?;
+    let repo_slug = rest.split(PIPELINE_ID_SEPARATOR).next().unwrap_or(rest);
+    Ok((workspace.to_string(), repo_slug.to_string()))
 }
 
 pub(crate) fn check_step_uuid(id: &str) -> PluginResult<()> {
@@ -46,16 +38,6 @@ pub(crate) fn check_step_uuid(id: &str) -> PluginResult<()> {
             "Invalid Bitbucket step ID: {id}"
         )))
     }
-}
-
-pub(crate) fn parse_selected_items(config: &HashMap<String, String>) -> Option<Vec<String>> {
-    config.get("selected_items").map(|items| {
-        items
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect()
-    })
 }
 
 pub(crate) fn get_api_url() -> String {
@@ -100,14 +82,4 @@ pub(crate) fn status_source() -> PluginResult<StatusSource> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn status_source_is_the_bitbucket_statuspage_feed() {
-        let source = status_source().unwrap();
-        assert_eq!(source.feed_url.path(), "/api/v2/summary.json");
-        assert_eq!(source.format, FeedFormat::Statuspage);
-        assert!(matches!(source.components, ComponentFilter::Ids(ids) if ids.len() == 4));
-    }
-}
+mod tests;

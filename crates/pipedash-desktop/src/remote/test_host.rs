@@ -8,10 +8,10 @@ use pipedash_core::infrastructure::{
 };
 use pipedash_core::CoreContext;
 use pipedash_web::state::AppState;
-use pipedash_web::ws::WebSocketEventBus;
+use pipedash_web::ws::event_bus::WebSocketEventBus;
 use tokio::sync::broadcast;
 
-use super::session::ClientHello;
+use super::session::protocol::ClientHello;
 
 pub struct Host {
     pub url: ServerUrl,
@@ -44,10 +44,19 @@ pub async fn start_host_with_relay(relay: Option<&str>) -> Host {
     let storage = StorageManager::from_config(config, false).await.unwrap();
 
     let bus = Arc::new(WebSocketEventBus::from_sender(broadcast::channel(64).0));
-    let core = CoreContext::with_storage_manager(&storage, bus.clone())
-        .await
-        .unwrap();
-    let mut state = AppState::hosted(bus, Some(core.clone()), "Studio");
+    let core = CoreContext::with_storage_manager(
+        &storage,
+        bus.clone(),
+        crate::plugin_registry::plugin_registry(),
+    )
+    .await
+    .unwrap();
+    let mut state = AppState::hosted(
+        bus,
+        Some(core.clone()),
+        "Studio",
+        crate::plugin_registry::plugin_registry(),
+    );
     if let Some(relay) = relay {
         state = state.with_push_relay(relay);
     }

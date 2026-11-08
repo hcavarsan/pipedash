@@ -17,6 +17,16 @@ interface SearchInputProps {
   className?: string | undefined
 }
 
+function ClearSearchButton({ onClear }: { onClear: () => void }): ReactNode {
+  return (
+    <Tooltip label="Clear search">
+      <ActionIcon type="button" size="sm" aria-label="Clear search" onClick={onClear}>
+        <IconX size={14} aria-hidden />
+      </ActionIcon>
+    </Tooltip>
+  )
+}
+
 export function SearchInput({
   value,
   onChange,
@@ -32,6 +42,10 @@ export function SearchInput({
   className,
 }: SearchInputProps): ReactNode {
   const localRef = useRef<HTMLInputElement | null>(null)
+  const handleClear = (): void => {
+    onChange('')
+    localRef.current?.focus()
+  }
 
   return (
     <TextInput
@@ -67,21 +81,7 @@ export function SearchInput({
         (loading || value) && (
           <Group gap="3xs" wrap="nowrap">
             {loading && <Loader size="xs" role="status" aria-label={loadingLabel} />}
-            {value && (
-              <Tooltip label="Clear search">
-                <ActionIcon
-                  type="button"
-                  size="sm"
-                  aria-label="Clear search"
-                  onClick={() => {
-                    onChange('')
-                    localRef.current?.focus()
-                  }}
-                >
-                  <IconX size={14} aria-hidden />
-                </ActionIcon>
-              </Tooltip>
-            )}
+            {value && <ClearSearchButton onClear={handleClear} />}
           </Group>
         )
       }

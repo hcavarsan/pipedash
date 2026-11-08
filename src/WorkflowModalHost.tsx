@@ -5,8 +5,7 @@ import { ErrorBoundary } from './components/ErrorBoundary/ErrorBoundary'
 import { usePlugins } from './queries/usePluginsQueries'
 import { useRefreshProvider } from './queries/useRefreshQueries'
 import { useModalStore } from './stores/modalStore'
-import type { Pipeline } from './types/domain'
-import { canCancelPipeline, canRerunInPlace, getReconcileBlockReason } from './utils/pipelinePresentation'
+import type { Pipeline } from './types/pipelines'
 import { getPluginByType } from './utils/pluginHelpers'
 
 const TriggerWorkflowModal = lazy(() =>
@@ -45,6 +44,16 @@ export function WorkflowModalHost({ pipelines, invalidateAll }: WorkflowModalHos
   const triggerPipeline = triggerModal.open ? pipelines.find((p) => p.id === triggerModal.pipelineId) : undefined
   const logsPipeline = logsModal.open ? pipelines.find((p) => p.id === logsModal.pipelineId) : undefined
 
+  const handleTriggerSuccess = async (pipelineId: string, runNumber: number): Promise<void> => {
+    await syncAfterAction(triggerPipeline?.provider_id)
+    openLogsModal(pipelineId, runNumber)
+  }
+
+  const handleRerunSuccess = async (pipelineId: string, newRunNumber: number): Promise<void> => {
+    await syncAfterAction(logsPipeline?.provider_id)
+    openLogsModal(pipelineId, newRunNumber)
+  }
+
   return (
     <>
       {triggerModal.open && triggerPipeline && (
@@ -54,11 +63,8 @@ export function WorkflowModalHost({ pipelines, invalidateAll }: WorkflowModalHos
               opened
               onClose={closeTriggerModal}
               pipeline={triggerPipeline}
-              initialInputs={triggerModal.initialInputs}
-              onSuccess={async (pipelineId, runNumber) => {
-                await syncAfterAction(triggerPipeline.provider_id)
-                openLogsModal(pipelineId, runNumber)
-              }}
+              rerunOf={triggerModal.rerunOf}
+              onSuccess={handleTriggerSuccess}
             />
           </Suspense>
         </ErrorBoundary>
@@ -72,18 +78,9 @@ export function WorkflowModalHost({ pipelines, invalidateAll }: WorkflowModalHos
               onClose={closeLogsModal}
               pipelineId={logsModal.pipelineId}
               runNumber={logsModal.runNumber}
-              providerId={logsPipeline?.provider_id}
-              providerType={logsPipeline?.provider_type}
               pipeline={logsPipeline}
               canViewLogs={!!logsPipeline && !!getPluginByType(plugins, logsPipeline.provider_type)?.capabilities.logs}
-              canTrigger={!!logsPipeline && !getReconcileBlockReason(logsPipeline)}
-              triggerBlockedReason={logsPipeline ? getReconcileBlockReason(logsPipeline) : undefined}
-              rerunInPlace={!!logsPipeline && canRerunInPlace(logsPipeline)}
-              canCancel={!!logsPipeline && canCancelPipeline(plugins, logsPipeline)}
-              onRerunSuccess={async (pipelineId, newRunNumber) => {
-                await syncAfterAction(logsPipeline?.provider_id)
-                openLogsModal(pipelineId, newRunNumber)
-              }}
+              onRerunSuccess={handleRerunSuccess}
               onCancelSuccess={() => syncAfterAction(logsPipeline?.provider_id)}
             />
           </Suspense>

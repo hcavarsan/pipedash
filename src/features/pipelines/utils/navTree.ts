@@ -1,4 +1,4 @@
-import type { PinKind, PinnedItem, PipelineView } from '../../../types/domain'
+import type { PinKind, PinnedItem, PipelineView } from '../../../types/views'
 import { childViews } from '../../../utils/viewTree'
 
 export interface NavNode {
@@ -15,18 +15,6 @@ export const buildViewNodes = (views: PipelineView[], parent: string | null = nu
     view,
     children: buildViewNodes(views, view.id),
   }))
-
-export const matchesQuery = (name: string, query: string): boolean =>
-  name.toLowerCase().includes(query.trim().toLowerCase())
-
-export const filterNavTree = (nodes: NavNode[], query: string): NavNode[] =>
-  query.trim() === ''
-    ? nodes
-    : nodes.flatMap((node) => {
-        const children = filterNavTree(node.children, query)
-
-        return children.length > 0 || matchesQuery(node.name, query) ? [{ ...node, children }] : []
-      })
 
 export const ancestorKeys = (nodes: NavNode[], key: string): string[] | null => {
   for (const node of nodes) {

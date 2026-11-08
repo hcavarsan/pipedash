@@ -3,8 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 
 import { providerPath, pushState } from '../../../components/layout/mobileChrome'
 import { useNotificationCenterStore } from '../../../stores/notificationCenterStore'
-import type { ProviderSummary } from '../../../types/domain'
-import { isOutageLevel } from '../../../utils/providerAttention'
+import type { ProviderSummary } from '../../../types/providers'
 import { useProviderSignIn } from './useProviderSignIn'
 
 export function useProviderNavigation(): (provider: ProviderSummary, event?: MouseEvent) => void {
@@ -27,13 +26,11 @@ export function useProviderNavigation(): (provider: ProviderSummary, event?: Mou
       void navigate(path, { state: pushState(location.pathname, location.search, location.state) })
     }
 
-    if (provider.recovery === 'sign_in') {
+    const { open_action: action } = provider.attention
+
+    if (action === 'sign_in') {
       signIn(provider.id)
-    } else if (
-      provider.last_fetch_status === 'error' ||
-      provider.freshness.state === 'down' ||
-      isOutageLevel(provider.health.level)
-    ) {
+    } else if (action === 'status') {
       openStatus({ type: 'provider', providerId: provider.id })
     }
   }

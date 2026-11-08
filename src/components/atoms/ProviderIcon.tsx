@@ -18,9 +18,25 @@ const initials = (name: string) => {
   return (second ? `${first.charAt(0)}${second.charAt(0)}` : first.slice(0, 2)).toUpperCase()
 }
 
+const fontSizeFor = (size: number): 'xs' | 'sm' | 'md' | 'lg' | 'xl' => {
+  if (size <= 24) {
+    return 'xs'
+  }
+  if (size <= 32) {
+    return 'sm'
+  }
+  if (size <= 40) {
+    return 'md'
+  }
+  if (size <= 48) {
+    return 'lg'
+  }
+  return 'xl'
+}
+
 export const ProviderIcon = ({ name, icon, size, badge }: ProviderIconProps): ReactNode => {
   const mobileShell = useMobileShell()
-  const fontSize = size <= 24 ? 'xs' : size <= 32 ? 'sm' : size <= 40 ? 'md' : size <= 48 ? 'lg' : 'xl'
+  const fontSize = fontSizeFor(size)
 
   return (
     <Box

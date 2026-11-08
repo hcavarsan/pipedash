@@ -47,13 +47,12 @@ export function NativeBridge(): ReactNode {
       return
     }
 
-    const unread = (items: { read: boolean }[]) => items.filter((item) => !item.read).length
-    let last = unread(useNotificationCenterStore.getState().items)
+    let last = useNotificationCenterStore.getState().unread
 
     mobileService.setBadge(last).catch(() => undefined)
 
     return useNotificationCenterStore.subscribe((state) => {
-      const count = unread(state.items)
+      const count = state.unread
       if (count !== last) {
         last = count
         mobileService.setBadge(count).catch(() => undefined)

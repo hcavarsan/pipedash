@@ -62,11 +62,14 @@ export function useLogSearch({ pipelineId, runNumber, nodeId, revision }: LogSea
     return index
   }, [result])
   const matchLines = useMemo(() => [...matchIndex.keys()], [matchIndex])
-  const failure = search.error
-    ? getErrorCode(search.error) === 'BAD_REQUEST'
-      ? SEARCH_ERROR
-      : errorMessage(search.error, "Couldn't search the log")
-    : null
+  let failure: string | null = null
+
+  if (search.error) {
+    failure =
+      getErrorCode(search.error) === 'BAD_REQUEST'
+        ? SEARCH_ERROR
+        : errorMessage(search.error, "Couldn't search the log")
+  }
 
   return {
     queryText,

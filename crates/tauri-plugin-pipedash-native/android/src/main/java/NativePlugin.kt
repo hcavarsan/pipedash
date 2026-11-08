@@ -18,7 +18,6 @@ import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.view.WindowCompat
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
-import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
@@ -27,60 +26,7 @@ import java.io.File
 import java.io.IOException
 import org.json.JSONObject
 
-private const val PREFS = "pipedash.native"
-private const val APPEARANCE_KEY = "appearance"
 private const val BUILD_WATCH_UNSUPPORTED = "Build watching isn't available on Android"
-
-fun isDarkTheme(context: Context): Boolean {
-    val scheme = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(APPEARANCE_KEY, "system")
-    val night = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
-    return scheme == "dark" || (scheme != "light" && night == Configuration.UI_MODE_NIGHT_YES)
-}
-
-@InvokeArg
-class HapticArgs {
-    lateinit var kind: String
-}
-
-@InvokeArg
-class AppearanceArgs {
-    lateinit var scheme: String
-}
-
-@InvokeArg
-class PrivacyCoverArgs {
-    var armed: Boolean = false
-    var holdForFrontend: Boolean = false
-}
-
-@InvokeArg
-class ShareArgs {
-    lateinit var path: String
-}
-
-@InvokeArg
-class ShareRect {
-    var x: Double = 0.0
-    var y: Double = 0.0
-    var width: Double = 0.0
-    var height: Double = 0.0
-}
-
-@InvokeArg
-class ShareLinkArgs {
-    lateinit var url: String
-    lateinit var sourceRect: ShareRect
-}
-
-@InvokeArg
-class AuthSessionArgs {
-    lateinit var url: String
-}
-
-@InvokeArg
-class ConfigureNotificationsArgs {
-    var enabled: Boolean = false
-}
 
 @TauriPlugin
 class NativePlugin(private val host: Activity) : Plugin(host) {

@@ -11,7 +11,7 @@ import {
 } from '@mantine/core'
 import type { ChangeEvent, ReactNode } from 'react'
 import { SwitchRow } from '../../../../components/ios/mobileParts'
-import type { ConfigField } from '../../../../types/domain'
+import type { ConfigField } from '../../../../types/plugins'
 import { fieldA11y, withoutType } from '../../../../utils/formFields'
 
 import { ShellField } from './ShellForm'

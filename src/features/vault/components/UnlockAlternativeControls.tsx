@@ -3,7 +3,7 @@ import { IconFaceId, IconFingerprint } from '@tabler/icons-react'
 import { type ReactNode, useCallback, useEffect, useRef } from 'react'
 
 import { useUnlockVault, useUnlockWithBiometrics } from '../../../queries/useVaultQueries'
-import type { AppLockStatus } from '../../../types/domain'
+import type { AppLockStatus } from '../../../types/vault'
 import { biometryLabel } from '../../../utils/appLock'
 import { errorMessage } from '../../../utils/errorDisplay'
 
@@ -76,7 +76,10 @@ export function UnlockAlternativeControls({
   const size = mobileShell ? 'lg' : 'md'
   const iconSize = mobileShell ? 22 : 18
   const Icon = biometry === 'touchId' ? IconFingerprint : IconFaceId
-  const biometricVariant = requiresPassword ? (mobileShell ? 'subtle' : 'light') : 'filled'
+  let biometricVariant: 'filled' | 'light' | 'subtle' = 'filled'
+  if (requiresPassword) {
+    biometricVariant = mobileShell ? 'subtle' : 'light'
+  }
   const biometricPrefix = mobileShell && requiresPassword ? 'Use' : 'Unlock with'
 
   return (

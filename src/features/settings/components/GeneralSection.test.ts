@@ -5,7 +5,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement } from 'react'
 
 import { installRequestSubmitShim } from '../../../testing/requestSubmitShim'
-import type { GeneralConfig, StorageConfigResponse } from '../../../types/domain'
+import type { GeneralConfig, StorageConfigResponse } from '../../../types/storage'
 
 GlobalRegistrator.register({ width: 393, height: 852, settings: { navigator: { userAgent: 'iPhone' } } })
 
@@ -98,29 +98,6 @@ test('phone settings can recover a failed load and block overlapping saves', asy
       proxy_url: '',
     })
   })
-})
-
-test('phone proxy rejects malformed and credential urls without saving', async (context) => {
-  const user = userEvent.setup({ document })
-  const config = storageConfig()
-  const writes: GeneralConfig[] = []
-  context.mock.method(apiService, 'getStorageConfig', async () => config)
-  context.mock.method(apiService, 'updateGeneralSettings', async (general: GeneralConfig) => {
-    writes.push(general)
-  })
-  await renderGeneral()
-
-  const proxy = await view().findByRole('textbox', { name: 'Proxy URL' })
-  assert.ok(proxy instanceof HTMLInputElement)
-  const save = view().getByRole('button', { name: 'Save proxy' })
-
-  for (const value of ['https://', 'http://user:secret@proxy.example.com:3128']) {
-    await user.clear(proxy)
-    await user.type(proxy, value)
-    await waitFor(() => assert.equal(proxy.getAttribute('aria-invalid'), 'true'))
-    await user.click(save)
-    assert.deepEqual(writes, [])
-  }
 })
 
 test('phone proxy saves the trimmed address and keeps unrelated settings', async (context) => {

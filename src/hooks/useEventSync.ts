@@ -5,7 +5,7 @@ import { logger } from '../lib/logger'
 import { applyProviderStatus } from '../lib/providerStatusSync'
 import { queryKeys } from '../lib/queryKeys'
 import { invalidateProviderPipelines, setProviderPipelines } from '../queries/usePipelinesQueries'
-import { events } from '../services/service'
+import { listenEvent } from '../services/events'
 import { WS_EVENTS } from '../services/websocket'
 import { useAuthStore } from '../stores/authStore'
 import type { EventPayloadMap } from '../types/events'
@@ -73,7 +73,7 @@ export function useEventSync(): void {
 
     async function register<T>(name: string, handler: (payload: T) => void | Promise<void>) {
       try {
-        const unlisten = await events.listen<T>(name, (payload) => {
+        const unlisten = await listenEvent<T>(name, (payload) => {
           if (!mounted) {
             return
           }
@@ -348,8 +348,7 @@ export function useEventSync(): void {
       }
     }
 
-    events
-      .listen<{ status: string; reconnectAttempts: number }>(WS_EVENTS.CONNECTION_STATUS, handleConnectionStatus)
+    listenEvent<{ status: string; reconnectAttempts: number }>(WS_EVENTS.CONNECTION_STATUS, handleConnectionStatus)
       .then((stop) => {
         if (mounted) {
           unlisten = stop

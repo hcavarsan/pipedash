@@ -4,7 +4,7 @@ import { after, afterEach, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement } from 'react'
 
-import type { AggregatedMetrics } from '../../../types/domain'
+import { dashboardFixture } from '../../../testing/metrics'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
@@ -26,12 +26,12 @@ after(async () => {
 test('invalid chart timestamps show a fallback outside the expand button and the card still expands', async () => {
   const user = userEvent.setup({ document })
   let expanded = 0
-  const brokenData: AggregatedMetrics = {
+  const brokenData = dashboardFixture({
     metric_type: 'run_duration',
     aggregation_period: 'hourly',
     total_count: 1,
     metrics: [{ timestamp: 'invalid timestamp', value: 42, count: 1, min: 42, max: 42, avg: 42 }],
-  }
+  })
 
   await act(async () => {
     render(

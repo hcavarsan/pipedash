@@ -1,7 +1,16 @@
-import type { ProviderConfig } from '../../../../types/domain'
+import type { AuthMode } from '../../../../types/plugins'
+import type { ProviderConfig } from '../../../../types/providers'
 import { AUTH_MODE_KEY, SIGN_IN_KEY, TOKEN_KEY } from '../../lib/credentials'
 
 import { type FormAction, type FormState, initialFormState } from './types'
+
+function authModeOf(config: Record<string, string>): AuthMode {
+  if (config[AUTH_MODE_KEY] === 'none') {
+    return 'none'
+  }
+
+  return SIGN_IN_KEY in config ? 'sign_in' : 'token'
+}
 
 export function formReducer(state: FormState, action: FormAction): FormState {
   switch (action.type) {
@@ -59,23 +68,11 @@ export function formReducer(state: FormState, action: FormAction): FormState {
       const newFieldErrors = { ...state.fieldErrors }
 
       delete newFieldErrors[action.key]
-      const scopeChanged =
-        (action.key === 'kubeconfig' || action.key === 'context' || action.key === 'namespaces') &&
-        state.configValues[action.key] !== action.value
       const configValues = { ...state.configValues, [action.key]: action.value }
-
-      if (scopeChanged) {
-        delete configValues.selected_items
-        if (action.key === 'kubeconfig') {
-          configValues.context = ''
-        }
-      }
 
       return {
         ...state,
         configValues,
-        selectedPipelines: scopeChanged ? new Set() : state.selectedPipelines,
-        repositorySearch: scopeChanged ? '' : state.repositorySearch,
         selectedOrganization: '',
         fieldErrors: newFieldErrors,
       }
@@ -152,6 +149,9 @@ export function formReducer(state: FormState, action: FormAction): FormState {
       return { ...state, selectedPipelines }
     }
 
+    case 'CLEAR_PIPELINES':
+      return { ...state, selectedPipelines: new Set(), repositorySearch: '' }
+
     case 'START_SELECT_ALL':
       return { ...state, selectingAll: true, selectAllRun: action.run }
 
@@ -205,7 +205,7 @@ export function formReducer(state: FormState, action: FormAction): FormState {
         ...state,
         selectedPlugin: action.plugin,
         providerName: action.provider.config.display_name || action.provider.name,
-        authMode: initialConfig[AUTH_MODE_KEY] === 'none' ? 'none' : SIGN_IN_KEY in initialConfig ? 'sign_in' : 'token',
+        authMode: authModeOf(initialConfig),
         configValues: initialConfig,
         selectedPipelines: new Set(
           (initialConfig.selected_items ?? '')

@@ -7,7 +7,8 @@ import { ErrorState } from '../../../components/common/ErrorState'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { RunDuration } from '../../../components/common/RunDuration'
 import { TYPOGRAPHY } from '../../../theme/typography'
-import type { PipelineRun } from '../../../types/domain'
+import type { PipelineRun } from '../../../types/pipelines'
+import type { PluginPresentation } from '../../../types/plugin_presentation'
 import { isLiveRun } from '../../../utils/runTiming'
 import { RunDetailFields, useDetailRows } from './RunDetailFields'
 
@@ -19,11 +20,10 @@ interface RunDetailsContentProps {
   error: Error | null
   loading: boolean
   fetching: boolean
-  isFlux: boolean
+  presentation: PluginPresentation | undefined
   isMobile: boolean
   mobileShell: boolean
   cancellationRequested: boolean
-  typicalSeconds?: number | undefined
   onRetry: () => void
   children?: ReactNode
 }
@@ -57,55 +57,53 @@ function LoadedRunDetails({
   runNumber,
   providerId,
   run,
-  isFlux,
+  presentation,
   isMobile,
   mobileShell,
   cancellationRequested,
-  typicalSeconds,
   children,
 }: LoadedProps): ReactNode {
   const rows = useDetailRows(providerId, run)
   const isRunning = run.status === 'running' || run.status === 'pending'
   const progress = isLiveRun(run) ? (
     <>
-      Running for <RunDuration run={run} typicalSeconds={typicalSeconds} />. Details update live.
+      Running for <RunDuration run={run} />. Details update live.
     </>
   ) : (
     'Details update live.'
   )
 
+  const status = cancellationRequested
+    ? 'Cancellation requested. Waiting for the provider to confirm the final status.'
+    : progress
+
   const notices = (
     <>
       <BuildWatchControls pipelineId={pipelineId} runNumber={runNumber} status={run.status} />
-      {run.metadata?.archived === true && (
-        <Alert color="gray" title="Cached reconciliation">
-          Flux no longer retains this entry. These details come from Pipedash's cache and will disappear if the cache is
-          cleared.
+      {run.metadata?.archived === true && presentation?.archived_notice && (
+        <Alert color="gray" title={presentation.archived_notice.title}>
+          {presentation.archived_notice.message}
         </Alert>
       )}
       {isRunning &&
         (mobileShell ? (
-          <Alert
-            color="blue"
-            icon={<IconRefresh size={16} aria-hidden />}
-            title={isFlux ? 'Reconciliation in progress' : 'Run in progress'}
-          >
+          <Alert color="blue" icon={<IconRefresh size={16} aria-hidden />} title={presentation?.progress_title}>
             <Text size={TYPOGRAPHY.HELPER_TEXT.size}>{progress}</Text>
           </Alert>
         ) : (
           <Alert color="gray" title={<StatusBadge status={run.status} />}>
             <Text size={TYPOGRAPHY.HELPER_TEXT.size} role="status">
-              {cancellationRequested
-                ? 'Cancellation requested. Waiting for the provider to confirm the final status.'
-                : progress}
+              {status}
             </Text>
           </Alert>
         ))}
     </>
   )
 
+  const compactGap = isMobile ? 'xs' : 'md'
+
   return (
-    <Stack gap={mobileShell ? 'lg' : isMobile ? 'xs' : 'md'}>
+    <Stack gap={mobileShell ? 'lg' : compactGap}>
       {notices}
       <RunDetailFields rows={rows} run={run} mobileShell={mobileShell} isMobile={isMobile} />
       {children}

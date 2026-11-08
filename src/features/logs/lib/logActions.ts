@@ -1,5 +1,6 @@
 import type { LogLinesPage } from '../../../types/logs'
 import { formatCount } from '../../../utils/formatCount'
+import { partitionPoint } from './binarySearch'
 
 export const FULL_LINE_UNITS = 1_048_576
 export const COPY_MAX_LINES = 50_000
@@ -86,18 +87,7 @@ export function errorCounter(
     return failed ? 'Failed, no error lines' : 'No errors'
   }
 
-  let low = 0
-  let high = errorLines.length
-
-  while (line !== null && low < high) {
-    const mid = (low + high) >>> 1
-
-    if ((errorLines[mid] ?? Infinity) < line) {
-      low = mid + 1
-    } else {
-      high = mid
-    }
-  }
+  const low = line === null ? 0 : partitionPoint(errorLines.length, (index) => (errorLines[index] ?? Infinity) < line)
 
   return line !== null && errorLines[low] === line
     ? `Error ${(low + 1).toLocaleString()} of ${errorTotal.toLocaleString()}`

@@ -1,7 +1,7 @@
 import { Text } from '@mantine/core'
 import type { ReactNode } from 'react'
 import { ProviderIcon } from '../../../components/atoms/ProviderIcon'
-import type { ProviderSummary } from '../../../types/domain'
+import type { ProviderSummary } from '../../../types/providers'
 import { providerBadge } from '../../../utils/fetchInfo'
 import { formatCount } from '../../../utils/formatCount'
 import { formatTime } from '../../../utils/formatDateTime'

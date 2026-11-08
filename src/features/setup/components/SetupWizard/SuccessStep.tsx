@@ -1,8 +1,7 @@
-import { Button, Card, Code, Group, SimpleGrid, Stack, Text, ThemeIcon, Title } from '@mantine/core'
-import { IconAlertTriangle, IconCheck, IconCircleCheckFilled } from '@tabler/icons-react'
+import { Button, Stack, Text, ThemeIcon, Title } from '@mantine/core'
+import { IconCheck, IconCircleCheckFilled } from '@tabler/icons-react'
 import { useMutation } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
-import { CopyButton } from '../../../../components/atoms/CopyButton'
 import { ErrorState } from '../../../../components/common/ErrorState'
 import { IosGroup, IosRow } from '../../../../components/ios/IosList'
 import { useMobileShell } from '../../../../hooks/useIsMobile'
@@ -11,10 +10,10 @@ import { hasLocalCore } from '../../../../services/connection'
 import { service } from '../../../../services/service'
 import { isMobilePlatform } from '../../../../utils/platform'
 
+import { MigrationSummaryCard } from './MigrationSummaryCard'
+import { PasswordReminderCard } from './PasswordReminderCard'
+import { RestartPrompt } from './RestartPrompt'
 import type { SuccessStepProps } from './types'
-import { buildVaultExportCommand } from './vaultExportCommand'
-
-const LABEL_WIDTH = 130
 
 export function SuccessStep({
   state,
@@ -33,7 +32,6 @@ export function SuccessStep({
   const restartError = restart.error
 
   const envVarName = vaultStatus.env_var_name || 'PIPEDASH_VAULT_PASSWORD'
-  const exportCommand = buildVaultExportCommand(envVarName, state.vaultPassword)
 
   const showPasswordReminder = !onDevice && !vaultPasswordFromEnv && state.vaultPassword
 
@@ -106,101 +104,12 @@ export function SuccessStep({
         Setup complete
       </Text>
 
-      {migrationStats !== null && (
-        <Card p="md" w="100%">
-          <Stack gap="sm">
-            <Text size="sm" fw={600}>
-              Migration summary
-            </Text>
-            <SimpleGrid cols={4} spacing="xs">
-              {migratedCounts.map(({ label, value }) => (
-                <Stack key={label} gap="4xs" align="center">
-                  <Text size="xs" c="dimmed">
-                    {label}
-                  </Text>
-                  <Text size="md" fw={600}>
-                    {value}
-                  </Text>
-                </Stack>
-              ))}
-            </SimpleGrid>
-          </Stack>
-        </Card>
-      )}
+      {migrationStats !== null && <MigrationSummaryCard counts={migratedCounts} />}
 
-      {showPasswordReminder && (
-        <Card
-          p="md"
-          w="100%"
-          style={{
-            borderColor: 'var(--mantine-color-orange-light-color)',
-            backgroundColor: 'var(--mantine-color-orange-light)',
-          }}
-        >
-          <Stack gap="sm">
-            <Group gap="xs">
-              <IconAlertTriangle size={16} color="var(--mantine-color-orange-light-color)" aria-hidden />
-              <Text size="sm" fw={600}>
-                Required for next launch
-              </Text>
-            </Group>
-
-            <Stack gap="xs">
-              <Group justify="space-between" wrap="nowrap" gap="xs">
-                <Text size="sm" c="dimmed" miw={LABEL_WIDTH} style={{ flexShrink: 0 }}>
-                  Environment variable
-                </Text>
-                <Text size="sm" fw={500}>
-                  {envVarName}
-                </Text>
-              </Group>
-
-              <Group gap="xs" wrap="nowrap" align="center">
-                {exportCommand ? (
-                  <>
-                    <Code block fz="xs" p="xs" style={{ flex: 1, wordBreak: 'break-all' }}>
-                      {exportCommand}
-                    </Code>
-                    <CopyButton value={exportCommand} label="Copy export command" />
-                  </>
-                ) : (
-                  <Text size="xs" c="red">
-                    The variable name {envVarName} is not a valid shell variable name.
-                  </Text>
-                )}
-              </Group>
-
-              <Text size="xs" c="dimmed">
-                Add this to your shell profile (~/.zshrc or ~/.bashrc) or run before starting the app.
-              </Text>
-            </Stack>
-          </Stack>
-        </Card>
-      )}
+      {showPasswordReminder && <PasswordReminderCard envVarName={envVarName} password={state.vaultPassword} />}
 
       {migrationStats !== null && hasLocalCore() ? (
-        <>
-          <Text size="sm" c="dimmed" ta="center">
-            {onDevice ? 'Reload' : 'Restart'} required to load the new database
-          </Text>
-          {restartError === null ? (
-            <Button onClick={handleRestart} loading={restarting}>
-              {onDevice ? 'Reload now' : 'Restart now'}
-            </Button>
-          ) : (
-            <ErrorState
-              title={onDevice ? "Couldn't reload Pipedash" : "Couldn't restart Pipedash"}
-              error={restartError}
-              hint={
-                onDevice
-                  ? 'Close and reopen Pipedash to load the new database.'
-                  : 'Close and reopen Pipedash manually to load the new database.'
-              }
-              onRetry={handleRestart}
-              retrying={restarting}
-            />
-          )}
-        </>
+        <RestartPrompt onDevice={onDevice} error={restartError} restarting={restarting} onRestart={handleRestart} />
       ) : (
         <>
           <Text size="sm" c="dimmed" ta="center">

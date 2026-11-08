@@ -9,7 +9,8 @@ import { createElement } from 'react'
 import { wsClient } from '../../services/websocket'
 import { useAuthStore } from '../../stores/authStore'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
-import { DEFAULT_NOTIFICATION_PREFERENCES, pendingWatches, useNotificationStore } from '../../stores/notificationStore'
+import { DEFAULT_NOTIFICATION_PREFERENCES, useNotificationStore } from '../../stores/notificationStore'
+import { installNotificationCenterDouble } from '../../testing/notificationCenter'
 import { isRecord } from '../../utils/isRecord'
 import { useNotificationEvents } from '../useNotificationEvents'
 import { failedNotification, outageNotification } from './notificationPayloads'
@@ -52,11 +53,13 @@ const reconnect = () => {
   return socket
 }
 
+installNotificationCenterDouble()
+
 afterEach(async () => {
   await act(async () => cleanup())
   wsClient.dispose()
   useAuthStore.getState().clearToken()
-  useNotificationCenterStore.setState({ items: [], selection: null })
+  useNotificationCenterStore.setState({ items: [], revision: 0, unread: 0, selection: null })
   Socket.instances.length = 0
   delivered.length = 0
   useNotificationStore.setState({ notificationsEnabled: false, preferences: DEFAULT_NOTIFICATION_PREFERENCES })
@@ -107,7 +110,10 @@ test('a fired one-time request in a frame is marked used', async () => {
   await emit(socket, 'notification', { ...failedNotification, fired })
   const { preferences } = useNotificationStore.getState()
   assert.deepEqual(preferences.watch_once, [fired])
-  assert.deepEqual(pendingWatches(preferences), [])
+  assert.deepEqual(
+    preferences.watch_once.filter((item) => !item.fired_at),
+    []
+  )
 })
 
 test('the preferences go out when the socket opens and whenever they change', async () => {
@@ -117,7 +123,7 @@ test('the preferences go out when the socket opens and whenever they change', as
   ])
 
   await act(async () => {
-    useNotificationStore.getState().setKindEnabled('failed', false)
+    useNotificationStore.setState({ preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, failed: false } })
   })
   assert.deepEqual(preferenceFrames(socket).at(-1), {
     type: 'notification-preferences',
@@ -166,7 +172,7 @@ test('preferences changed before the server accepts the token are not sent', asy
   useAuthStore.getState().setToken('wrong')
   const socket = await mount()
   await act(async () => {
-    useNotificationStore.getState().setKindEnabled('failed', false)
+    useNotificationStore.setState({ preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, failed: false } })
   })
   assert.deepEqual(preferenceFrames(socket), [])
 })

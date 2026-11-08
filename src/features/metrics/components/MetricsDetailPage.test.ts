@@ -19,13 +19,23 @@ const METRICS = {
   metrics: [{ timestamp: '2026-10-25T12:00:00Z', value: 42, count: 1, min: 42, max: 42, avg: 42 }],
 }
 
-let metricsResponse: () => Promise<unknown> = async () => METRICS
+const dashboard = (data: typeof METRICS) => ({
+  data,
+  observed: data.metrics.map(() => true),
+  stats: { average: 42, latest: 42, max: 42, observed: data.metrics.length, total: data.metrics.length },
+  table_indices: data.metrics.map((_, index) => index),
+  ranges: [],
+  widest_range: '24h',
+  aggregation_type: 'avg',
+})
+
+let metricsResponse: () => Promise<unknown> = async () => dashboard(METRICS)
 let pending = Promise.withResolvers<SavedFile>()
 let saveResponse: () => Promise<SavedFile> = () => pending.promise
 const exports: Array<{ fileName: string; contents: number[] }> = []
 
 mockIPC((command, args) => {
-  if (command === 'query_aggregated_metrics') {
+  if (command === 'get_metrics_dashboard') {
     return metricsResponse()
   }
   assert.equal(command, 'save_export_file')
@@ -63,7 +73,6 @@ const renderMetricsDetail = () => {
             metricType: 'run_duration',
             initialDateRange: '24h',
             initialAggregation: 'hourly',
-            retentionDays: 30,
           })
         )
       )
@@ -74,7 +83,7 @@ const renderMetricsDetail = () => {
 }
 
 beforeEach(() => {
-  metricsResponse = async () => METRICS
+  metricsResponse = async () => dashboard(METRICS)
   pending = Promise.withResolvers<SavedFile>()
   saveResponse = () => pending.promise
   exports.length = 0
@@ -142,7 +151,7 @@ test('a rejected metrics request shows the error and recovers on retry', async (
   renderMetricsDetail()
 
   assert.ok(await view().findByText(/Couldn't load run duration metrics/))
-  metricsResponse = async () => METRICS
+  metricsResponse = async () => dashboard(METRICS)
   await user.click(view().getByRole('button', { name: 'Retry' }))
   await waitFor(() =>
     assert.equal(view().getByRole('button', { name: 'Export metrics' }).hasAttribute('disabled'), false)
@@ -150,7 +159,7 @@ test('a rejected metrics request shows the error and recovers on retry', async (
 })
 
 test('an empty metrics response explains that no runs were recorded', async () => {
-  metricsResponse = async () => ({ ...METRICS, total_count: 0, metrics: [] })
+  metricsResponse = async () => dashboard({ ...METRICS, total_count: 0, metrics: [] })
   renderMetricsDetail()
 
   assert.ok(await view().findByText('No runs in this time range'))

@@ -1,18 +1,15 @@
 import { Box, Card, Checkbox, Group, px, Stack, Text, UnstyledButton, useMantineTheme } from '@mantine/core'
 import { type ReactNode, type RefObject, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useContextMenu } from '../../../components/common/ContextMenu'
-import {
-  FetchInfo,
-  type PipelineActions,
-  type PipelineSelection,
-  PipelineStatusBadge,
-  WorkflowActions,
-  workflowMenuItems,
-} from '../../../components/common/PipelineRowParts'
+import { FetchInfo } from '../../../components/common/PipelineFetchInfo'
+import { WorkflowActions } from '../../../components/common/PipelineRowActions'
+import { PipelineStatusBadge } from '../../../components/common/PipelineStatusBadge'
 import { VirtualList } from '../../../components/common/VirtualList'
-import type { ProviderSummary, ViewPipeline } from '../../../types/domain'
+import type { PipelineActions, PipelineSelection } from '../../../types/pipelineRows'
+import type { ProviderSummary } from '../../../types/providers'
+import type { ViewPipeline } from '../../../types/views'
 import { formatDateTime } from '../../../utils/formatDateTime'
-import { getPipelineLabels } from '../../../utils/pipelinePresentation'
+import { historyLabel, workflowMenuItems } from '../../../utils/pipelineRowActions'
 
 const CARD_ROW_ESTIMATE = 130
 
@@ -42,7 +39,7 @@ function useColumnCount(containerRef: RefObject<HTMLDivElement | null>): number 
     }
     const measure = () => {
       const width = window.innerWidth
-      setColumns(width >= xl ? 4 : width >= lg ? 3 : width >= sm ? 2 : 1)
+      setColumns([xl, lg, sm].filter((breakpoint) => width >= breakpoint).length + 1)
     }
 
     measure()
@@ -97,7 +94,7 @@ function PipelineCard({ pipeline, getProvider, actions, selection }: PipelineIte
           <UnstyledButton
             className="item-primary"
             onClick={() => actions.onViewHistory(pipeline)}
-            aria-label={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()} for ${pipeline.name}`}
+            aria-label={`View ${historyLabel(actions, pipeline.provider_type)} for ${pipeline.name}`}
             miw={0}
             flex={1}
           >
@@ -126,6 +123,10 @@ function PipelineCard({ pipeline, getProvider, actions, selection }: PipelineIte
   )
 }
 
+function GridCards({ row, ...rest }: { row: GridRow } & Omit<PipelineCardGridProps, 'pipelines'>): ReactNode {
+  return row.pipelines.map((pipeline) => <PipelineCard key={pipeline.id} pipeline={pipeline} {...rest} />)
+}
+
 export function PipelineCardGrid({ pipelines, getProvider, actions, selection }: PipelineCardGridProps): ReactNode {
   const containerRef = useRef<HTMLDivElement>(null)
   const columns = useColumnCount(containerRef)
@@ -146,15 +147,7 @@ export function PipelineCardGrid({ pipelines, getProvider, actions, selection }:
               gap: 'var(--mantine-spacing-sm)',
             }}
           >
-            {row.pipelines.map((pipeline) => (
-              <PipelineCard
-                key={pipeline.id}
-                pipeline={pipeline}
-                getProvider={getProvider}
-                actions={actions}
-                selection={selection}
-              />
-            ))}
+            <GridCards row={row} getProvider={getProvider} actions={actions} selection={selection} />
           </Box>
         )}
       />

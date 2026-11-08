@@ -1,17 +1,17 @@
-import { Button, Group, Stack, Text } from '@mantine/core'
+import { Button, Group, Text } from '@mantine/core'
 import { type ReactNode, useActionState, useId, useRef, useState } from 'react'
-import { parse } from 'smol-toml'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { notifications } from '../../../lib/notifications'
 import { useMigrateAndSaveConfig, useSaveConfigContent } from '../../../queries/useStorageQueries'
-import type { ConfigAnalysisResponse, MigrationOptions, MigrationPlan } from '../../../types/domain'
+import type { ConfigAnalysisResponse, MigrationOptions, MigrationPlan } from '../../../types/storage'
 import { openConfirm } from '../../../utils/confirm'
 import { errorMessage } from '../../../utils/errorDisplay'
 import { formatCount } from '../../../utils/formatCount'
 import { useAnalyzeConfigNow, useConfigAnalysis } from '../hooks/useConfigAnalysis'
 import { ConfigAnalysisNotices } from './ConfigAnalysisNotices'
 import { ConfigEditorField } from './ConfigEditorField'
+import { ConfigWarningsList } from './ConfigWarningsList'
 import { MigrationConfirmModal } from './MigrationConfirmModal'
 
 interface ConfigEditorModalProps {
@@ -34,20 +34,6 @@ const IDLE_STATE: EditorActionState = { forContent: null, saveError: null, analy
 
 const FORM_STYLE = { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' } as const
 
-function validateConfigToml(content: string): string | null {
-  if (!content.trim()) {
-    return 'Config file cannot be empty'
-  }
-
-  try {
-    parse(content)
-
-    return null
-  } catch (error) {
-    return error instanceof Error ? error.message : 'Invalid TOML syntax'
-  }
-}
-
 export const ConfigEditorModal = ({ onClose, initialContent, onSaved }: ConfigEditorModalProps): ReactNode => {
   const mobileShell = useMobileShell()
   const formId = useId()
@@ -59,11 +45,9 @@ export const ConfigEditorModal = ({ onClose, initialContent, onSaved }: ConfigEd
   const analyzeNow = useAnalyzeConfigNow()
 
   const hasChanges = content !== initialContent
-  const localError = validateConfigToml(content)
-  const background = useConfigAnalysis(content, hasChanges && localError === null)
+  const background = useConfigAnalysis(content, hasChanges)
   const analysis = background.data ?? null
-  const serverError = analysis && !analysis.valid ? (analysis.errors[0]?.message ?? null) : null
-  const validationError = localError ?? serverError
+  const validationError = analysis && !analysis.valid ? (analysis.errors[0]?.message ?? null) : null
 
   const persist = async (submitted: string): Promise<string | null> => {
     try {
@@ -90,21 +74,19 @@ export const ConfigEditorModal = ({ onClose, initialContent, onSaved }: ConfigEd
 
   const [state, formAction, isPending] = useActionState(async (): Promise<EditorActionState> => {
     const submitted = content
-    let result: ConfigAnalysisResponse | null = null
+    let result: ConfigAnalysisResponse
 
-    if (validateConfigToml(submitted) === null) {
-      try {
-        result = await analyzeNow(submitted)
-      } catch (error) {
-        return {
-          forContent: submitted,
-          saveError: null,
-          analysisError: errorMessage(error, 'Check the TOML syntax and try again.'),
-        }
+    try {
+      result = await analyzeNow(submitted)
+    } catch (error) {
+      return {
+        forContent: submitted,
+        saveError: null,
+        analysisError: errorMessage(error, 'Check the TOML syntax and try again.'),
       }
     }
 
-    if (!result?.valid) {
+    if (!result.valid) {
       if (mobileShell) {
         notifications.show({
           title: 'Configuration is invalid',
@@ -127,15 +109,7 @@ export const ConfigEditorModal = ({ onClose, initialContent, onSaved }: ConfigEd
       openConfirm({
         zIndex: 400,
         title: 'Configuration warnings',
-        children: (
-          <Stack gap="xs">
-            {result.warnings.map((warning) => (
-              <Text key={`${warning.field}:${warning.message}`} size="sm">
-                • {warning.message}
-              </Text>
-            ))}
-          </Stack>
-        ),
+        children: <ConfigWarningsList warnings={result.warnings} />,
         labels: { confirm: 'Save anyway', cancel: 'Cancel' },
         confirmProps: { color: 'orange' },
         onConfirm: () => {
@@ -185,7 +159,7 @@ export const ConfigEditorModal = ({ onClose, initialContent, onSaved }: ConfigEd
 
   const submitting = isPending || submission !== null || saveConfig.isPending || migrateAndSave.isPending
   const saveLoading = submitting || background.isFetching
-  const saveDisabled = validationError !== null || !hasChanges
+  const saveDisabled = validationError !== null || background.isError || !hasChanges
   const current = state.forContent === content ? state : IDLE_STATE
   const backgroundError = background.error
     ? errorMessage(background.error, 'Check the TOML syntax and try again.')

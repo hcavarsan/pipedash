@@ -3,8 +3,8 @@ import { type ReactNode, useMemo } from 'react'
 import { StatusBadge } from '../../../components/atoms/StatusBadge'
 import { VirtualList } from '../../../components/common/VirtualList'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
-import type { PipelineRun } from '../../../types/domain'
-import type { CancelGroup } from '../../../utils/cancelActiveRuns'
+import type { PipelineRun } from '../../../types/pipelines'
+import type { CancelGroup } from '../../../types/run_action_batch'
 import { formatRelativeTime } from '../../../utils/formatRelativeTime'
 
 type TargetRow = { kind: 'header'; group: CancelGroup } | { kind: 'run'; group: CancelGroup; run: PipelineRun }
@@ -32,7 +32,7 @@ export function CancelRunTargets({ groups, now, shell, where }: CancelRunTargets
   const renderRow = (row: TargetRow): ReactNode => {
     if (row.kind === 'header') {
       return shell ? (
-        <IosRow title={`${row.group.pipeline.name} · ${row.group.name}`} subtitle={where(row.group)} />
+        <IosRow title={`${row.group.pipeline.name} · ${row.group.provider_name}`} subtitle={where(row.group)} />
       ) : (
         <>
           <Group justify="space-between" wrap="nowrap" gap="md" pt="xs">
@@ -40,7 +40,7 @@ export function CancelRunTargets({ groups, now, shell, where }: CancelRunTargets
               {row.group.pipeline.name}
             </Text>
             <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
-              {row.group.name}
+              {row.group.provider_name}
             </Text>
           </Group>
           <Text size="xs" c="dimmed" style={{ overflowWrap: 'anywhere' }}>

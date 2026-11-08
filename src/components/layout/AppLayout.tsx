@@ -1,4 +1,4 @@
-import { AppShell, Box } from '@mantine/core'
+import { AppShell, type AppShellProps, Box } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
@@ -19,6 +19,19 @@ import { useSidebarResize } from './useSidebarResize'
 interface AppLayoutProps {
   children: ReactNode
   onOpenSettings?: () => void
+}
+
+const MOBILE_HEADER_STYLE = {
+  background: 'transparent',
+  paddingInline: 'max(var(--safe-left), var(--safe-right))',
+  borderBottom: 0,
+  backdropFilter: 'none',
+  WebkitBackdropFilter: 'none',
+  transition: 'none',
+}
+
+const MOBILE_MAIN_STYLE = {
+  paddingBottom: 'calc(var(--app-shell-padding) + var(--tab-bar-reserve) + var(--keyboard-inset, 0px))',
 }
 
 export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps): ReactNode => {
@@ -115,6 +128,32 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps): ReactNo
   }
 
   const tabBarReserve = keyboardOpen ? '0px' : 'calc(82px + var(--safe-bottom))'
+  const headerHeight = mobileShell ? 'calc(44px + var(--safe-top))' : 'calc(70px + var(--safe-top))'
+  const navbarProps: Pick<AppShellProps, 'navbar'> = mobileShell
+    ? {}
+    : {
+        navbar: {
+          width: { base: 280, sm: sidebar.navbarWidth },
+          breakpoint: 'sm',
+          collapsed: { mobile: !mobileOpened, desktop: isSettingsPage },
+        },
+      }
+  const shellStyleProps = mobileShell ? { style: { '--tab-bar-reserve': tabBarReserve } } : {}
+  const headerStyle = mobileShell ? MOBILE_HEADER_STYLE : {}
+  const mainStyle = {
+    minHeight: 'unset',
+    background: 'var(--mantine-color-body)',
+    ...(mobileShell ? MOBILE_MAIN_STYLE : undefined),
+  }
+  const headerContent = mobileShell ? (
+    <MobileHeader />
+  ) : (
+    <Header
+      onToggleNavbar={isMobile || !isSettingsPage ? toggle : undefined}
+      navbarOpened={opened}
+      onOpenSettings={onOpenSettings}
+    />
+  )
 
   return (
     <>
@@ -128,55 +167,19 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps): ReactNo
         </button>
       )}
       <AppShell
-        header={{ height: mobileShell ? 'calc(44px + var(--safe-top))' : 'calc(70px + var(--safe-top))' }}
-        {...(mobileShell
-          ? {}
-          : {
-              navbar: {
-                width: { base: 280, sm: sidebar.navbarWidth },
-                breakpoint: 'sm',
-                collapsed: { mobile: !mobileOpened, desktop: isSettingsPage },
-              },
-            })}
+        header={{ height: headerHeight }}
+        {...navbarProps}
         mod={{
           'sidebar-resizing': sidebar.resizing,
           'sidebar-instant': sidebar.instant,
           'mobile-shell': mobileShell,
         }}
         padding={{ base: 'xs', sm: 'md' }}
-        {...(mobileShell ? { style: { '--tab-bar-reserve': tabBarReserve } } : {})}
-        styles={{
-          header: mobileShell
-            ? {
-                background: 'transparent',
-                paddingInline: 'max(var(--safe-left), var(--safe-right))',
-                borderBottom: 0,
-                backdropFilter: 'none',
-                WebkitBackdropFilter: 'none',
-                transition: 'none',
-              }
-            : {},
-          main: {
-            minHeight: 'unset',
-            background: 'var(--mantine-color-body)',
-            ...(mobileShell
-              ? {
-                  paddingBottom: 'calc(var(--app-shell-padding) + var(--tab-bar-reserve) + var(--keyboard-inset, 0px))',
-                }
-              : undefined),
-          },
-        }}
+        {...shellStyleProps}
+        styles={{ header: headerStyle, main: mainStyle }}
       >
         <AppShell.Header ref={headerRef} className={mobileShell ? undefined : classes.header}>
-          {mobileShell ? (
-            <MobileHeader />
-          ) : (
-            <Header
-              onToggleNavbar={isMobile || !isSettingsPage ? toggle : undefined}
-              navbarOpened={opened}
-              onOpenSettings={onOpenSettings}
-            />
-          )}
+          {headerContent}
         </AppShell.Header>
 
         {!mobileShell && (

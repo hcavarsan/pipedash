@@ -2,6 +2,7 @@ import { Box, Group, Loader, Stack, Text } from '@mantine/core'
 import type { ReactNode } from 'react'
 import { IosRunList } from '../../../components/common/IosRunList'
 import { VirtualList } from '../../../components/common/VirtualList'
+import type { PipelineRun } from '../../../types/pipelines'
 import { formatCount } from '../../../utils/formatCount'
 import type { RunHistoryPageData } from '../hooks/useRunHistoryPageData'
 import type { RunPageSelection } from '../lib/runHistoryTypes'
@@ -22,49 +23,43 @@ export function RunHistoryMobile({ data, selection, shell, selecting, emptyState
   const { selectedRuns, selectRuns, isRunCancellable } = selection
   const isSelected = (runNumber: number) => selectedRuns.some((selected) => selected.run_number === runNumber)
 
+  const toggle = (run: PipelineRun, checked: boolean) =>
+    selectRuns(
+      checked ? [...selectedRuns, run] : selectedRuns.filter((selected) => selected.run_number !== run.run_number)
+    )
+
+  const list = shell ? (
+    <IosRunList
+      runs={runs}
+      label={formatCount(runs.length, labels.run)}
+      selecting={selecting}
+      selectedNumbers={selectedRuns.map((run) => run.run_number)}
+      isSelectable={isRunCancellable}
+      onToggle={(run) => toggle(run, !isSelected(run.run_number))}
+      onEndReached={data.fetchMore}
+    />
+  ) : (
+    <VirtualList
+      items={runs}
+      getKey={(run) => String(run.run_number)}
+      estimateSize={220}
+      onEndReached={data.fetchMore}
+      renderItem={(run) => (
+        <Box pb="md">
+          <RunHistoryCard
+            run={run}
+            selected={isSelected(run.run_number)}
+            selectable={isRunCancellable(run)}
+            onSelectedChange={(checked) => toggle(run, checked)}
+          />
+        </Box>
+      )}
+    />
+  )
+
   return (
     <Stack gap="md">
-      {shell && runs.length > 0 && (
-        <IosRunList
-          runs={runs}
-          label={formatCount(runs.length, labels.run)}
-          selecting={selecting}
-          selectedNumbers={selectedRuns.map((run) => run.run_number)}
-          isSelectable={isRunCancellable}
-          onToggle={(run) =>
-            selectRuns(
-              isSelected(run.run_number)
-                ? selectedRuns.filter((selected) => selected.run_number !== run.run_number)
-                : [...selectedRuns, run]
-            )
-          }
-          onEndReached={data.fetchMore}
-        />
-      )}
-      {!shell && runs.length > 0 && (
-        <VirtualList
-          items={runs}
-          getKey={(run) => String(run.run_number)}
-          estimateSize={220}
-          onEndReached={data.fetchMore}
-          renderItem={(run) => (
-            <Box pb="md">
-              <RunHistoryCard
-                run={run}
-                selected={isSelected(run.run_number)}
-                selectable={isRunCancellable(run)}
-                onSelectedChange={(checked) =>
-                  selectRuns(
-                    checked
-                      ? [...selectedRuns, run]
-                      : selectedRuns.filter((selected) => selected.run_number !== run.run_number)
-                  )
-                }
-              />
-            </Box>
-          )}
-        />
-      )}
+      {runs.length > 0 && list}
       {emptyState}
       <Box py="md">
         {data.isFetchingMore && (

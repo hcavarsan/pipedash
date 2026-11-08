@@ -1,4 +1,4 @@
-import { Box, Center, Paper, Stack, Title } from '@mantine/core'
+import { Box, Center, Paper, Stack } from '@mantine/core'
 import type { ReactNode } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
@@ -9,6 +9,7 @@ import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useVaultStatus } from '../../../queries/useVaultQueries'
 import { wsClient } from '../../../services/websocket'
 import { isRecord } from '../../../utils/isRecord'
+import { ConnectionScreenHeading } from '../../connection/components/ConnectionScreenHeading'
 import { UnlockForm } from '../components/UnlockForm'
 
 import classes from './UnlockRoute.module.css'
@@ -33,13 +34,15 @@ export function UnlockRoute(): ReactNode {
     void navigate(returnTo, { replace: true, state: from ? { from } : undefined })
   }
 
+  const title = requiresPassword ? 'Unlock vault' : 'Unlock Pipedash'
+
   if (mobileShell) {
     return (
       <div className={classes.screen}>
         <DocumentTitle title="Unlock" />
         <div className={classes.hero}>
           <AppLogo size={76} alt="Pipedash" />
-          <h1 className={classes.title}>{requiresPassword ? 'Unlock vault' : 'Unlock Pipedash'}</h1>
+          <h1 className={classes.title}>{title}</h1>
           <p className={classes.subtitle}>
             {requiresPassword ? 'Enter your password to continue.' : 'Pipedash is locked.'}
           </p>
@@ -57,12 +60,7 @@ export function UnlockRoute(): ReactNode {
       <Center h="100%" p={{ base: 'md', sm: 'xl' }}>
         <Paper p={{ base: 'lg', sm: 'xl' }} w="100%" maw={{ base: '100%', xs: 420 }} withBorder>
           <Stack gap="xl">
-            <Stack gap="md" align="center">
-              <AppLogo size={{ base: 48, sm: 56 }} alt="Pipedash" />
-              <Title order={1} size="h2" ta="center">
-                {requiresPassword ? 'Unlock vault' : 'Unlock Pipedash'}
-              </Title>
-            </Stack>
+            <ConnectionScreenHeading title={title} />
 
             <UnlockForm onSuccess={handleSuccess} />
           </Stack>

@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use serde::{
-    Deserialize,
-    Serialize,
-};
 
+use crate::actions::{
+    PipelineActionState,
+    RunActionState,
+    TriggerResult,
+};
 use crate::error::PluginResult;
 use crate::health::{
     ClientOptions,
@@ -21,52 +22,21 @@ use crate::logs::{
     PlainDialect,
     RunRef,
 };
-use crate::schema::{
-    ConfigSchema,
-    TableSchema,
+use crate::metadata::PluginMetadata;
+use crate::presentation::{
+    PipelineFacts,
+    RunDisplay,
+    RunFacts,
 };
 use crate::sign_in::{
     SignInClient,
     SignInRefreshRejection,
 };
+use crate::support::retain_matching;
 use crate::types::*;
+use crate::utils::selected_items;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginMetadata {
-    pub name: String,
-    pub provider_type: String,
-    pub version: String,
-    pub description: String,
-    pub author: Option<String>,
-    pub icon: Option<String>,
-    pub config_schema: ConfigSchema,
-    pub table_schema: TableSchema,
-    pub capabilities: PluginCapabilities,
-    #[serde(default)]
-    pub required_permissions: Vec<Permission>,
-    #[serde(default)]
-    pub features: Vec<Feature>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PluginCapabilities {
-    pub pipelines: bool,
-    pub pipeline_runs: bool,
-    pub trigger: bool,
-    pub cancel: bool,
-    #[serde(default)]
-    pub force_cancel: bool,
-    pub agents: bool,
-    pub artifacts: bool,
-    pub queues: bool,
-    pub custom_tables: bool,
-    #[serde(default)]
-    pub retains_run_history: bool,
-    #[serde(default)]
-    pub logs: bool,
-    #[serde(default)]
-    pub sign_in: bool,
-}
+pub mod defaults;
 
 #[async_trait]
 pub trait Plugin: Send + Sync {
@@ -147,14 +117,7 @@ pub trait Plugin: Send + Sync {
         }
 
         if let Some(search_term) = search {
-            let search_lower = search_term.to_lowercase();
-            filtered_items.retain(|p| {
-                p.name.to_lowercase().contains(&search_lower)
-                    || p.id.to_lowercase().contains(&search_lower)
-                    || p.description
-                        .as_ref()
-                        .is_some_and(|d| d.to_lowercase().contains(&search_lower))
-            });
+            retain_matching(&mut filtered_items, &search_term);
         }
 
         let total_count = filtered_items.len();
@@ -169,28 +132,6 @@ pub trait Plugin: Send + Sync {
     }
 
     async fn fetch_pipelines(&self) -> PluginResult<Vec<Pipeline>>;
-
-    async fn fetch_pipelines_paginated(
-        &self, page: usize, page_size: usize,
-    ) -> PluginResult<crate::types::PaginatedResponse<Pipeline>> {
-        let all_pipelines = self.fetch_pipelines().await?;
-        let total_count = all_pipelines.len();
-        let start = (page - 1) * page_size;
-        let end = start + page_size;
-
-        let pipelines = if start < total_count {
-            all_pipelines[start..end.min(total_count)].to_vec()
-        } else {
-            Vec::new()
-        };
-
-        Ok(crate::types::PaginatedResponse::new(
-            pipelines,
-            page,
-            page_size,
-            total_count,
-        ))
-    }
 
     async fn fetch_run_history(
         &self, pipeline_id: &str, limit: usize,
@@ -208,7 +149,7 @@ pub trait Plugin: Send + Sync {
         ))
     }
 
-    async fn trigger_pipeline(&self, params: TriggerParams) -> PluginResult<String>;
+    async fn trigger_pipeline(&self, params: TriggerParams) -> PluginResult<TriggerResult>;
 
     async fn cancel_run(&self, _pipeline_id: &str, _run_number: i64) -> PluginResult<()> {
         Err(crate::error::PluginError::NotSupported(
@@ -254,34 +195,8 @@ pub trait Plugin: Send + Sync {
         Ok(Vec::new())
     }
 
-    async fn fetch_agents(&self) -> PluginResult<Vec<BuildAgent>> {
-        Err(crate::error::PluginError::NotSupported(
-            "Agent monitoring not supported by this provider".to_string(),
-        ))
-    }
-
-    async fn fetch_artifacts(&self, _run_id: &str) -> PluginResult<Vec<BuildArtifact>> {
-        Err(crate::error::PluginError::NotSupported(
-            "Artifact fetching not supported by this provider".to_string(),
-        ))
-    }
-
-    async fn fetch_queues(&self) -> PluginResult<Vec<BuildQueue>> {
-        Err(crate::error::PluginError::NotSupported(
-            "Queue monitoring not supported by this provider".to_string(),
-        ))
-    }
-
     async fn fetch_rate_limit(&self) -> PluginResult<Option<RateLimit>> {
         Ok(None)
-    }
-
-    fn get_migrations(&self) -> Vec<String> {
-        Vec::new()
-    }
-
-    fn provider_type(&self) -> &str {
-        &self.metadata().provider_type
     }
 
     async fn get_field_options(
@@ -317,6 +232,7 @@ pub trait Plugin: Send + Sync {
             all_granted: true,
             checked_at: chrono::Utc::now(),
             metadata: std::collections::HashMap::new(),
+            credential_label: None,
         })
     }
 
@@ -347,20 +263,37 @@ pub trait Plugin: Send + Sync {
             })
             .collect()
     }
+
+    fn can_archive_run(
+        &self, _pipeline_metadata: &HashMap<String, serde_json::Value>,
+        _run_metadata: &HashMap<String, serde_json::Value>, _status: PipelineStatus,
+    ) -> bool {
+        false
+    }
+
+    fn configured_repositories(&self, config: &HashMap<String, String>) -> Vec<String> {
+        selected_items(config).map(str::to_string).collect()
+    }
+
+    fn pipeline_actions(&self, pipeline: &PipelineFacts<'_>) -> PipelineActionState {
+        defaults::pipeline_actions(&self.metadata().capabilities, pipeline)
+    }
+
+    fn run_actions(&self, _pipeline: &PipelineFacts<'_>, run: &RunFacts<'_>) -> RunActionState {
+        defaults::run_actions(&self.metadata().capabilities, run)
+    }
+
+    fn run_display(&self, _pipeline: &PipelineFacts<'_>, run: &RunFacts<'_>) -> RunDisplay {
+        defaults::run_display(run)
+    }
+
+    fn trigger_values(
+        &self, _pipeline: &PipelineFacts<'_>, previous: Option<&RunFacts<'_>>,
+        parameters: &[WorkflowParameter],
+    ) -> serde_json::Map<String, serde_json::Value> {
+        defaults::trigger_values(previous, parameters)
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn force_cancellation_defaults_to_unsupported_for_existing_capabilities() {
-        let capabilities = PluginCapabilities::default();
-        assert!(!capabilities.force_cancel);
-
-        let mut serialized = serde_json::to_value(capabilities).unwrap();
-        serialized.as_object_mut().unwrap().remove("force_cancel");
-        let restored: PluginCapabilities = serde_json::from_value(serialized).unwrap();
-        assert!(!restored.force_cancel);
-    }
-}
+mod tests;

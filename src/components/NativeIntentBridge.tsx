@@ -14,7 +14,7 @@ import { isTauri } from '../services/isTauri'
 import { mobileService, NATIVE_INTENT_EVENT } from '../services/mobile'
 import { useModalStore } from '../stores/modalStore'
 import { type CenterSelection, useNotificationCenterStore } from '../stores/notificationCenterStore'
-import type { NativeIntent } from '../types/domain'
+import type { NativeIntent } from '../types/native'
 import { isDesktopTauri } from '../utils/platform'
 
 const NOTIFICATIONS = '/notifications'

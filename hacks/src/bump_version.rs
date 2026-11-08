@@ -54,6 +54,12 @@ fn bump_version(bump_type: &str) -> io::Result<String> {
         .to_string();
 
     update_workspace_version(&root.join("Cargo.toml"), &version)?;
+    let crates = root.join("crates/*/Cargo.toml");
+    for manifest in glob(&crates.to_string_lossy()).map_err(|e| io::Error::other(e.to_string()))? {
+        let manifest = manifest.map_err(|e| io::Error::other(e.to_string()))?;
+        let content = fs::read_to_string(&manifest)?;
+        fs::write(&manifest, internal_dependency_versions(&content, &version)?)?;
+    }
 
     // Dynamically find and update all tauri.conf.json files
     let pattern = root.join("**/tauri.conf.json");
@@ -89,16 +95,18 @@ fn update_workspace_version(path: &std::path::Path, version: &str) -> io::Result
         )
     });
 
-    // Update all pipedash-* workspace dependencies
-    // Matches: pipedash-xxx = { version = "x.y.z", path = "..." }
+    fs::write(path, internal_dependency_versions(&updated, version)?)
+}
+
+fn internal_dependency_versions(content: &str, version: &str) -> io::Result<String> {
     let deps_re = Regex::new(r#"(pipedash-[\w-]+\s*=\s*\{\s*version\s*=\s*)"[^"]+""#)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
-    let updated = deps_re.replace_all(&updated, |caps: &regex::Captures| {
-        format!(r#"{}"{}""#, &caps[1], version)
-    });
-
-    fs::write(path, updated.as_ref())
+    Ok(deps_re
+        .replace_all(content, |caps: &regex::Captures| {
+            format!(r#"{}"{}""#, &caps[1], version)
+        })
+        .into_owned())
 }
 
 fn update_json_version(path: &std::path::Path, version: &str) -> io::Result<()> {

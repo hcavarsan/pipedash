@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 
-import type { SignInStart } from '../types/domain'
+import type { SignInStart } from '../types/providers'
 
 export interface ProviderSignInSession {
   requestId: number

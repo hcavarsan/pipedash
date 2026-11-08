@@ -1,9 +1,11 @@
 import { IconBell, IconBellOff, IconBellPlus, IconBellRinging, IconBellX } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
-import { pendingWatches, useNotificationStore } from '../../../stores/notificationStore'
-import type { Pipeline } from '../../../types/domain'
+import { useNotificationStore } from '../../../stores/notificationStore'
+import type { PipelineNotifyState } from '../../../types/notification_preferences'
+import type { Pipeline } from '../../../types/pipelines'
 import { displaySuccessNotification } from '../../../utils/errorDisplay'
+import { changePreference } from '../queries/changePreference'
 
 export interface NotifyItem {
   label: string
@@ -14,8 +16,6 @@ export interface NotifyItem {
 export interface MuteItem extends NotifyItem {
   muted: boolean
 }
-
-export type PipelineNotifyState = 'muted' | 'watching' | 'pending' | 'default'
 
 type PipelineTarget = Pick<Pipeline, 'id' | 'name'>
 
@@ -49,22 +49,21 @@ const muteItem = (
   },
 })
 
+const finishLabel = (pending: boolean, status: Pipeline['status']): string => {
+  if (pending) {
+    return 'Cancel finish notification'
+  }
+  if (status === 'running' || status === 'pending') {
+    return 'Notify when this run finishes'
+  }
+  return 'Notify when the next run finishes'
+}
+
 export function useNotifyItems(): NotifyItems {
   const preferences = useNotificationStore((state) => state.preferences)
-  const setPipelineMuted = useNotificationStore((state) => state.setPipelineMuted)
-  const setPipelineWatched = useNotificationStore((state) => state.setPipelineWatched)
-  const setProviderMuted = useNotificationStore((state) => state.setProviderMuted)
-  const watchNextFinish = useNotificationStore((state) => state.watchNextFinish)
-  const cancelNextFinish = useNotificationStore((state) => state.cancelNextFinish)
+  const pipelineStates = useNotificationStore((state) => state.pipelineStates)
 
-  const pipelineState = (id: string): PipelineNotifyState =>
-    preferences.muted_pipelines.includes(id)
-      ? 'muted'
-      : preferences.watched_pipelines.includes(id)
-        ? 'watching'
-        : pendingWatches(preferences).some((watch) => watch.pipeline_id === id)
-          ? 'pending'
-          : 'default'
+  const pipelineState = (id: string): PipelineNotifyState => pipelineStates[id] ?? 'default'
 
   const watchItem: NotifyItems['watchItem'] = ({ id, name }) => {
     const watching = pipelineState(id) === 'watching'
@@ -73,7 +72,7 @@ export function useNotifyItems(): NotifyItems {
       label: watching ? 'Stop watching' : 'Watch all runs',
       icon: watching ? <IconBellX size={16} aria-hidden /> : <IconBellRinging size={16} aria-hidden />,
       onClick: () => {
-        setPipelineWatched(id, !watching)
+        void changePreference({ type: 'pipeline_watched', pipeline_id: id, watched: !watching })
         if (watching) {
           displaySuccessNotification(`${name} follows your notification settings again.`, 'Stopped watching')
         } else {
@@ -87,21 +86,17 @@ export function useNotifyItems(): NotifyItems {
     const pending = pipelineState(id) === 'pending'
 
     return {
-      label: pending
-        ? 'Cancel finish notification'
-        : status === 'running' || status === 'pending'
-          ? 'Notify when this run finishes'
-          : 'Notify when the next run finishes',
+      label: finishLabel(pending, status),
       icon: pending ? <IconBellX size={16} aria-hidden /> : <IconBellPlus size={16} aria-hidden />,
       onClick: () => {
         if (pending) {
-          cancelNextFinish(id)
+          void changePreference({ type: 'cancel_next_finish', pipeline_id: id })
           displaySuccessNotification(
             `${name} no longer has a pending finish notification.`,
             'Finish notification cancelled'
           )
         } else {
-          watchNextFinish(id)
+          void changePreference({ type: 'watch_next_finish', pipeline_id: id })
           displaySuccessNotification(
             'Cancel it from this menu or in notification settings.',
             `You'll be notified when ${name} finishes`
@@ -118,7 +113,7 @@ export function useNotifyItems(): NotifyItems {
       'Pipeline',
       name,
       muted,
-      () => setPipelineMuted(id, !muted),
+      () => void changePreference({ type: 'pipeline_muted', pipeline_id: id, muted: !muted }),
       `You won't get notifications about ${name}. ${UNMUTE_HINT}`
     )
   }
@@ -140,7 +135,7 @@ export function useNotifyItems(): NotifyItems {
         'Provider',
         name,
         muted,
-        () => setProviderMuted(id, !muted),
+        () => void changePreference({ type: 'provider_muted', provider_id: id, muted: !muted }),
         `You won't get notifications from ${name}, except for pipelines you watch. ${UNMUTE_HINT}`
       )
     },

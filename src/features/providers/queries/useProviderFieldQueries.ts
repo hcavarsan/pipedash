@@ -9,7 +9,8 @@ import {
 import { PAGE_SIZES } from '../../../constants/pagination'
 import { GC_TIMES, STALE_TIMES } from '../../../lib/cacheConfig'
 import { service } from '../../../services/service'
-import type { Organization, PaginatedAvailablePipelines, ProviderConfig } from '../../../types/domain'
+import type { Organization, PaginatedAvailablePipelines } from '../../../types/pipelines'
+import type { ProviderConfig } from '../../../types/providers'
 
 export function useProviderOrganizations(
   providerType: string,

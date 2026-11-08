@@ -22,26 +22,10 @@ dashmap.workspace = true
 dirs.workspace = true
 futures.workspace = true
 glob.workspace = true
-hostname.workspace = true
 indexmap.workspace = true
 lz4_flex.workspace = true
 memchr.workspace = true
 pipedash-plugin-api.workspace = true
-pipedash-plugin-argocd.workspace = true
-pipedash-plugin-azure-devops.workspace = true
-pipedash-plugin-bitbucket.workspace = true
-pipedash-plugin-buildkite.workspace = true
-pipedash-plugin-circleci.workspace = true
-pipedash-plugin-coolify.workspace = true
-pipedash-plugin-fluxcd.workspace = true
-pipedash-plugin-github.workspace = true
-pipedash-plugin-gitea.workspace = true
-pipedash-plugin-gitlab.workspace = true
-pipedash-plugin-jenkins.workspace = true
-pipedash-plugin-komodo.workspace = true
-pipedash-plugin-prow.workspace = true
-pipedash-plugin-tekton.workspace = true
-pipedash-plugin-woodpecker.workspace = true
 rand.workspace = true
 regex.workspace = true
 reqwest.workspace = true
@@ -57,7 +41,7 @@ toml.workspace = true
 toml_edit.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-zeroize.workspace = true
+url.workspace = true
 
 [dev-dependencies]
 pipedash-plugin-actions.workspace = true
@@ -69,3 +53,6 @@ tokio = { workspace = true, features = ["test-util"] }
 default = ["postgres"]
 full = ["postgres"]
 postgres = []
+
+[lints]
+workspace = true

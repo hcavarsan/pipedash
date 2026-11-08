@@ -1,17 +1,19 @@
 use std::collections::HashMap;
-use std::ops::Range;
-use std::sync::{
-    Arc,
-    OnceLock,
+use std::ops::{
+    ControlFlow,
+    Range,
 };
-use std::time::Duration;
+use std::sync::Arc;
 
+use pipedash_plugin_api::http::{
+    api_url,
+    decode_json,
+    send,
+};
+use pipedash_plugin_api::utils::Cached;
 use pipedash_plugin_api::{
     check_response,
-    map_send_error,
     redact_url,
-    LogReadMode,
-    LogSink,
     Organization,
     PaginatedResponse,
     PaginationParams,
@@ -20,10 +22,7 @@ use pipedash_plugin_api::{
     RetryPolicy,
 };
 use reqwest::{
-    header::{
-        AUTHORIZATION,
-        RANGE,
-    },
+    header::AUTHORIZATION,
     Method,
     StatusCode,
     Url,
@@ -31,9 +30,6 @@ use reqwest::{
 use serde::de::DeserializeOwned;
 
 use crate::types::{
-    Job,
-    JobAttempt,
-    JobList,
     Repository,
     Run,
     RunList,
@@ -43,19 +39,18 @@ use crate::types::{
     WorkflowList,
 };
 
+mod logs;
+
 const RUNS_PAGE_SIZE: usize = 50;
 const MAX_RUN_PAGES: usize = 10;
 const ORGS_PAGE_SIZE: usize = 50;
-const JOBS_PAGE_SIZE: usize = 50;
-const LOG_TIMEOUT: Duration = Duration::from_secs(900);
-const MIN_RUN_LOGS_VERSION: &str = "1.25";
 
 pub(crate) struct GiteaClient {
     http_client: Arc<reqwest::Client>,
     base_url: String,
     token: String,
     retry_policy: RetryPolicy,
-    user_cache: OnceLock<User>,
+    user_cache: Cached<User>,
 }
 
 impl GiteaClient {
@@ -65,21 +60,14 @@ impl GiteaClient {
             base_url,
             token,
             retry_policy: RetryPolicy::default(),
-            user_cache: OnceLock::new(),
+            user_cache: Cached::default(),
         }
-    }
-
-    pub fn actions_url(&self, owner: &str, repo: &str) -> String {
-        format!("{}/{owner}/{repo}/actions", self.base_url)
     }
 
     pub async fn get_user(&self) -> PluginResult<User> {
-        if let Some(user) = self.user_cache.get() {
-            return Ok(user.clone());
-        }
-        let user: User = self.get("/user", &[]).await?;
-        let _ = self.user_cache.set(user.clone());
-        Ok(user)
+        self.user_cache
+            .get_or_fetch(|| self.get("/user", &[]))
+            .await
     }
 
     pub async fn list_organizations(&self) -> PluginResult<Vec<Organization>> {
@@ -215,77 +203,6 @@ impl GiteaClient {
         .await
     }
 
-    pub async fn list_run_jobs(
-        &self, owner: &str, repo: &str, run_id: i64,
-    ) -> PluginResult<Vec<Job>> {
-        let path = format!("/repos/{owner}/{repo}/actions/runs/{run_id}/jobs");
-        let mut jobs = Vec::new();
-        for page in 1.. {
-            let list: JobList = self
-                .get(
-                    &path,
-                    &[
-                        ("page", page.to_string()),
-                        ("limit", JOBS_PAGE_SIZE.to_string()),
-                    ],
-                )
-                .await
-                .map_err(|error| match error {
-                    PluginError::PipelineNotFound(_) => PluginError::NotSupported(format!(
-                        "Gitea answered 404 for the jobs of run {run_id}. Run logs need Gitea {MIN_RUN_LOGS_VERSION} or newer"
-                    )),
-                    error => error,
-                })?;
-            if list.jobs.is_empty() {
-                break;
-            }
-            jobs.extend(list.jobs);
-            if list.total_count.is_some_and(|total| jobs.len() >= total) {
-                break;
-            }
-        }
-        Ok(jobs)
-    }
-
-    pub async fn job_attempt(
-        &self, owner: &str, repo: &str, job_id: &str,
-    ) -> PluginResult<JobAttempt> {
-        let job: Job = self
-            .get(&format!("/repos/{owner}/{repo}/actions/jobs/{job_id}"), &[])
-            .await?;
-        Ok(job.attempt())
-    }
-
-    pub async fn stream_job_log(
-        &self, owner: &str, repo: &str, job_id: &str, offset: Option<u64>, sink: &mut LogSink,
-    ) -> PluginResult<(LogReadMode, u64)> {
-        let path = format!("/repos/{owner}/{repo}/actions/jobs/{job_id}/logs");
-        let url = self.url(&path, &[])?;
-
-        let url = &url;
-        sink.pipe_resumed(offset, |from| async move {
-            let response = self
-                .retry_policy
-                .retry_unsent(url, || {
-                    let request = self.request(Method::GET, url).timeout(LOG_TIMEOUT);
-                    match from {
-                        Some(from) => request.header(RANGE, format!("bytes={from}-")),
-                        None => request,
-                    }
-                    .send()
-                })
-                .await?;
-
-            if matches!(response.status().as_u16(), 404 | 410) {
-                return Err(PluginError::PipelineNotFound(format!(
-                    "Logs for job {job_id} are no longer available"
-                )));
-            }
-            Ok(response)
-        })
-        .await
-    }
-
     pub async fn raw_file(&self, owner: &str, repo: &str, path: &str) -> PluginResult<String> {
         let path = format!("/repos/{owner}/{repo}/raw/{path}");
         self.retry_policy
@@ -299,73 +216,83 @@ impl GiteaClient {
             .await
     }
 
-    pub async fn latest_runs(
-        &self, owner: &str, repo: &str, workflows: &[String],
-    ) -> PluginResult<HashMap<String, Run>> {
-        let mut latest = HashMap::new();
+    async fn scan_runs<B>(
+        &self, owner: &str, repo: &str, mut visit: impl FnMut(Vec<Run>) -> ControlFlow<B>,
+    ) -> PluginResult<Option<B>> {
         let mut received = 0;
         for page in 1..=MAX_RUN_PAGES {
             let batch = self.list_runs(owner, repo, page).await?;
             received += batch.workflow_runs.len();
             let last_page = batch.is_last_page(received);
-            for run in batch.workflow_runs {
+            if let ControlFlow::Break(found) = visit(batch.workflow_runs) {
+                return Ok(Some(found));
+            }
+            if last_page {
+                break;
+            }
+        }
+        Ok(None)
+    }
+
+    pub async fn latest_runs(
+        &self, owner: &str, repo: &str, workflows: &[String],
+    ) -> PluginResult<HashMap<String, Run>> {
+        let mut latest = HashMap::new();
+        self.scan_runs(owner, repo, |runs| {
+            for run in runs {
                 let workflow = run.workflow_file().to_string();
                 if workflows.contains(&workflow) {
                     latest.entry(workflow).or_insert(run);
                 }
             }
-            if latest.len() == workflows.len() || last_page {
-                break;
+            if latest.len() == workflows.len() {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
             }
-        }
+        })
+        .await?;
         Ok(latest)
     }
 
     pub async fn workflow_runs(
         &self, owner: &str, repo: &str, workflow: &str, limit: usize,
     ) -> PluginResult<Vec<Run>> {
-        let mut runs = Vec::new();
-        let mut received = 0;
-        for page in 1..=MAX_RUN_PAGES {
-            let batch = self.list_runs(owner, repo, page).await?;
-            received += batch.workflow_runs.len();
-            let last_page = batch.is_last_page(received);
-            runs.extend(
-                batch
-                    .workflow_runs
-                    .into_iter()
+        let mut found = Vec::new();
+        self.scan_runs(owner, repo, |runs| {
+            found.extend(
+                runs.into_iter()
                     .filter(|run| run.workflow_file() == workflow),
             );
-            if runs.len() >= limit || last_page {
-                break;
+            if found.len() >= limit {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
             }
-        }
-        runs.truncate(limit);
-        Ok(runs)
+        })
+        .await?;
+        found.truncate(limit);
+        Ok(found)
     }
 
     pub async fn find_run(
         &self, owner: &str, repo: &str, workflow: &str, run_number: i64,
     ) -> PluginResult<Run> {
-        let mut received = 0;
-        for page in 1..=MAX_RUN_PAGES {
-            let batch = self.list_runs(owner, repo, page).await?;
-            received += batch.workflow_runs.len();
-            let last_page = batch.is_last_page(received);
-            if let Some(run) = batch
-                .workflow_runs
+        self.scan_runs(owner, repo, |runs| {
+            match runs
                 .into_iter()
                 .find(|run| run.run_number == run_number && run.workflow_file() == workflow)
             {
-                return Ok(run);
+                Some(run) => ControlFlow::Break(run),
+                None => ControlFlow::Continue(()),
             }
-            if last_page {
-                break;
-            }
-        }
-        Err(PluginError::PipelineNotFound(format!(
-            "Run #{run_number} not found for {owner}/{repo}/{workflow}"
-        )))
+        })
+        .await?
+        .ok_or_else(|| {
+            PluginError::PipelineNotFound(format!(
+                "Run #{run_number} not found for {owner}/{repo}/{workflow}"
+            ))
+        })
     }
 
     pub async fn dispatch_workflow(
@@ -396,12 +323,7 @@ impl GiteaClient {
     }
 
     fn url(&self, path: &str, query: &[(&str, String)]) -> PluginResult<Url> {
-        let mut url = Url::parse(&format!("{}/api/v1{path}", self.base_url))
-            .map_err(|e| PluginError::InvalidConfig(format!("Invalid Gitea URL: {e}")))?;
-        if !query.is_empty() {
-            url.query_pairs_mut().extend_pairs(query);
-        }
-        Ok(url)
+        api_url(&format!("{}/api/v1", self.base_url), path, query, "Gitea")
     }
 
     fn request(&self, method: Method, url: &Url) -> reqwest::RequestBuilder {
@@ -414,12 +336,7 @@ impl GiteaClient {
         &self, path: &str, query: &[(&str, String)],
     ) -> PluginResult<reqwest::Response> {
         let url = self.url(path, query)?;
-        let response = self
-            .request(Method::GET, &url)
-            .send()
-            .await
-            .map_err(|e| map_send_error(e, &url))?;
-        check_response(response).await
+        check_response(send(&url, self.request(Method::GET, &url)).await?).await
     }
 
     async fn get<T: DeserializeOwned>(
@@ -441,13 +358,7 @@ impl GiteaClient {
                     .get("x-total-count")
                     .and_then(|v| v.to_str().ok())
                     .and_then(|s| s.parse().ok());
-                let url = redact_url(response.url());
-                let value = response.json().await.map_err(|e| {
-                    PluginError::ApiError(format!(
-                        "Failed to parse Gitea API response from {url}: {}",
-                        e.without_url()
-                    ))
-                })?;
+                let value = decode_json(response, "Gitea API response").await?;
                 Ok((value, total))
             })
             .await

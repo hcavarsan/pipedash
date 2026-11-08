@@ -1,4 +1,4 @@
-import type { PipelineRun } from '../../../types/domain'
+import type { PipelineRun } from '../../../types/pipelines'
 
 import { useRunActions } from '../components/RunActionsContext'
 import { buildRunActions, type RunAction } from '../lib/runActions'

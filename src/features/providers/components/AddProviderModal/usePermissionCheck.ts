@@ -1,8 +1,9 @@
 import { useState } from 'react'
 
 import { useProviderPermissions } from '../../../../queries/useProvidersQueries'
-import type { FeatureAvailability, PermissionStatus, PluginMetadata, ProviderConfig } from '../../../../types/domain'
 import { isAuthError, isNetworkError, isPermissionError, toPipedashError } from '../../../../types/errors'
+import type { FeatureAvailability, PermissionStatus, PluginMetadata } from '../../../../types/plugins'
+import type { ProviderConfig } from '../../../../types/providers'
 import { displayErrorNotification, displaySuccessNotification } from '../../../../utils/errorDisplay'
 
 interface UsePermissionCheckParams {

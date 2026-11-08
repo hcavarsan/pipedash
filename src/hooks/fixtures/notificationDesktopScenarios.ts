@@ -22,9 +22,11 @@ import { useFactoryReset } from '../../features/settings/queries/usePlatformQuer
 import { notifications } from '../../lib/notifications'
 import { type DesktopNotificationSnapshot, desktopService } from '../../services/desktop'
 import { service } from '../../services/service'
-import { type CenterNotification, useNotificationCenterStore } from '../../stores/notificationCenterStore'
-import { DEFAULT_NOTIFICATION_PREFERENCES, pendingWatches, useNotificationStore } from '../../stores/notificationStore'
-import type { DesktopStatus } from '../../types/domain'
+import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
+import { DEFAULT_NOTIFICATION_PREFERENCES, useNotificationStore } from '../../stores/notificationStore'
+import { installNotificationCenterDouble } from '../../testing/notificationCenter'
+import type { DesktopStatus } from '../../types/native'
+import type { CenterNotification } from '../../types/notifications'
 import { useNotificationEvents } from '../useNotificationEvents'
 
 import { callbacks, delivered, desktop, listeners, native, permission } from './notificationEnvironment'
@@ -87,10 +89,12 @@ async function publish(name: string, payload: unknown) {
   })
 }
 
+installNotificationCenterDouble()
+
 afterEach(async () => {
   await act(async () => cleanup())
   client.clear()
-  useNotificationCenterStore.setState({ items: [], selection: null })
+  useNotificationCenterStore.setState({ items: [], revision: 0, unread: 0, selection: null })
   useNotificationStore.setState({ notificationsEnabled: false, preferences: DEFAULT_NOTIFICATION_PREFERENCES })
   desktop.status = structuredClone(initialStatus)
   desktop.snapshot = { revision: 0, items: [] }
@@ -232,7 +236,10 @@ test('a fired one-time request is marked used and stops being pending', async ()
   await publish('notification', { ...failedNotification, fired })
   const { preferences } = useNotificationStore.getState()
   assert.deepEqual(preferences.watch_once, [fired])
-  assert.deepEqual(pendingWatches(preferences), [])
+  assert.deepEqual(
+    preferences.watch_once.filter((item) => !item.fired_at),
+    []
+  )
   assert.deepEqual(useNotificationCenterStore.getState().items, [])
   assert.deepEqual(delivered, [])
 })

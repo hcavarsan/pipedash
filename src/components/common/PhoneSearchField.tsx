@@ -1,5 +1,5 @@
 import { IconCircleXFilled, IconSearch } from '@tabler/icons-react'
-import { type ReactNode, type RefObject, useRef, useState } from 'react'
+import { type KeyboardEvent, type ReactNode, type RefObject, useRef, useState } from 'react'
 
 import classes from './PhoneSearchField.module.css'
 
@@ -42,6 +42,24 @@ export function PhoneSearchField({
     inputRef.current?.blur()
   }
 
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+      event.preventDefault()
+      submitSearch()
+    }
+  }
+
+  const handleBlur = (): void => {
+    if (!value) {
+      setActive(false)
+    }
+  }
+
+  const handleClear = (): void => {
+    onChange('')
+    inputRef.current?.focus()
+  }
+
   return (
     <search className={classes.search}>
       <div className={classes.form}>
@@ -60,18 +78,9 @@ export function PhoneSearchField({
             spellCheck={false}
             enterKeyHint="search"
             onChange={(event) => onChange(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
-                event.preventDefault()
-                submitSearch()
-              }
-            }}
+            onKeyDown={handleKeyDown}
             onFocus={() => setActive(true)}
-            onBlur={() => {
-              if (!value) {
-                setActive(false)
-              }
-            }}
+            onBlur={handleBlur}
           />
           {value && (
             <button
@@ -79,10 +88,7 @@ export function PhoneSearchField({
               className={classes.clear}
               aria-label="Clear search"
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => {
-                onChange('')
-                inputRef.current?.focus()
-              }}
+              onClick={handleClear}
             >
               <IconCircleXFilled size="1.1em" aria-hidden />
             </button>

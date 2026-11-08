@@ -5,7 +5,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import type { RenderResult } from '@testing-library/react'
 import { createElement, useId, useState } from 'react'
 
-import type { SignInStart, SignInStatus } from '../../../../types/domain'
+import type { SignInStart, SignInStatus } from '../../../../types/providers'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 

@@ -5,7 +5,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement } from 'react'
 
 import { installRequestSubmitShim } from '../../../testing/requestSubmitShim'
-import type { ConfigAnalysisResponse, MigrationPlan, MigrationResult, PipedashConfig } from '../../../types/domain'
+import type { ConfigAnalysisResponse, MigrationPlan, MigrationResult, PipedashConfig } from '../../../types/storage'
 
 GlobalRegistrator.register({ width: 393, height: 852, settings: { navigator: { userAgent: 'iPhone' } } })
 

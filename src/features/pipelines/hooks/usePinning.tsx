@@ -1,7 +1,7 @@
 import { IconPin, IconPinnedOff } from '@tabler/icons-react'
 
 import type { ContextMenuItem } from '../../../components/common/ContextMenu'
-import type { PinKind } from '../../../types/domain'
+import type { PinKind } from '../../../types/views'
 import { usePins, useSetPin } from '../queries/usePipelineViewQueries'
 import { isPinned } from '../utils/navTree'
 

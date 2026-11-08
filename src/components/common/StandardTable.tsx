@@ -1,12 +1,27 @@
 import 'mantine-datatable/styles.layer.css'
 
 import { Box } from '@mantine/core'
-import { DataTable, type DataTableProps } from 'mantine-datatable'
+import { DataTable, type DataTableProps, type DataTableRowClickHandler } from 'mantine-datatable'
 import type { ReactNode } from 'react'
 
 const INTERACTIVE_TARGET = 'button, a, input, label, [role="checkbox"]'
 
 export function StandardTable<T>(props: DataTableProps<T>): ReactNode {
+  const handleRowClick: DataTableRowClickHandler<T> = (params) => {
+    const target = params.event.target
+
+    if (!(target instanceof Element)) {
+      return
+    }
+    if (!params.event.currentTarget.contains(target)) {
+      return
+    }
+    if (target.closest(INTERACTIVE_TARGET)) {
+      return
+    }
+    props.onRowClick?.(params)
+  }
+
   return (
     <Box
       style={{
@@ -23,21 +38,7 @@ export function StandardTable<T>(props: DataTableProps<T>): ReactNode {
         {...props}
         withTableBorder={false}
         rowClassName={props.onRowClick ? 'interactive-surface row-clickable' : 'interactive-surface'}
-        {...(props.onRowClick
-          ? {
-              onRowClick: (params) => {
-                const target = params.event.target
-
-                if (
-                  target instanceof Element &&
-                  params.event.currentTarget.contains(target) &&
-                  !target.closest(INTERACTIVE_TARGET)
-                ) {
-                  props.onRowClick?.(params)
-                }
-              },
-            }
-          : {})}
+        {...(props.onRowClick ? { onRowClick: handleRowClick } : {})}
         withColumnBorders={false}
         scrollAreaProps={{
           type: 'auto',

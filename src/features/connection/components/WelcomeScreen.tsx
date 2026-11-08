@@ -1,9 +1,8 @@
-import { Badge, Box, Center, Group, Loader, Paper, Stack, Text, Title, UnstyledButton } from '@mantine/core'
+import { Badge, Box, Center, Group, Loader, Paper, Stack, Text, UnstyledButton } from '@mantine/core'
 import { IconDeviceDesktop, IconServer2 } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { AppLogo } from '../../../components/atoms/AppLogo'
 import { DocumentTitle } from '../../../components/common/DocumentTitle'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { useMobileShell } from '../../../hooks/useIsMobile'
@@ -11,6 +10,7 @@ import { withBasePath } from '../../../lib/basePath'
 import { isMobilePlatform } from '../../../utils/platform'
 import { Onboarding } from '../../setup/components/SetupWizard/Onboarding'
 import { useRunOnThisDevice } from '../queries/useConnectionQueries'
+import { ConnectionScreenHeading } from './ConnectionScreenHeading'
 
 const TITLE = 'Where should Pipedash run?'
 const FOOTER = 'You can change this later in Settings → Devices.'
@@ -105,37 +105,36 @@ export function WelcomeScreen(): ReactNode {
     )
   }
 
+  const choices = (
+    <Stack gap="sm">
+      <DesktopChoice
+        icon={<IconDeviceDesktop size={24} aria-hidden />}
+        title={LOCAL_TITLE}
+        text={localText}
+        recommended={!isMobilePlatform()}
+        busy={runLocal.isPending}
+        disabled={runLocal.isPending}
+        onClick={chooseLocal}
+      />
+      <DesktopChoice
+        icon={<IconServer2 size={24} aria-hidden />}
+        title={SERVER_TITLE}
+        text={SERVER_TEXT}
+        disabled={runLocal.isPending}
+        onClick={chooseServer}
+      />
+    </Stack>
+  )
+
   return (
     <Box component="main" h="100vh" className="safe-area">
       <DocumentTitle title="Welcome" />
       <Center h="100%" p={{ base: 'md', sm: 'xl' }}>
         <Paper p={{ base: 'lg', sm: 'xl' }} w="100%" maw={480} withBorder>
           <Stack gap="xl">
-            <Stack gap="md" align="center">
-              <AppLogo size={{ base: 48, sm: 56 }} alt="Pipedash" />
-              <Title order={1} size="h2" ta="center">
-                {TITLE}
-              </Title>
-            </Stack>
+            <ConnectionScreenHeading title={TITLE} />
 
-            <Stack gap="sm">
-              <DesktopChoice
-                icon={<IconDeviceDesktop size={24} aria-hidden />}
-                title={LOCAL_TITLE}
-                text={localText}
-                recommended={!isMobilePlatform()}
-                busy={runLocal.isPending}
-                disabled={runLocal.isPending}
-                onClick={chooseLocal}
-              />
-              <DesktopChoice
-                icon={<IconServer2 size={24} aria-hidden />}
-                title={SERVER_TITLE}
-                text={SERVER_TEXT}
-                disabled={runLocal.isPending}
-                onClick={chooseServer}
-              />
-            </Stack>
+            {choices}
 
             <Text size="sm" c="dimmed" ta="center">
               {FOOTER}

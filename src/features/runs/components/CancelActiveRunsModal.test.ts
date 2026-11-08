@@ -5,7 +5,8 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement } from 'react'
 
 import { pipelineFixture } from '../../../testing/fixtures'
-import type { PipelineRun, PluginMetadata } from '../../../types/domain'
+import { runPresentationFixture } from '../../../testing/presentation'
+import type { PipelineRun } from '../../../types/pipelines'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
@@ -32,32 +33,7 @@ const run: PipelineRun = {
   commit_message: null,
   branch: 'main',
   actor: null,
-}
-const plugin: PluginMetadata = {
-  name: 'GitHub',
-  provider_type: 'github',
-  version: '1.0.0',
-  description: '',
-  author: null,
-  icon: null,
-  config_schema: { fields: [] },
-  table_schema: { tables: [] },
-  capabilities: {
-    pipelines: true,
-    pipeline_runs: true,
-    trigger: true,
-    cancel: true,
-    force_cancel: false,
-    agents: false,
-    artifacts: false,
-    queues: false,
-    custom_tables: false,
-    retains_run_history: true,
-    logs: true,
-    sign_in: false,
-  },
-  required_permissions: [],
-  features: [],
+  ...runPresentationFixture(),
 }
 
 afterEach(async () => {
@@ -90,15 +66,11 @@ function renderModal(onConfirm: () => Promise<unknown>, onClose: () => void) {
 }
 
 test('a failed cancellation keeps the dialog open and a retry closes it', async (context) => {
-  context.mock.method(apiService, 'getAvailablePlugins', async () => [plugin])
-  context.mock.method(apiService, 'fetchRunHistory', async () => ({
-    runs: [run],
-    total_count: 1,
-    has_more: false,
-    is_complete: true,
-    page: 1,
-    page_size: 20,
-    total_pages: 1,
+  context.mock.method(apiService, 'getCancellationTargets', async () => ({
+    groups: [{ pipeline, provider_name: 'GitHub', runs: [run] }],
+    failed_pipeline_ids: [],
+    skipped: [],
+    run_count: 1,
   }))
   const user = userEvent.setup({ document })
   let closed = 0

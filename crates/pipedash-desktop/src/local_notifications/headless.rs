@@ -5,7 +5,7 @@ use std::sync::{
 };
 
 use pipedash_core::application::{
-    refresh_notifications,
+    wanted_notifications,
     LocalNotification,
     NotificationState,
 };
@@ -14,20 +14,20 @@ use tokio::sync::watch;
 use super::{
     store,
     wake,
-    REFRESH_BUDGET,
+    PREFERENCES_SYNC,
     REFRESH_TIMEOUT,
 };
 
 static ACTIVE: Mutex<Option<watch::Sender<bool>>> = Mutex::new(None);
 
-pub fn cancel() {
+pub(crate) fn cancel() {
     let active = ACTIVE.lock().unwrap_or_else(PoisonError::into_inner).take();
     if let Some(cancel) = active {
         let _ = cancel.send(true);
     }
 }
 
-pub fn run(data_dir: &Path) -> Vec<LocalNotification> {
+pub(crate) fn run(data_dir: &Path) -> Vec<LocalNotification> {
     store::set_dir(data_dir.join("background-notifications"));
     let Ok(generation) = store::generation() else {
         return Vec::new();
@@ -63,26 +63,8 @@ pub fn run(data_dir: &Path) -> Vec<LocalNotification> {
             result = tokio::time::timeout(
                 REFRESH_TIMEOUT,
                 wake::gather(
-                    async {
-                        match &authorization {
-                            Some(authorization) => refresh_notifications(
-                                &authorization.providers,
-                                &authorization.proxy_url,
-                                authorization.status_pages_enabled,
-                                &mut observations,
-                                REFRESH_BUDGET,
-                            )
-                            .await
-                            .ok(),
-                            None => None,
-                        }
-                    },
-                    async {
-                        match &host {
-                            Some(host) => wake::fetch_host(host, REFRESH_BUDGET).await,
-                            None => None,
-                        }
-                    },
+                    wake::scan_providers(authorization.as_ref(), &mut observations),
+                    wake::fetch_hosted(host.as_ref()),
                 ),
             ) => result.ok(),
         }
@@ -110,13 +92,13 @@ pub fn run(data_dir: &Path) -> Vec<LocalNotification> {
         }
     }
 
-    let shown = super::wanted(&preferences, notices);
+    let shown = wanted_notifications(&preferences, notices);
     let finishes: Vec<_> = shown
         .iter()
         .filter_map(|notice| notice.pipeline_id.clone().zip(notice.finish))
         .collect();
     if !finishes.is_empty() {
-        let _sync = super::PREFERENCES_SYNC.blocking_lock();
+        let _sync = PREFERENCES_SYNC.blocking_lock();
         if store::fire_once(&finishes).is_err() {
             tracing::warn!("Couldn't mark a one-time watch as used");
         }

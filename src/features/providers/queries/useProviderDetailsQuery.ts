@@ -3,7 +3,7 @@ import { type UseQueryResult, useQuery } from '@tanstack/react-query'
 import { GC_TIMES, STALE_TIMES } from '@/lib/cacheConfig'
 import { queryKeys } from '@/lib/queryKeys'
 import { service } from '@/services/service'
-import type { ProviderConfig } from '@/types/domain'
+import type { ProviderConfig } from '@/types/providers'
 
 export function useProviderDetails(providerId: number | null): UseQueryResult<ProviderConfig & { id: number }, Error> {
   return useQuery({

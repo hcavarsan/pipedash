@@ -3,8 +3,11 @@ import { after, afterEach, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, Fragment } from 'react'
-
-import type { BuildWatchSnapshot, BuildWatchStatus, Pipeline, ProviderSummary } from '../../types/domain'
+import { providerAttentionFixture } from '../../testing/fixtures'
+import { pipelineActionsFixture, viewPresentationFixture } from '../../testing/presentation'
+import type { BuildWatchSnapshot, BuildWatchStatus } from '../../types/notifications'
+import type { Pipeline } from '../../types/pipelines'
+import type { ProviderSummary } from '../../types/providers'
 
 GlobalRegistrator.register({ width: 390, height: 844 })
 
@@ -108,6 +111,7 @@ Object.assign(window, {
             hidden_count: 0,
             filters_active: false,
             facets: { organizations: [], provider_ids: [] },
+            presentation: viewPresentationFixture(),
           }
         }
         case 'get_available_plugins':
@@ -152,6 +156,7 @@ const pipeline: Pipeline = {
   status: 'pending',
   last_run: null,
   last_updated: new Date(snapshot.updatedAt * 1000).toISOString(),
+  actions: pipelineActionsFixture(),
 }
 const provider: ProviderSummary = {
   id: 1,
@@ -171,6 +176,7 @@ const provider: ProviderSummary = {
   freshness: { state: 'never', stale_at: null },
   recovery: null,
   health: { level: 'operational', signals: [], next_attempt_at: null, in_flight: false, status_page: null },
+  attention: providerAttentionFixture(),
 }
 
 function mount(

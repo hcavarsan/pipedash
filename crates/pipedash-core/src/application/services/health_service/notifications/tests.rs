@@ -51,7 +51,7 @@ fn run(provider: i64, name: &str, status: PipelineStatus, minute: i64) -> Pipeli
 
 fn summary(id: i64) -> ProviderSummary {
     serde_json::from_value(json!({
-        "id": id, "name": format!("Provider {id}"), "provider_type": "github", "icon": null,
+        "id": id, "name": format!("Provider {id}"), "provider_type": "stub", "icon": null,
         "pipeline_count": 0, "last_updated": null, "refresh_interval": 30,
         "configured_repositories": [], "last_fetch_status": "success",
         "last_fetch_error": null, "last_fetch_at": null, "version": 1
@@ -137,16 +137,16 @@ fn instance_signal() -> Value {
     json!({
         "kind": "instance", "episode_id": "episode-2", "level": "major_outage",
         "evidence": "fresh", "observed_at": "2026-10-26T12:00:00Z",
-        "title": "flux: scaled to zero", "detail": null, "reported_by": "Provider 1",
+        "title": "stub: scaled to zero", "detail": null, "reported_by": "Provider 1",
         "url": null,
-        "components": [{"name": "flux", "level": "major_outage", "detail": "scaled to zero"}],
+        "components": [{"name": "stub", "level": "major_outage", "detail": "scaled to zero"}],
         "incidents": [], "maintenances": [], "updated_at": "2026-10-26T12:00:00Z"
     })
 }
 
 fn broken() -> ComponentHealth {
     ComponentHealth {
-        name: "flux".to_owned(),
+        name: "stub".to_owned(),
         level: HealthLevel::MajorOutage,
         detail: Some("scaled to zero".to_owned()),
     }
@@ -207,7 +207,7 @@ impl Rig {
         ProviderConfig {
             id: Some(id),
             name: format!("Provider {id}"),
-            provider_type: "github".to_owned(),
+            provider_type: "stub".to_owned(),
             token: "secret-token".to_owned(),
             config: HashMap::new(),
             refresh_interval: 30,
@@ -262,10 +262,10 @@ async fn a_cold_scan_baselines_silently_and_later_failures_notify() {
     assert_eq!(
         found,
         [LocalNotification {
-            key: "pipeline:github__1__api".to_owned(),
+            key: "pipeline:stub__1__api".to_owned(),
             title: "api failed".to_owned(),
             body: BODY.to_owned(),
-            pipeline_id: Some("github__1__api".to_owned()),
+            pipeline_id: Some("stub__1__api".to_owned()),
             provider_id: Some(1),
             provider_ids: vec![1],
             kind: AlertKind::Failed,
@@ -331,7 +331,7 @@ fn admission_shows_a_watched_finish_once_and_reports_the_request_it_used() {
         notice,
     };
     let request = crate::domain::OnceWatch {
-        pipeline_id: "github__1__api".into(),
+        pipeline_id: "stub__1__api".into(),
         since: finish.at - chrono::Duration::minutes(1),
         fired_at: None,
     };
@@ -354,7 +354,7 @@ fn admission_shows_a_watched_finish_once_and_reports_the_request_it_used() {
         })
     );
     assert_eq!(observed.admit(&mut preferences).unwrap().fired, None);
-    preferences.muted_pipelines = vec!["github__1__api".into()];
+    preferences.muted_pipelines = vec!["stub__1__api".into()];
     assert!(observed.admit(&mut preferences).is_none());
 }
 
@@ -454,7 +454,7 @@ fn a_failed_pipeline_notifies_once_when_it_passes_again() {
         assert_eq!(
             found,
             [LocalNotification {
-                key: "pipeline:github__1__api".to_owned(),
+                key: "pipeline:stub__1__api".to_owned(),
                 title: "api passed again".to_owned(),
                 body: BODY.to_owned(),
                 pipeline_id: Some(success.id.clone()),
@@ -577,7 +577,7 @@ fn an_overdue_event_notifies_once_per_run() {
 #[tokio::test]
 async fn a_scan_flags_a_running_pipeline_past_its_usual_duration_once() {
     let mut rig = Rig::new();
-    let id = "github__1__api";
+    let id = "stub__1__api";
     let mut runs = vec![running_run(id, 3)];
     runs.extend((1..=3).map(|number| stub_run(id, number, 600)));
     let stub = rig.stub(1, |stub| stub.with_runs(runs));
@@ -588,7 +588,7 @@ async fn a_scan_flags_a_running_pipeline_past_its_usual_duration_once() {
     let found = rig.scan(&[1]).await;
 
     assert_eq!(titles(&found), ["api is running longer than usual"]);
-    assert_eq!(found[0].key, "pipeline:github__1__api");
+    assert_eq!(found[0].key, "pipeline:stub__1__api");
     assert!(rig.scan(&[1]).await.is_empty());
 }
 
@@ -806,7 +806,7 @@ async fn controller_health_alerts_and_recovers_without_trusting_failed_checks() 
     rig.controller = true;
     let stub = rig.stub(1, |stub| stub);
     let broken = ComponentHealth {
-        name: "flux".to_owned(),
+        name: "stub".to_owned(),
         level: HealthLevel::MajorOutage,
         detail: Some("scaled to zero".to_owned()),
     };
@@ -815,7 +815,7 @@ async fn controller_health_alerts_and_recovers_without_trusting_failed_checks() 
 
     stub.set_health(Ok(vec![broken]));
     let found = rig.scan(&[1]).await;
-    assert_eq!(titles(&found), ["flux: scaled to zero"]);
+    assert_eq!(titles(&found), ["stub: scaled to zero"]);
     assert_eq!(found[0].key, "instance:1");
     assert_eq!(
         found[0].body,
@@ -847,7 +847,7 @@ async fn a_controller_outage_is_reported_when_pipeline_access_fails() {
     stub.set_health(Ok(vec![broken()]));
     let found = rig.scan(&[1]).await;
 
-    assert!(titles(&found).contains(&"flux: scaled to zero"));
+    assert!(titles(&found).contains(&"stub: scaled to zero"));
 }
 
 #[tokio::test]
@@ -863,7 +863,7 @@ async fn a_controller_outage_survives_a_pipeline_fetch_that_outlasts_the_scan() 
     stub.set_health(Ok(vec![broken()]));
     let found = rig.scan_within(&[1], Duration::from_millis(300)).await;
 
-    assert_eq!(titles(&found), ["flux: scaled to zero"]);
+    assert_eq!(titles(&found), ["stub: scaled to zero"]);
 }
 
 #[tokio::test]
@@ -945,6 +945,7 @@ async fn a_bad_proxy_is_a_fatal_configuration_error() {
         true,
         &mut state,
         Duration::from_secs(1),
+        crate::application::test_support::plugins::registry(),
     )
     .await;
 
@@ -964,8 +965,7 @@ async fn running_pipelines_beyond_the_per_scan_cap_are_covered_by_later_scans() 
         .map(|n| run(1, &format!("p{n:02}"), PipelineStatus::Running, 1))
         .collect();
     rig.stub(1, |stub| {
-        stub.returning(many)
-            .with_runs(overdue_runs("github__1__p00"))
+        stub.returning(many).with_runs(overdue_runs("stub__1__p00"))
     });
     let checked = |rig: &Rig| {
         rig.state.pipelines[&1]
@@ -1053,11 +1053,30 @@ async fn a_pipeline_already_overdue_at_the_first_scan_stays_silent() {
     let mut rig = Rig::new();
     rig.stub(1, |stub| {
         stub.returning(vec![run(1, "api", PipelineStatus::Running, 1)])
-            .with_runs(overdue_runs("github__1__api"))
+            .with_runs(overdue_runs("stub__1__api"))
     });
 
     assert!(rig.scan(&[1]).await.is_empty());
     assert!(rig.scan(&[1]).await.is_empty());
+}
+
+#[tokio::test]
+async fn the_scan_skips_overdue_checks_for_plugins_that_opt_out() {
+    let mut rig = Rig::new();
+    let stub = rig.stub(1, |stub| {
+        stub.bounded_history()
+            .returning(vec![run(1, "api", PipelineStatus::Running, 1)])
+            .with_runs(overdue_runs("stub__1__api"))
+    });
+
+    assert!(rig.scan(&[1]).await.is_empty());
+
+    let checked = rig.state.pipelines[&1]
+        .values()
+        .filter(|mark| mark.checked_at.is_some())
+        .count();
+    assert_eq!(checked, 0);
+    assert_eq!(stub.history_fetch_count(), 0);
 }
 
 #[tokio::test]
@@ -1077,7 +1096,7 @@ async fn hanging_run_history_does_not_block_outage_checks_within_the_deadline() 
     stub.set_health(Ok(vec![broken()]));
     let found = rig.scan_within(&[1], Duration::from_millis(300)).await;
 
-    assert_eq!(titles(&found), ["flux: scaled to zero"]);
+    assert_eq!(titles(&found), ["stub: scaled to zero"]);
 }
 
 #[tokio::test]
@@ -1145,7 +1164,7 @@ async fn a_controller_outage_after_a_healthy_opt_in_alerts_on_the_first_scan() {
     rig.state.seed(&[], &[summary_with(1, Vec::new(), false)]);
     rig.state = reload(&rig.state);
 
-    assert_eq!(titles(&rig.scan(&[1]).await), ["flux: scaled to zero"]);
+    assert_eq!(titles(&rig.scan(&[1]).await), ["stub: scaled to zero"]);
     assert!(rig.scan(&[1]).await.is_empty());
 }
 

@@ -1,4 +1,5 @@
 use indexmap::IndexMap;
+use pipedash_plugin_api::PluginRegistry;
 
 use super::schema::{
     PipedashConfig,
@@ -22,28 +23,12 @@ impl ValidationResult {
         self.errors.is_empty()
     }
 
-    pub fn has_issues(&self) -> bool {
-        !self.errors.is_empty() || !self.warnings.is_empty()
-    }
-
     pub fn add_error(&mut self, error: ConfigError) {
         self.errors.push(error);
     }
 
     pub fn add_warning(&mut self, warning: ConfigWarning) {
         self.warnings.push(warning);
-    }
-
-    pub fn summary(&self) -> String {
-        if self.errors.is_empty() && self.warnings.is_empty() {
-            "Configuration is valid".to_string()
-        } else {
-            format!(
-                "{} error(s), {} warning(s)",
-                self.errors.len(),
-                self.warnings.len()
-            )
-        }
     }
 }
 
@@ -54,18 +39,23 @@ pub struct ConfigError {
     pub code: ConfigErrorCode,
 }
 
-impl std::fmt::Display for ConfigError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {} ({})", self.field, self.message, self.code)
-    }
+macro_rules! display_entry {
+    ($entry:ty) => {
+        impl std::fmt::Display for $entry {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}: {} ({})", self.field, self.message, self.code)
+            }
+        }
+    };
 }
+
+display_entry!(ConfigError);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigErrorCode {
     MissingRequired,
     InvalidValue,
     PlainTextToken,
-    BackendMismatch,
     FeatureNotEnabled,
 }
 
@@ -75,7 +65,6 @@ impl std::fmt::Display for ConfigErrorCode {
             Self::MissingRequired => write!(f, "MISSING_REQUIRED"),
             Self::InvalidValue => write!(f, "INVALID_VALUE"),
             Self::PlainTextToken => write!(f, "PLAIN_TEXT_TOKEN"),
-            Self::BackendMismatch => write!(f, "BACKEND_MISMATCH"),
             Self::FeatureNotEnabled => write!(f, "FEATURE_NOT_ENABLED"),
         }
     }
@@ -88,17 +77,11 @@ pub struct ConfigWarning {
     pub code: ConfigWarningCode,
 }
 
-impl std::fmt::Display for ConfigWarning {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {} ({})", self.field, self.message, self.code)
-    }
-}
+display_entry!(ConfigWarning);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigWarningCode {
     NoTokenConfigured,
-    InsecureDefault,
-    Deprecated,
     UnusedSetting,
 }
 
@@ -106,8 +89,6 @@ impl std::fmt::Display for ConfigWarningCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NoTokenConfigured => write!(f, "NO_TOKEN"),
-            Self::InsecureDefault => write!(f, "INSECURE_DEFAULT"),
-            Self::Deprecated => write!(f, "DEPRECATED"),
             Self::UnusedSetting => write!(f, "UNUSED"),
         }
     }
@@ -116,7 +97,15 @@ impl std::fmt::Display for ConfigWarningCode {
 pub struct ConfigValidator;
 
 impl ConfigValidator {
-    pub fn validate(config: &PipedashConfig) -> ValidationResult {
+    pub fn validate_with_plugins(
+        config: &PipedashConfig, registry: &PluginRegistry,
+    ) -> ValidationResult {
+        let mut result = Self::validate(config);
+        Self::validate_provider_types(&config.providers, registry, &mut result);
+        result
+    }
+
+    fn validate(config: &PipedashConfig) -> ValidationResult {
         let mut result = ValidationResult::new();
 
         Self::validate_storage(&config.storage, &mut result);
@@ -169,34 +158,6 @@ impl ConfigValidator {
                     message: "Provider type is required".to_string(),
                     code: ConfigErrorCode::MissingRequired,
                 });
-            } else {
-                let valid_types = [
-                    "github",
-                    "gitea",
-                    "gitlab",
-                    "bitbucket",
-                    "buildkite",
-                    "azure-devops",
-                    "jenkins",
-                    "tekton",
-                    "argocd",
-                    "fluxcd",
-                    "komodo",
-                    "prow",
-                    "coolify",
-                    "circleci",
-                    "woodpecker",
-                ];
-                if !valid_types.contains(&provider.provider_type.as_str()) {
-                    result.add_warning(ConfigWarning {
-                        field: format!("{}.type", prefix),
-                        message: format!(
-                            "Unknown provider type: '{}'. Valid types: {:?}",
-                            provider.provider_type, valid_types
-                        ),
-                        code: ConfigWarningCode::UnusedSetting,
-                    });
-                }
             }
 
             if provider.token.is_empty() {
@@ -268,144 +229,29 @@ impl ConfigValidator {
     }
 }
 
-impl PipedashConfig {
-    pub fn validate(&self) -> ValidationResult {
-        ConfigValidator::validate(self)
+impl ConfigValidator {
+    fn validate_provider_types(
+        providers: &IndexMap<String, ProviderFileConfig>, registry: &PluginRegistry,
+        result: &mut ValidationResult,
+    ) {
+        for (id, provider) in providers {
+            let provider_type = provider.provider_type.as_str();
+            if provider_type.is_empty() || registry.is_registered(provider_type) {
+                continue;
+            }
+            let mut valid_types = registry.provider_types();
+            valid_types.sort();
+            result.add_warning(ConfigWarning {
+                field: format!("providers.{}.type", id),
+                message: format!(
+                    "Unknown provider type: '{}'. Valid types: {:?}",
+                    provider_type, valid_types
+                ),
+                code: ConfigWarningCode::UnusedSetting,
+            });
+        }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
-
-    use super::*;
-
-    #[test]
-    fn test_valid_config() {
-        let config = PipedashConfig::default();
-        let result = config.validate();
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_postgres_missing_connection_string() {
-        let mut config = PipedashConfig::default();
-        config.storage.backend = StorageBackend::Postgres;
-
-        let result = config.validate();
-        assert!(!result.is_ok());
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.field.contains("postgres.connection_string")));
-    }
-
-    #[test]
-    fn test_provider_missing_type() {
-        let mut config = PipedashConfig::default();
-        config.providers.insert(
-            "test".to_string(),
-            ProviderFileConfig {
-                name: None,
-                provider_type: String::new(),
-                token: String::new(),
-                refresh_interval: 30,
-                config: HashMap::new(),
-            },
-        );
-
-        let result = config.validate();
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.field.contains(".type") && e.code == ConfigErrorCode::MissingRequired));
-    }
-
-    #[test]
-    fn validate_views_rejects_a_view_without_rules() {
-        let mut config = PipedashConfig::default();
-        config.views.insert(
-            "release".to_string(),
-            ViewFileConfig {
-                name: "Release".to_string(),
-                ..Default::default()
-            },
-        );
-        config.views.insert(
-            "broken".to_string(),
-            ViewFileConfig {
-                name: "Broken".to_string(),
-                repositories: vec!["acme/[".to_string()],
-                ..Default::default()
-            },
-        );
-
-        let result = config.validate();
-
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.field == "views.release" && e.code == ConfigErrorCode::MissingRequired));
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.field == "views.broken.repositories"
-                && e.code == ConfigErrorCode::InvalidValue));
-    }
-
-    #[test]
-    fn test_provider_any_token_format_allowed() {
-        let mut config = PipedashConfig::default();
-        config.providers.insert(
-            "test".to_string(),
-            ProviderFileConfig {
-                name: None,
-                provider_type: "github".to_string(),
-                token: "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx".to_string(),
-                refresh_interval: 30,
-                config: HashMap::new(),
-            },
-        );
-
-        let result = config.validate();
-        assert!(!result
-            .errors
-            .iter()
-            .any(|e| e.code == ConfigErrorCode::PlainTextToken));
-    }
-
-    #[test]
-    fn test_provider_no_token_warning() {
-        let mut config = PipedashConfig::default();
-        config.providers.insert(
-            "test".to_string(),
-            ProviderFileConfig {
-                name: None,
-                provider_type: "github".to_string(),
-                token: String::new(),
-                refresh_interval: 30,
-                config: HashMap::new(),
-            },
-        );
-
-        let result = config.validate();
-        assert!(result
-            .warnings
-            .iter()
-            .any(|w| w.code == ConfigWarningCode::NoTokenConfigured));
-    }
-
-    #[test]
-    fn test_validation_summary() {
-        let result = ValidationResult::new();
-        assert_eq!(result.summary(), "Configuration is valid");
-
-        let mut result2 = ValidationResult::new();
-        result2.add_error(ConfigError {
-            field: "test".to_string(),
-            message: "test error".to_string(),
-            code: ConfigErrorCode::MissingRequired,
-        });
-        assert!(result2.summary().contains("1 error(s)"));
-    }
-}
+mod tests;

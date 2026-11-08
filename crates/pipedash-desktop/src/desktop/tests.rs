@@ -1,13 +1,38 @@
-use pipedash_core::domain::DomainError;
+use pipedash_core::{
+    domain::{
+        notification_center::{
+            CenterNotification,
+            CenterTone,
+        },
+        DomainError,
+        PipelineMenuSnapshot,
+    },
+    event::CoreEvent,
+};
 
-use super::*;
+use super::{
+    projection::{
+        parse_menu,
+        waking,
+    },
+    state::{
+        Inner,
+        Origin,
+        Ticket,
+    },
+    tray::{
+        ClientLink,
+        TrayStatus,
+    },
+    *,
+};
 
-fn notice(key: &str) -> DesktopNotice {
-    DesktopNotice {
+fn notice(key: &str) -> CenterNotification {
+    CenterNotification {
         key: key.to_string(),
         at: 1,
         read: false,
-        tone: "danger",
+        tone: CenterTone::Danger,
         level: None,
         title: key.to_string(),
         body: String::new(),
@@ -121,7 +146,7 @@ fn the_status_serializes_every_tray_state_in_lower_case() {
 
 #[test]
 fn a_client_is_active_only_while_connected_whatever_the_local_core_says() {
-    use crate::remote::RemoteStatus;
+    use crate::remote::model::RemoteStatus;
 
     let link = |status| {
         Some(ClientLink {
@@ -198,7 +223,7 @@ fn only_pipeline_and_provider_changes_wake_the_tray() {
 
 #[test]
 fn notices_and_old_menu_actions_end_when_the_saved_server_or_mode_changes() {
-    use crate::remote::RemoteStatus;
+    use crate::remote::model::RemoteStatus;
 
     let link = |host: &str| {
         Some(ClientLink {
@@ -270,7 +295,7 @@ fn a_notice_from_the_new_server_survives_the_menu_refresh_that_sees_the_switch()
 
 #[test]
 fn a_server_switch_drops_the_old_pins_and_a_menu_reply_fetched_before_it() {
-    use crate::remote::RemoteStatus;
+    use crate::remote::model::RemoteStatus;
 
     let pins = || PipelineMenuSnapshot {
         pipelines: Vec::new(),

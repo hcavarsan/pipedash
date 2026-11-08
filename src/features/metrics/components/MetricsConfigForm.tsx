@@ -7,7 +7,7 @@ import { logger } from '../../../lib/logger'
 import { openConfirm } from '../../../utils/confirm'
 import { errorMessage } from '../../../utils/errorDisplay'
 import { type ConfigSnapshot, type MetricsConfigModalProps, metricsConfigTitle } from '../lib/metricsConfigScope'
-import { RETENTION_PRESETS, validateRetentionDays } from '../lib/metricsRetention'
+import { RETENTION_PRESETS } from '../lib/metricsRetention'
 import {
   useFlushMetrics,
   useUpdateGlobalMetricsConfig,
@@ -64,13 +64,7 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
   )
   const [retentionDraft, setRetentionDraft] = useState<string | number>(initial.retentionDays)
 
-  const retentionError = validateRetentionDays(retentionDraft)
-
   const saveAction = async (): Promise<SaveState> => {
-    if (retentionError) {
-      return { error: retentionError }
-    }
-
     const disabling = baseline.enabled && !enabled
 
     if (disabling && !(await confirmDisable(pipelineId !== undefined, mobileShell))) {
@@ -121,7 +115,7 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
 
   const isBusy = isPending || flushMutation.isPending
   const dirty = enabled !== baseline.enabled || Number(retentionDraft) !== baseline.retentionDays
-  const saveDisabled = flushMutation.isPending || retentionError !== null
+  const saveDisabled = flushMutation.isPending
 
   return (
     <StandardModal
@@ -159,7 +153,6 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
             onRetentionChange={setRetentionDraft}
             retentionMode={retentionMode}
             onRetentionModeChange={setRetentionMode}
-            retentionError={retentionError}
             disabled={isBusy}
           />
           <MetricsStorageSection

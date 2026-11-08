@@ -61,8 +61,6 @@ pub const READ_ONLY_METADATA_KEY: &str = "read_only";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pipeline {
     pub id: String,
-    pub provider_id: i64,
-    pub provider_type: String,
     pub name: String,
     pub status: PipelineStatus,
     pub last_run: Option<DateTime<Utc>>,
@@ -100,36 +98,6 @@ pub struct PipelineRun {
 pub struct TriggerParams {
     pub workflow_id: String,
     pub inputs: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BuildAgent {
-    pub id: String,
-    pub name: String,
-    pub hostname: String,
-    pub status: String,
-    pub job_id: Option<String>,
-    pub last_seen: DateTime<Utc>,
-    pub metadata: HashMap<String, String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BuildQueue {
-    pub id: String,
-    pub waiting: usize,
-    pub running: usize,
-    pub avg_wait_time: Option<i64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BuildArtifact {
-    pub id: String,
-    pub run_id: String,
-    pub filename: String,
-    pub size_bytes: i64,
-    pub download_url: String,
-    pub content_type: Option<String>,
-    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -279,6 +247,34 @@ pub struct PermissionStatus {
     pub checked_at: DateTime<Utc>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub metadata: HashMap<String, String>,
+    #[serde(default)]
+    pub credential_label: Option<String>,
+}
+
+impl PermissionStatus {
+    pub fn evaluate(
+        permissions: &[Permission], token_type: &str, mut granted: impl FnMut(&Permission) -> bool,
+    ) -> Self {
+        let permissions: Vec<_> = permissions
+            .iter()
+            .map(|permission| PermissionCheck {
+                granted: granted(permission),
+                permission: permission.clone(),
+            })
+            .collect();
+        let all_granted = permissions
+            .iter()
+            .filter(|check| check.permission.required)
+            .all(|check| check.granted);
+
+        Self {
+            permissions,
+            all_granted,
+            checked_at: Utc::now(),
+            metadata: HashMap::from([("token_type".to_string(), token_type.to_string())]),
+            credential_label: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -302,3 +298,6 @@ pub struct FeatureAvailability {
     pub available: bool,
     pub missing_permissions: Vec<String>,
 }
+
+#[cfg(test)]
+mod tests;

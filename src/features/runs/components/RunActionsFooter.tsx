@@ -5,7 +5,7 @@ import type { ReactNode } from 'react'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { mobileService } from '../../../services/mobile'
 import { TYPOGRAPHY } from '../../../theme/typography'
-import type { PipelineRun } from '../../../types/domain'
+import type { PipelineRun } from '../../../types/pipelines'
 import { displayErrorNotification } from '../../../utils/errorDisplay'
 import { isHttpUrl, openExternal } from '../../../utils/openExternal'
 import { isMobilePlatform } from '../../../utils/platform'
@@ -14,13 +14,10 @@ interface RunActionsProps {
   run: PipelineRun
   providerName: string
   isMobile: boolean
-  isFlux: boolean
-  triggerLabel: string
+  rerunLabel: string
+  rerunCompactLabel: string
+  triggerNote: string | null | undefined
   canViewLogs: boolean
-  canTrigger: boolean
-  canCancel: boolean
-  canForceCancel: boolean
-  triggerBlockedReason: string | undefined
   stopDisabled: boolean
   rerunPending: boolean
   cancelPending: boolean
@@ -30,20 +27,24 @@ interface RunActionsProps {
   onForceCancel: () => void
 }
 
-const FLUX_NOTE = 'Reconcile uses the current resource configuration. It does not restore this historical revision.'
+const logsLabel = (canViewLogs: boolean, isMobile: boolean, providerName: string): string => {
+  if (canViewLogs) {
+    return `Open in ${providerName}`
+  }
+
+  return isMobile ? 'Logs' : 'View full logs'
+}
+
 const PENDING_NOTE = 'This run is pending. It can be stopped or rerun once it starts.'
 
 export function RunActionsFooter({
   run,
   providerName,
   isMobile,
-  isFlux,
-  triggerLabel,
+  rerunLabel,
+  rerunCompactLabel,
+  triggerNote,
   canViewLogs,
-  canTrigger,
-  canCancel,
-  canForceCancel,
-  triggerBlockedReason,
   stopDisabled,
   rerunPending,
   cancelPending,
@@ -54,12 +55,14 @@ export function RunActionsFooter({
 }: RunActionsProps): ReactNode {
   const isRunning = run.status === 'running' || run.status === 'pending'
   const isPending = run.status === 'pending'
+  const canCancel = run.actions.cancel.allowed
+  const note = run.actions.rerun.reason ?? triggerNote
 
   return (
     <Stack gap="xs">
-      {(isFlux || triggerBlockedReason) && (
+      {note && (
         <Text size="sm" c="dimmed">
-          {triggerBlockedReason ?? FLUX_NOTE}
+          {note}
         </Text>
       )}
       {isPending && canCancel && (
@@ -78,7 +81,7 @@ export function RunActionsFooter({
             size="sm"
             rightSection={<IconExternalLink size={16} aria-hidden />}
           >
-            {canViewLogs ? `Open in ${providerName}` : isMobile ? 'Logs' : 'View full logs'}
+            {logsLabel(canViewLogs, isMobile, providerName)}
           </Button>
         )}
         {isRunning && canCancel && (
@@ -93,7 +96,7 @@ export function RunActionsFooter({
             {isMobile ? 'Stop' : 'Stop workflow'}
           </Button>
         )}
-        {run.status === 'running' && canForceCancel && (
+        {run.actions.force_cancel.allowed && (
           <Button
             color="red"
             variant="outline"
@@ -105,14 +108,14 @@ export function RunActionsFooter({
             Force cancel
           </Button>
         )}
-        {!isRunning && canTrigger && (
+        {run.actions.rerun.allowed && (
           <Button
             size="sm"
             leftSection={<IconPlayerPlay size={16} aria-hidden />}
             onClick={onRerun}
             loading={rerunPending}
           >
-            {isFlux ? triggerLabel : isMobile ? 'Rerun' : 'Rerun workflow'}
+            {isMobile ? rerunCompactLabel : rerunLabel}
           </Button>
         )}
       </Group>
@@ -120,14 +123,16 @@ export function RunActionsFooter({
   )
 }
 
+const RerunTitle = ({ label }: { label: string }): ReactNode => (
+  <Text component="span" inherit c="blue">
+    {label}
+  </Text>
+)
+
 export function MobileRunActions({
   run,
-  isFlux,
-  triggerLabel,
-  canTrigger,
-  canCancel,
-  canForceCancel,
-  triggerBlockedReason,
+  rerunLabel,
+  triggerNote,
   rerunPending,
   cancelPending,
   forceCancelPending,
@@ -136,17 +141,13 @@ export function MobileRunActions({
   onForceCancel,
 }: RunActionsProps): ReactNode {
   const clipboard = useClipboard({ timeout: 2000 })
-  const isRunning = run.status === 'running' || run.status === 'pending'
   const isPending = run.status === 'pending'
   const hasLogs = isHttpUrl(run.logs_url)
-  const stoppable = isRunning && canCancel
-  const showRerun = !isRunning && canTrigger
-  const note =
-    isFlux || triggerBlockedReason
-      ? (triggerBlockedReason ?? FLUX_NOTE)
-      : isPending && canCancel
-        ? PENDING_NOTE
-        : undefined
+  const canCancel = run.actions.cancel.allowed
+  const stoppable = canCancel
+  const showRerun = run.actions.rerun.allowed
+  const rerunNote = run.actions.rerun.reason ?? triggerNote
+  const note = rerunNote ?? (isPending && canCancel ? PENDING_NOTE : undefined)
 
   const share = async (source: HTMLElement) => {
     if (isMobilePlatform()) {
@@ -200,11 +201,7 @@ export function MobileRunActions({
       {showRerun && (
         <IosGroup footer={note}>
           <IosRow
-            title={
-              <Text component="span" inherit c="blue">
-                {isFlux ? triggerLabel : 'Rerun workflow'}
-              </Text>
-            }
+            title={<RerunTitle label={rerunLabel} />}
             accessory={rerunPending ? <Loader size="sm" /> : undefined}
             disabled={rerunPending}
             onClick={onRerun}
@@ -222,7 +219,7 @@ export function MobileRunActions({
           />
         </IosGroup>
       )}
-      {run.status === 'running' && canForceCancel && (
+      {run.actions.force_cancel.allowed && (
         <IosGroup>
           <IosRow
             title="Force cancel"

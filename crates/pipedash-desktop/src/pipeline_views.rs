@@ -7,16 +7,21 @@ use pipedash_core::domain::{
     LegacyMarks,
     PinKind,
     PinnedItem,
+    PipelineNavigation,
     PipelineView,
     PipelineViewPage,
     PipelineViewQuery,
+    ViewEditorOptions,
     ViewMember,
+    ViewMembershipChange,
     ViewPatch,
     ViewRef,
+    ViewSelectionEntry,
+    ViewSelectionQuery,
 };
 use tauri::State;
 
-use crate::commands::ErrorResponse;
+use crate::error::ErrorResponse;
 use crate::MaybeCoreContext;
 
 async fn view_service(
@@ -130,4 +135,41 @@ pub async fn set_pin(
         .await?
         .set_pin(kind, &r#ref, pinned)
         .await?)
+}
+
+#[tauri::command]
+pub async fn get_view_selection(
+    maybe_core: State<'_, MaybeCoreContext>, pipeline_ids: Vec<String>,
+) -> Result<Vec<ViewSelectionEntry>, ErrorResponse> {
+    Ok(view_service(&maybe_core)
+        .await?
+        .selection(ViewSelectionQuery { pipeline_ids })
+        .await?)
+}
+
+#[tauri::command]
+pub async fn set_view_memberships(
+    maybe_core: State<'_, MaybeCoreContext>, id: ViewRef, change: ViewMembershipChange,
+) -> Result<Vec<ViewSelectionEntry>, ErrorResponse> {
+    Ok(view_service(&maybe_core)
+        .await?
+        .set_memberships(id, change)
+        .await?)
+}
+
+#[tauri::command]
+pub async fn get_view_editor_options(
+    maybe_core: State<'_, MaybeCoreContext>, view: Option<ViewRef>,
+) -> Result<ViewEditorOptions, ErrorResponse> {
+    Ok(view_service(&maybe_core)
+        .await?
+        .editor_options(view)
+        .await?)
+}
+
+#[tauri::command]
+pub async fn get_pipeline_navigation(
+    maybe_core: State<'_, MaybeCoreContext>, search: Option<String>,
+) -> Result<PipelineNavigation, ErrorResponse> {
+    Ok(view_service(&maybe_core).await?.navigation(search).await?)
 }

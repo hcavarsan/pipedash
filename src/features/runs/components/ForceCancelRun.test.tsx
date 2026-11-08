@@ -5,7 +5,8 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, type ReactNode } from 'react'
 
 import { pipelineFixture } from '../../../testing/fixtures'
-import type { Pipeline, PipelineRun } from '../../../types/domain'
+import { runActionsFixture, runPresentationFixture } from '../../../testing/presentation'
+import type { Pipeline, PipelineRun } from '../../../types/pipelines'
 import { pluginFixture } from '../../providers/components/AddProviderModal/pluginFixture'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
@@ -18,7 +19,7 @@ const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query
 const { notifications } = await import('../../../lib/notifications')
 const { queryKeys } = await import('../../../lib/queryKeys')
 const { apiService } = await import('../../../services/api')
-const { events } = await import('../../../services/service')
+const { wsClient } = await import('../../../services/websocket')
 const { RunActionButtons } = await import('./RunActionControls')
 const { RunActionsProvider } = await import('./RunActionsContext')
 const { WorkflowLogsModal } = await import('./WorkflowLogsModal')
@@ -37,6 +38,8 @@ const run: PipelineRun = {
   commit_message: null,
   branch: 'feature/cleanup',
   actor: null,
+  ...runPresentationFixture(),
+  actions: runActionsFixture({ force_cancel: { allowed: true, reason: null } }),
 }
 const plugin = pluginFixture()
 let client = new QueryClient()
@@ -53,7 +56,7 @@ beforeEach(() => {
     kind: null,
     message: null,
   }))
-  mock.method(events, 'listen', async () => () => undefined)
+  mock.method(wsClient, 'listen', async () => () => undefined)
 })
 
 afterEach(async () => {
@@ -78,11 +81,8 @@ function renderSurface(surface: 'history' | 'details', target: Pipeline = pipeli
         onClose: () => undefined,
         pipelineId: target.id,
         runNumber: targetRun.run_number,
-        providerType: target.provider_type,
         pipeline: target,
         canViewLogs: false,
-        canTrigger: false,
-        canCancel: true,
       })
     )
   const wrapper = ({ children }: { children: ReactNode }) =>
@@ -109,8 +109,8 @@ for (const surface of ['history', 'details'] as const) {
     const confirmation = await view.findByRole('dialog', { name: 'Force cancel run' })
     assert.match(confirmation.textContent ?? '', /org\/repo/)
     assert.match(confirmation.textContent ?? '', /feature\/cleanup/)
-    assert.match(confirmation.textContent ?? '', /run #7 only after normal cancellation fails/)
-    assert.match(confirmation.textContent ?? '', /GitHub bypasses conditions such as always\(\)/)
+    assert.match(confirmation.textContent ?? '', /Force cancel run #7/)
+    assert.match(confirmation.textContent ?? '', /You can't undo this/)
     assert.equal(force.mock.callCount(), 0)
     await user.click(within(confirmation).getByRole('button', { name: 'Keep running' }))
     await waitFor(() => assert.ok(!view.queryByRole('dialog', { name: 'Force cancel run' })))
@@ -157,36 +157,17 @@ for (const surface of ['history', 'details'] as const) {
     assert.ok(shown.mock.calls.some((call) => call.arguments[0]?.message === 'GitHub refused force cancellation'))
   })
 
-  for (const scenario of ['read-only', 'other provider', 'unsupported', 'pending', 'finished'] as const) {
-    test(`${surface} hides force cancel for ${scenario} runs`, async () => {
-      const target = {
-        ...pipeline,
-        provider_type: scenario === 'other provider' ? 'gitlab' : 'github',
-        metadata: { read_only: scenario === 'read-only' },
-      }
-      const targetRun: PipelineRun = {
-        ...run,
-        status: scenario === 'pending' ? 'pending' : scenario === 'finished' ? 'success' : 'running',
-      }
-      mock.method(apiService, 'getWorkflowRunDetails', async () => targetRun)
-      mock.method(apiService, 'getAvailablePlugins', async () => [
-        {
-          ...plugin,
-          provider_type: target.provider_type,
-          capabilities: { ...plugin.capabilities, force_cancel: scenario !== 'unsupported' },
-        },
-      ])
-      const view = within(document.body)
-      renderSurface(surface, target, targetRun)
-      await waitFor(() => assert.equal(client.getQueryState(queryKeys.plugins.list())?.status, 'success'))
-      if (surface === 'details') {
-        await waitFor(() =>
-          assert.equal(client.getQueryState(queryKeys.runs.detail(pipeline.id, 7))?.status, 'success')
-        )
-      }
-      assert.equal(view.queryByRole('button', { name: /Force cancel/ }), null)
-    })
-  }
+  test(`${surface} hides force cancel when the backend does not allow it`, async () => {
+    const targetRun: PipelineRun = { ...run, actions: runActionsFixture() }
+    mock.method(apiService, 'getWorkflowRunDetails', async () => targetRun)
+    const view = within(document.body)
+    renderSurface(surface, pipeline, targetRun)
+    await waitFor(() => assert.equal(client.getQueryState(queryKeys.plugins.list())?.status, 'success'))
+    if (surface === 'details') {
+      await waitFor(() => assert.equal(client.getQueryState(queryKeys.runs.detail(pipeline.id, 7))?.status, 'success'))
+    }
+    assert.equal(view.queryByRole('button', { name: /Force cancel/ }), null)
+  })
 }
 
 for (const surface of ['history', 'details'] as const) {

@@ -2,10 +2,13 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { pipelineFixture } from '../../../testing/fixtures'
-import type { PipelineRun } from '../../../types/domain'
-import { getPipelineLabels } from '../../../utils/pipelinePresentation'
+import { pluginPresentationFixture, runActionsFixture, runPresentationFixture } from '../../../testing/presentation'
+import type { PipelineRun } from '../../../types/pipelines'
 
 import { buildRunActions, type RunActionsValue, swipeActionsOf } from './runActions'
+
+const blocked = { allowed: false, reason: null }
+const allowed = { allowed: true, reason: null }
 
 const run = (overrides: Partial<PipelineRun> = {}): PipelineRun => ({
   id: 'run-7',
@@ -20,16 +23,16 @@ const run = (overrides: Partial<PipelineRun> = {}): PipelineRun => ({
   commit_message: null,
   branch: null,
   actor: null,
+  ...runPresentationFixture(),
+  actions: runActionsFixture({ cancel: blocked, force_cancel: blocked, review: blocked, rerun_failed: blocked }),
   ...overrides,
 })
 
 const context = (overrides: Partial<RunActionsValue> = {}): RunActionsValue => ({
-  pipeline: pipelineFixture({ id: 'p1', provider_type: 'github' }),
-  labels: getPipelineLabels('github'),
-  isFlux: false,
-  canRerun: true,
+  pipeline: pipelineFixture({ id: 'p1', provider_type: 'stub' }),
+  presentation: pluginPresentationFixture(),
+  labels: pluginPresentationFixture().terminology,
   canCancel: true,
-  canForceCancel: false,
   cancellingRun: null,
   forceCancellingRun: null,
   reviewingRun: null,
@@ -53,11 +56,15 @@ const context = (overrides: Partial<RunActionsValue> = {}): RunActionsValue => (
 const swipeKeys = (value: RunActionsValue, target: PipelineRun) =>
   swipeActionsOf(buildRunActions(value, target)).map((action) => action.key)
 
-test('a queued Azure run can be cancelled from history', async () => {
+test('a queued run can be cancelled from history', async () => {
   let cancelled: PipelineRun | undefined
-  const pending = run({ id: 'run-9001', run_number: 9001, status: 'pending' })
+  const pending = run({
+    id: 'run-9001',
+    run_number: 9001,
+    status: 'pending',
+    actions: runActionsFixture({ cancel: allowed, force_cancel: blocked, rerun: blocked }),
+  })
   const value = context({
-    pipeline: pipelineFixture({ id: 'p1', provider_type: 'azure-devops' }),
     canCancel: true,
     cancel: async (target) => {
       cancelled = target
@@ -94,7 +101,10 @@ test('a failed-jobs rerun in flight blocks rerun the same way', () => {
 })
 
 test('a pending review disables both review decisions', () => {
-  const awaiting = run({ status: 'running', metadata: { awaiting_review: true } })
+  const awaiting = run({
+    status: 'running',
+    actions: runActionsFixture({ cancel: blocked, review: allowed, rerun: blocked }),
+  })
   const value = context({ reviewingRun: 9 })
   const actions = buildRunActions(value, awaiting)
   assert.equal(actions.find((action) => action.id === 'approve')?.disabled, true)
@@ -105,12 +115,14 @@ test('a pending review disables both review decisions', () => {
 test('force cancel is a separate action for running runs with the capability', async () => {
   let calls = 0
   const value = context({
-    canForceCancel: true,
     forceCancel: async () => {
       calls += 1
     },
   })
-  const running = run({ status: 'running' })
+  const running = run({
+    status: 'running',
+    actions: runActionsFixture({ cancel: allowed, force_cancel: allowed, rerun: blocked }),
+  })
   const actions = buildRunActions(value, running)
 
   assert.ok(actions.find((action) => action.id === 'cancel'))
@@ -119,19 +131,12 @@ test('force cancel is a separate action for running runs with the capability', a
   assert.equal(calls, 1)
   assert.deepEqual(swipeKeys(value, running), ['cancel'])
   assert.equal(
-    buildRunActions(context(), running).some((action) => action.id === 'force-cancel'),
+    buildRunActions(value, run({ status: 'running' })).some((action) => action.id === 'force-cancel'),
     false
   )
-  for (const status of ['pending', 'success', 'failed', 'cancelled', 'skipped'] as const) {
-    assert.equal(
-      buildRunActions(value, run({ status })).some((action) => action.id === 'force-cancel'),
-      false
-    )
-  }
   assert.equal(
-    buildRunActions(context({ canForceCancel: true, forceCancellingRun: 7 }), running).find(
-      (action) => action.id === 'force-cancel'
-    )?.disabled,
+    buildRunActions(context({ forceCancellingRun: 7 }), running).find((action) => action.id === 'force-cancel')
+      ?.disabled,
     true
   )
 })

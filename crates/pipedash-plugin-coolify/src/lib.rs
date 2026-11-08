@@ -1,6 +1,5 @@
 mod client;
 mod config;
-mod log_cursor;
 mod log_dialect;
 mod mapper;
 mod metadata;

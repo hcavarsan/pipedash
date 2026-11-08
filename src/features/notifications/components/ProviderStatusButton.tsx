@@ -3,9 +3,8 @@ import type { ReactNode } from 'react'
 import { ProviderIcon } from '../../../components/atoms/ProviderIcon'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useNotificationCenterStore } from '../../../stores/notificationCenterStore'
-import type { ProviderSummary } from '../../../types/domain'
+import type { ProviderSummary } from '../../../types/providers'
 import { providerBadge } from '../../../utils/fetchInfo'
-import { providerAttention } from '../../../utils/providerAttention'
 import { TABLE_CELL_STYLES } from '../../../utils/tableCells'
 
 export function ProviderStatusButton({ provider }: { provider: ProviderSummary | undefined }): ReactNode {
@@ -20,7 +19,7 @@ export function ProviderStatusButton({ provider }: { provider: ProviderSummary |
     )
   }
 
-  const { tone, headline } = providerAttention(provider)
+  const { tone, headline } = provider.attention
   const attention = tone && headline ? { tone, label: headline } : undefined
 
   const button = (

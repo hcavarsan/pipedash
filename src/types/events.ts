@@ -1,4 +1,6 @@
-import type { Pipeline, PipelineRun, ProviderSummary, ShownNotification } from './domain'
+import type { ShownNotification } from './notifications'
+import type { Pipeline, PipelineRun } from './pipelines'
+import type { ProviderSummary } from './providers'
 
 export interface PipelinesUpdatedPayload {
   pipelines: Pipeline[]

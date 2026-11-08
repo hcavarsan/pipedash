@@ -9,13 +9,18 @@ macro_rules! on_pool {
     };
 }
 
+mod bind;
+mod config_transfer;
 mod device_alert_repository;
 mod device_push_repository;
 mod device_repository;
 mod metrics_repository;
 mod pipeline_view_repository;
+mod pool;
+mod provider_row;
 mod push_repository;
 mod repository;
+mod retry;
 mod schema;
 mod sqlite_backend;
 
@@ -31,24 +36,21 @@ pub use metrics_repository::{
 };
 pub use pipeline_view_repository::{
     PipelineViewRepository,
-    StoredMember,
     StoredPin,
     StoredView,
     ViewExport,
 };
+pub use pool::DatabasePool;
 #[cfg(feature = "postgres")]
 pub use postgres_backend::PostgresConfigBackend;
 pub use push_repository::PushRepository;
-pub use repository::{
-    DatabasePool,
-    ProviderFetchStatus,
-    Repository,
-};
-pub(crate) use repository::{
+pub use repository::fetch_status::ProviderFetchStatus;
+pub(crate) use repository::fetch_status::{
     FETCH_STATUS_ERROR,
     FETCH_STATUS_NEVER,
     FETCH_STATUS_SUCCESS,
 };
+pub use repository::Repository;
 pub use schema::init_database;
 #[cfg(feature = "postgres")]
 pub use schema::init_postgres_database;

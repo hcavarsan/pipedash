@@ -1,4 +1,4 @@
-import type { ShownNotification } from '../../types/domain'
+import type { ShownNotification } from '../../types/notifications'
 
 export const failedNotification: ShownNotification = {
   id: 1,
