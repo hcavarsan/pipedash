@@ -1,0 +1,30 @@
+[package]
+name = "{{ crate_name }}"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "{{ description }}"
+repository = "https://github.com/hcavarsan/pipedash"
+license = "GPL-3.0"
+{% if aliases %}
+
+[package.metadata.pipedash]
+aliases = [{{ aliases|quote_list }}]
+{% endif %}
+
+[dependencies]
+async-trait.workspace = true
+{% if kubernetes %}
+k8s-openapi.workspace = true
+kube.workspace = true
+pipedash-plugin-api = { workspace = true, features = ["kubernetes"] }
+reqwest.workspace = true
+tokio.workspace = true
+{% else %}
+pipedash-plugin-api.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+{% endif %}
+
+[lints]
+workspace = true

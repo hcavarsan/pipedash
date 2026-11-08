@@ -9,7 +9,18 @@ edition = "2021"
 name = "bump_version"
 path = "src/bump_version.rs"
 
+[[bin]]
+name = "new_plugin"
+path = "src/new_plugin/main.rs"
+
 [dependencies]
+clap = { version = "4.6", features = ["derive"] }
 glob = "0.3"
+inquire = "0.9"
+minijinja = { version = "3.1", features = ["serde"] }
 regex = "1"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"

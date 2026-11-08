@@ -1,0 +1,64 @@
+use std::collections::HashMap;
+
+use pipedash_plugin_api::config::selected_items;
+use pipedash_plugin_api::kubernetes::KubeconfigSource;
+use pipedash_plugin_api::*;
+use tokio::sync::OnceCell;
+
+use crate::{
+    config,
+    metadata,
+};
+
+plugin_struct!(
+    custom {{ pascal }}Plugin,
+    metadata::create_metadata();
+    client: OnceCell<kube::Client> = OnceCell::new(),
+    status_source: Option<StatusSource> = None,
+    config: HashMap<String, String> = HashMap::new()
+);
+
+impl {{ pascal }}Plugin {
+    async fn client(&self) -> PluginResult<&kube::Client> {
+        self.client
+            .get_or_try_init(|| {
+                let source = KubeconfigSource::from_config(&self.config, config::KUBECONFIG_PATH_KEY);
+                kubernetes::connect(move || source.load(), config::context(&self.config), true)
+            })
+            .await
+    }
+}
+
+plugin_impl!({{ pascal }}Plugin [metadata, status_source] {
+    fn initialize(
+        &mut self, _provider_id: i64, config: HashMap<String, String>,
+        _http_client: Option<std::sync::Arc<reqwest::Client>>,
+    ) -> PluginResult<()> {
+        self.status_source = custom_status_source(&config)?;
+        self.config = config;
+        self.client = OnceCell::new();
+        Ok(())
+    }
+
+    async fn validate_credentials(&self) -> PluginResult<bool> {
+        self.client()
+            .await?
+            .apiserver_version()
+            .await
+            .map_err(|error| kubernetes::map_error(error, "Kubernetes API server"))?;
+        Ok(true)
+    }
+
+    async fn get_field_options(
+        &self, field_key: &str, config: &HashMap<String, String>,
+    ) -> PluginResult<Vec<String>> {
+        if field_key != config::CONTEXT_KEY {
+            return Ok(Vec::new());
+        }
+        let source = KubeconfigSource::from_config(config, config::KUBECONFIG_PATH_KEY);
+        let description = source.describe();
+        kubernetes::available_contexts(move || source.load(), description).await
+    }
+
+{% include "stubs.rs.j2" %}
+});
