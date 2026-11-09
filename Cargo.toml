@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.12.0"
+version = "0.13.0"
 authors = ["Pipedash Team"]
 edition = "2021"
 
@@ -46,11 +46,11 @@ octocrab = { version = "0.54.8", default-features = false, features = [
   "timeout",
   "tracing",
 ] }
-pipedash-core = { version = "0.12.0", path = "crates/pipedash-core" }
-pipedash-plugin-actions = { version = "0.12.0", path = "crates/pipedash-plugin-actions" }
-pipedash-plugin-api = { version = "0.12.0", path = "crates/pipedash-plugin-api" }
-pipedash-plugins = { version = "0.12.0", path = "crates/pipedash-plugins" }
-pipedash-web = { version = "0.12.0", path = "crates/pipedash-web", default-features = false }
+pipedash-core = { version = "0.13.0", path = "crates/pipedash-core" }
+pipedash-plugin-actions = { version = "0.13.0", path = "crates/pipedash-plugin-actions" }
+pipedash-plugin-api = { version = "0.13.0", path = "crates/pipedash-plugin-api" }
+pipedash-plugins = { version = "0.13.0", path = "crates/pipedash-plugins" }
+pipedash-web = { version = "0.13.0", path = "crates/pipedash-web", default-features = false }
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 rand = "0.10"
 rcgen = { version = "0.14", default-features = false, features = ["ring"] }

@@ -9,21 +9,21 @@ license = "GPL-3.0"
 
 [dependencies]
 pipedash-plugin-api.workspace = true
-pipedash-plugin-argocd = { version = "0.12.0", path = "../pipedash-plugin-argocd" }
-pipedash-plugin-azure-devops = { version = "0.12.0", path = "../pipedash-plugin-azure-devops" }
-pipedash-plugin-bitbucket = { version = "0.12.0", path = "../pipedash-plugin-bitbucket" }
-pipedash-plugin-buildkite = { version = "0.12.0", path = "../pipedash-plugin-buildkite" }
-pipedash-plugin-circleci = { version = "0.12.0", path = "../pipedash-plugin-circleci" }
-pipedash-plugin-coolify = { version = "0.12.0", path = "../pipedash-plugin-coolify" }
-pipedash-plugin-fluxcd = { version = "0.12.0", path = "../pipedash-plugin-fluxcd" }
-pipedash-plugin-gitea = { version = "0.12.0", path = "../pipedash-plugin-gitea" }
-pipedash-plugin-github = { version = "0.12.0", path = "../pipedash-plugin-github" }
-pipedash-plugin-gitlab = { version = "0.12.0", path = "../pipedash-plugin-gitlab" }
-pipedash-plugin-jenkins = { version = "0.12.0", path = "../pipedash-plugin-jenkins" }
-pipedash-plugin-komodo = { version = "0.12.0", path = "../pipedash-plugin-komodo" }
-pipedash-plugin-prow = { version = "0.12.0", path = "../pipedash-plugin-prow" }
-pipedash-plugin-tekton = { version = "0.12.0", path = "../pipedash-plugin-tekton" }
-pipedash-plugin-woodpecker = { version = "0.12.0", path = "../pipedash-plugin-woodpecker" }
+pipedash-plugin-argocd = { version = "0.13.0", path = "../pipedash-plugin-argocd" }
+pipedash-plugin-azure-devops = { version = "0.13.0", path = "../pipedash-plugin-azure-devops" }
+pipedash-plugin-bitbucket = { version = "0.13.0", path = "../pipedash-plugin-bitbucket" }
+pipedash-plugin-buildkite = { version = "0.13.0", path = "../pipedash-plugin-buildkite" }
+pipedash-plugin-circleci = { version = "0.13.0", path = "../pipedash-plugin-circleci" }
+pipedash-plugin-coolify = { version = "0.13.0", path = "../pipedash-plugin-coolify" }
+pipedash-plugin-fluxcd = { version = "0.13.0", path = "../pipedash-plugin-fluxcd" }
+pipedash-plugin-gitea = { version = "0.13.0", path = "../pipedash-plugin-gitea" }
+pipedash-plugin-github = { version = "0.13.0", path = "../pipedash-plugin-github" }
+pipedash-plugin-gitlab = { version = "0.13.0", path = "../pipedash-plugin-gitlab" }
+pipedash-plugin-jenkins = { version = "0.13.0", path = "../pipedash-plugin-jenkins" }
+pipedash-plugin-komodo = { version = "0.13.0", path = "../pipedash-plugin-komodo" }
+pipedash-plugin-prow = { version = "0.13.0", path = "../pipedash-plugin-prow" }
+pipedash-plugin-tekton = { version = "0.13.0", path = "../pipedash-plugin-tekton" }
+pipedash-plugin-woodpecker = { version = "0.13.0", path = "../pipedash-plugin-woodpecker" }
 
 [lints]
 workspace = true
