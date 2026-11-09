@@ -10,6 +10,7 @@ import { runHistoryQuery } from '../../../lib/runHistoryQuery'
 import { useRunHistory, useRunHistoryInfinite } from '../../../queries/useRunHistoryQueries'
 import { STATUS_META } from '../../../theme/status'
 import type { Pipeline, PipelineRun, PipelineStatus } from '../../../types/pipelines'
+import type { RunHistoryScanNotice } from '../../../types/run_history'
 import { isDateRange } from '../../../utils/dateRange'
 import { useTableDefinition } from '../queries/useTableSchemaQueries'
 
@@ -36,6 +37,7 @@ export interface RunHistoryPageData {
   refetch: () => Promise<unknown>
   totalCount: number
   isComplete: boolean
+  scanNotice: RunHistoryScanNotice | null
   hasMore: boolean
   isFetchingMore: boolean
   fetchMore: () => void
@@ -56,7 +58,7 @@ export function useRunHistoryPageData(pipeline: Pipeline | null): RunHistoryPage
     direction: runsTable?.default_sort_direction === 'asc' ? 'asc' : 'desc',
   }
 
-  const scanKey = JSON.stringify([page, debouncedSearch, status, branch, actor, dateRange, sortStatus])
+  const scanKey = pipelineId
   const [depth, setDepth] = useState({ key: scanKey, value: 1 })
   const scanDepth = depth.key === scanKey ? depth.value : 1
 
@@ -110,6 +112,7 @@ export function useRunHistoryPageData(pipeline: Pipeline | null): RunHistoryPage
     refetch: () => active.refetch(),
     totalCount: lastPage?.total_count ?? 0,
     isComplete: lastPage?.is_complete ?? false,
+    scanNotice: lastPage?.scan_notice ?? null,
     hasMore: isMobile ? infinite.hasNextPage : (lastPage?.can_scan_deeper ?? false),
     isFetchingMore: isMobile ? infinite.isFetchingNextPage : paged.isFetching,
     fetchMore: () => {

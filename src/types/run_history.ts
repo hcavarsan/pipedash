@@ -15,12 +15,19 @@ export interface RunHistoryQuery {
   scan_depth?: number | undefined
 }
 
+export interface RunHistoryScanNotice {
+  title: string
+  message: string
+  action_label: string
+}
+
 export interface RunHistoryPage {
   runs: PipelineRun[]
   total_count: number
   has_more: boolean
   can_scan_deeper: boolean
   is_complete: boolean
+  scan_notice: RunHistoryScanNotice | null
   page: number
   page_size: number
   total_pages: number

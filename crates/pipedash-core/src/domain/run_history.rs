@@ -55,12 +55,20 @@ impl RunHistoryQuery {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunHistoryScanNotice {
+    pub title: String,
+    pub message: String,
+    pub action_label: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunHistoryPage {
     pub runs: Vec<PipelineRun>,
     pub total_count: usize,
     pub has_more: bool,
     pub can_scan_deeper: bool,
     pub is_complete: bool,
+    pub scan_notice: Option<RunHistoryScanNotice>,
     pub page: usize,
     pub page_size: usize,
     pub total_pages: usize,

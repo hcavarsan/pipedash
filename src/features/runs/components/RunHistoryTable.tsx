@@ -13,9 +13,10 @@ interface RunHistoryTableProps {
   data: RunHistoryPageData
   columns: RunHistoryColumns
   selection: RunPageSelection
+  emptyState: ReactNode
 }
 
-export function RunHistoryTable({ data, columns, selection }: RunHistoryTableProps): ReactNode {
+export function RunHistoryTable({ data, columns, selection, emptyState }: RunHistoryTableProps): ReactNode {
   const actions = useRunActions()
   const contextMenu = useContextMenu()
   const { labels, openRun, canCancel } = actions
@@ -35,6 +36,7 @@ export function RunHistoryTable({ data, columns, selection }: RunHistoryTablePro
   return (
     <StandardTable<PipelineRun>
       records={data.runs}
+      emptyState={emptyState}
       onRowClick={({ record }) => openRun(record)}
       customRowAttributes={(record) => {
         const menu = runMenu(record)

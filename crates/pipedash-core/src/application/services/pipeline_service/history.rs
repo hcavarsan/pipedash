@@ -30,7 +30,7 @@ impl PipelineService {
         Ok(runs)
     }
 
-    async fn fetch_run_history_leased(
+    pub(super) async fn fetch_run_history_leased(
         &self, pipeline: &Pipeline, limit: usize,
     ) -> DomainResult<(Vec<PipelineRun>, ProviderLease)> {
         let pipeline_id = pipeline.id.as_str();
