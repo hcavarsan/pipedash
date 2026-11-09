@@ -193,8 +193,12 @@ impl CircleCIPlugin {
                 "Pipeline #{run_number} is still running. Wait for it to finish or cancel it"
             )));
         }
+        let continued = latest
+            .iter()
+            .any(|workflow| workflow.tag.as_deref() != Some("setup"));
         let chosen: Vec<&Workflow> = latest
             .into_iter()
+            .filter(|workflow| !continued || workflow.tag.as_deref() != Some("setup"))
             .filter(|workflow| {
                 !failed_only || matches!(workflow.status.as_str(), "failed" | "error")
             })

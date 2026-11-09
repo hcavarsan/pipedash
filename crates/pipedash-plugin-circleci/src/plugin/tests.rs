@@ -75,6 +75,20 @@ fn workflows(pipeline_id: &str) -> Option<Value> {
             workflow("wf-41-build", "build", "failed", 0),
             workflow("wf-41-lint", "lint", "success", 0),
         ]),
+        "pipe-40" | "pipe-39" | "pipe-38" => {
+            let status = if pipeline_id == "pipe-40" {
+                "success"
+            } else {
+                "failed"
+            };
+            let mut setup = workflow("wf-setup", "configure", status, 0);
+            setup["tag"] = json!("setup");
+            let mut items = vec![setup];
+            if pipeline_id != "pipe-38" {
+                items.push(workflow("wf-continued", "setup", status, 5));
+            }
+            json!(items)
+        }
         _ => return None,
     })
 }
@@ -142,6 +156,9 @@ fn reply(request: &Recorded, server: &str, growth: usize) -> (u16, Value) {
         }
         ("GET", "/api/v2/project/gh/acme/web/pipeline/42") => (200, pipeline(42)),
         ("GET", "/api/v2/project/gh/acme/web/pipeline/41") => (200, pipeline(41)),
+        ("GET", "/api/v2/project/gh/acme/web/pipeline/40") => (200, pipeline(40)),
+        ("GET", "/api/v2/project/gh/acme/web/pipeline/39") => (200, pipeline(39)),
+        ("GET", "/api/v2/project/gh/acme/web/pipeline/38") => (200, pipeline(38)),
         ("GET", "/api/v2/project/gh/acme/api/pipeline") => (200, page(json!([]))),
         ("GET", "/api/v2/project/circleci/org1/proj1/pipeline") => (200, page(json!([]))),
         ("GET", "/api/v2/pipeline/pipe-42/config") => (
@@ -694,6 +711,58 @@ async fn reruns_target_finished_workflows_and_failed_only_reruns_skip_passing_on
     let stub = self::stub(&[]).await;
     assert!(stub.plugin.rerun_run(WEB, 42).await.is_err());
     assert!(calls(&stub.requests, "POST").await.is_empty());
+}
+
+#[tokio::test]
+async fn continued_pipeline_reruns_skip_tagged_setup_workflows() {
+    for number in [40, 39] {
+        let stub = stub(&[]).await;
+
+        stub.plugin.rerun_run(WEB, number).await.unwrap();
+
+        assert_eq!(
+            calls(&stub.requests, "POST").await,
+            ["/api/v2/workflow/wf-continued/rerun"]
+        );
+        assert_eq!(
+            bodies(&stub.requests, "POST").await,
+            [json!({"from_failed": false})]
+        );
+    }
+}
+
+#[tokio::test]
+async fn failed_only_reruns_skip_setup_after_continuation() {
+    let stub = stub(&[]).await;
+
+    stub.plugin.rerun_failed_jobs(WEB, 39).await.unwrap();
+
+    assert_eq!(
+        calls(&stub.requests, "POST").await,
+        ["/api/v2/workflow/wf-continued/rerun"]
+    );
+    assert_eq!(
+        bodies(&stub.requests, "POST").await,
+        [json!({"from_failed": true})]
+    );
+}
+
+#[tokio::test]
+async fn setup_can_rerun_before_pipeline_continuation() {
+    for failed_only in [false, true] {
+        let stub = stub(&[]).await;
+
+        stub.plugin.rerun(WEB, 38, failed_only).await.unwrap();
+
+        assert_eq!(
+            calls(&stub.requests, "POST").await,
+            ["/api/v2/workflow/wf-setup/rerun"]
+        );
+        assert_eq!(
+            bodies(&stub.requests, "POST").await,
+            [json!({"from_failed": failed_only})]
+        );
+    }
 }
 
 #[test]

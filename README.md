@@ -116,6 +116,8 @@ See dead [Coolify](https://pipedash.app/docs/providers) containers as failed wit
 
 Follow new [Jenkins](https://pipedash.app/docs/providers) folder and multibranch jobs automatically with the opt-in "Follow all jobs" setting.
 
+Rerun continued CircleCI pipelines without restarting setup workflows through the [trigger guide](https://pipedash.app/docs/features/trigger-and-cancel).
+
 ## Features
 
 - See pipeline status across providers and pin or hide workflows in the [dashboard](https://pipedash.app/docs/features/dashboard).
