@@ -133,12 +133,8 @@ impl Vault {
     ) -> DomainResult<Self> {
         let mut vault = Self::salted(password, salt).await?;
         vault.verify(verifier)?;
-        let tokens = rows.tokens().await?;
-        if vault.load(tokens.clone()).await.is_ok() {
-            return Ok(vault);
-        }
         vault.legacy_key = Some(Self::legacy(password, legacy).await?.key);
-        vault.load(tokens).await?;
+        vault.load(rows.tokens().await?).await?;
         Ok(vault)
     }
 

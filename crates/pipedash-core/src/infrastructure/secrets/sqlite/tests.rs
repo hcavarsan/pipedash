@@ -259,6 +259,21 @@ async fn test_sqlite_token_written_by_an_older_version_after_upgrade_stays_reada
 }
 
 #[tokio::test]
+async fn test_sqlite_token_written_by_an_older_version_while_running_stays_readable() {
+    let pool = create_test_pool().await;
+    SqliteTokenStore::new(pool.clone(), Some("operator-password".to_string()))
+        .await
+        .unwrap();
+    let store = SqliteTokenStore::new(pool.clone(), Some("operator-password".to_string()))
+        .await
+        .unwrap();
+
+    seed_legacy(&pool, "operator-password", false).await;
+
+    assert_eq!(store.get_token(1).await.unwrap(), "secret");
+}
+
+#[tokio::test]
 async fn test_sqlite_rekey_does_not_overwrite_a_vault_upgraded_by_another_process() {
     let pool = create_test_pool().await;
     let store = SqliteTokenStore::new(pool.clone(), Some("operator-password".to_string()))
