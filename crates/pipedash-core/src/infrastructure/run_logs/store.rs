@@ -63,6 +63,7 @@ mod documents;
 mod eviction;
 mod registry;
 mod scan;
+mod transfer;
 mod tree;
 
 const LAYOUT_DIR: &str = "v1";

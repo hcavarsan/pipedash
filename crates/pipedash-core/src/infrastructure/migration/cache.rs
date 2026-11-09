@@ -10,6 +10,13 @@ use super::{
 use crate::domain::DomainResult;
 use crate::infrastructure::config::StorageManager;
 use crate::infrastructure::database::Repository;
+use crate::infrastructure::run_logs::{
+    DocKey,
+    LogStore,
+};
+
+#[cfg(test)]
+mod tests;
 
 impl MigrationOrchestrator {
     pub(super) async fn migrate_cache(
@@ -30,6 +37,19 @@ impl MigrationOrchestrator {
                 .await?;
             result.stats.cache_entries_migrated += 1;
         }
+        result.stats.cache_entries_migrated += LogStore::transfer_completed(
+            self.source_config.cache_dir().join("run-logs"),
+            plan.to.cache_dir().join("run-logs"),
+            |key| {
+                Some(DocKey {
+                    provider_id: *result.provider_id_mapping.get(&key.provider_id)?,
+                    pipeline_id: remap_pipeline_id(&key.pipeline_id, &result.provider_id_mapping)?,
+                    run_number: key.run_number,
+                    node_id: key.node_id.clone(),
+                })
+            },
+        )
+        .await?;
 
         if same_database(&plan.from, &plan.to) {
             return Ok(());
