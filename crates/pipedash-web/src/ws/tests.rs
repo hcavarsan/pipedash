@@ -522,8 +522,16 @@ async fn a_connection_that_never_authenticates_is_closed_after_ten_seconds() {
     let host = hosted("ws-timeout").await;
     let mut stream = connect_state(host.state.clone()).await;
 
+    stream.write_all(&[0x89, 0x80, 0, 0, 0, 0]).await.unwrap();
+    let (opcode, _) = tokio::time::timeout(Duration::from_secs(5), read_frame(&mut stream))
+        .await
+        .expect("no pong arrived")
+        .expect("the socket closed");
+    assert_eq!(opcode, 0xA);
+
     tokio::time::pause();
     tokio::time::advance(AUTH_TIMEOUT + Duration::from_secs(1)).await;
+    tokio::time::resume();
 
     let timed_out = next_message(&mut stream).await;
     assert_eq!(timed_out["type"], "auth-error");
