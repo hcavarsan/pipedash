@@ -145,7 +145,7 @@ To install the self-hosted web app on iPhone, open it in Safari and choose Share
 
 Move storage with retained run history and metrics from Settings or the config editor on desktop and web with the [storage guide](https://pipedash.app/docs/configuration/storage-backends).
 
-Browse older runs with the [run history guide](https://pipedash.app/docs/features/run-history).
+Browse and sort [run history](https://pipedash.app/docs/features/run-history), using complete scans for oldest-first order and a load-more prompt when needed.
 
 Clear cached run history in Settings with the controls in the [cache guide](https://pipedash.app/docs/features/cache).
 

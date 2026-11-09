@@ -1,4 +1,5 @@
 use chrono::Utc;
+use pipedash_plugin_api::history::RunHistoryOrder;
 use pipedash_plugin_api::schema::ColumnDefinition;
 
 use super::filter::{
@@ -7,6 +8,8 @@ use super::filter::{
     Criteria,
 };
 use crate::application::services::pipeline_service::PipelineService;
+use crate::domain::pipeline_view::SortDirection;
+use crate::domain::run_history::RunHistoryScanNotice;
 use crate::domain::{
     DomainError,
     DomainResult,
@@ -49,6 +52,11 @@ impl PipelineService {
         let policy = self
             .provider_service
             .run_history_policy(&pipeline.provider_type);
+        let prefix_sort = query.direction == SortDirection::Desc
+            && match policy.order {
+                RunHistoryOrder::RunNumber => column.field_path == "run_number",
+                RunHistoryOrder::StartedAt => column.field_path == "started_at",
+            };
         let criteria = Criteria::new(query, Utc::now());
         let page_target = (end / FETCH_STEP + 1) * FETCH_STEP;
 
@@ -62,24 +70,28 @@ impl PipelineService {
         let mut fetched = false;
         let depth = query.page.max(query.scan_depth);
         let scan_budget = page_target.max(SCAN_LIMIT.saturating_mul(depth));
-        let matched = loop {
-            let matched: Vec<_> = cached
-                .iter()
-                .filter(|run| criteria.matches(run))
-                .cloned()
-                .collect();
+        loop {
+            let enough_matches = prefix_sort
+                && cached
+                    .iter()
+                    .filter(|run| criteria.matches(run))
+                    .take(end.saturating_add(1))
+                    .count()
+                    > end;
             let fresh_enough = fetched || !policy.bounded;
-            if (matched.len() > end && fresh_enough) || complete || stalled {
-                break matched;
+            if (enough_matches && fresh_enough) || complete || stalled {
+                break;
             }
             let limit = if policy.bounded {
                 usize::MAX
+            } else if !prefix_sort {
+                scan_budget
             } else {
                 page_target.max((cached.len() * 2 / FETCH_STEP + 1) * FETCH_STEP)
             };
             if !policy.bounded && cached.len() >= scan_budget {
                 capped = true;
-                break matched;
+                break;
             }
             let limit = if policy.bounded {
                 limit
@@ -97,7 +109,7 @@ impl PipelineService {
                 .get_cached_run_history(&pipeline.id, ALL_RUNS, policy.order)
                 .await?;
             stalled = !complete && cached.len() <= before;
-        };
+        }
         let exhausted = policy.bounded || complete || stalled;
 
         if !fetched && !policy.bounded && query.page == 1 {
@@ -107,7 +119,24 @@ impl PipelineService {
         }
 
         let (branches, actors) = facets(&cached);
-        let sorted = sort_runs(matched, &column, query.direction);
+        let scan_notice = (!prefix_sort && !exhausted).then(|| RunHistoryScanNotice {
+            title: "This sort needs the full history".to_string(),
+            message: "The scan reached its limit before confirming the complete history."
+                .to_string(),
+            action_label: "Load more history".to_string(),
+        });
+        let sorted = if scan_notice.is_some() {
+            Vec::new()
+        } else {
+            sort_runs(
+                cached
+                    .into_iter()
+                    .filter(|run| criteria.matches(run))
+                    .collect(),
+                &column,
+                query.direction,
+            )
+        };
         let total_count = sorted.len();
         Ok(RunHistoryPage {
             runs: sorted
@@ -119,6 +148,7 @@ impl PipelineService {
             has_more: end < total_count,
             can_scan_deeper: capped && !exhausted,
             is_complete: exhausted,
+            scan_notice,
             page: query.page,
             page_size: query.page_size,
             total_pages: total_count.div_ceil(query.page_size),

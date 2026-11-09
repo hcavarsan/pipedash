@@ -22,7 +22,6 @@ use crate::domain::{
     Pipeline,
     PipelineRun,
     PipelineStatus,
-    RunHistoryQuery,
 };
 
 const OVERDUE_FACTOR: i64 = 3;
@@ -199,10 +198,19 @@ impl PipelineService {
         }
 
         let pipeline = self.repository.get_cached_pipeline(pipeline_id).await?;
-        Ok(self
-            .run_history_page(&pipeline, &RunHistoryQuery::page(1, OVERDUE_RECENT_RUNS))
-            .await?
-            .runs)
+        let policy = self
+            .provider_service
+            .run_history_policy(&pipeline.provider_type);
+        let limit = if policy.bounded {
+            usize::MAX
+        } else {
+            OVERDUE_HISTORY_FETCH
+        };
+        let (api_runs, lease) = self.fetch_run_history_leased(&pipeline, limit).await?;
+        self.spawn_metrics(lease, pipeline.id.clone(), Some(api_runs));
+        self.repository
+            .get_paginated_runs(pipeline_id, 1, OVERDUE_RECENT_RUNS, order)
+            .await
     }
 }
 

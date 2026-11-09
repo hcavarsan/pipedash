@@ -22,6 +22,29 @@ interface RunHistoryResultsProps {
 
 function RunHistoryEmpty({ data }: { data: RunHistoryPageData }): ReactNode {
   const { labels, presentation } = useRunActions()
+  const notice = data.scanNotice
+
+  if (notice) {
+    return (
+      <EmptyState
+        icon={<IconHistory size={24} aria-hidden />}
+        title={notice.title}
+        description={notice.message}
+        action={
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            loading={data.isFetchingMore}
+            onClick={data.fetchMore}
+            style={{ pointerEvents: 'auto' }}
+          >
+            {notice.action_label}
+          </Button>
+        }
+      />
+    )
+  }
 
   if (!data.filtered) {
     return (
@@ -135,14 +158,14 @@ export function RunHistoryResults({
     )
   }
 
-  if (empty) {
+  if (empty && !data.scanNotice) {
     return empty
   }
 
   return (
     <>
-      <RunHistoryTable data={data} columns={columns} selection={selection} />
-      {data.hasMore && (
+      <RunHistoryTable data={data} columns={columns} selection={selection} emptyState={empty} />
+      {data.hasMore && !data.scanNotice && (
         <Group justify="center" mt="sm">
           <Button type="button" variant="default" size="sm" loading={data.isFetchingMore} onClick={data.fetchMore}>
             Search older {labels.runs}

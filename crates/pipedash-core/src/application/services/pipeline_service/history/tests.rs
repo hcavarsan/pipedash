@@ -34,6 +34,21 @@ async fn seeded(
     (pipeline.id, stub)
 }
 
+async fn provider_history(h: &Harness, runs: impl FnOnce(&str) -> Vec<PipelineRun>) -> String {
+    let (provider_id, _) = h
+        .add_stub(|id| {
+            let pipeline_id = format!("stub__{id}__web");
+            StubProvider::new(id).with_runs(runs(&pipeline_id))
+        })
+        .await;
+    let pipeline = pipeline(provider_id, "web", PipelineStatus::Success);
+    h.repository
+        .update_pipelines_cache(provider_id, std::slice::from_ref(&pipeline))
+        .await
+        .unwrap();
+    pipeline.id
+}
+
 #[tokio::test]
 async fn query_run_history_should_count_filtered_runs_across_all_cached_pages() {
     let h = Harness::new().await;
@@ -228,6 +243,113 @@ async fn query_run_history_should_fetch_deeper_history_until_filters_are_satisfi
     assert_eq!(page.total_count, 100);
     assert!(page.has_more);
     assert!(!page.is_complete);
+    h.pipeline_service.settle().await;
+}
+
+#[tokio::test]
+async fn oldest_first_history_stays_stable_after_loading_later_pages() {
+    let h = Harness::new().await;
+    let id = provider_history(&h, |id| {
+        (1..=150)
+            .rev()
+            .map(|number| run_as(id, number, PipelineStatus::Success))
+            .collect()
+    })
+    .await;
+
+    for (page, first) in [(1, 1_i64), (2, 21), (5, 81), (1, 1)] {
+        let result = h
+            .pipeline_service
+            .query_run_history(
+                &id,
+                RunHistoryQuery {
+                    direction: SortDirection::Asc,
+                    ..RunHistoryQuery::page(page, 20)
+                },
+            )
+            .await
+            .unwrap();
+        let numbers: Vec<_> = result.runs.iter().map(|run| run.run_number).collect();
+        assert_eq!(numbers, (first..first + 20).collect::<Vec<_>>());
+        assert_eq!(result.total_count, 150);
+        assert!(result.is_complete);
+    }
+    h.pipeline_service.settle().await;
+}
+
+#[tokio::test]
+async fn global_sort_waits_for_a_complete_scan_instead_of_sorting_a_prefix() {
+    let h = Harness::new().await;
+    let id = provider_history(&h, |id| {
+        (1..=750)
+            .rev()
+            .map(|number| run_as(id, number, PipelineStatus::Success))
+            .collect()
+    })
+    .await;
+    let query = |page, scan_depth| RunHistoryQuery {
+        direction: SortDirection::Asc,
+        scan_depth,
+        ..RunHistoryQuery::page(page, 20)
+    };
+
+    let pending = h
+        .pipeline_service
+        .query_run_history(&id, query(1, 1))
+        .await
+        .unwrap();
+    assert!(pending.runs.is_empty());
+    assert!(!pending.has_more);
+    assert!(pending.can_scan_deeper);
+    assert!(!pending.is_complete);
+    assert!(pending.scan_notice.is_some());
+
+    for (page, first) in [(1, 1_i64), (2, 21), (1, 1)] {
+        let result = h
+            .pipeline_service
+            .query_run_history(&id, query(page, 2))
+            .await
+            .unwrap();
+        let numbers: Vec<_> = result.runs.iter().map(|run| run.run_number).collect();
+        assert_eq!(numbers, (first..first + 20).collect::<Vec<_>>());
+        assert_eq!(result.total_count, 750);
+        assert!(result.is_complete);
+        assert!(result.scan_notice.is_none());
+    }
+    h.pipeline_service.settle().await;
+}
+
+#[tokio::test]
+async fn descending_duration_sort_includes_runs_outside_the_newest_prefix() {
+    let h = Harness::new().await;
+    let id = provider_history(&h, |id| {
+        (1..=150)
+            .rev()
+            .map(|number| {
+                let mut run = run_as(id, number, PipelineStatus::Success);
+                if number == 1 {
+                    run.duration_seconds = Some(3_600);
+                }
+                run
+            })
+            .collect()
+    })
+    .await;
+
+    let result = h
+        .pipeline_service
+        .query_run_history(
+            &id,
+            RunHistoryQuery {
+                sort_column: "duration_seconds".to_string(),
+                ..RunHistoryQuery::page(1, 20)
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(result.runs[0].run_number, 1);
+    assert_eq!(result.total_count, 150);
+    assert!(result.is_complete);
     h.pipeline_service.settle().await;
 }
 

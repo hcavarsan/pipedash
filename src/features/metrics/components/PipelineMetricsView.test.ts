@@ -50,6 +50,7 @@ test('saving a new retention re-reads run history without deleting the cached ru
     has_more: false,
     can_scan_deeper: false,
     is_complete: true,
+    scan_notice: null,
     page: 1,
     page_size: 50,
     total_pages: 0,
