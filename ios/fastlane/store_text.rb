@@ -39,7 +39,8 @@ module StoreText
     blocks = []
     section = nil
     in_list = false
-    markdown.gsub(/<!--.*?-->/m, "").each_line do |raw|
+    markdown = markdown.gsub(/<!--.*?(?:-->|\z)/m, "") while markdown.include?("<!--")
+    markdown.each_line do |raw|
       line = raw.rstrip
       next if line.strip.empty? || line.match?(/\A\s*!\[|\A\[[^\]]+\]:\s|\A##?\s/)
 

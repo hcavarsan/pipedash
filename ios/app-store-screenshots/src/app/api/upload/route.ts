@@ -71,7 +71,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     return NextResponse.json({ ok: false, error: 'Image is corrupt or exceeds 64 megapixels' }, { status: 400 })
   }
 
-  const hash = createHash('sha1').update(parsed.bytes).digest('hex').slice(0, 16)
+  const hash = createHash('sha256').update(parsed.bytes).digest('hex').slice(0, 16)
   const filename = `${hash}.${ext}`
   const absDir = path.join(process.cwd(), UPLOAD_DIR_REL)
   const absFile = path.join(absDir, filename)

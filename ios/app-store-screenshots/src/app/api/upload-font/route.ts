@@ -123,7 +123,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     return NextResponse.json({ ok: false, error: 'Use a WOFF2, WOFF, TTF, or OTF font file.' }, { status: 400 })
   }
 
-  const hash = createHash('sha1').update(bytes).digest('hex').slice(0, 16)
+  const hash = createHash('sha256').update(bytes).digest('hex').slice(0, 16)
   const filename = `${hash}.${FONT_EXT[format]}`
   const absDir = path.join(process.cwd(), FONT_DIR_REL)
   const absFile = path.join(absDir, filename)

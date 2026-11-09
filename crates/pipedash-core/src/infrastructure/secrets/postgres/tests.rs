@@ -146,3 +146,79 @@ async fn test_postgres_empty_vault_rejects_another_password() {
 
     pool.close().await;
 }
+
+async fn seed_legacy(pool: &Pool<Postgres>, provider_id: i64, password: &str) -> Vec<u8> {
+    let legacy = Vault::legacy(password, &LEGACY_KDF).await.unwrap();
+    let (nonce, ciphertext) = legacy.encrypt("secret").unwrap();
+    sqlx::query(
+        "INSERT INTO encrypted_tokens (provider_id, nonce, ciphertext) VALUES ($1, $2, $3)",
+    )
+    .bind(provider_id)
+    .bind(&nonce)
+    .bind(&ciphertext)
+    .execute(pool)
+    .await
+    .unwrap();
+    let (nonce, verifier) = legacy.encrypt("pipedash-vault-verifier-v1").unwrap();
+    sqlx::query("INSERT INTO vault_verifier (id, nonce, ciphertext) VALUES (1, $1, $2)")
+        .bind(&nonce)
+        .bind(&verifier)
+        .execute(pool)
+        .await
+        .unwrap();
+    ciphertext
+}
+
+async fn stored(pool: &Pool<Postgres>, provider_id: i64) -> (Vec<u8>, Option<Vec<u8>>) {
+    let ciphertext =
+        sqlx::query_scalar("SELECT ciphertext FROM encrypted_tokens WHERE provider_id = $1")
+            .bind(provider_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    let salt = sqlx::query_scalar("SELECT kdf_salt FROM vault_verifier WHERE id = 1")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    (ciphertext, salt)
+}
+
+#[tokio::test]
+#[ignore = "requires TEST_DATABASE_URL"]
+async fn test_postgres_legacy_vault_moves_to_a_random_salt_and_keeps_tokens() {
+    let (pool, [first, _]) = create_test_pool().await;
+    let connection_string = test_database_url();
+    let legacy_ciphertext = seed_legacy(&pool, first, "operator-password").await;
+
+    let store = PostgresTokenStore::new(&connection_string, Some("operator-password".to_string()))
+        .await
+        .unwrap();
+
+    assert_eq!(store.get_token(first).await.unwrap(), "secret");
+    let (ciphertext, salt) = stored(&pool, first).await;
+    assert_ne!(ciphertext, legacy_ciphertext);
+    assert_eq!(salt.map(|salt| salt.len()), Some(16));
+    let reopened =
+        PostgresTokenStore::new(&connection_string, Some("operator-password".to_string()))
+            .await
+            .unwrap();
+    assert_eq!(reopened.get_token(first).await.unwrap(), "secret");
+
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires TEST_DATABASE_URL"]
+async fn test_postgres_wrong_password_leaves_legacy_vault_untouched() {
+    let (pool, [first, _]) = create_test_pool().await;
+    let connection_string = test_database_url();
+    let legacy_ciphertext = seed_legacy(&pool, first, "operator-password").await;
+
+    let result =
+        PostgresTokenStore::new(&connection_string, Some("attacker-password".to_string())).await;
+
+    assert!(matches!(result, Err(DomainError::AuthenticationFailed(_))));
+    assert_eq!(stored(&pool, first).await, (legacy_ciphertext, None));
+
+    pool.close().await;
+}

@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .args(["vite", "build"])
         .current_dir(repo_root)
         .status()
-        .map_err(|_| "bun not found. Install: curl -fsSL https://bun.sh/install | bash")?;
+        .map_err(|_| "bun not found. Install Bun from https://bun.sh")?;
     assert!(status.success(), "Frontend build failed");
     assert!(
         dist.join("index.html").exists(),

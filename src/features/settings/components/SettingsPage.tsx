@@ -22,16 +22,16 @@ interface SettingsPageProps {
 
 type SectionContent = (onRefresh?: () => Promise<void>) => ReactNode
 
-const SECTION_CONTENT: Record<SettingsSection, SectionContent> = {
-  general: (onRefresh) => <GeneralSection onRefresh={onRefresh} />,
-  notifications: () => <NotificationsSection />,
-  providers: () => <ProvidersSection />,
-  devices: () => <DevicesSection />,
-  metrics: () => <MetricsSection />,
-  cache: (onRefresh) => <CacheSection onRefresh={onRefresh} />,
-  storage: () => <StorageSection />,
-  about: () => <AboutSection />,
-}
+const SECTION_CONTENT = new Map<SettingsSection, SectionContent>([
+  ['general', (onRefresh) => <GeneralSection onRefresh={onRefresh} />],
+  ['notifications', () => <NotificationsSection />],
+  ['providers', () => <ProvidersSection />],
+  ['devices', () => <DevicesSection />],
+  ['metrics', () => <MetricsSection />],
+  ['cache', (onRefresh) => <CacheSection onRefresh={onRefresh} />],
+  ['storage', () => <StorageSection />],
+  ['about', () => <AboutSection />],
+])
 
 export const SettingsPage = ({ activeSection, onRefresh }: SettingsPageProps): ReactNode => {
   const { isMobile } = useIsMobile()
@@ -60,7 +60,7 @@ export const SettingsPage = ({ activeSection, onRefresh }: SettingsPageProps): R
           </Box>
         )}
         <ErrorBoundary key={activeSection} scope="feature" name={sectionTitle ?? 'Settings'}>
-          {SECTION_CONTENT[activeSection](onRefresh)}
+          {SECTION_CONTENT.get(activeSection)?.(onRefresh)}
         </ErrorBoundary>
       </Box>
     </ScrollArea>

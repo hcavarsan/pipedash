@@ -14,8 +14,8 @@ import { UnlockForm } from '../components/UnlockForm'
 
 import classes from './UnlockRoute.module.css'
 
-function returnToOf(state: unknown): string | null {
-  return isRecord(state) && typeof state.returnTo === 'string' ? state.returnTo : null
+function appPath(value: unknown): string | null {
+  return typeof value === 'string' && /^\/(?![/\\])/.test(value) ? value : null
 }
 
 export function UnlockRoute(): ReactNode {
@@ -28,7 +28,8 @@ export function UnlockRoute(): ReactNode {
   const handleSuccess = (): void => {
     wsClient.manualReconnect()
 
-    const returnTo = returnToOf(location.state) || searchParams.get('return') || '/pipelines'
+    const stateReturnTo = isRecord(location.state) ? location.state.returnTo : null
+    const returnTo = appPath(stateReturnTo) ?? appPath(searchParams.get('return')) ?? '/pipelines'
     const from = fromOf(location.state)
 
     void navigate(returnTo, { replace: true, state: from ? { from } : undefined })
