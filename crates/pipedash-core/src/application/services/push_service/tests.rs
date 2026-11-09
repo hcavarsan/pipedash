@@ -23,12 +23,16 @@ fn subscription(relay_subscription_id: &str) -> PushSubscription {
 
 async fn service(dir: &std::path::Path, relay: Option<&str>) -> super::PushService {
     let core = context(dir, Arc::new(MemoryTokenStore::new())).await;
+    core.config_state
+        .set_push_relay_url(relay.unwrap_or(""))
+        .await
+        .unwrap();
 
-    core.push_service().with_fixed_relay(relay)
+    core.push_service()
 }
 
 #[tokio::test]
-async fn the_fixed_relay_wins_and_is_normalized() {
+async fn the_configured_relay_is_normalized_and_empty_means_off() {
     let dir = tempfile::tempdir().unwrap();
 
     assert_eq!(
@@ -40,6 +44,35 @@ async fn the_fixed_relay_wins_and_is_normalized() {
         Some("http://relay.example")
     );
     assert_eq!(service(dir.path(), None).await.relay_url().await, None);
+}
+
+#[tokio::test]
+async fn turning_the_relay_on_uses_the_default_relay_of_this_build() {
+    let dir = tempfile::tempdir().unwrap();
+    let official = service(dir.path(), None).await;
+    let settings = official.set_relay_enabled(true).await.unwrap();
+    assert_eq!(
+        settings.relay_url.as_deref(),
+        Some(crate::infrastructure::OFFICIAL_PUSH_RELAY_URL)
+    );
+
+    let custom = service(dir.path(), None)
+        .await
+        .with_default_relay("http://dev-relay.example/");
+    let settings = custom.set_relay_enabled(true).await.unwrap();
+    assert!(settings.enabled);
+    assert_eq!(
+        settings.relay_url.as_deref(),
+        Some("http://dev-relay.example")
+    );
+    assert_eq!(
+        custom.relay_url().await.as_deref(),
+        Some("http://dev-relay.example")
+    );
+
+    let settings = custom.set_relay_enabled(false).await.unwrap();
+    assert!(!settings.enabled);
+    assert_eq!(custom.relay_url().await, None);
 }
 
 #[tokio::test]

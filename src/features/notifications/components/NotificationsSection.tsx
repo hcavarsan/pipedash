@@ -24,6 +24,7 @@ import {
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { SwitchRow } from '../../../components/ios/mobileParts'
+import { BackgroundNotificationsCard } from './BackgroundNotificationsCard'
 import { DesktopNotificationsCard } from './DesktopNotificationsCard'
 import { MobileDevicesCard } from './MobileDevicesCard'
 import { NotificationPreferencesSection } from './NotificationPreferencesSection'
@@ -125,6 +126,7 @@ export function NotificationsSection(): ReactNode {
   return isDesktopTauri() ? (
     <Stack gap="md">
       <DesktopNotificationsCard />
+      {hasLocalCore() && <BackgroundNotificationsCard />}
       <NotificationPreferencesSection />
     </Stack>
   ) : (
@@ -227,9 +229,12 @@ function DeviceNotificationsSection(): ReactNode {
   )
   const canTest = background && alertHost?.push === true
   const devicesCard = !isTauri() && (
-    <ErrorBoundary scope="feature" name="Mobile devices">
-      <MobileDevicesCard />
-    </ErrorBoundary>
+    <>
+      <BackgroundNotificationsCard />
+      <ErrorBoundary scope="feature" name="Mobile devices">
+        <MobileDevicesCard />
+      </ErrorBoundary>
+    </>
   )
 
   if (mobileShell) {
@@ -237,7 +242,7 @@ function DeviceNotificationsSection(): ReactNode {
       <Stack gap="lg" pb="md">
         <IosGroup footer={note}>
           <SwitchRow
-            title="Notifications"
+            title="Enable notifications"
             subtitle={description}
             checked={enabled}
             onChange={(e) => handleToggle(e.currentTarget.checked)}
@@ -266,7 +271,7 @@ function DeviceNotificationsSection(): ReactNode {
       <Card padding="md">
         <Stack gap="sm" align="flex-start">
           <Switch
-            label="Notifications"
+            label="Enable notifications"
             description={note ?? description}
             checked={enabled}
             onChange={(e) => handleToggle(e.currentTarget.checked)}

@@ -36,11 +36,6 @@ use crate::CoreContext;
 
 const FAN_OUT: usize = 16;
 
-enum RelaySource {
-    Config,
-    Fixed(Option<String>),
-}
-
 pub struct PushService {
     subscriptions: PushRepository,
     device_pushes: DevicePushRepository,
@@ -50,7 +45,7 @@ pub struct PushService {
     http: Arc<HttpClientManager>,
     providers: Arc<ProviderService>,
     pipelines: Arc<PipelineService>,
-    relay: RelaySource,
+    default_relay: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -58,7 +53,7 @@ pub struct RelaySettings {
     pub enabled: bool,
     pub relay_url: Option<String>,
     pub from_env: bool,
-    pub official_url: &'static str,
+    pub official_url: String,
 }
 
 impl CoreContext {
@@ -74,7 +69,7 @@ impl CoreContext {
             http: Arc::clone(&self.http_client_manager),
             providers: Arc::clone(&self.provider_service),
             pipelines: Arc::clone(&self.pipeline_service),
-            relay: RelaySource::Config,
+            default_relay: OFFICIAL_PUSH_RELAY_URL.to_owned(),
         }
     }
 }
@@ -87,31 +82,26 @@ pub(super) async fn fan_out<F: Future>(jobs: Vec<F>) {
 }
 
 impl PushService {
-    pub fn with_fixed_relay(mut self, relay_url: Option<&str>) -> Self {
-        self.relay = RelaySource::Fixed(relay_url.and_then(normalize_relay_url));
+    pub fn with_default_relay(mut self, relay_url: &str) -> Self {
+        if let Some(relay_url) = normalize_relay_url(relay_url) {
+            self.default_relay = relay_url;
+        }
 
         self
     }
 
-    async fn configured_relay_url(&self) -> Option<String> {
+    pub async fn relay_url(&self) -> Option<String> {
         normalize_relay_url(&self.config.get_string(ConfigKey::PushRelayUrl).await)
     }
 
-    pub async fn relay_url(&self) -> Option<String> {
-        match &self.relay {
-            RelaySource::Fixed(relay_url) => relay_url.clone(),
-            RelaySource::Config => self.configured_relay_url().await,
-        }
-    }
-
     pub async fn relay_settings(&self) -> DomainResult<RelaySettings> {
-        let relay_url = self.configured_relay_url().await;
+        let relay_url = self.relay_url().await;
 
         Ok(RelaySettings {
             enabled: relay_url.is_some(),
             relay_url,
             from_env: ConfigState::push_relay_from_env(),
-            official_url: OFFICIAL_PUSH_RELAY_URL,
+            official_url: self.default_relay.clone(),
         })
     }
 
@@ -124,7 +114,11 @@ impl PushService {
                     .into(),
             });
         }
-        let relay_url = if enabled { OFFICIAL_PUSH_RELAY_URL } else { "" };
+        let relay_url = if enabled {
+            self.default_relay.as_str()
+        } else {
+            ""
+        };
         self.config.set_push_relay_url(relay_url).await?;
 
         self.relay_settings().await

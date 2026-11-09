@@ -17,6 +17,7 @@ fn settings_default_when_missing_or_unreadable_and_survive_a_restart() {
     let settings = HostSettings {
         enabled: true,
         port: Some(52411),
+        relay_checked: true,
     };
     write_settings(dir.path(), settings).unwrap();
     assert_eq!(read_settings(dir.path()), settings);
@@ -75,4 +76,60 @@ fn failures_carry_a_code_the_frontend_can_branch_on() {
     .unwrap();
     assert_eq!(value["errorCode"], "NO_NETWORK");
     assert_eq!(value["error"], NO_NETWORK);
+}
+
+#[tokio::test]
+async fn sharing_that_was_on_keeps_push_once_and_later_choices_stick() {
+    let server = crate::remote::test_host::start_host().await;
+    let dir = tempfile::tempdir().unwrap();
+    let host = HostState::load(dir.path());
+    host.update_settings(|settings| settings.enabled = true)
+        .unwrap();
+    let push = || {
+        server
+            .core
+            .push_service()
+            .with_default_relay(crate::push::relay_url())
+    };
+
+    keep_shared_push(&host, &server.core).await;
+    assert_eq!(
+        push().relay_url().await.as_deref(),
+        Some(crate::push::relay_url())
+    );
+    assert!(read_settings(dir.path()).relay_checked);
+
+    push().set_relay_enabled(false).await.unwrap();
+    keep_shared_push(&host, &server.core).await;
+    assert_eq!(push().relay_url().await, None);
+}
+
+#[tokio::test]
+async fn a_computer_that_never_shared_starts_with_push_off() {
+    let server = crate::remote::test_host::start_host().await;
+    let dir = tempfile::tempdir().unwrap();
+    let host = HostState::load(dir.path());
+
+    keep_shared_push(&host, &server.core).await;
+    host.update_settings(|settings| settings.enabled = true)
+        .unwrap();
+    keep_shared_push(&host, &server.core).await;
+
+    assert_eq!(server.core.push_service().relay_url().await, None);
+    assert!(read_settings(dir.path()).relay_checked);
+}
+
+#[tokio::test]
+async fn push_stays_off_when_the_upgrade_cannot_record_that_it_ran() {
+    let server = crate::remote::test_host::start_host().await;
+    let dir = tempfile::tempdir().unwrap();
+    let host = HostState::load(dir.path());
+    host.update_settings(|settings| settings.enabled = true)
+        .unwrap();
+    std::fs::remove_dir_all(dir.path()).unwrap();
+
+    keep_shared_push(&host, &server.core).await;
+
+    assert_eq!(server.core.push_service().relay_url().await, None);
+    assert!(!host.lock().settings.relay_checked);
 }

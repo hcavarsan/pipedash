@@ -207,6 +207,8 @@ pub fn run() {
             remote::alerts::take_missed_alerts,
             system_notifications::show_system_notification,
             commands::notifications::update_notification_center,
+            commands::notifications::get_push_relay,
+            commands::notifications::set_push_relay,
             native::native_haptic,
             native::native_set_appearance,
             native::native_accessibility,

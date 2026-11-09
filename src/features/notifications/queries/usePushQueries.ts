@@ -9,13 +9,14 @@ import {
 import { STALE_TIMES } from '../../../lib/cacheConfig'
 import { queryKeys } from '../../../lib/queryKeys'
 import { apiService } from '../../../services/api'
+import { service } from '../../../services/service'
 import type { MobileDevicesResponse, PushRelaySettings } from '../../../types/notifications'
 import { displayErrorNotification, displaySuccessNotification } from '../../../utils/errorDisplay'
 
 export function usePushRelay(): UseQueryResult<PushRelaySettings, Error> {
   return useQuery<PushRelaySettings>({
     queryKey: queryKeys.push.relay(),
-    queryFn: () => apiService.getPushRelay(),
+    queryFn: () => service.getPushRelay(),
     staleTime: STALE_TIMES.FAST_CHANGING,
   })
 }
@@ -24,13 +25,13 @@ export function useSetPushRelay(): UseMutationResult<PushRelaySettings, unknown,
   const queryClient = useQueryClient()
 
   return useMutation<PushRelaySettings, unknown, boolean>({
-    mutationFn: (enabled) => apiService.setPushRelay(enabled),
+    mutationFn: (enabled) => service.setPushRelay(enabled),
     onSuccess: (settings) => {
       queryClient.setQueryData(queryKeys.push.relay(), settings)
 
       return queryClient.invalidateQueries({ queryKey: queryKeys.push.devices() })
     },
-    onError: (error) => displayErrorNotification(error, "Couldn't change push alerts"),
+    onError: (error) => displayErrorNotification(error, "Couldn't change background notifications"),
   })
 }
 

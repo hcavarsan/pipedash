@@ -55,7 +55,7 @@ pub struct AppState {
     pub download_tickets: Arc<DownloadTickets>,
     pub pairing_codes: Arc<PairingCodes>,
     pub desktop_host: Option<Arc<str>>,
-    pub push_relay: Option<Arc<str>>,
+    default_relay: Option<Arc<str>>,
     pub closing: Arc<watch::Sender<bool>>,
     api_token: Arc<StdRwLock<Option<Arc<str>>>>,
 }
@@ -73,7 +73,7 @@ impl AppState {
             download_tickets: Arc::default(),
             pairing_codes: Arc::default(),
             desktop_host,
-            push_relay: None,
+            default_relay: None,
             closing: Arc::new(watch::channel(false).0),
             api_token: Arc::default(),
         }
@@ -184,18 +184,17 @@ impl AppState {
             .inspect_err(|error| tracing::warn!(%error, "Failed to look up the paired device"))
     }
 
-    pub fn with_push_relay(mut self, url: &str) -> Self {
-        self.push_relay = Some(url.into());
+    pub fn with_default_relay(mut self, url: &str) -> Self {
+        self.default_relay = Some(url.into());
         self
     }
 
     pub async fn push_service(&self) -> ApiResult<PushService> {
         let service = self.core().await?.push_service();
 
-        Ok(if self.desktop_host.is_some() {
-            service.with_fixed_relay(self.push_relay.as_deref())
-        } else {
-            service
+        Ok(match self.default_relay.as_deref() {
+            Some(relay_url) => service.with_default_relay(relay_url),
+            None => service,
         })
     }
 

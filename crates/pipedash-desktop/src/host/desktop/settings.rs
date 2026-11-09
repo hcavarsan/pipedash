@@ -21,6 +21,7 @@ pub(super) const NO_NETWORK: &str = "Connect this computer to a network to share
 pub(super) struct HostSettings {
     pub(super) enabled: bool,
     pub(super) port: Option<u16>,
+    pub(super) relay_checked: bool,
 }
 
 pub(super) struct SharingFailure {

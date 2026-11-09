@@ -22,6 +22,8 @@ const patches: DesktopSettingsPatch[] = []
 let failure: Error | null = null
 let saveGate: Promise<void> | null = null
 let testsSubmitted = 0
+const relayChanges: boolean[] = []
+let relayEnabled = false
 const os = { platform: 'linux' }
 
 Object.assign(window, {
@@ -32,7 +34,10 @@ Object.assign(window, {
       callbacks.set(++handler, callback)
       return handler
     },
-    invoke: async (command: string, args: { patch?: DesktopSettingsPatch; handler?: number } = {}) => {
+    invoke: async (
+      command: string,
+      args: { patch?: DesktopSettingsPatch; handler?: number; enabled?: boolean } = {}
+    ) => {
       if (command === 'plugin:event|listen') {
         return args.handler
       }
@@ -63,6 +68,18 @@ Object.assign(window, {
         }
         return
       }
+      if (command === 'set_push_relay') {
+        relayChanges.push(args.enabled === true)
+        relayEnabled = args.enabled === true
+      }
+      if (command === 'get_push_relay' || command === 'set_push_relay') {
+        return {
+          enabled: relayEnabled,
+          relay_url: relayEnabled ? 'https://relay.pipedash.app' : null,
+          from_env: false,
+          official_url: 'https://relay.pipedash.app',
+        }
+      }
       if (command === 'mark_desktop_notifications_read') {
         return { revision: 2, items: [] }
       }
@@ -82,6 +99,7 @@ const { MemoryRouter, useLocation } = await import('react-router-dom')
 const { useDesktopLifecycle } = await import('../queries/useDesktopQueries')
 const { DesktopIntegrationCard } = await import('./DesktopIntegrationCard')
 const { DesktopNotificationsCard } = await import('../../notifications/components/DesktopNotificationsCard')
+const { BackgroundNotificationsCard } = await import('../../notifications/components/BackgroundNotificationsCard')
 const { NotificationDetailsModal } = await import('../../notifications/components/NotificationDetailsModal')
 const { AppRoutes } = await import('../../../AppRoutes')
 const { useNotificationCenterStore } = await import('../../../stores/notificationCenterStore')
@@ -94,13 +112,16 @@ const { setPlatformOverride } = await import('../../../utils/platform')
 let client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
 const view = () => within(document.body)
 
-function Screen({ page = 'general' }: { page?: 'general' | 'notifications' | 'route' | 'details' }) {
+type Page = 'general' | 'notifications' | 'background' | 'route' | 'details'
+
+function Screen({ page = 'general' }: { page?: Page }) {
   useDesktopLifecycle()
   const location = useLocation()
   return (
     <>
       {page === 'general' && <DesktopIntegrationCard />}
       {page === 'notifications' && <DesktopNotificationsCard />}
+      {page === 'background' && <BackgroundNotificationsCard />}
       {page === 'details' && <NotificationDetailsModal />}
       {page === 'route' && (
         <AppRoutes
@@ -124,7 +145,7 @@ function Screen({ page = 'general' }: { page?: 'general' | 'notifications' | 'ro
   )
 }
 
-function mount(page: 'general' | 'notifications' | 'route' | 'details' = 'general') {
+function mount(page: Page = 'general') {
   client.setQueryData(queryKeys.providers.list(), [])
   render(
     <MantineProvider env="test">
@@ -146,6 +167,8 @@ afterEach(async () => {
   failure = null
   saveGate = null
   testsSubmitted = 0
+  relayChanges.length = 0
+  relayEnabled = false
   patches.length = 0
   callbacks.clear()
   setPlatformOverride(null)
@@ -254,7 +277,7 @@ test('notification preference uses native settings and test submission does not 
   const shown = context.mock.method(notifications, 'show', () => 'desktop-test')
   const user = userEvent.setup({ document, delay: null })
   mount('notifications')
-  const toggle = await view().findByRole('switch', { name: 'System notifications' })
+  const toggle = await view().findByRole('switch', { name: 'Enable notifications' })
   const submit = view().getByRole('button', { name: 'Send test notification' })
   assert.ok(toggle instanceof HTMLInputElement && submit instanceof HTMLButtonElement)
   await waitFor(() => assert.equal(toggle.disabled, false))
@@ -268,6 +291,20 @@ test('notification preference uses native settings and test submission does not 
   assert.ok(view().getByText(/Do Not Disturb can suppress display/))
 })
 
+test('background notifications on a computer start off and turn on through the native relay setting', async () => {
+  const user = userEvent.setup({ document, delay: null })
+  mount('background')
+  const toggle = await view().findByRole('switch', { name: 'Background notifications' })
+  assert.ok(toggle instanceof HTMLInputElement)
+  assert.equal(toggle.checked, false)
+  assert.ok(view().getByText(/While this computer shares Pipedash/))
+
+  await user.click(toggle)
+
+  await waitFor(() => assert.equal(toggle.checked, true))
+  assert.deepEqual(relayChanges, [true])
+})
+
 for (const [platform, guidance] of [
   ['macos', 'Allow Pipedash in System Settings > Notifications'],
   ['windows', 'Allow Pipedash in Settings > System > Notifications'],
@@ -275,7 +312,7 @@ for (const [platform, guidance] of [
   test(`${platform} notification guidance reports OS constraints without a permission badge`, async () => {
     os.platform = platform
     mount('notifications')
-    await view().findByRole('switch', { name: 'System notifications' })
+    await view().findByRole('switch', { name: 'Enable notifications' })
     assert.ok(view().getByText(`${guidance}. Do Not Disturb can suppress display.`))
     assert.equal(view().queryByText(/permission granted/i), null)
     if (platform === 'windows') {

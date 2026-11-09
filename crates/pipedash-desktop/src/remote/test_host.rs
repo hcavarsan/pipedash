@@ -13,6 +13,8 @@ use tokio::sync::broadcast;
 
 use super::session::protocol::ClientHello;
 
+static CONFIG_ENV: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 pub struct Host {
     pub url: ServerUrl,
     pub state: AppState,
@@ -36,6 +38,7 @@ pub async fn start_host_with_relay(relay: Option<&str>) -> Host {
         ),
     )
     .unwrap();
+    let config_env = CONFIG_ENV.lock().await;
     std::env::set_var("PIPEDASH_CONFIG_PATH", dir.path().join("config.toml"));
     let mut config = PipedashConfig::default();
     config.storage.backend = StorageBackendType::Sqlite;
@@ -51,14 +54,15 @@ pub async fn start_host_with_relay(relay: Option<&str>) -> Host {
     )
     .await
     .unwrap();
-    let mut state = AppState::hosted(
+    drop(config_env);
+    let state = AppState::hosted(
         bus,
         Some(core.clone()),
         "Studio",
         crate::plugin_registry::plugin_registry(),
     );
     if let Some(relay) = relay {
-        state = state.with_push_relay(relay);
+        core.config_state.set_push_relay_url(relay).await.unwrap();
     }
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

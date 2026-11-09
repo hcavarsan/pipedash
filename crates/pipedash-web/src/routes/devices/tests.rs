@@ -16,6 +16,7 @@ use tower::ServiceExt;
 use super::*;
 use crate::test_support::{
     hosted,
+    relay_on,
     stub_server,
     Hosted,
     StubRelay,
@@ -128,7 +129,7 @@ async fn paired(name: &str, with_relay: bool) -> Paired {
     let host = hosted(name).await;
     let relay = stub_server().await;
     let state = if with_relay {
-        host.state.clone().with_push_relay(&relay.url)
+        relay_on(&host.state, &relay.url).await
     } else {
         host.state.clone()
     };

@@ -111,6 +111,19 @@ pub(crate) async fn server(name: &str) -> Hosted {
     build(name, false).await
 }
 
+pub(crate) async fn relay_on(state: &AppState, url: &str) -> AppState {
+    state
+        .core()
+        .await
+        .unwrap()
+        .config_state
+        .set_push_relay_url(url)
+        .await
+        .unwrap();
+
+    state.clone()
+}
+
 async fn build(name: &str, shared: bool) -> Hosted {
     let _env = CONFIG_ENV.lock().await;
     let _ = rustls::crypto::ring::default_provider().install_default();

@@ -47,7 +47,8 @@ impl RegisterError {
 
 fn no_push_problem(host: &AlertHost) -> String {
     format!(
-        "{} doesn't send push alerts. Its owner can turn them on in Settings → Devices.",
+        "{} doesn't send push alerts. Its owner can turn on Background notifications in \
+         Settings → Notifications.",
         host.host_name
     )
 }

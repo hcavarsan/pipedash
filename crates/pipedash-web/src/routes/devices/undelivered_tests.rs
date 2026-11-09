@@ -16,6 +16,7 @@ use tower::ServiceExt;
 use super::*;
 use crate::test_support::{
     hosted,
+    relay_on,
     stub_server,
 };
 
@@ -23,8 +24,11 @@ async fn deliver_alert(
     core: &pipedash_core::CoreContext, relay_url: &str, push: &pipedash_core::domain::DevicePush,
     alert_id: &str, seq: Option<i64>,
 ) -> RelayOutcome {
+    core.config_state
+        .set_push_relay_url(relay_url)
+        .await
+        .unwrap();
     core.push_service()
-        .with_fixed_relay(Some(relay_url))
         .deliver_alert(push, alert_id, seq)
         .await
         .unwrap()
@@ -57,7 +61,7 @@ async fn ack(app: &Router, token: &str, through: i64) -> StatusCode {
 async fn a_failed_push_is_reported_until_the_device_acknowledges_it() {
     let host = hosted("push-undelivered").await;
     let relay = stub_server().await;
-    let state = host.state.clone().with_push_relay(&relay.url);
+    let state = relay_on(&host.state, &relay.url).await;
     let core = state.core().await.unwrap();
     let (device, token) = core.pair_device("Pixel", "ios").await.unwrap();
     core.device_pushes().set(&device.id, "sub-a").await.unwrap();
@@ -90,7 +94,7 @@ async fn a_partial_ack_keeps_the_rest_of_the_failed_pushes_pending() {
     let host = hosted("push-undelivered-partial").await;
     let relay = stub_server().await;
     relay.reply_with(503);
-    let state = host.state.clone().with_push_relay(&relay.url);
+    let state = relay_on(&host.state, &relay.url).await;
     let core = state.core().await.unwrap();
     let (device, token) = core.pair_device("Pixel", "ios").await.unwrap();
     core.device_pushes().set(&device.id, "sub-a").await.unwrap();
@@ -114,7 +118,7 @@ async fn a_failed_test_alert_is_not_reported_as_undelivered() {
     let host = hosted("push-undelivered-test").await;
     let relay = stub_server().await;
     relay.reply_with(503);
-    let state = host.state.clone().with_push_relay(&relay.url);
+    let state = relay_on(&host.state, &relay.url).await;
     let core = state.core().await.unwrap();
     let (device, token) = core.pair_device("Pixel", "ios").await.unwrap();
     core.device_pushes().set(&device.id, "sub-a").await.unwrap();
