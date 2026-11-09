@@ -40,6 +40,7 @@ impl MigrationOrchestrator {
         result.stats.cache_entries_migrated += LogStore::transfer_completed(
             self.source_config.cache_dir().join("run-logs"),
             plan.to.cache_dir().join("run-logs"),
+            &result.provider_id_mapping,
             |key| {
                 Some(DocKey {
                     provider_id: *result.provider_id_mapping.get(&key.provider_id)?,

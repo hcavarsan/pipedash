@@ -92,6 +92,34 @@ async fn assert_document(store: &Arc<LogStore>, key: &DocKey, revision: i64) {
     );
 }
 
+fn cached_tree(key: &DocKey) -> StoredTree {
+    StoredTree {
+        log_tree_version: 7,
+        run_status: PipelineStatus::Success,
+        run_concluded_at: Some(chrono::Utc::now()),
+        tree: RunLogTree {
+            nodes: vec![RunLogNode {
+                id: key.node_id.clone(),
+                parent_id: None,
+                kind: LogNodeKind::Job,
+                name: "Build".into(),
+                status: PipelineStatus::Success,
+                started_at: None,
+                finished_at: None,
+                duration_seconds: None,
+                log: None,
+                web_url: None,
+                depth: 0,
+                navigable: true,
+            }],
+            default_node_id: Some(key.node_id.clone()),
+            complete: true,
+            groups: Vec::new(),
+            step_ids_by_node: Default::default(),
+        },
+    }
+}
+
 async fn migrate_downloaded_logs(migrate_cache: bool) {
     let root = tempfile::tempdir().unwrap();
     let config_path = root.path().join("config.toml");
@@ -157,31 +185,7 @@ async fn migrate_downloaded_logs(migrate_cache: bool) {
         ..key.clone()
     };
     publish_document(&source_store, &orphan, true).await;
-    let tree = StoredTree {
-        log_tree_version: 7,
-        run_status: PipelineStatus::Success,
-        run_concluded_at: Some(chrono::Utc::now()),
-        tree: RunLogTree {
-            nodes: vec![RunLogNode {
-                id: key.node_id.clone(),
-                parent_id: None,
-                kind: LogNodeKind::Job,
-                name: "Build".into(),
-                status: PipelineStatus::Success,
-                started_at: None,
-                finished_at: None,
-                duration_seconds: None,
-                log: None,
-                web_url: None,
-                depth: 0,
-                navigable: true,
-            }],
-            default_node_id: Some(key.node_id.clone()),
-            complete: true,
-            groups: Vec::new(),
-            step_ids_by_node: Default::default(),
-        },
-    };
+    let tree = cached_tree(&key);
     source_store
         .write_tree(
             retained,
@@ -231,7 +235,7 @@ async fn migrate_downloaded_logs(migrate_cache: bool) {
             serde_json::to_value(actual).unwrap(),
             serde_json::to_value(&tree).unwrap()
         );
-        assert_eq!(result.stats.cache_entries_migrated, 3);
+        assert_eq!(result.stats.cache_entries_migrated, 4);
         let target_manager = StorageManager::with_token_store(target, tokens, true)
             .await
             .unwrap();
@@ -304,12 +308,14 @@ async fn migrating_logs_to_the_same_cache_preserves_documents() {
     };
     let revision = publish_document(&store, &key, true).await;
     let (temporary, _) = prepare_document(&store, &key, true).await;
-    let count =
-        LogStore::transfer_completed(root.path().to_path_buf(), root.path().join("."), |key| {
-            Some(key.clone())
-        })
-        .await
-        .unwrap();
+    let count = LogStore::transfer_completed(
+        root.path().to_path_buf(),
+        root.path().join("."),
+        &HashMap::from([(3, 3)]),
+        |key| Some(key.clone()),
+    )
+    .await
+    .unwrap();
     assert_eq!(count, 0);
     assert_document(&store, &key, revision).await;
     assert!(temporary.exists());
@@ -333,12 +339,14 @@ async fn migrating_logs_in_place_remaps_keys_without_removing_source() {
         pipeline_id: "stub__8__build".into(),
         ..key.clone()
     };
-    let count =
-        LogStore::transfer_completed(root.path().to_path_buf(), root.path().to_path_buf(), |_| {
-            Some(target_key.clone())
-        })
-        .await
-        .unwrap();
+    let count = LogStore::transfer_completed(
+        root.path().to_path_buf(),
+        root.path().to_path_buf(),
+        &HashMap::from([(3, 8)]),
+        |_| Some(target_key.clone()),
+    )
+    .await
+    .unwrap();
     assert_eq!(count, 1);
     assert_document(&store, &key, revision).await;
     assert_document(&store, &target_key, revision).await;
@@ -359,9 +367,289 @@ async fn log_transfer_reports_target_errors_without_removing_source() {
     let revision = publish_document(&store, &key, true).await;
     std::fs::write(&target, b"not a cache directory").unwrap();
     assert!(
-        LogStore::transfer_completed(source, target, |key| Some(key.clone()))
-            .await
-            .is_err()
+        LogStore::transfer_completed(source, target, &HashMap::from([(3, 3)]), |key| Some(
+            key.clone()
+        ))
+        .await
+        .is_err()
     );
     assert_document(&store, &key, revision).await;
+}
+
+#[tokio::test]
+async fn migration_pins_completed_documents_while_source_cleanup_runs() {
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    let target = root.path().join("target");
+    let store = LogStore::open(source.clone(), u64::MAX).await.unwrap();
+    let key = DocKey {
+        provider_id: 3,
+        pipeline_id: "stub__3__build".into(),
+        run_number: 42,
+        node_id: "job".into(),
+    };
+    let revision = publish_document(&store, &key, true).await;
+    let handle = tokio::runtime::Handle::current();
+    let count =
+        LogStore::transfer_completed(source, target.clone(), &HashMap::from([(3, 3)]), |key| {
+            store.mark_corrupt(key, revision);
+            std::thread::scope(|scope| {
+                scope
+                    .spawn(|| handle.block_on(store.sweep()))
+                    .join()
+                    .unwrap()
+                    .unwrap();
+            });
+            Some(key.clone())
+        })
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    let target_store = LogStore::open(target, u64::MAX).await.unwrap();
+    assert_document(&target_store, &key, revision).await;
+}
+
+#[tokio::test]
+async fn migration_transfers_a_tree_without_downloaded_documents() {
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    let target = root.path().join("target");
+    let store = LogStore::open(source.clone(), u64::MAX).await.unwrap();
+    let key = DocKey {
+        provider_id: 3,
+        pipeline_id: "stub__3__build".into(),
+        run_number: 42,
+        node_id: "job".into(),
+    };
+    let tree = cached_tree(&key);
+    store
+        .write_tree(3, &key.pipeline_id, 42, &tree, store.epoch(3))
+        .await
+        .unwrap();
+    let mapped = DocKey {
+        provider_id: 8,
+        pipeline_id: "stub__8__build".into(),
+        ..key
+    };
+    let count =
+        LogStore::transfer_completed(source, target.clone(), &HashMap::from([(3, 8)]), |_| {
+            Some(mapped.clone())
+        })
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    let target_store = LogStore::open(target, u64::MAX).await.unwrap();
+    let actual = target_store
+        .read_tree(8, &mapped.pipeline_id, 42)
+        .await
+        .unwrap();
+    assert_eq!(actual.tree, tree.tree);
+    assert_eq!(actual.log_tree_version, 7);
+}
+
+#[tokio::test]
+async fn migration_keeps_readable_logs_when_the_cached_tree_is_damaged() {
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    let target = root.path().join("target");
+    let store = LogStore::open(source.clone(), u64::MAX).await.unwrap();
+    let key = DocKey {
+        provider_id: 3,
+        pipeline_id: "stub__3__build".into(),
+        run_number: 42,
+        node_id: "job".into(),
+    };
+    let revision = publish_document(&store, &key, true).await;
+    store
+        .write_tree(3, &key.pipeline_id, 42, &cached_tree(&key), store.epoch(3))
+        .await
+        .unwrap();
+    tokio::fs::write(
+        source.join("v1/3").join(key.run_key()).join("tree.json"),
+        b"invalid JSON",
+    )
+    .await
+    .unwrap();
+    let count =
+        LogStore::transfer_completed(source, target.clone(), &HashMap::from([(3, 3)]), |key| {
+            Some(key.clone())
+        })
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    let target_store = LogStore::open(target, u64::MAX).await.unwrap();
+    assert_document(&target_store, &key, revision).await;
+    assert!(target_store
+        .read_tree(3, &key.pipeline_id, 42)
+        .await
+        .is_none());
+}
+
+#[tokio::test]
+async fn migration_remaps_legacy_trees_using_downloaded_log_identity() {
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    let target = root.path().join("target");
+    let store = LogStore::open(source.clone(), u64::MAX).await.unwrap();
+    let key = DocKey {
+        provider_id: 3,
+        pipeline_id: "stub__3__build".into(),
+        run_number: 42,
+        node_id: "job".into(),
+    };
+    let revision = publish_document(&store, &key, true).await;
+    let tree = cached_tree(&key);
+    store
+        .write_tree(3, &key.pipeline_id, 42, &tree, store.epoch(3))
+        .await
+        .unwrap();
+    tokio::fs::write(
+        source.join("v1/3").join(key.run_key()).join("tree.json"),
+        serde_json::to_vec(&tree).unwrap(),
+    )
+    .await
+    .unwrap();
+    let count =
+        LogStore::transfer_completed(source, target.clone(), &HashMap::from([(3, 8)]), |key| {
+            Some(DocKey {
+                provider_id: 8,
+                pipeline_id: "stub__8__build".into(),
+                ..key.clone()
+            })
+        })
+        .await
+        .unwrap();
+    assert_eq!(count, 2);
+    let target_store = LogStore::open(target, u64::MAX).await.unwrap();
+    let mapped = DocKey {
+        provider_id: 8,
+        pipeline_id: "stub__8__build".into(),
+        ..key
+    };
+    assert_document(&target_store, &mapped, revision).await;
+    assert_eq!(
+        target_store
+            .read_tree(8, &mapped.pipeline_id, 42)
+            .await
+            .unwrap()
+            .tree,
+        tree.tree
+    );
+}
+
+#[tokio::test]
+async fn migration_preserves_legacy_tree_only_runs_with_unchanged_provider_ids() {
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    let target = root.path().join("target");
+    let store = LogStore::open(source.clone(), u64::MAX).await.unwrap();
+    let key = DocKey {
+        provider_id: 3,
+        pipeline_id: "stub__3__build".into(),
+        run_number: 42,
+        node_id: "job".into(),
+    };
+    let tree = cached_tree(&key);
+    store
+        .write_tree(3, &key.pipeline_id, 42, &tree, store.epoch(3))
+        .await
+        .unwrap();
+    tokio::fs::write(
+        source.join("v1/3").join(key.run_key()).join("tree.json"),
+        serde_json::to_vec(&tree).unwrap(),
+    )
+    .await
+    .unwrap();
+    let count =
+        LogStore::transfer_completed(source, target.clone(), &HashMap::from([(3, 3)]), |key| {
+            Some(key.clone())
+        })
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    let target_store = LogStore::open(target, u64::MAX).await.unwrap();
+    assert_eq!(
+        target_store
+            .read_tree(3, &key.pipeline_id, 42)
+            .await
+            .unwrap()
+            .tree,
+        tree.tree
+    );
+}
+
+#[tokio::test]
+async fn migration_refuses_to_lose_unidentified_legacy_trees_when_ids_change() {
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    let target = root.path().join("target");
+    let store = LogStore::open(source.clone(), u64::MAX).await.unwrap();
+    let key = DocKey {
+        provider_id: 3,
+        pipeline_id: "stub__3__build".into(),
+        run_number: 42,
+        node_id: "job".into(),
+    };
+    let tree = cached_tree(&key);
+    store
+        .write_tree(3, &key.pipeline_id, 42, &tree, store.epoch(3))
+        .await
+        .unwrap();
+    tokio::fs::write(
+        source.join("v1/3").join(key.run_key()).join("tree.json"),
+        serde_json::to_vec(&tree).unwrap(),
+    )
+    .await
+    .unwrap();
+    let result = LogStore::transfer_completed(source, target, &HashMap::from([(3, 8)]), |key| {
+        Some(DocKey {
+            provider_id: 8,
+            pipeline_id: "stub__8__build".into(),
+            ..key.clone()
+        })
+    })
+    .await;
+    assert!(matches!(
+        result,
+        Err(crate::domain::DomainError::InvalidConfig(_))
+    ));
+    assert_eq!(
+        store.read_tree(3, &key.pipeline_id, 42).await.unwrap().tree,
+        tree.tree
+    );
+}
+
+#[tokio::test]
+async fn migration_uses_the_current_readable_revision_without_cleaning_the_source() {
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    let target = root.path().join("target");
+    let store = LogStore::open(source.clone(), u64::MAX).await.unwrap();
+    let key = DocKey {
+        provider_id: 3,
+        pipeline_id: "stub__3__build".into(),
+        run_number: 42,
+        node_id: "job".into(),
+    };
+    let revision = publish_document(&store, &key, true).await;
+    let mut docs = tokio::fs::read_dir(source.join("v1/3").join(key.run_key()).join("docs"))
+        .await
+        .unwrap();
+    let doc = docs.next_entry().await.unwrap().unwrap().path();
+    let damaged = doc.join((revision + 1).to_string());
+    tokio::fs::create_dir_all(&damaged).await.unwrap();
+    tokio::fs::write(damaged.join("meta.json"), b"invalid JSON")
+        .await
+        .unwrap();
+    drop(store);
+    let count =
+        LogStore::transfer_completed(source, target.clone(), &HashMap::from([(3, 3)]), |key| {
+            Some(key.clone())
+        })
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    let target_store = LogStore::open(target, u64::MAX).await.unwrap();
+    assert_document(&target_store, &key, revision).await;
+    assert!(damaged.exists());
 }

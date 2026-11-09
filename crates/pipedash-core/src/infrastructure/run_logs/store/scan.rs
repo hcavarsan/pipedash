@@ -40,7 +40,10 @@ fn valid_meta(dir: &Path) -> bool {
         .is_some_and(|meta| meta.format == STORED_FORMAT)
 }
 
-fn remove_path(path: &Path) {
+fn remove_path(path: &Path, cleanup: bool) {
+    if !cleanup {
+        return;
+    }
     let result = if path.is_dir() {
         fs::remove_dir_all(path)
     } else {
@@ -53,16 +56,28 @@ fn remove_path(path: &Path) {
     }
 }
 
+pub(super) fn scan_preserving(root: &Path, now: SystemTime) -> io::Result<Registry> {
+    scan_mode(root, now, false)
+}
+
 pub(super) fn scan(root: &Path, now: SystemTime) -> io::Result<Registry> {
+    scan_mode(root, now, true)
+}
+
+fn scan_mode(root: &Path, now: SystemTime, cleanup: bool) -> io::Result<Registry> {
     for entry in fs::read_dir(root)? {
         let entry = entry?;
         if entry.file_name() != LAYOUT_DIR {
-            remove_path(&entry.path());
+            remove_path(&entry.path(), cleanup);
         }
     }
     let base = root.join(LAYOUT_DIR);
-    fs::create_dir_all(&base)?;
-    remove_path(&base.join(TMP_DIR));
+    if cleanup {
+        fs::create_dir_all(&base)?;
+    } else if !base.is_dir() {
+        return Ok(Registry::default());
+    }
+    remove_path(&base.join(TMP_DIR), cleanup);
 
     let mut reg = Registry::default();
     for provider in fs::read_dir(&base)? {
@@ -73,34 +88,36 @@ pub(super) fn scan(root: &Path, now: SystemTime) -> io::Result<Registry> {
             .to_str()
             .and_then(|n| n.parse::<i64>().ok())
         else {
-            remove_path(&provider_dir);
+            remove_path(&provider_dir, cleanup);
             continue;
         };
         if !provider_dir.is_dir() {
-            remove_path(&provider_dir);
+            remove_path(&provider_dir, cleanup);
             continue;
         }
         for run in fs::read_dir(&provider_dir)? {
             let run = run?;
             let run_dir = run.path();
             let Some(run_key) = run.file_name().to_str().map(str::to_owned) else {
-                remove_path(&run_dir);
+                remove_path(&run_dir, cleanup);
                 continue;
             };
-            match scan_run(&run_dir, now) {
+            match scan_run(&run_dir, now, cleanup) {
                 Some((entry, newest)) => {
                     reg.last_revision = reg.last_revision.max(newest);
                     reg.runs.insert((provider_id, run_key), entry);
                 }
-                None => remove_path(&run_dir),
+                None => remove_path(&run_dir, cleanup),
             }
         }
-        let _ = fs::remove_dir(&provider_dir);
+        if cleanup {
+            let _ = fs::remove_dir(&provider_dir);
+        }
     }
     Ok(reg)
 }
 
-fn scan_run(run_dir: &Path, now: SystemTime) -> Option<(RunEntry, i64)> {
+fn scan_run(run_dir: &Path, now: SystemTime, cleanup: bool) -> Option<(RunEntry, i64)> {
     if !run_dir.is_dir() {
         return None;
     }
@@ -108,10 +125,12 @@ fn scan_run(run_dir: &Path, now: SystemTime) -> Option<(RunEntry, i64)> {
         .and_then(|m| m.modified())
         .or_else(|_| fs::metadata(run_dir).and_then(|m| m.modified()))
         .unwrap_or(now);
-    if now.duration_since(touch).unwrap_or_default() > CACHE_MAX_IDLE {
+    if cleanup && now.duration_since(touch).unwrap_or_default() > CACHE_MAX_IDLE {
         return None;
     }
-    remove_file_quiet(&run_dir.join(TREE_TMP_FILE));
+    if cleanup {
+        remove_file_quiet(&run_dir.join(TREE_TMP_FILE));
+    }
     let tree_bytes = fs::metadata(run_dir.join(TREE_FILE)).map_or(0, |m| m.len());
 
     let mut docs = HashMap::new();
@@ -120,7 +139,7 @@ fn scan_run(run_dir: &Path, now: SystemTime) -> Option<(RunEntry, i64)> {
     for doc in fs::read_dir(&docs_dir).into_iter().flatten().flatten() {
         let doc_dir = doc.path();
         let Some(doc_key) = doc.file_name().to_str().map(str::to_owned) else {
-            remove_path(&doc_dir);
+            remove_path(&doc_dir, cleanup);
             continue;
         };
         let mut revisions: Vec<(i64, PathBuf)> = Vec::new();
@@ -133,7 +152,7 @@ fn scan_run(run_dir: &Path, now: SystemTime) -> Option<(RunEntry, i64)> {
                 Some(number) if revision.path().is_dir() => {
                     revisions.push((number, revision.path()))
                 }
-                _ => remove_path(&revision.path()),
+                _ => remove_path(&revision.path(), cleanup),
             }
         }
         revisions.sort_by_key(|(number, _)| std::cmp::Reverse(*number));
@@ -151,13 +170,13 @@ fn scan_run(run_dir: &Path, now: SystemTime) -> Option<(RunEntry, i64)> {
                 entry.revisions.insert(number, Arc::new(state));
                 newest = newest.max(number);
             } else {
-                remove_path(&dir);
+                remove_path(&dir, cleanup);
             }
         }
         if entry.current.is_some() {
             docs.insert(doc_key, entry);
         } else {
-            remove_path(&doc_dir);
+            remove_path(&doc_dir, cleanup);
         }
     }
     if docs.is_empty() && tree_bytes == 0 {
