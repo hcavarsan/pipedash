@@ -117,7 +117,7 @@ See dead [Coolify](https://pipedash.app/docs/providers) containers as failed wit
 ## Features
 
 - See pipeline status across providers and pin or hide workflows in the [dashboard](https://pipedash.app/docs/features/dashboard).
-- Organize pipelines into nested views with rules, layouts and bulk actions in the [views guide](https://pipedash.app/docs/features/views).
+- Organize pipelines into nested views with rules, layouts and bulk actions in the [views guide](https://pipedash.app/docs/features/views). Sidebar names update when another connected client renames a view.
 - Open the run history with commits, branches and durations, and track build metrics per pipeline. The run history updates when another connected client discovers new runs. Metrics refreshes advance the selected time range to include runs that finish after you open the page.
 - Reselect a pipeline to load its latest [run history](https://pipedash.app/docs/features/run-history) without clearing the cache manually.
 - Read, search and download [job logs](https://pipedash.app/docs/features/run-logs) without leaving Pipedash.
