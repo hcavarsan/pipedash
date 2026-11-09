@@ -201,12 +201,23 @@ impl ProviderService {
                 continue;
             }
 
-            match (self.provider_factory)(&config) {
+            let prepared = (self.provider_factory)(&config);
+            let lock = self.commit_lock(id);
+            let _guard = lock.lock().await;
+            let current = match self.repository.get_provider(id).await {
+                Ok(current) => current,
+                Err(DomainError::ProviderNotFound(_)) => continue,
+                Err(error) => return Err(error),
+            };
+            let provider = if current.version == config.version {
+                prepared
+            } else {
+                (self.provider_factory)(&current)
+            };
+            match provider {
                 Ok(provider) => {
-                    let lock = self.commit_lock(id);
-                    let _guard = lock.lock().await;
-                    let lease = self.replace(id, provider, config.refresh_interval).await;
-                    changed.push(self.health_input(&config, &lease));
+                    let lease = self.replace(id, provider, current.refresh_interval).await;
+                    changed.push(self.health_input(&current, &lease));
                 }
                 Err(e) => {
                     tracing::warn!(provider_id = id, error = %e, "Failed to load provider");
