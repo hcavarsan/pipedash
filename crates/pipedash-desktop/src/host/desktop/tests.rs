@@ -118,3 +118,18 @@ async fn a_computer_that_never_shared_starts_with_push_off() {
     assert_eq!(server.core.push_service().relay_url().await, None);
     assert!(read_settings(dir.path()).relay_checked);
 }
+
+#[tokio::test]
+async fn push_stays_off_when_the_upgrade_cannot_record_that_it_ran() {
+    let server = crate::remote::test_host::start_host().await;
+    let dir = tempfile::tempdir().unwrap();
+    let host = HostState::load(dir.path());
+    host.update_settings(|settings| settings.enabled = true)
+        .unwrap();
+    std::fs::remove_dir_all(dir.path()).unwrap();
+
+    keep_shared_push(&host, &server.core).await;
+
+    assert_eq!(server.core.push_service().relay_url().await, None);
+    assert!(!host.lock().settings.relay_checked);
+}

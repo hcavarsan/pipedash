@@ -226,19 +226,24 @@ pub(super) async fn stop(app: &AppHandle) {
 
 async fn keep_shared_push(host: &HostState, core: &CoreContext) {
     let settings = host.lock().settings;
-    if settings.relay_checked {
+    if settings.relay_checked
+        || host
+            .update_settings(|settings| settings.relay_checked = true)
+            .is_err()
+        || !settings.enabled
+    {
         return;
     }
     let push = core
         .push_service()
         .with_default_relay(crate::push::relay_url());
-    if settings.enabled && push.relay_url().await.is_none() {
-        if let Err(error) = push.set_relay_enabled(true).await {
-            tracing::warn!(%error, "Couldn't keep push alerts on for sharing");
-            return;
-        }
+    if push.relay_url().await.is_some() {
+        return;
     }
-    let _ = host.update_settings(|settings| settings.relay_checked = true);
+    if let Err(error) = push.set_relay_enabled(true).await {
+        tracing::warn!(%error, "Couldn't keep push alerts on for sharing");
+        let _ = host.update_settings(|settings| settings.relay_checked = false);
+    }
 }
 
 pub(super) async fn core_changed(app: &AppHandle, core: Option<&Arc<CoreContext>>) {
