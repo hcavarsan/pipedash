@@ -31,5 +31,16 @@ fn create_config_schema() -> ConfigSchema {
             "API Token",
             "Jenkins API token (not your password)",
         ))
+        .add_field(
+            ConfigField::boolean(
+                "follow_all_jobs",
+                ConfigSection::Settings,
+                "Follow all jobs",
+            )
+            .description(
+                "Monitor every supported job you can read. Turn off to restore manual selection.",
+            )
+            .default_bool(false),
+        )
         .add_field(status_page_field())
 }
