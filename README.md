@@ -141,7 +141,7 @@ Download the [desktop app](https://pipedash.app/downloads), install the [iOS app
 
 To install the self-hosted web app on iPhone, open it in Safari and choose Share > Add to Home Screen. Keep "Open as Web App" enabled when available. Its manifest covers the deployment base path and starts the app at that root. After deploying changes to scope, status-bar settings or icon artwork, add a new Home Screen icon to avoid cached installation metadata.
 
-Move storage with retained run history and metrics from Settings or the config editor using the [storage guide](https://pipedash.app/docs/configuration/storage-backends).
+Move storage with retained run history and metrics from Settings or the config editor on desktop and web with the [storage guide](https://pipedash.app/docs/configuration/storage-backends).
 
 Browse older runs with the [run history guide](https://pipedash.app/docs/features/run-history).
 

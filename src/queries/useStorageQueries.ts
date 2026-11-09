@@ -120,7 +120,7 @@ export function useApplySetupDraft(): UseMutationResult<
 
   return useMutation({
     mutationFn: async ({ draft, firstRun }: { draft: SetupDraft; firstRun: boolean }) => {
-      const applied = await service.applySetupDraft(draft)
+      const applied = await service.applySetupDraft(draft, firstRun)
 
       if (firstRun) {
         if (draft.vault_password) {

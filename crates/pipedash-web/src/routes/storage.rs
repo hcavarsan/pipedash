@@ -1,5 +1,6 @@
 mod migration;
 pub(super) mod session;
+mod setup;
 
 use std::path::PathBuf;
 
@@ -48,6 +49,8 @@ pub struct AnalyzeConfigRequest {
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/draft", post(setup::prepare_draft))
+        .route("/apply", post(setup::apply_draft))
         .route("/config", get(get_storage_config))
         .route("/config/content", get(get_config_content))
         .route("/config/content", put(save_config_content))
