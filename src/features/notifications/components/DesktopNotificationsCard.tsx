@@ -41,8 +41,8 @@ export function DesktopNotificationsCard(): ReactNode {
       <Stack gap="md">
         <LiveStatus message={settings.busy ? 'Saving notification settings' : ''} />
         <Switch
-          label="System notifications"
-          aria-label="System notifications"
+          label="Enable notifications"
+          aria-label="Enable notifications"
           description="Get alerts for pipelines, watched runs and provider outages while Pipedash is running."
           checked={enabled}
           disabled={!status.data || settings.busy}

@@ -80,8 +80,7 @@ export function SharingCard(): ReactNode {
         </Text>
 
         <Text size="xs" c="dimmed">
-          Phones that turn on notifications also get push alerts through relay.pipedash.app. The relay sees only an
-          alert ID.
+          To send push alerts to paired iPhones and iPads, turn on Background notifications in Notifications.
         </Text>
 
         {status.running && status.url && (

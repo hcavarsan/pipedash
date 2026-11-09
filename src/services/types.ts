@@ -230,6 +230,8 @@ export interface DevicesService {
   listPairedDevices(): Promise<PairedDevice[]>
   createPairingCode(): Promise<PairingCode>
   removePairedDevice(id: string): Promise<void>
+  getPushRelay(): Promise<PushRelaySettings>
+  setPushRelay(enabled: boolean): Promise<PushRelaySettings>
 }
 
 export interface NotificationsService {
@@ -268,8 +270,6 @@ export interface PushService {
   listMobileDevices(): Promise<MobileDevicesResponse>
   removeMobileDevice(id: string): Promise<void>
   testMobileDevice(id: string): Promise<void>
-  getPushRelay(): Promise<PushRelaySettings>
-  setPushRelay(enabled: boolean): Promise<PushRelaySettings>
 }
 
 export interface NativeOnlyService {

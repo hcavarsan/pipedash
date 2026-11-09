@@ -154,7 +154,7 @@ async fn launch(app: &AppHandle, host: &HostState) -> Result<Running, SharingFai
         &crate::remote::pairing::device_name(),
         crate::plugin_registry::plugin_registry(),
     )
-    .with_push_relay(crate::push::relay_url());
+    .with_default_relay(crate::push::relay_url());
     pipedash_web::push::spawn_alert_push(state.clone());
 
     let (shutdown, stopped) = oneshot::channel();
@@ -224,9 +224,29 @@ pub(super) async fn stop(app: &AppHandle) {
     stop_locked(&host).await;
 }
 
+async fn keep_shared_push(host: &HostState, core: &CoreContext) {
+    let settings = host.lock().settings;
+    if settings.relay_checked {
+        return;
+    }
+    let push = core
+        .push_service()
+        .with_default_relay(crate::push::relay_url());
+    if settings.enabled && push.relay_url().await.is_none() {
+        if let Err(error) = push.set_relay_enabled(true).await {
+            tracing::warn!(%error, "Couldn't keep push alerts on for sharing");
+            return;
+        }
+    }
+    let _ = host.update_settings(|settings| settings.relay_checked = true);
+}
+
 pub(super) async fn core_changed(app: &AppHandle, core: Option<&Arc<CoreContext>>) {
     let host = app.state::<HostState>();
     let _op = host.op.lock().await;
+    if let Some(core) = core {
+        keep_shared_push(&host, core).await;
+    }
     let state = host
         .lock()
         .running

@@ -16,7 +16,11 @@ async fn a_stale_gone_answer_keeps_the_registration_that_replaced_it() {
     let stale = core.device_pushes().get(&device.id).await.unwrap().unwrap();
     core.device_pushes().set(&device.id, "sub-b").await.unwrap();
 
-    let service = core.push_service().with_fixed_relay(Some(&relay.url));
+    core.config_state
+        .set_push_relay_url(&relay.url)
+        .await
+        .unwrap();
+    let service = core.push_service();
     let outcome = service.deliver_alert(&stale, "a1", None).await.unwrap();
 
     assert_eq!(outcome, RelayOutcome::Gone);

@@ -15,6 +15,7 @@ use super::*;
 use crate::state::AppState;
 use crate::test_support::{
     hosted,
+    relay_on,
     stub_server,
 };
 
@@ -59,10 +60,7 @@ fn recorded(id: &str) -> CoreEvent {
 async fn a_recorded_alert_reaches_every_subscribed_device_with_only_its_id() {
     let host = hosted("alert-push").await;
     let relay = stub_server().await;
-    let state = host
-        .state
-        .clone()
-        .with_push_relay(&format!("{}/", relay.url));
+    let state = relay_on(&host.state, &format!("{}/", relay.url)).await;
     subscribed(&state, &["sub-1", "sub-2"]).await;
     spawn_alert_push(state.clone());
 
@@ -90,7 +88,7 @@ async fn a_recorded_alert_reaches_every_subscribed_device_with_only_its_id() {
 async fn a_device_that_turned_off_an_alert_kind_is_not_pushed_it() {
     let host = hosted("alert-push-preferences").await;
     let relay = stub_server().await;
-    let state = host.state.clone().with_push_relay(&relay.url);
+    let state = relay_on(&host.state, &relay.url).await;
     subscribed(&state, &["sub-1", "sub-2"]).await;
     let core = state.core().await.unwrap();
     let quiet = core.device_pushes().list().await.unwrap();
@@ -156,7 +154,7 @@ async fn a_device_that_turned_off_an_alert_kind_is_not_pushed_it() {
 async fn a_finished_run_is_pushed_only_to_the_device_watching_it() {
     let host = hosted("alert-push-watch").await;
     let relay = stub_server().await;
-    let state = host.state.clone().with_push_relay(&relay.url);
+    let state = relay_on(&host.state, &relay.url).await;
     subscribed(&state, &["sub-1", "sub-2"]).await;
     let core = state.core().await.unwrap();
     let pushes = core.device_pushes().list().await.unwrap();
@@ -208,7 +206,7 @@ async fn a_device_the_relay_no_longer_knows_is_forgotten_after_an_alert_push() {
     let host = hosted("alert-push-gone").await;
     let relay = stub_server().await;
     relay.reply_with(404);
-    let state = host.state.clone().with_push_relay(&relay.url);
+    let state = relay_on(&host.state, &relay.url).await;
     subscribed(&state, &["sub-1"]).await;
     spawn_alert_push(state.clone());
 
@@ -232,7 +230,7 @@ async fn nothing_is_sent_without_a_relay_or_after_the_host_stops() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(relay.requests().is_empty());
 
-    let state = host.state.clone().with_push_relay(&relay.url);
+    let state = relay_on(&host.state, &relay.url).await;
     spawn_alert_push(state.clone());
     state.closing.send_replace(true);
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -242,13 +240,25 @@ async fn nothing_is_sent_without_a_relay_or_after_the_host_stops() {
 }
 
 #[tokio::test]
-async fn a_host_reads_the_relay_from_its_builder() {
-    let host = hosted("alert-relay-builder").await;
-    assert_eq!(host.state.push_relay_url().await, None);
+async fn a_host_sends_nothing_until_its_owner_turns_on_its_default_relay() {
+    let host = hosted("alert-relay-default").await;
     let state = host
         .state
         .clone()
-        .with_push_relay("https://relay.example.org/");
+        .with_default_relay("https://relay.example.org/");
+    assert_eq!(state.push_relay_url().await, None);
+
+    let settings = state
+        .push_service()
+        .await
+        .unwrap()
+        .set_relay_enabled(true)
+        .await
+        .unwrap();
+    assert_eq!(
+        settings.relay_url.as_deref(),
+        Some("https://relay.example.org")
+    );
     assert_eq!(
         state.push_relay_url().await.as_deref(),
         Some("https://relay.example.org")

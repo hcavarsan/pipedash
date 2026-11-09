@@ -1,4 +1,4 @@
-import { Card, Stack, Switch, Text } from '@mantine/core'
+import { Card, Switch } from '@mantine/core'
 import type { ReactNode } from 'react'
 
 import { ErrorState } from '@/components/common/ErrorState'
@@ -7,13 +7,13 @@ import { IosGroup } from '@/components/ios/IosList'
 import { SwitchRow } from '@/components/ios/mobileParts'
 import { usePushRelay, useSetPushRelay } from '@/features/notifications/queries/usePushQueries'
 import { useMobileShell } from '@/hooks/useIsMobile'
+import { isTauri } from '@/services/isTauri'
 
-const TITLE = 'Push alerts for iPhone and iPad'
-const LABEL = 'Send push alerts through relay.pipedash.app'
-const DESCRIPTION =
-  "Apple delivers push alerts only through a relay that holds Pipedash's signing key. With this on, this server sends the relay only an alert ID, and each iPhone or iPad downloads the alert from this server. The relay never sees pipeline names, but it sees when alerts happen."
+const LABEL = 'Background notifications'
+const SENDER = isTauri() ? 'While this computer shares Pipedash, it' : 'This server'
+const DESCRIPTION = `Send alerts to paired iPhones and iPads even when Pipedash is closed on them. ${SENDER} sends relay.pipedash.app only an alert ID, and each device downloads the alert itself. The relay never sees pipeline names, but it sees when alerts happen.`
 
-export function PushRelayCard(): ReactNode {
+export function BackgroundNotificationsCard(): ReactNode {
   const { data, error, isLoading, isRefetching, refetch } = usePushRelay()
   const setRelay = useSetPushRelay()
   const mobileShell = useMobileShell()
@@ -21,7 +21,7 @@ export function PushRelayCard(): ReactNode {
   if (error) {
     return (
       <ErrorState
-        title="Couldn't load push alert settings"
+        title="Couldn't load background notification settings"
         error={error}
         onRetry={() => refetch()}
         retrying={isRefetching}
@@ -30,20 +30,21 @@ export function PushRelayCard(): ReactNode {
   }
 
   if (isLoading || !data) {
-    return <LoadingState message="Loading push alert settings" />
+    return <LoadingState message="Loading background notification settings" />
   }
 
   let note: string | undefined
   if (data.from_env) {
     note = 'Set by PIPEDASH_PUSH_RELAY_URL.'
   } else if (!data.enabled) {
-    note = 'Phones still check this server in the background, with delays.'
+    note = 'Phones still check for alerts in the background, with delays.'
   }
   const disabled = data.from_env || setRelay.isPending
+  const description = note ? `${DESCRIPTION} ${note}` : DESCRIPTION
 
   if (mobileShell) {
     return (
-      <IosGroup header={TITLE} footer={note ? `${DESCRIPTION} ${note}` : DESCRIPTION}>
+      <IosGroup footer={description}>
         <SwitchRow
           title={LABEL}
           checked={data.enabled}
@@ -56,24 +57,14 @@ export function PushRelayCard(): ReactNode {
 
   return (
     <Card padding="md">
-      <Stack gap="md">
-        <Stack gap={0}>
-          <Text size="sm" fw={600}>
-            {TITLE}
-          </Text>
-          <Text size="xs" c="dimmed">
-            {DESCRIPTION}
-          </Text>
-        </Stack>
-
-        <Switch
-          label={LABEL}
-          description={note}
-          checked={data.enabled}
-          disabled={disabled}
-          onChange={(event) => setRelay.mutate(event.currentTarget.checked)}
-        />
-      </Stack>
+      <Switch
+        label={LABEL}
+        aria-label={LABEL}
+        description={description}
+        checked={data.enabled}
+        disabled={disabled}
+        onChange={(event) => setRelay.mutate(event.currentTarget.checked)}
+      />
     </Card>
   )
 }
