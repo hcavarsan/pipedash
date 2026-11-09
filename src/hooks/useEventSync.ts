@@ -156,6 +156,7 @@ export function useEventSync(): void {
       void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.views() })
       void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pins() })
       void queryClient.invalidateQueries({ queryKey: [...queryKeys.pipelines.all, 'viewMembers'] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.navigations() })
     })
 
     void register<EventPayloadMap['pipelines-updated']>('pipelines-updated', async (payload) => {
