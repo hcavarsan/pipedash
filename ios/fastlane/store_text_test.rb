@@ -83,6 +83,11 @@ class StoreTextTest < Minitest::Test
     assert_includes error.message, "empty"
   end
 
+  def test_nested_and_unclosed_comments_never_reach_store_text
+    body = "Visible <!<!-- a -->-- hidden -->text\n\nKept\n\n<!-- draft notes\nnever closed"
+    assert_equal "Visible text\n\nKept", whats_new({ status: 200, json: { "body" => body } })
+  end
+
   def test_long_text_is_cut_at_a_line_within_the_app_store_limit
     body = (1..400).map { |n| "- Item number #{n} with some words" }.join("\n")
     text = whats_new({ status: 200, json: { "body" => body } })

@@ -20,7 +20,16 @@ use crate::domain::{
     DomainResult,
 };
 
-pub(crate) fn derive_key(
+pub(super) const KDF_MEMORY_KIB: u32 = 65536;
+pub(super) const KDF_ITERATIONS: u32 = 3;
+const SALT_LEN: usize = 16;
+const NONCE_LEN: usize = 12;
+
+pub(super) fn random_salt() -> Vec<u8> {
+    rand::random::<[u8; SALT_LEN]>().to_vec()
+}
+
+fn derive_key(
     password: &str, salt: &[u8], memory_kib: u32, iterations: u32,
 ) -> DomainResult<[u8; 32]> {
     let params = ParamsBuilder::new()
@@ -39,11 +48,11 @@ pub(crate) fn derive_key(
     Ok(output)
 }
 
-pub(crate) async fn derive_key_blocking(
-    password: &str, salt: &'static [u8], memory_kib: u32, iterations: u32,
+pub(super) async fn derive_key_blocking(
+    password: &str, salt: Vec<u8>, memory_kib: u32, iterations: u32,
 ) -> DomainResult<[u8; 32]> {
     let password = password.to_owned();
-    tokio::task::spawn_blocking(move || derive_key(&password, salt, memory_kib, iterations))
+    tokio::task::spawn_blocking(move || derive_key(&password, &salt, memory_kib, iterations))
         .await
         .map_err(|e| DomainError::InternalError(format!("Key derivation task failed: {e}")))?
 }
@@ -53,8 +62,10 @@ fn cipher(key: &[u8; 32]) -> DomainResult<Aes256Gcm> {
         .map_err(|e| DomainError::InternalError(format!("Failed to create cipher: {e}")))
 }
 
-pub(super) fn encrypt(key: &[u8; 32], plaintext: &[u8]) -> DomainResult<([u8; 12], Vec<u8>)> {
-    let nonce_bytes: [u8; 12] = rand::random();
+pub(super) fn encrypt(
+    key: &[u8; 32], plaintext: &[u8],
+) -> DomainResult<([u8; NONCE_LEN], Vec<u8>)> {
+    let nonce_bytes: [u8; NONCE_LEN] = rand::random();
     let ciphertext = cipher(key)?
         .encrypt(&Nonce::from(nonce_bytes), plaintext)
         .map_err(|e| DomainError::InternalError(format!("Encryption failed: {e}")))?;
@@ -62,7 +73,7 @@ pub(super) fn encrypt(key: &[u8; 32], plaintext: &[u8]) -> DomainResult<([u8; 12
 }
 
 pub(super) fn decrypt(key: &[u8; 32], nonce: &[u8], ciphertext: &[u8]) -> DomainResult<Vec<u8>> {
-    let nonce: [u8; 12] = nonce
+    let nonce: [u8; NONCE_LEN] = nonce
         .try_into()
         .map_err(|_| DomainError::InvalidConfig("Invalid nonce length".into()))?;
     cipher(key)?
@@ -72,22 +83,27 @@ pub(super) fn decrypt(key: &[u8; 32], nonce: &[u8], ciphertext: &[u8]) -> Domain
         })
 }
 
-pub(super) fn encode_backup(
-    tokens: &HashMap<i64, String>, key: &[u8; 32],
-) -> DomainResult<Vec<u8>> {
+pub fn seal_backup(tokens: &HashMap<i64, String>, password: &str) -> DomainResult<Vec<u8>> {
     let json = serde_json::to_vec(tokens)
         .map_err(|e| DomainError::DatabaseError(format!("Failed to serialize tokens: {e}")))?;
-    let (nonce, ciphertext) = encrypt(key, &json)?;
-    let mut result = nonce.to_vec();
+    let salt = random_salt();
+    let key = derive_key(password, &salt, KDF_MEMORY_KIB, KDF_ITERATIONS)?;
+    let (nonce, ciphertext) = encrypt(&key, &json)?;
+    let mut result = salt;
+    result.extend(nonce);
     result.extend(ciphertext);
     Ok(result)
 }
 
-pub(super) fn decode_backup(data: &[u8], key: &[u8; 32]) -> DomainResult<HashMap<i64, String>> {
-    let Some((nonce, ciphertext)) = data.split_at_checked(12) else {
+pub fn open_backup(data: &[u8], password: &str) -> DomainResult<HashMap<i64, String>> {
+    let Some((salt, rest)) = data.split_at_checked(SALT_LEN) else {
         return Err(DomainError::InvalidConfig("Invalid backup data".into()));
     };
-    let plaintext = decrypt(key, nonce, ciphertext)?;
+    let Some((nonce, ciphertext)) = rest.split_at_checked(NONCE_LEN) else {
+        return Err(DomainError::InvalidConfig("Invalid backup data".into()));
+    };
+    let key = derive_key(password, salt, KDF_MEMORY_KIB, KDF_ITERATIONS)?;
+    let plaintext = decrypt(&key, nonce, ciphertext)?;
     serde_json::from_slice(&plaintext)
         .map_err(|e| DomainError::DatabaseError(format!("Failed to parse tokens: {e}")))
 }

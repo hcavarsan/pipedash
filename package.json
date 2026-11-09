@@ -72,5 +72,8 @@
   "overrides": {
     "dompurify": "^3.4.17",
     "zod": "^4.6.6"
+  },
+  "patchedDependencies": {
+    "monaco-editor@0.57.0": "patches/monaco-editor@0.57.0.patch"
   }
 }

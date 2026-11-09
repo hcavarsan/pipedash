@@ -1,0 +1,1 @@
+ALTER TABLE vault_verifier ADD COLUMN IF NOT EXISTS kdf_salt BYTEA;

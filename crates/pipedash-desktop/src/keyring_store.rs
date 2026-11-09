@@ -1,18 +1,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use aes_gcm::{
-    aead::{
-        Aead,
-        KeyInit,
-    },
-    Aes256Gcm,
-    Nonce,
-};
 use async_trait::async_trait;
 use pipedash_core::domain::{
     DomainError,
     DomainResult,
+};
+use pipedash_core::infrastructure::secrets::crypto::{
+    open_backup,
+    seal_backup,
 };
 use pipedash_core::infrastructure::TokenStore;
 use tokio::sync::Mutex;
@@ -21,8 +17,6 @@ use crate::credential::{
     Entry,
     Error as KeyringError,
 };
-
-const BACKUP_KDF_SALT: &[u8] = b"pipedash-backup-salt-v1";
 
 type Tokens = HashMap<String, String>;
 
@@ -181,77 +175,6 @@ impl KeyringTokenStore {
     }
 }
 
-fn derive_backup_key(password: &str) -> DomainResult<[u8; 32]> {
-    use argon2::{
-        Argon2,
-        ParamsBuilder,
-    };
-
-    let mut output = [0u8; 32];
-
-    let params = ParamsBuilder::new()
-        .m_cost(4096)
-        .t_cost(1)
-        .p_cost(1)
-        .output_len(32)
-        .build()
-        .map_err(|e| DomainError::InternalError(format!("Invalid Argon2 parameters: {e}")))?;
-
-    let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
-
-    argon2
-        .hash_password_into(password.as_bytes(), BACKUP_KDF_SALT, &mut output)
-        .map_err(|e| {
-            DomainError::InternalError(format!("Failed to derive backup encryption key: {e}"))
-        })?;
-
-    Ok(output)
-}
-
-fn encrypt_backup(tokens: &HashMap<i64, String>, password: &str) -> DomainResult<Vec<u8>> {
-    let json = serde_json::to_vec(tokens)
-        .map_err(|e| DomainError::DatabaseError(format!("Failed to serialize tokens: {}", e)))?;
-
-    let backup_key = derive_backup_key(password)?;
-    let cipher = Aes256Gcm::new_from_slice(&backup_key)
-        .map_err(|e| DomainError::InternalError(format!("Failed to create cipher: {}", e)))?;
-
-    let nonce_bytes: [u8; 12] = rand::random();
-    let nonce = Nonce::from(nonce_bytes);
-
-    let ciphertext = cipher
-        .encrypt(&nonce, json.as_ref())
-        .map_err(|e| DomainError::InternalError(format!("Encryption failed: {}", e)))?;
-
-    let mut result = nonce_bytes.to_vec();
-    result.extend(ciphertext);
-    Ok(result)
-}
-
-fn decrypt_backup(data: &[u8], password: &str) -> DomainResult<HashMap<i64, String>> {
-    if data.len() < 12 {
-        return Err(DomainError::InvalidConfig("Invalid backup data".into()));
-    }
-
-    let nonce_bytes: [u8; 12] = data[..12]
-        .try_into()
-        .map_err(|_| DomainError::InvalidConfig("Invalid nonce".into()))?;
-    let ciphertext = &data[12..];
-
-    let backup_key = derive_backup_key(password)?;
-    let cipher = Aes256Gcm::new_from_slice(&backup_key)
-        .map_err(|e| DomainError::InternalError(format!("Failed to create cipher: {}", e)))?;
-
-    let nonce = Nonce::from(nonce_bytes);
-
-    let plaintext = cipher.decrypt(&nonce, ciphertext).map_err(|_| {
-        DomainError::AuthenticationFailed("Decryption failed (wrong password?)".into())
-    })?;
-
-    serde_json::from_slice(&plaintext)
-        .map_err(|e| DomainError::DatabaseError(format!("Failed to parse tokens: {}", e)))
-}
-
 #[async_trait]
 impl TokenStore for KeyringTokenStore {
     async fn store_token(&self, provider_id: i64, token: &str) -> DomainResult<()> {
@@ -304,7 +227,7 @@ impl TokenStore for KeyringTokenStore {
         let tokens = self.get_all_tokens().await?;
         let password = password.to_string();
 
-        tokio::task::spawn_blocking(move || encrypt_backup(&tokens, &password))
+        tokio::task::spawn_blocking(move || seal_backup(&tokens, &password))
             .await
             .map_err(background_error)?
     }
@@ -313,7 +236,7 @@ impl TokenStore for KeyringTokenStore {
         let data = data.to_vec();
         let password = password.to_string();
 
-        let imported = tokio::task::spawn_blocking(move || decrypt_backup(&data, &password))
+        let imported = tokio::task::spawn_blocking(move || open_backup(&data, &password))
             .await
             .map_err(background_error)??;
         if imported.is_empty() {

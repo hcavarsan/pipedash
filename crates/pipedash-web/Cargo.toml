@@ -6,7 +6,14 @@ edition.workspace = true
 description = "REST API server for Pipedash"
 repository = "https://github.com/hcavarsan/pipedash"
 license = "GPL-3.0"
-include = ["build.rs", "dist/**", "src/**"]
+include = [
+    "dist/**",
+    "src/**",
+    "!src/**/tests.rs",
+    "!src/**/*_tests.rs",
+    "!src/test_support.rs",
+    "!src/test_support/**",
+]
 
 [lib]
 path = "src/lib.rs"

@@ -1,4 +1,4 @@
-pub(crate) mod crypto;
+pub mod crypto;
 #[cfg(feature = "postgres")]
 mod postgres;
 mod vault;
