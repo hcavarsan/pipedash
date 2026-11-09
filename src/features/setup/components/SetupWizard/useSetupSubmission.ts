@@ -55,7 +55,7 @@ export function useSetupSubmission({
     const setupDraft = toSetupDraft(draft)
 
     try {
-      const { errors } = await service.prepareSetupDraft(setupDraft)
+      const { errors } = await service.prepareSetupDraft(setupDraft, firstRun)
       const [firstError] = Object.values(errors)
 
       if (firstError) {

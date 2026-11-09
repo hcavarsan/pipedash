@@ -15,9 +15,11 @@ export function createStorageApi(client: HttpClient): StorageService {
   return {
     checkSetupStatus: async () => client.get<SetupStatus>('/setup/status'),
 
-    prepareSetupDraft: async (draft) => client.post<SetupDraftResult>('/setup/draft', draft),
+    prepareSetupDraft: async (draft, firstRun) =>
+      client.post<SetupDraftResult>(firstRun ? '/setup/draft' : '/storage/draft', draft),
 
-    applySetupDraft: async (draft) => client.post<SetupApplied>('/setup/apply', draft),
+    applySetupDraft: async (draft, firstRun) =>
+      client.post<SetupApplied>(firstRun ? '/setup/apply' : '/storage/apply', draft),
 
     getStorageConfig: async () => client.get<StorageConfigResponse>('/storage/config'),
 

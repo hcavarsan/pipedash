@@ -65,7 +65,7 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
   const compact = mobileShell && isMobilePlatform()
 
   const vaultPasswordFromEnv = vaultStatus.is_set
-  const prepared = usePreparedSetup(draft)
+  const prepared = usePreparedSetup(draft, !currentConfig)
   const needsMigration = prepared?.needs_migration ?? false
   const reconfigured = Boolean(currentConfig)
   const showTransferStep = compact ? needsMigration : reconfigured

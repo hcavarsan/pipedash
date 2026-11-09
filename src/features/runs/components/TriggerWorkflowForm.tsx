@@ -127,7 +127,9 @@ export function TriggerWorkflowForm({ onClose, pipeline, onSuccess, rerunOf }: T
     .find((param) => param.type === 'string' || param.type === 'number')?.name
 
   const changeValue = (param: WorkflowParameter, value: unknown) => {
-    setDraft((current) => current && { ...current, values: { ...current.values, [param.name]: value } })
+    const input = param.type === 'number' && value === '' ? null : value
+
+    setDraft((current) => current && { ...current, values: { ...current.values, [param.name]: input } })
 
     setErrors(({ [param.name]: _removed, ...rest }) => rest)
   }
