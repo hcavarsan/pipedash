@@ -7,7 +7,7 @@ edition = "2021"
 
 [[bin]]
 name = "bump_version"
-path = "src/bump_version.rs"
+path = "src/bump_version/main.rs"
 
 [[bin]]
 name = "new_plugin"
