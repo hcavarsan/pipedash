@@ -41,7 +41,10 @@ use self::registry::{
     Registry,
     RevisionState,
 };
-use self::scan::scan;
+use self::scan::{
+    scan,
+    scan_preserving,
+};
 use super::checkpoint::{
     Base,
     Checkpoint,
@@ -63,6 +66,7 @@ mod documents;
 mod eviction;
 mod registry;
 mod scan;
+mod transfer;
 mod tree;
 
 const LAYOUT_DIR: &str = "v1";
@@ -255,6 +259,16 @@ impl LogStore {
     async fn open_with(
         root: PathBuf, budget: u64, touch_interval: Duration,
     ) -> DomainResult<Arc<LogStore>> {
+        Self::open_mode(root, budget, touch_interval, true).await
+    }
+
+    pub(super) async fn open_preserving(root: PathBuf) -> DomainResult<Arc<LogStore>> {
+        Self::open_mode(root, u64::MAX, TOUCH_INTERVAL, false).await
+    }
+
+    async fn open_mode(
+        root: PathBuf, budget: u64, touch_interval: Duration, cleanup: bool,
+    ) -> DomainResult<Arc<LogStore>> {
         let open_error = |e: io::Error| io_error("Couldn't open the log cache", &e);
         let root = tokio::task::spawn_blocking(move || {
             fs::create_dir_all(&root)?;
@@ -269,10 +283,16 @@ impl LogStore {
             return Ok(store);
         }
         let scan_root = root.clone();
-        let registry = tokio::task::spawn_blocking(move || scan(&scan_root, SystemTime::now()))
-            .await
-            .map_err(join_error)?
-            .map_err(open_error)?;
+        let registry = tokio::task::spawn_blocking(move || {
+            if cleanup {
+                scan(&scan_root, SystemTime::now())
+            } else {
+                scan_preserving(&scan_root, SystemTime::now())
+            }
+        })
+        .await
+        .map_err(join_error)?
+        .map_err(open_error)?;
         let store = Arc::new(LogStore {
             root: root.clone(),
             budget,

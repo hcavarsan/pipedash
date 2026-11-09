@@ -8,12 +8,12 @@ import type { SetupDraftResult } from '../../../../types/setup'
 import { toSetupDraft } from './setupDraft'
 import type { SetupState } from './types'
 
-export function usePreparedSetup(state: SetupState): SetupDraftResult | undefined {
+export function usePreparedSetup(state: SetupState, firstRun: boolean): SetupDraftResult | undefined {
   const settled = useDebounce(state, DEBOUNCE_DELAYS.FILTER)
 
   return useQuery({
-    queryKey: ['setupDraft', settled],
-    queryFn: () => service.prepareSetupDraft(toSetupDraft(settled)),
+    queryKey: ['setupDraft', firstRun, settled],
+    queryFn: () => service.prepareSetupDraft(toSetupDraft(settled), firstRun),
     placeholderData: keepPreviousData,
     gcTime: 0,
     staleTime: 0,

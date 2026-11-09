@@ -599,6 +599,31 @@ async fn triggering_posts_once_with_the_branch_and_typed_parameters() {
 }
 
 #[tokio::test]
+async fn triggering_preserves_cleared_string_defaults_and_omits_absent_inputs() {
+    let stub = stub(&[]).await;
+
+    for inputs in [
+        json!({"branch": "main", "parameters.message": "custom"}),
+        json!({"branch": "main", "parameters.message": ""}),
+        json!({"branch": "main"}),
+    ] {
+        stub.plugin
+            .trigger_pipeline(trigger(WEB, inputs))
+            .await
+            .unwrap();
+    }
+
+    assert_eq!(
+        bodies(&stub.requests, "POST").await,
+        [
+            json!({"branch": "main", "parameters": {"message": "custom"}}),
+            json!({"branch": "main", "parameters": {"message": ""}}),
+            json!({"branch": "main"}),
+        ]
+    );
+}
+
+#[tokio::test]
 async fn app_projects_run_the_chosen_pipeline_definition() {
     let stub = stub(&[]).await;
 
