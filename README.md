@@ -117,7 +117,7 @@ See dead [Coolify](https://pipedash.app/docs/providers) containers as failed wit
 ## Features
 
 - See pipeline status across providers and pin or hide workflows in the [dashboard](https://pipedash.app/docs/features/dashboard).
-- Organize pipelines into nested views with rules, layouts and bulk actions in the [views guide](https://pipedash.app/docs/features/views).
+- Organize pipelines into nested views with rules, layouts and bulk actions in the [views guide](https://pipedash.app/docs/features/views). Sidebar names update when another connected client renames a view.
 - Open the run history with commits, branches and durations, and track build metrics per pipeline. The run history updates when another connected client discovers new runs. Metrics refreshes advance the selected time range to include runs that finish after you open the page.
 - Reselect a pipeline to load its latest [run history](https://pipedash.app/docs/features/run-history) without clearing the cache manually.
 - Read, search and download [job logs](https://pipedash.app/docs/features/run-logs) without leaving Pipedash.
@@ -126,7 +126,7 @@ See dead [Coolify](https://pipedash.app/docs/providers) containers as failed wit
 - Open an ArgoCD sync to read its per-resource results, the app's recent events and the last 1000 lines of each pod container. A restarted container also shows its previous attempt. Pod logs need the `logs, get` permission in ArgoCD RBAC.
 - Sign in to ArgoCD with its SSO (bundled Dex or an external OIDC provider), or to a Prow Deck behind any OpenID Connect provider, instead of pasting a token. Pipedash renews the session before it expires and asks you to sign in again when the identity provider ends it. In the self-hosted web app, you paste the address of the page the browser opens after sign-in, unless Pipedash runs on the same machine as the browser.
 - Monitor a public Prow Deck without credentials through its [read-only connection](https://pipedash.app/docs/providers/prow).
-- Trigger workflows with provider inputs or rerun past runs through the [trigger guide](https://pipedash.app/docs/features/trigger-and-cancel).
+- Trigger workflows with provider inputs, clear CircleCI string defaults or rerun past runs through the [trigger guide](https://pipedash.app/docs/features/trigger-and-cancel).
 - Cancel runs, approve GitHub deployment reviews and rerun failed jobs through the [run history guide](https://pipedash.app/docs/features/run-history).
 - Force cancel stuck GitHub runs through the [trigger guide](https://pipedash.app/docs/features/trigger-and-cancel#force-cancel-on-github).
 - See why GitHub disabled a workflow and enable it again with the [GitHub Actions guide](https://pipedash.app/docs/providers/github-actions#disabled-workflows).
@@ -141,7 +141,7 @@ Download the [desktop app](https://pipedash.app/downloads), install the [iOS app
 
 To install the self-hosted web app on iPhone, open it in Safari and choose Share > Add to Home Screen. Keep "Open as Web App" enabled when available. Its manifest covers the deployment base path and starts the app at that root. After deploying changes to scope, status-bar settings or icon artwork, add a new Home Screen icon to avoid cached installation metadata.
 
-Move storage with retained run history, metrics, downloaded job logs and cached job lists using the [storage guide](https://pipedash.app/docs/configuration/storage-backends).
+Move storage with retained run history and metrics from Settings or the config editor on desktop and web with the [storage guide](https://pipedash.app/docs/configuration/storage-backends).
 
 Browse older runs with the [run history guide](https://pipedash.app/docs/features/run-history).
 
@@ -149,7 +149,7 @@ Clear cached run history in Settings with the controls in the [cache guide](http
 
 The config editor expands environment references for validation and keeps them unchanged when you save.
 
-- [Configuration](https://pipedash.app/docs/configuration): `config.toml`, environment variables and secrets.
+- [Configuration](https://pipedash.app/docs/configuration): `config.toml`, environment variables, secrets and provider refresh intervals that take effect during startup.
 - [Storage and tokens](https://pipedash.app/docs/configuration/storage-backends): SQLite, PostgreSQL and token encryption.
 - [REST API](https://pipedash.app/docs/deployment/rest-api): routes, authentication and WebSocket events. Metrics queries reject invalid types and require RFC 3339 dates with a timezone.
 - [Architecture](https://pipedash.app/docs/resources/architecture): crates, refresh loop and plugin system.

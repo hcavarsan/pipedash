@@ -680,6 +680,67 @@ async fn a_lazy_acquire_racing_a_removal_does_not_bring_the_provider_back() {
     assert!(h.scheduler.view(id, Instant::now()).is_none());
 }
 
+async fn wait_for_startup_snapshot(h: &Harness, id: i64) {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while h.stubs.token_of(id).is_none() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn bulk_load_keeps_a_concurrent_interval_edit() {
+    let h = Harness::new().await;
+    let id = h.add_provider("startup-race").await;
+    let service = Arc::clone(&h.provider_service);
+    let lock = service.commit_lock(id);
+    let held = lock.lock().await;
+    let mut update = Box::pin(service.update_provider_refresh_interval(id, 120));
+    assert!(futures::poll!(&mut update).is_pending());
+    let loading = tokio::spawn({
+        let service = Arc::clone(&service);
+        async move { service.load_all_providers().await }
+    });
+    wait_for_startup_snapshot(&h, id).await;
+    drop(held);
+    update.await.unwrap();
+    loading.await.unwrap().unwrap();
+    h.fetch_directly(id).await;
+    let saved = h.repository.get_provider(id).await.unwrap();
+    let scheduled = h.scheduler.view(id, Instant::now()).unwrap();
+
+    assert_eq!(saved.refresh_interval, 120);
+    assert!(scheduled.next_attempt_in > Duration::from_secs(115));
+}
+
+#[tokio::test]
+async fn bulk_load_does_not_reinstall_a_concurrently_removed_provider() {
+    let h = Harness::new().await;
+    let id = h.add_provider("removed-during-startup").await;
+    let service = Arc::clone(&h.provider_service);
+    let lock = service.commit_lock(id);
+    let held = lock.lock().await;
+    let mut removal = Box::pin(service.remove_provider(id));
+    assert!(futures::poll!(&mut removal).is_pending());
+    let loading = tokio::spawn({
+        let service = Arc::clone(&service);
+        async move { service.load_all_providers().await }
+    });
+    wait_for_startup_snapshot(&h, id).await;
+    drop(held);
+    removal.await.unwrap();
+    loading.await.unwrap().unwrap();
+
+    assert!(matches!(
+        h.repository.get_provider(id).await,
+        Err(DomainError::ProviderNotFound(_))
+    ));
+    assert!(service.current(id).await.is_none());
+    assert!(h.scheduler.view(id, Instant::now()).is_none());
+}
+
 #[tokio::test]
 async fn changing_the_refresh_interval_keeps_the_generation_and_reschedules() {
     let h = Harness::new().await;

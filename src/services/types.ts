@@ -204,8 +204,8 @@ export interface ViewsService {
 
 export interface StorageService {
   checkSetupStatus(): Promise<SetupStatus>
-  prepareSetupDraft(draft: SetupDraft): Promise<SetupDraftResult>
-  applySetupDraft(draft: SetupDraft): Promise<SetupApplied>
+  prepareSetupDraft(draft: SetupDraft, firstRun: boolean): Promise<SetupDraftResult>
+  applySetupDraft(draft: SetupDraft, firstRun: boolean): Promise<SetupApplied>
   getStorageConfig(): Promise<StorageConfigResponse>
   getVaultPasswordStatus(): Promise<{ is_set: boolean; env_var_name: string }>
   getVaultStatus(): Promise<VaultStatusResponse>
