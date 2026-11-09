@@ -71,6 +71,19 @@ impl SetupService {
             return Err(DomainError::InvalidConfig(first.clone()));
         }
 
+        if evaluation.result.needs_migration && !draft.transfer_data {
+            let token_store = self.core.as_ref().map(|core| core.token_store.clone());
+            let connection = super::storage_service::test_connection(
+                evaluation.config.clone(),
+                token_store,
+                self.local_core,
+            )
+            .await?;
+            if !connection.success {
+                return Err(DomainError::InvalidConfig(connection.message));
+            }
+        }
+
         let password = (evaluation.needs_vault_password && !draft.vault_password.is_empty())
             .then(|| draft.vault_password.clone());
         if let Some(password) = &password {

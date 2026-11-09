@@ -285,6 +285,28 @@ async fn configured_storage_wizard_moves_data_without_reopening_initial_setup() 
             );
         }
     }
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    drop(listener);
+    let before = tokio::fs::read(&config_path).await.unwrap();
+    let mut unreachable = body.clone();
+    unreachable["backend"] = serde_json::json!("postgres");
+    unreachable["postgres_url"] =
+        serde_json::json!(format!("postgresql://test:test@{address}/unreachable"));
+    unreachable["transfer_data"] = serde_json::json!(false);
+    let (status, failed) = post_draft(
+        &app,
+        "/api/v1/storage/apply",
+        &unreachable,
+        Some("operator-password"),
+    )
+    .await;
+    assert_eq!(tokio::fs::read(&config_path).await.unwrap(), before);
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{failed}");
+    assert_eq!(
+        state.storage_manager().await.unwrap().config().data_dir(),
+        root.join("source")
+    );
     let (status, prepared) = post_draft(
         &app,
         "/api/v1/storage/draft",
