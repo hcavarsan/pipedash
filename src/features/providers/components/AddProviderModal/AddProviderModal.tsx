@@ -42,6 +42,7 @@ function ProviderWizardSession(props: WizardSessionProps): ReactNode {
   const activeStepIndex = STEP_ORDER.indexOf(step)
   const providerSelected = !!selectedPlugin
   const providerNameValid = !!providerName.trim()
+  const selectionRequired = model.check?.selection_required !== false
 
   const permissionRow =
     selectedPlugin && selectedPlugin.required_permissions.length > 0 ? (
@@ -58,7 +59,7 @@ function ProviderWizardSession(props: WizardSessionProps): ReactNode {
           label: editMode ? 'Update' : 'Add',
           onClick: () => model.submitIntent('save-selection'),
           loading: isPending,
-          disabled: selectedPipelines.size === 0 || selectingAll,
+          disabled: (selectionRequired && selectedPipelines.size === 0) || selectingAll,
         }
       : {
           label: step === 'credentials' && saveOnly ? 'Save' : 'Next',
@@ -94,6 +95,7 @@ function ProviderWizardSession(props: WizardSessionProps): ReactNode {
           providerSelected={providerSelected}
           providerNameValid={providerNameValid}
           selectedCount={selectedPipelines.size}
+          selectionRequired={selectionRequired}
           selectingAll={selectingAll}
           items={items}
           permissionRow={permissionRow}

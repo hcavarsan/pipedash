@@ -3,10 +3,8 @@ use std::collections::{
     HashMap,
 };
 
-use pipedash_plugin_api::{
-    AuthMode,
-    PluginMetadata,
-};
+use pipedash_plugin_api::plugin::Plugin;
+use pipedash_plugin_api::AuthMode;
 
 use super::ProviderService;
 use crate::domain::provider_draft::{
@@ -27,21 +25,36 @@ mod tests;
 
 impl ProviderService {
     pub async fn validate_draft(&self, draft: &ProviderDraft) -> DomainResult<ProviderDraftResult> {
-        let metadata = self.draft_metadata(&draft.provider_type)?;
+        let plugin = self.draft_plugin(&draft.provider_type)?;
         let stored = self.draft_stored(draft).await?;
 
-        Ok(self.check_draft(metadata, draft, stored.as_ref()).await)
+        Ok(self.check_draft(plugin, draft, stored.as_ref()).await)
     }
 
     pub async fn save_draft(&self, draft: ProviderDraft) -> DomainResult<i64> {
-        let metadata = self.draft_metadata(&draft.provider_type)?;
+        let plugin = self.draft_plugin(&draft.provider_type)?;
         let stored = self.draft_stored(&draft).await?;
-        let result = self.check_draft(metadata, &draft, stored.as_ref()).await;
+        let result = self.check_draft(plugin, &draft, stored.as_ref()).await;
         if let Some(message) = result.errors.values().next() {
             return Err(DomainError::InvalidConfig(message.clone()));
         }
 
-        let config = rules::provider_config(metadata, &draft, stored.as_ref());
+        let config = rules::provider_config(
+            plugin.metadata(),
+            &draft,
+            stored.as_ref(),
+            result.selection_required,
+        );
+        if result.selection_required
+            && stored
+                .as_ref()
+                .is_some_and(|stored| !plugin.selection_required(&stored.config))
+            && !rules::has_selection(&config.config)
+        {
+            return Err(DomainError::InvalidConfig(rules::selection_error(
+                plugin.metadata(),
+            )));
+        }
         match draft.provider_id {
             Some(id) => {
                 self.update_provider(id, config).await?;
@@ -51,13 +64,10 @@ impl ProviderService {
         }
     }
 
-    fn draft_metadata(&self, provider_type: &str) -> DomainResult<&PluginMetadata> {
-        self.plugin_registry
-            .get(provider_type)
-            .map(|plugin| plugin.metadata())
-            .ok_or_else(|| {
-                DomainError::InvalidProviderType(format!("Unknown provider type: {provider_type}"))
-            })
+    fn draft_plugin(&self, provider_type: &str) -> DomainResult<&dyn Plugin> {
+        self.plugin_registry.get(provider_type).ok_or_else(|| {
+            DomainError::InvalidProviderType(format!("Unknown provider type: {provider_type}"))
+        })
     }
 
     async fn draft_stored(&self, draft: &ProviderDraft) -> DomainResult<Option<ProviderConfig>> {
@@ -68,9 +78,11 @@ impl ProviderService {
     }
 
     async fn check_draft(
-        &self, metadata: &PluginMetadata, draft: &ProviderDraft, stored: Option<&ProviderConfig>,
+        &self, plugin: &dyn Plugin, draft: &ProviderDraft, stored: Option<&ProviderConfig>,
     ) -> ProviderDraftResult {
+        let metadata = plugin.metadata();
         let values = rules::effective_values(draft, stored);
+        let selection_required = plugin.selection_required(&values);
         let mut errors = BTreeMap::new();
         let mut active_field_keys = Vec::new();
         let mut missing_field_labels = Vec::new();
@@ -95,16 +107,16 @@ impl ProviderService {
             errors.insert(SIGN_IN_CONFIG_KEY.to_string(), message.to_string());
         }
 
-        if let Some(ids) = &draft.selected_pipeline_ids {
-            if rules::normalize_ids(ids).is_empty() {
-                errors.insert(
-                    rules::SELECTION_KEY.to_string(),
-                    format!(
-                        "Please select at least one {}",
-                        metadata.presentation.terminology.item
-                    ),
-                );
-            }
+        if selection_required
+            && draft
+                .selected_pipeline_ids
+                .as_ref()
+                .is_some_and(|ids| !ids.iter().any(|id| !id.trim().is_empty()))
+        {
+            errors.insert(
+                rules::SELECTION_KEY.to_string(),
+                rules::selection_error(metadata),
+            );
         }
 
         ProviderDraftResult {
@@ -112,7 +124,10 @@ impl ProviderService {
             active_field_keys,
             missing_field_labels,
             credentials_complete,
-            selection_needs_refresh: rules::selection_needs_refresh(draft, stored),
+            selection_required,
+            selection_needs_refresh: selection_required
+                && (rules::selection_needs_refresh(draft, stored)
+                    || (stored.is_some() && !rules::has_selection(&values))),
         }
     }
 

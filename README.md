@@ -114,6 +114,8 @@ View [Gitea](https://pipedash.app/docs/providers) workflow status, history and r
 
 See dead [Coolify](https://pipedash.app/docs/providers) containers as failed with a `Dead` resource label.
 
+Follow new [Jenkins](https://pipedash.app/docs/providers) folder and multibranch jobs automatically with the opt-in "Follow all jobs" setting.
+
 ## Features
 
 - See pipeline status across providers and pin or hide workflows in the [dashboard](https://pipedash.app/docs/features/dashboard).

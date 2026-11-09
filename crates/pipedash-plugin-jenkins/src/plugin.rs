@@ -32,7 +32,14 @@ plugin_impl!(JenkinsPlugin [
     status_source,
     trigger_pipeline,
 ] {
+    fn selection_required(&self, config: &HashMap<String, String>) -> bool {
+        !config::follow_all_jobs(config)
+    }
+
     fn configured_repositories(&self, config: &HashMap<String, String>) -> Vec<String> {
+        if config::follow_all_jobs(config) {
+            return Vec::new();
+        }
         selected_items(config)
             .map(|item| {
                 if item.contains('/') {
@@ -100,13 +107,21 @@ plugin_impl!(JenkinsPlugin [
     }
 
     async fn fetch_pipelines(&self) -> PluginResult<Vec<Pipeline>> {
-        let job_paths = require_configured(config::parse_selected_items(&self.config)?, "jobs")?;
-
         let client = self.client()?;
-        let requests: Vec<_> = job_paths
-            .iter()
-            .map(|job_path| client.fetch_pipeline(job_path.clone()))
-            .collect();
+        let fetch = |job_path| client.fetch_pipeline(job_path);
+        let requests: Vec<_> = if config::follow_all_jobs(&self.config) {
+            client
+                .discover_all_jobs()
+                .await?
+                .into_iter()
+                .map(|job| fetch(job.full_path))
+                .collect()
+        } else {
+            require_configured(config::parse_selected_items(&self.config)?, "jobs")?
+                .into_iter()
+                .map(fetch)
+                .collect()
+        };
         collect_tolerant(requests, CONCURRENCY, |error| {
             tracing::warn!(error = %error, "Failed to fetch Jenkins pipeline")
         })

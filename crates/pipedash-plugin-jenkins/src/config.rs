@@ -6,6 +6,10 @@ use pipedash_plugin_api::{
     PluginResult,
 };
 
+pub(crate) fn follow_all_jobs(config: &HashMap<String, String>) -> bool {
+    pipedash_plugin_api::config::bool_value(config, "follow_all_jobs")
+}
+
 pub(crate) fn parse_selected_items(config: &HashMap<String, String>) -> PluginResult<Vec<String>> {
     let selected_items = config
         .get("selected_items")

@@ -89,6 +89,131 @@ async fn status_source_follows_the_optional_status_page_url() {
     assert!(matches!(rejected, Err(PluginError::InvalidConfig(_))));
 }
 
+fn catalog_reply(path: &str, phase: usize) -> Reply {
+    let path = path.split('?').next().unwrap_or(path);
+    if phase == 2 && path == "/job/team/api/json" {
+        return Reply {
+            status: "503 Service Unavailable",
+            headers: "",
+            body: "catalog unavailable",
+        };
+    }
+    let body = match path {
+        "/api/json" => {
+            r#"{"jobs":[{"name":"manual","_class":"hudson.model.FreeStyleProject"},{"name":"team","_class":"com.cloudbees.hudson.plugins.folder.Folder"},{"name":"branches","_class":"org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject"},{"name":"unsupported","_class":"hudson.matrix.MatrixProject"}]}"#
+        }
+        "/job/team/api/json" if phase > 0 => {
+            r#"{"jobs":[{"name":"existing","_class":"hudson.model.FreeStyleProject"},{"name":"new-service","_class":"org.jenkinsci.plugins.workflow.job.WorkflowJob"}]}"#
+        }
+        "/job/team/api/json" => {
+            r#"{"jobs":[{"name":"existing","_class":"hudson.model.FreeStyleProject"}]}"#
+        }
+        "/job/branches/api/json" if phase > 0 => {
+            r#"{"jobs":[{"name":"main","_class":"org.jenkinsci.plugins.workflow.job.WorkflowJob"},{"name":"feature%2Fnext","_class":"org.jenkinsci.plugins.workflow.job.WorkflowJob"}]}"#
+        }
+        "/job/branches/api/json" => {
+            r#"{"jobs":[{"name":"main","_class":"org.jenkinsci.plugins.workflow.job.WorkflowJob"}]}"#
+        }
+        "/job/manual/api/json" => r#"{"name":"manual"}"#,
+        "/job/team/job/existing/api/json" => r#"{"name":"existing"}"#,
+        "/job/team/job/new-service/api/json" => r#"{"name":"new-service"}"#,
+        "/job/branches/job/main/api/json" => r#"{"name":"main"}"#,
+        "/job/branches/job/feature%2Fnext/api/json" => r#"{"name":"feature%2Fnext"}"#,
+        _ => {
+            return Reply {
+                status: "404 Not Found",
+                headers: "",
+                body: "unexpected job",
+            };
+        }
+    };
+    Reply {
+        status: "200 OK",
+        headers: "Content-Type: application/json\r\n",
+        body,
+    }
+}
+
+async fn catalog_plugin(phase: Arc<AtomicUsize>, selected: &str, follow: bool) -> JenkinsPlugin {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let server_url = stub_server_with_head(Arc::default(), Duration::ZERO, move |path, _| {
+        catalog_reply(path, phase.load(Ordering::SeqCst))
+    })
+    .await;
+    let mut config = HashMap::from([
+        ("server_url".to_string(), server_url),
+        ("username".to_string(), "alice".to_string()),
+        ("token".to_string(), "token".to_string()),
+        ("selected_items".to_string(), selected.to_string()),
+    ]);
+    if follow {
+        config.insert("follow_all_jobs".to_string(), "true".to_string());
+    }
+    let mut plugin = JenkinsPlugin::new();
+    plugin
+        .initialize(1, config, Some(Arc::new(reqwest::Client::new())))
+        .unwrap();
+    plugin
+}
+
+async fn monitored_jobs(plugin: &JenkinsPlugin) -> Vec<String> {
+    let mut ids: Vec<_> = plugin
+        .fetch_pipelines()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|pipeline| pipeline.id)
+        .collect();
+    ids.sort();
+    ids
+}
+
+#[tokio::test]
+async fn following_all_jobs_refreshes_nested_jobs_and_restores_manual_selection() {
+    let phase = Arc::new(AtomicUsize::new(0));
+    let mut plugin = catalog_plugin(phase.clone(), "manual", false).await;
+    assert_eq!(monitored_jobs(&plugin).await, ["manual"]);
+
+    plugin
+        .config
+        .insert("follow_all_jobs".into(), "true".into());
+    assert_eq!(
+        monitored_jobs(&plugin).await,
+        ["branches/main", "manual", "team/existing"]
+    );
+    phase.store(1, Ordering::SeqCst);
+    assert_eq!(
+        monitored_jobs(&plugin).await,
+        [
+            "branches/feature%2Fnext",
+            "branches/main",
+            "manual",
+            "team/existing",
+            "team/new-service",
+        ]
+    );
+    phase.store(2, Ordering::SeqCst);
+    assert!(matches!(
+        plugin.fetch_pipelines().await,
+        Err(PluginError::ServiceUnavailable { .. })
+    ));
+
+    plugin
+        .config
+        .insert("follow_all_jobs".into(), "false".into());
+    assert_eq!(monitored_jobs(&plugin).await, ["manual"]);
+}
+
+#[tokio::test]
+async fn following_all_jobs_does_not_require_a_saved_selection() {
+    let plugin = catalog_plugin(Arc::default(), "", true).await;
+
+    assert_eq!(
+        monitored_jobs(&plugin).await,
+        ["branches/main", "manual", "team/existing"]
+    );
+}
+
 fn jenkins_core(path: &str) -> Reply {
     let json = "Content-Type: application/json\r\n";
     if path.starts_with("/job/plain/api/json") {
