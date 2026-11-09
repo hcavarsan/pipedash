@@ -89,9 +89,19 @@ impl Vault {
             return Self::unlock(rows, password, salt, verifier, legacy).await;
         }
 
+        let protected = verifier.is_some();
         let current = Self::legacy(password, legacy).await?;
         current.verify(verifier)?;
-        current.load(rows.tokens().await?).await?;
+        if let Err(error) = current.load(rows.tokens().await?).await {
+            let upgraded_elsewhere = rows
+                .verifier()
+                .await?
+                .is_some_and(|row| row.kdf_salt.is_some());
+            if upgraded_elsewhere {
+                return Box::pin(Self::open(rows, password, legacy)).await;
+            }
+            return Err(error);
+        }
 
         let salt = crypto::random_salt();
         let mut upgraded = Self::salted(password, salt.clone()).await?;
@@ -109,10 +119,11 @@ impl Vault {
                 Ok(upgraded)
             }
             Ok(false) => Box::pin(Self::open(rows, password, legacy)).await,
-            Err(error) => {
+            Err(error) if protected => {
                 tracing::warn!(%error, "Vault key upgrade failed; keeping the current key");
                 Ok(current)
             }
+            Err(error) => Err(error),
         }
     }
 

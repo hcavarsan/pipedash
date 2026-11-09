@@ -288,3 +288,84 @@ async fn test_sqlite_rekey_does_not_overwrite_a_vault_upgraded_by_another_proces
     assert_eq!(stored_salt(&pool).await, salt);
     assert_eq!(stored_ciphertext(&pool).await, ciphertext);
 }
+
+async fn block_verifier_writes(pool: &Pool<Sqlite>) {
+    for event in ["INSERT", "UPDATE"] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "CREATE TRIGGER block_verifier_{event} BEFORE {event} ON vault_verifier BEGIN SELECT RAISE(ABORT, 'blocked'); END"
+        )))
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn test_sqlite_fresh_vault_fails_when_its_verifier_cannot_be_saved() {
+    let pool = create_test_pool().await;
+    block_verifier_writes(&pool).await;
+
+    let result = SqliteTokenStore::new(pool.clone(), Some("operator-password".to_string())).await;
+
+    assert!(result.is_err());
+    assert_eq!(stored_salt(&pool).await, None);
+}
+
+#[tokio::test]
+async fn test_sqlite_protected_legacy_vault_keeps_working_when_the_upgrade_fails() {
+    let pool = create_test_pool().await;
+    let legacy_ciphertext = seed_legacy(&pool, "operator-password", true).await;
+    block_verifier_writes(&pool).await;
+
+    let store = SqliteTokenStore::new(pool.clone(), Some("operator-password".to_string()))
+        .await
+        .unwrap();
+
+    assert_eq!(store.get_token(1).await.unwrap(), "secret");
+    assert_eq!(stored_ciphertext(&pool).await, legacy_ciphertext);
+    assert_eq!(stored_salt(&pool).await, None);
+}
+
+struct RacingRows<'a> {
+    pool: &'a Pool<Sqlite>,
+    raced: std::sync::atomic::AtomicBool,
+}
+
+#[async_trait]
+impl VaultRows for RacingRows<'_> {
+    async fn verifier(&self) -> DomainResult<Option<VerifierRow>> {
+        let row = SqliteRows(self.pool).verifier().await?;
+        if !self.raced.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            SqliteTokenStore::new(self.pool.clone(), Some("operator-password".to_string())).await?;
+        }
+        Ok(row)
+    }
+
+    async fn tokens(&self) -> DomainResult<Vec<TokenRow>> {
+        SqliteRows(self.pool).tokens().await
+    }
+
+    async fn rekey(&self, from: &Vault, to: &Vault, verifier: VerifierRow) -> DomainResult<bool> {
+        SqliteRows(self.pool).rekey(from, to, verifier).await
+    }
+}
+
+#[tokio::test]
+async fn test_sqlite_open_follows_an_upgrade_finished_by_another_process() {
+    let pool = create_test_pool().await;
+    seed_legacy(&pool, "operator-password", true).await;
+    let rows = RacingRows {
+        pool: &pool,
+        raced: std::sync::atomic::AtomicBool::new(false),
+    };
+
+    let vault = Vault::open(&rows, "operator-password", &LEGACY_KDF)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        vault.all().await.get(&1).map(String::as_str),
+        Some("secret")
+    );
+    assert_eq!(stored_salt(&pool).await.map(|salt| salt.len()), Some(16));
+}
