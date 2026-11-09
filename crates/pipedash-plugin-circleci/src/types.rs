@@ -54,6 +54,7 @@ pub struct Workflow {
     pub id: String,
     pub name: String,
     pub status: String,
+    pub tag: Option<String>,
     pub created_at: Option<DateTime<Utc>>,
     pub started_at: Option<DateTime<Utc>>,
     pub stopped_at: Option<DateTime<Utc>>,
