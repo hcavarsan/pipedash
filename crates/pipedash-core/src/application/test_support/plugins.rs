@@ -179,6 +179,10 @@ impl Plugin for StubPlugin {
         &self.metadata
     }
 
+    fn selection_required(&self, config: &HashMap<String, String>) -> bool {
+        config.get("note").is_none_or(|value| value != "automatic")
+    }
+
     fn initialize(
         &mut self, _provider_id: i64, config: HashMap<String, String>,
         http_client: Option<Arc<reqwest::Client>>,

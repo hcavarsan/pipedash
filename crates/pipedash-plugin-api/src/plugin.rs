@@ -271,6 +271,10 @@ pub trait Plugin: Send + Sync {
         false
     }
 
+    fn selection_required(&self, _config: &HashMap<String, String>) -> bool {
+        true
+    }
+
     fn configured_repositories(&self, config: &HashMap<String, String>) -> Vec<String> {
         selected_items(config).map(str::to_string).collect()
     }

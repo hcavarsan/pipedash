@@ -41,5 +41,6 @@ pub struct ProviderDraftResult {
     pub active_field_keys: Vec<String>,
     pub missing_field_labels: Vec<String>,
     pub credentials_complete: bool,
+    pub selection_required: bool,
     pub selection_needs_refresh: bool,
 }

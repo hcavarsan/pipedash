@@ -13,6 +13,7 @@ interface ProviderWizardFooterProps {
   providerSelected: boolean
   providerNameValid: boolean
   selectedCount: number
+  selectionRequired: boolean
   selectingAll: boolean
   items: string
   permissionRow: ReactNode
@@ -33,6 +34,7 @@ export function ProviderWizardFooter({
   providerSelected,
   providerNameValid,
   selectedCount,
+  selectionRequired,
   selectingAll,
   items,
   permissionRow,
@@ -138,7 +140,12 @@ export function ProviderWizardFooter({
       </Group>
       <Group gap="xs">
         {cancel}
-        <Button size="sm" onClick={onSaveSelection} loading={isPending} disabled={selectedCount === 0 || selectingAll}>
+        <Button
+          size="sm"
+          onClick={onSaveSelection}
+          loading={isPending}
+          disabled={(selectionRequired && selectedCount === 0) || selectingAll}
+        >
           {isMobile ? submitLabel : `${submitLabel} provider`}
         </Button>
       </Group>

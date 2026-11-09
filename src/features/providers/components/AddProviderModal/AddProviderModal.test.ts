@@ -35,6 +35,7 @@ const plugins: PluginMetadata[] = [
 
 const secondPage: { waiting: (() => void)[]; requests: number } = { waiting: [], requests: 0 }
 const saves: { handler: (draft: ProviderDraft) => Promise<void> } = { handler: async () => undefined }
+const selectionPolicy = { required: true, empty: false }
 
 function validateDraft(draft: ProviderDraft): ProviderDraftResult {
   const errors: Record<string, string> = {}
@@ -61,6 +62,7 @@ function validateDraft(draft: ProviderDraft): ProviderDraftResult {
     missing_field_labels: missing,
     credentials_complete: missing.length === 0,
     selection_needs_refresh: false,
+    selection_required: selectionPolicy.required,
   }
 }
 const job = (id: string) => ({ id, name: id, description: null, organization: 'org', repository: 'org/repo' })
@@ -106,6 +108,9 @@ Object.assign(window, {
         return ['a', 'b', 'c', 'd']
       }
       if (command === 'preview_provider_pipelines') {
+        if (selectionPolicy.empty) {
+          return { ...page([], 1, false), total_count: 0, total_pages: 0 }
+        }
         return args?.page === 2 ? page(['c', 'd'], 2, false) : page(['a', 'b'], 1, true)
       }
       throw new Error(`Unexpected command: ${command}`)
@@ -133,6 +138,8 @@ let client = new QueryClient()
 
 beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  selectionPolicy.required = true
+  selectionPolicy.empty = false
   notifyManager.setNotifyFunction((callback) => act(callback))
 })
 
@@ -230,7 +237,8 @@ test('a rejected save keeps the dialog open with the typed values and allows a r
   assert.equal(attempts, 2)
 })
 
-function renderAdd(onSave: (draft: ProviderDraft) => Promise<void>): void {
+function renderAdd(onSave: (draft: ProviderDraft) => Promise<void>): { value: boolean } {
+  const closed = { value: false }
   saves.handler = onSave
   render(
     createElement(
@@ -239,10 +247,17 @@ function renderAdd(onSave: (draft: ProviderDraft) => Promise<void>): void {
       createElement(
         QueryClientProvider,
         { client },
-        createElement(AddProviderModal, { opened: true, onClose: () => undefined })
+        createElement(AddProviderModal, {
+          opened: true,
+          onClose: () => {
+            closed.value = true
+          },
+        })
       )
     )
   )
+
+  return closed
 }
 
 test('the provider step checks only its own fields, then a required credential blocks the next step', async () => {
@@ -273,6 +288,31 @@ test('the provider step checks only its own fields, then a required credential b
 
   await user.click(view().getByRole('button', { name: /^Next/ }))
   assert.ok((await view().findAllByText('Token is required')).length > 0)
+})
+
+test('an empty provider saves when monitoring is automatic', async () => {
+  const user = userEvent.setup({ document })
+  const added: ProviderDraft[] = []
+
+  selectionPolicy.required = false
+  selectionPolicy.empty = true
+  const closed = renderAdd(async (draft) => {
+    added.push(draft)
+  })
+
+  await user.click(await view().findByRole('button', { name: 'Stub' }))
+  await user.click(view().getByRole('button', { name: /^Next/ }))
+  const token = await view().findByLabelText(/^Token/)
+  assert.ok(token instanceof HTMLInputElement)
+  await waitFor(() => assert.equal(token.disabled, false))
+  await user.type(token, 'secret')
+  await user.click(view().getByRole('button', { name: /^Next/ }))
+  const add = await view().findByRole('button', { name: 'Add provider' })
+
+  await waitFor(() => assert.equal(add.hasAttribute('disabled'), false))
+  await user.click(add)
+  await waitFor(() => assert.equal(closed.value, true))
+  assert.deepEqual(added[0]?.selected_pipeline_ids, [])
 })
 
 test('the provider cannot be added while select all is still loading', async () => {

@@ -14,5 +14,6 @@ export interface ProviderDraftResult {
   active_field_keys: string[]
   missing_field_labels: string[]
   credentials_complete: boolean
+  selection_required: boolean
   selection_needs_refresh: boolean
 }

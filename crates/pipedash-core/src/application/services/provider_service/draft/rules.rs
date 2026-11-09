@@ -82,6 +82,19 @@ pub(super) fn validate_field(field: &ConfigField, value: &str) -> Option<String>
     )
 }
 
+pub(super) fn has_selection(values: &HashMap<String, String>) -> bool {
+    pipedash_plugin_api::config::comma_separated(value_of(values, SELECTION_KEY))
+        .next()
+        .is_some()
+}
+
+pub(super) fn selection_error(metadata: &PluginMetadata) -> String {
+    format!(
+        "Please select at least one {}",
+        metadata.presentation.terminology.item
+    )
+}
+
 pub(super) fn normalize_ids(ids: &[String]) -> Vec<String> {
     let mut seen = HashSet::new();
     ids.iter()
@@ -133,6 +146,7 @@ pub(super) fn effective_values(
 
 pub(super) fn provider_config(
     metadata: &PluginMetadata, draft: &ProviderDraft, stored: Option<&ProviderConfig>,
+    selection_required: bool,
 ) -> ProviderConfig {
     let mode = draft.auth_mode;
     let mut values = effective_values(draft, stored);
@@ -154,9 +168,15 @@ pub(super) fn provider_config(
     }
 
     let kept = values.remove(SELECTION_KEY);
-    let selection = match &draft.selected_pipeline_ids {
-        Some(ids) => Some(normalize_ids(ids).join(",")),
-        None => kept,
+    let selected = draft.selected_pipeline_ids.as_deref().map(normalize_ids);
+    let selection = match selected {
+        Some(ids) if selection_required || !ids.is_empty() => Some(ids.join(",")),
+        _ => kept.or_else(|| {
+            stored
+                .filter(|stored| !selection_required && !scope_changed(&draft.values, stored))
+                .and_then(|stored| stored.config.get(SELECTION_KEY))
+                .cloned()
+        }),
     };
     if let Some(selection) = selection.filter(|selection| !selection.trim().is_empty()) {
         values.insert(SELECTION_KEY.to_string(), selection);

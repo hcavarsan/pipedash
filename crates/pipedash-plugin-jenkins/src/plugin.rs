@@ -32,6 +32,10 @@ plugin_impl!(JenkinsPlugin [
     status_source,
     trigger_pipeline,
 ] {
+    fn selection_required(&self, config: &HashMap<String, String>) -> bool {
+        !config::follow_all_jobs(config)
+    }
+
     fn configured_repositories(&self, config: &HashMap<String, String>) -> Vec<String> {
         if config::follow_all_jobs(config) {
             return Vec::new();

@@ -50,7 +50,7 @@ fn stored(values: &[(&str, &str)]) -> ProviderConfig {
 fn config_of(draft: &ProviderDraft, stored: Option<&ProviderConfig>) -> ProviderConfig {
     let registry = plugins::registry();
     let metadata = registry.get(STUB_DRAFT).unwrap().metadata();
-    rules::provider_config(metadata, draft, stored)
+    rules::provider_config(metadata, draft, stored, true)
 }
 
 async fn validate(h: &Harness, draft: &ProviderDraft) -> ProviderDraftResult {
@@ -283,6 +283,84 @@ async fn an_empty_selection_names_the_plugin_item() {
         ));
     }
     assert!(h.repository.list_providers().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn automatic_scopes_save_without_a_manual_selection() {
+    let h = Harness::new().await;
+    let mut automatic = draft(
+        AuthMode::Token,
+        &[
+            ("deck_url", "https://deck.example"),
+            ("token", "abc"),
+            ("note", "automatic"),
+        ],
+    );
+    automatic.selected_pipeline_ids = Some(Vec::new());
+    let checked = validate(&h, &automatic).await;
+    assert!(!checked.selection_required);
+    assert!(!checked.selection_needs_refresh);
+
+    let id = h.provider_service.save_draft(automatic).await.unwrap();
+    let saved = h.repository.get_provider(id).await.unwrap();
+    assert_eq!(
+        saved.config.get("note").map(String::as_str),
+        Some("automatic")
+    );
+    assert!(!saved.config.contains_key("selected_items"));
+}
+
+#[tokio::test]
+async fn automatic_scopes_keep_the_saved_manual_selection() {
+    let h = Harness::new().await;
+    let id = h
+        .repository
+        .add_provider(&stored(&[
+            ("deck_url", "https://deck.example"),
+            ("selected_items", "saved-job"),
+        ]))
+        .await
+        .unwrap();
+    let mut automatic = editing(
+        id,
+        &[
+            ("deck_url", "https://deck.example"),
+            ("token", "abc"),
+            ("note", "automatic"),
+        ],
+    );
+    automatic.selected_pipeline_ids = Some(Vec::new());
+
+    h.provider_service.save_draft(automatic).await.unwrap();
+    let saved = h.repository.get_provider(id).await.unwrap();
+    assert_eq!(saved.config["selected_items"], "saved-job");
+}
+
+#[tokio::test]
+async fn leaving_automatic_monitoring_without_saved_items_requires_selection() {
+    let h = Harness::new().await;
+    let id = h
+        .repository
+        .add_provider(&stored(&[
+            ("deck_url", "https://deck.example"),
+            ("note", "automatic"),
+        ]))
+        .await
+        .unwrap();
+    let manual = editing(
+        id,
+        &[("deck_url", "https://deck.example"), ("token", "abc")],
+    );
+
+    let checked = validate(&h, &manual).await;
+    assert!(checked.selection_required);
+    assert!(checked.selection_needs_refresh);
+    assert!(matches!(
+        h.provider_service.save_draft(manual).await,
+        Err(DomainError::InvalidConfig(message)) if message == "Please select at least one pipeline"
+    ));
+    let saved = h.repository.get_provider(id).await.unwrap();
+    assert_eq!(saved.config["note"], "automatic");
 }
 
 #[tokio::test]
