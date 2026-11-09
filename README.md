@@ -126,7 +126,7 @@ See dead [Coolify](https://pipedash.app/docs/providers) containers as failed wit
 - Open an ArgoCD sync to read its per-resource results, the app's recent events and the last 1000 lines of each pod container. A restarted container also shows its previous attempt. Pod logs need the `logs, get` permission in ArgoCD RBAC.
 - Sign in to ArgoCD with its SSO (bundled Dex or an external OIDC provider), or to a Prow Deck behind any OpenID Connect provider, instead of pasting a token. Pipedash renews the session before it expires and asks you to sign in again when the identity provider ends it. In the self-hosted web app, you paste the address of the page the browser opens after sign-in, unless Pipedash runs on the same machine as the browser.
 - Monitor a public Prow Deck without credentials through its [read-only connection](https://pipedash.app/docs/providers/prow).
-- Trigger workflows with provider inputs or rerun past runs through the [trigger guide](https://pipedash.app/docs/features/trigger-and-cancel).
+- Trigger workflows with provider inputs, clear CircleCI string defaults or rerun past runs through the [trigger guide](https://pipedash.app/docs/features/trigger-and-cancel).
 - Cancel runs, approve GitHub deployment reviews and rerun failed jobs through the [run history guide](https://pipedash.app/docs/features/run-history).
 - Force cancel stuck GitHub runs through the [trigger guide](https://pipedash.app/docs/features/trigger-and-cancel#force-cancel-on-github).
 - See why GitHub disabled a workflow and enable it again with the [GitHub Actions guide](https://pipedash.app/docs/providers/github-actions#disabled-workflows).

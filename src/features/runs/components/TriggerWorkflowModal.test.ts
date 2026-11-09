@@ -177,6 +177,32 @@ test('clicking the footer button submits the typed parameters', async () => {
   })
 })
 
+test('clearing a number submits null while cleared strings and zero keep their values', async () => {
+  const user = userEvent.setup({ document })
+
+  state.params = [
+    { name: 'message', label: 'Message', description: null, type: 'string', required: false, default: 'deploy' },
+    { name: 'retries', label: 'Retries', description: null, type: 'number', required: false, default: 2 },
+    { name: 'count', label: 'Count', description: null, type: 'number', required: false, default: 3 },
+  ]
+  state.values = { message: 'deploy', retries: 2, count: 3 }
+  renderModal()
+
+  await user.clear(await view().findByLabelText('Retries'))
+  await user.clear(view().getByLabelText('Message'))
+  const count = view().getByLabelText('Count')
+
+  await user.clear(count)
+  await user.type(count, '0')
+  await user.click(view().getByRole('button', { name: 'Trigger workflow' }))
+
+  await waitFor(() => {
+    assert.deepEqual(triggers, [
+      { params: { workflow_id: pipeline.id, inputs: { message: '', retries: null, count: 0 } } },
+    ])
+  })
+})
+
 test('a missing required value blocks the request and reports the field', async () => {
   const user = userEvent.setup({ document })
   const { closed } = renderModal()
