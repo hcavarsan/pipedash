@@ -1,8 +1,8 @@
-import { IconBell, IconBellOff, IconBellPlus, IconBellRinging, IconBellX } from '@tabler/icons-react'
+import { IconBell, IconBellOff, IconBellPlus, IconBellRinging } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
 import { useNotificationStore } from '../../../stores/notificationStore'
-import type { PipelineNotifyState } from '../../../types/notification_preferences'
+import type { PipelineNotifyState, PreferenceChange } from '../../../types/notification_preferences'
 import type { Pipeline } from '../../../types/pipelines'
 import { displaySuccessNotification } from '../../../utils/errorDisplay'
 import { changePreference } from '../queries/changePreference'
@@ -17,47 +17,70 @@ export interface MuteItem extends NotifyItem {
   muted: boolean
 }
 
-type PipelineTarget = Pick<Pipeline, 'id' | 'name'>
+export interface PolicyOption {
+  value: PipelineNotifyState
+  label: string
+  description: string
+  icon: ReactNode
+  selected: boolean
+  select: () => Promise<void>
+}
+
+export type PolicyTarget = Pick<Pipeline, 'id' | 'name' | 'status'>
 
 interface NotifyItems {
   pipelineState: (pipelineId: string) => PipelineNotifyState
-  pipelineItem: (pipeline: PipelineTarget) => MuteItem
-  watchItem: (pipeline: PipelineTarget) => NotifyItem
-  finishItem: (pipeline: PipelineTarget & Pick<Pipeline, 'status'>) => NotifyItem
-  notifyItems: (pipeline: PipelineTarget & Pick<Pipeline, 'status'>) => NotifyItem[]
+  policyOptions: (pipeline: PolicyTarget) => PolicyOption[]
+
   providerItem: (provider: { id: number; name: string }) => MuteItem
 }
 
 const UNMUTE_HINT = 'Unmute it from its menu or in notification settings.'
 
-const muteItem = (
-  target: 'Pipeline' | 'Provider',
-  name: string,
-  muted: boolean,
-  toggle: () => Promise<boolean>,
-  mutedMessage: string
-): MuteItem => ({
-  label: muted ? 'Unmute notifications' : 'Mute notifications',
-  icon: muted ? <IconBell size={16} aria-hidden /> : <IconBellOff size={16} aria-hidden />,
-  muted,
-  onClick: async () => {
-    if (await toggle()) {
-      displaySuccessNotification(
-        muted ? `${name} is no longer muted.` : mutedMessage,
-        `${target} ${muted ? 'unmuted' : 'muted'}`
-      )
-    }
-  },
-})
+const POLICY_ICONS: Record<PipelineNotifyState, ReactNode> = {
+  default: <IconBell size={16} aria-hidden />,
+  pending: <IconBellPlus size={16} aria-hidden />,
+  watching: <IconBellRinging size={16} aria-hidden />,
+  muted: <IconBellOff size={16} aria-hidden />,
+}
 
-const finishLabel = (pending: boolean, status: Pipeline['status']): string => {
-  if (pending) {
-    return 'Cancel finish notification'
+const leave = (state: PipelineNotifyState, id: string): PreferenceChange | null => {
+  switch (state) {
+    case 'watching':
+      return { type: 'pipeline_watched', pipeline_id: id, watched: false }
+    case 'pending':
+      return { type: 'cancel_next_finish', pipeline_id: id }
+    case 'muted':
+      return { type: 'pipeline_muted', pipeline_id: id, muted: false }
+    case 'default':
+      return null
   }
-  if (status === 'running' || status === 'pending') {
-    return 'Notify when this run finishes'
+}
+
+const enter = (state: PipelineNotifyState, id: string): PreferenceChange | null => {
+  switch (state) {
+    case 'watching':
+      return { type: 'pipeline_watched', pipeline_id: id, watched: true }
+    case 'pending':
+      return { type: 'watch_next_finish', pipeline_id: id }
+    case 'muted':
+      return { type: 'pipeline_muted', pipeline_id: id, muted: true }
+    case 'default':
+      return null
   }
-  return 'Notify when the next run finishes'
+}
+
+const confirmation = (state: PipelineNotifyState, name: string): [message: string, title: string] => {
+  switch (state) {
+    case 'watching':
+      return [`You'll be notified every time ${name} finishes.`, 'Watching pipeline']
+    case 'pending':
+      return ['Change it from this menu or in notification settings.', `You'll be notified when ${name} finishes`]
+    case 'muted':
+      return [`You won't get notifications about ${name}. ${UNMUTE_HINT}`, 'Pipeline muted']
+    case 'default':
+      return [`${name} follows your notification settings again.`, 'Following notification settings']
+  }
 }
 
 export function useNotifyItems(): NotifyItems {
@@ -66,81 +89,68 @@ export function useNotifyItems(): NotifyItems {
 
   const pipelineState = (id: string): PipelineNotifyState => pipelineStates[id] ?? 'default'
 
-  const watchItem: NotifyItems['watchItem'] = ({ id, name }) => {
-    const watching = pipelineState(id) === 'watching'
+  const setPolicy = async ({ id, name }: PolicyTarget, target: PipelineNotifyState): Promise<void> => {
+    const current = pipelineState(id)
 
-    return {
-      label: watching ? 'Stop watching' : 'Watch all runs',
-      icon: watching ? <IconBellX size={16} aria-hidden /> : <IconBellRinging size={16} aria-hidden />,
-      onClick: async () => {
-        if (!(await changePreference({ type: 'pipeline_watched', pipeline_id: id, watched: !watching }))) {
-          return
-        }
-        if (watching) {
-          displaySuccessNotification(`${name} follows your notification settings again.`, 'Stopped watching')
-        } else {
-          displaySuccessNotification(`You'll be notified every time ${name} finishes.`, 'Watching pipeline')
-        }
-      },
+    if (current === target) {
+      return
     }
+
+    for (const change of [leave(current, id), enter(target, id)]) {
+      if (change && !(await changePreference(change))) {
+        return
+      }
+    }
+
+    displaySuccessNotification(...confirmation(target, name))
   }
 
-  const finishItem: NotifyItems['finishItem'] = ({ id, name, status }) => {
-    const pending = pipelineState(id) === 'pending'
-
-    return {
-      label: finishLabel(pending, status),
-      icon: pending ? <IconBellX size={16} aria-hidden /> : <IconBellPlus size={16} aria-hidden />,
-      onClick: async () => {
-        if (pending) {
-          if (await changePreference({ type: 'cancel_next_finish', pipeline_id: id })) {
-            displaySuccessNotification(
-              `${name} no longer has a pending finish notification.`,
-              'Finish notification cancelled'
-            )
-          }
-        } else if (await changePreference({ type: 'watch_next_finish', pipeline_id: id })) {
-          displaySuccessNotification(
-            'Cancel it from this menu or in notification settings.',
-            `You'll be notified when ${name} finishes`
-          )
-        }
-      },
+  const policyOptions: NotifyItems['policyOptions'] = (pipeline) => {
+    const current = pipelineState(pipeline.id)
+    const active = pipeline.status === 'running' || pipeline.status === 'pending'
+    const copy: Record<PipelineNotifyState, [label: string, description: string]> = {
+      default: ['Follow notification settings', 'Uses the kinds and providers chosen in Settings.'],
+      pending: [
+        active ? 'Notify when this run finishes' : 'Notify when the next run finishes',
+        'One notification, then back to your settings.',
+      ],
+      watching: ['Watch all runs', 'Notifies every time it finishes, even if its provider is muted.'],
+      muted: ['Mute notifications', 'No notifications about this pipeline.'],
     }
-  }
 
-  const pipelineItem: NotifyItems['pipelineItem'] = ({ id, name }) => {
-    const muted = pipelineState(id) === 'muted'
-
-    return muteItem(
-      'Pipeline',
-      name,
-      muted,
-      () => changePreference({ type: 'pipeline_muted', pipeline_id: id, muted: !muted }),
-      `You won't get notifications about ${name}. ${UNMUTE_HINT}`
-    )
+    return (['default', 'pending', 'watching', 'muted'] as const).map((value) => ({
+      value,
+      label: copy[value][0],
+      description: copy[value][1],
+      icon: POLICY_ICONS[value],
+      selected: current === value,
+      select: () => setPolicy(pipeline, value),
+    }))
   }
 
   return {
     pipelineState,
-    pipelineItem,
-    watchItem,
-    finishItem,
-    notifyItems: (pipeline) => [
-      watchItem(pipeline),
-      ...(pipelineState(pipeline.id) === 'watching' ? [] : [finishItem(pipeline)]),
-      pipelineItem(pipeline),
-    ],
+    policyOptions,
     providerItem: ({ id, name }) => {
       const muted = preferences.muted_providers.includes(id)
 
-      return muteItem(
-        'Provider',
-        name,
+      return {
+        label: muted ? 'Unmute notifications' : 'Mute notifications',
+        icon: muted ? <IconBell size={16} aria-hidden /> : <IconBellOff size={16} aria-hidden />,
         muted,
-        () => changePreference({ type: 'provider_muted', provider_id: id, muted: !muted }),
-        `You won't get notifications from ${name}, except for pipelines you watch. ${UNMUTE_HINT}`
-      )
+        onClick: async () => {
+          if (!(await changePreference({ type: 'provider_muted', provider_id: id, muted: !muted }))) {
+            return
+          }
+
+          displaySuccessNotification(
+            muted
+              ? `${name} is no longer muted.`
+              : `You won't get notifications from ${name}, except for pipelines you watch. ${UNMUTE_HINT}`,
+            `Provider ${muted ? 'unmuted' : 'muted'}`
+          )
+        },
+      }
     },
   }
 }

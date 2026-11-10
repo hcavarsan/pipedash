@@ -1,5 +1,5 @@
 import { Button, Menu } from '@mantine/core'
-import { IconBell, IconBellOff, IconBellPlus, IconBellRinging } from '@tabler/icons-react'
+import { IconBell, IconBellOff, IconBellPlus, IconBellRinging, IconCheck } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
 import { ActionSheetCancel } from '../../../components/ios/ActionSheetCancel'
@@ -15,7 +15,7 @@ const STATE_BUTTON: Record<PipelineNotifyState, { label: string; icon: ReactNode
 }
 
 export function PipelineNotifyMenu({ pipeline }: { pipeline: Pipeline }): ReactNode {
-  const { pipelineState, notifyItems } = useNotifyItems()
+  const { pipelineState, policyOptions } = useNotifyItems()
   const { label, icon } = STATE_BUTTON[pipelineState(pipeline.id)]
 
   return (
@@ -32,9 +32,15 @@ export function PipelineNotifyMenu({ pipeline }: { pipeline: Pipeline }): ReactN
         </Button>
       </Menu.Target>
       <Menu.Dropdown>
-        {notifyItems(pipeline).map((item) => (
-          <Menu.Item key={item.label} leftSection={item.icon} onClick={item.onClick}>
-            {item.label}
+        {policyOptions(pipeline).map((option) => (
+          <Menu.Item
+            key={option.value}
+            aria-current={option.selected ? 'true' : undefined}
+            leftSection={option.icon}
+            rightSection={option.selected ? <IconCheck size={14} aria-hidden /> : null}
+            onClick={() => void option.select()}
+          >
+            {option.label}
           </Menu.Item>
         ))}
         <ActionSheetCancel />

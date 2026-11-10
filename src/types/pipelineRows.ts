@@ -58,7 +58,7 @@ export interface PipelineActions {
   isRefreshing: (providerIds: number[]) => boolean
   pinItem: (kind: PinKind, ref: string) => WorkflowMenuItem
   cancelItem: (label: string, pipelines: ViewPipeline[]) => WorkflowMenuItem | null
-  notifyItems: (pipeline: ViewPipeline) => WorkflowMenuItem[]
+  notifyItem: (pipeline: ViewPipeline) => WorkflowMenuItem
   terminology: (providerType: string) => PipelineTerminology | undefined
 }
 

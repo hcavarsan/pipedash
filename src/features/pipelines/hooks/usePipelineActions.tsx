@@ -5,7 +5,7 @@ import { useRefreshProviders } from '../../../queries/useRefreshQueries'
 import type { PipelineActions } from '../../../types/pipelineRows'
 import type { Pipeline } from '../../../types/pipelines'
 import type { PipelineView, ViewDisplay, ViewPipeline } from '../../../types/views'
-import { useNotifyItems } from '../../notifications/hooks/useNotifyItems'
+import { usePipelineNotifyItem } from '../../notifications/components/PipelineNotifyPolicy'
 import { useEnableWorkflow } from '../../runs/queries/useWorkflowQueries'
 import {
   type PipelineMark,
@@ -46,7 +46,7 @@ export function usePipelineActions({
   const { isBusy, isBusyNow } = useBusyPipelines()
   const { data: plugins } = usePlugins()
   const pinItem = usePinning()
-  const { notifyItems } = useNotifyItems()
+  const notifyItem = usePipelineNotifyItem()
   const { cancelItem, dialog: cancelDialog } = useCancelActiveRuns()
   const [, setSearchParams] = useSearchParams()
   const canRemove = view?.kind === 'custom' && view.capabilities.edit_members
@@ -96,7 +96,7 @@ export function usePipelineActions({
     isRefreshing: (ids) => ids.some((id) => refreshing.has(id)),
     pinItem,
     cancelItem,
-    notifyItems,
+    notifyItem,
     terminology: (providerType) =>
       plugins?.find((plugin) => plugin.provider_type === providerType)?.presentation.terminology,
   }

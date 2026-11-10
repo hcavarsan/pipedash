@@ -141,7 +141,7 @@ export function workflowMenuItems(
     })
   }
 
-  items.push(...actions.notifyItems(pipeline), {
+  items.push(actions.notifyItem(pipeline), {
     label: pipeline.hidden ? 'Unhide' : 'Hide',
     icon: pipeline.hidden ? <IconEye size={16} aria-hidden /> : <IconEyeOff size={16} aria-hidden />,
     disabled: actions.isBusy(pipeline.id),
