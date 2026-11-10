@@ -12,7 +12,8 @@ const { notifyManager, QueryClientProvider } = await import('@tanstack/react-que
 const { queryClient } = await import('../lib/queryClient')
 const { useTriggerWorkflow } = await import('../features/runs/queries/useWorkflowQueries')
 const { apiService } = await import('./api')
-const { isTransientError } = await import('../types/errors')
+const { getErrorCode, isTransientError } = await import('../types/errors')
+const { HttpClient } = await import('./http')
 
 notifyManager.setNotifyFunction((callback) => act(callback))
 
@@ -71,6 +72,22 @@ test('a fetch that rejects with Load failed is a transient error', async (contex
   })
 
   await assert.rejects(apiService.listProviders(), (error: unknown) => isTransientError(error))
+})
+
+test('a request that exceeds its timeout rejects with a transient TIMEOUT error', async (context) => {
+  context.mock.method(globalThis, 'fetch', (_url: string, init: RequestInit) => {
+    const pending = Promise.withResolvers<Response>()
+
+    init.signal?.addEventListener('abort', () => pending.reject(new DOMException('aborted', 'AbortError')))
+
+    return pending.promise
+  })
+
+  await assert.rejects(new HttpClient().request('GET', '/slow', undefined, { timeoutMs: 10 }), (error: unknown) => {
+    assert.equal(getErrorCode(error), 'TIMEOUT')
+
+    return isTransientError(error)
+  })
 })
 
 test('provider recovery opens a tab synchronously before starting the provider-bound flow', async (context) => {

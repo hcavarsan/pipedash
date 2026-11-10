@@ -73,3 +73,23 @@ test('isTransientError accepts network and timeout failures only', () => {
   assert.equal(isTransientError(web(502, 'TLS_ERROR')), false)
   assert.equal(isTransientError(web(501)), false)
 })
+
+test('a permanent code is not reclassified by words in its message', () => {
+  const tls = Object.assign(new Error('handshake timeout'), { status: 502, code: 'TLS_ERROR' })
+
+  assert.equal(toPipedashError(tls).type, 'unknown')
+  assert.equal(isTransientError(tls), false)
+})
+
+test('an error without a code is not transient because its message mentions a timeout or fetch', () => {
+  assert.equal(isTransientError(new Error('connection timeout')), false)
+  assert.equal(isTransientError(new TypeError('failed to fetch')), false)
+})
+
+test('an error with code TIMEOUT is transient', () => {
+  assert.equal(isTransientError(Object.assign(new Error('x'), { code: 'TIMEOUT' })), true)
+})
+
+test('an error named TimeoutError is transient', () => {
+  assert.equal(isTransientError(Object.assign(new Error('x'), { name: 'TimeoutError' })), true)
+})

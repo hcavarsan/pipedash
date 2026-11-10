@@ -12,6 +12,7 @@ import type { Pipeline, TriggerDraft, TriggerResult, WorkflowParameter } from '.
 import { displayWarningNotification, errorMessage } from '../../../utils/errorDisplay'
 import { useFocusFirstInvalid } from '../../../utils/formFocus'
 import { getPluginByType } from '../../../utils/pluginHelpers'
+import { sameJson } from '../../../utils/sameJson'
 import { changePreference } from '../../notifications/queries/changePreference'
 import { comparable, type ParamValues } from '../lib/triggerParams'
 import { useCheckTrigger, usePreparedTrigger, useTriggerWorkflow } from '../queries/useWorkflowQueries'
@@ -25,6 +26,13 @@ interface DraftState {
 
 const EMPTY_PARAMETERS: WorkflowParameter[] = []
 const EMPTY_VALUES: ParamValues = {}
+
+interface SubmitState {
+  error: string | null
+  submitted: ParamValues | null
+}
+
+const IDLE_STATE: SubmitState = { error: null, submitted: null }
 
 interface TriggerWorkflowFormProps {
   onClose: () => void
@@ -67,9 +75,9 @@ export function TriggerWorkflowForm({ onClose, pipeline, onSuccess, rerunOf }: T
   const paramValues = draft?.values ?? EMPTY_VALUES
   const baseline = draft?.baseline ?? EMPTY_VALUES
 
-  const [error, formAction, isPending] = useActionState(async (): Promise<string | null> => {
+  const [state, formAction, isPending] = useActionState(async (): Promise<SubmitState> => {
     if (!copy) {
-      return null
+      return IDLE_STATE
     }
 
     let checked: TriggerDraft
@@ -82,7 +90,10 @@ export function TriggerWorkflowForm({ onClose, pipeline, onSuccess, rerunOf }: T
         inputs: paramValues,
       })
     } catch (checkError) {
-      return errorMessage(checkError, "Couldn't check the workflow inputs. Try again.")
+      return {
+        error: errorMessage(checkError, "Couldn't check the workflow inputs. Try again."),
+        submitted: paramValues,
+      }
     }
 
     setErrors(checked.errors)
@@ -90,7 +101,7 @@ export function TriggerWorkflowForm({ onClose, pipeline, onSuccess, rerunOf }: T
     if (Object.keys(checked.errors).length > 0) {
       focusFirstInvalid()
 
-      return null
+      return IDLE_STATE
     }
 
     try {
@@ -102,7 +113,7 @@ export function TriggerWorkflowForm({ onClose, pipeline, onSuccess, rerunOf }: T
         copy,
       })
     } catch {
-      return null
+      return IDLE_STATE
     }
 
     const runNumber = result.run_number ?? 0
@@ -122,8 +133,8 @@ export function TriggerWorkflowForm({ onClose, pipeline, onSuccess, rerunOf }: T
       )
     }
 
-    return null
-  }, null)
+    return IDLE_STATE
+  }, IDLE_STATE)
 
   const dirty = parameters.some((param) => comparable(paramValues[param.name]) !== comparable(baseline[param.name]))
   const target = (data?.fields ?? []).filter(({ label }) => mobileShell || label !== 'Pipeline')
@@ -187,7 +198,10 @@ export function TriggerWorkflowForm({ onClose, pipeline, onSuccess, rerunOf }: T
       }}
     >
       <form ref={formRef} id={formId} noValidate action={formAction}>
-        <FormErrorDisplay title="Couldn't start the workflow" globalError={error} />
+        <FormErrorDisplay
+          title="Couldn't start the workflow"
+          globalError={sameJson(state.submitted, paramValues) ? state.error : null}
+        />
         <Stack mb="md">
           <ActionTargetRows rows={target} />
         </Stack>

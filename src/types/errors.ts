@@ -137,11 +137,7 @@ export function toPipedashError(error: unknown): PipedashError {
   }
 
   if (error instanceof Error) {
-    if (error.name === 'TypeError' && error.message.includes('fetch')) {
-      return { type: 'network', message: 'Network request failed', cause: error }
-    }
-
-    if (error.name === 'TimeoutError' || error.message.includes('timeout')) {
+    if (error.name === 'TimeoutError') {
       return { type: 'timeout', message: 'Request timed out', cause: error }
     }
 

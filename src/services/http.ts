@@ -84,7 +84,7 @@ export class HttpClient {
       })
     } catch (error) {
       if (!signal?.aborted && error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`Request timeout after ${timeoutMs}ms`)
+        throw Object.assign(new Error(`Request timeout after ${timeoutMs}ms`), { code: 'TIMEOUT', cause: error })
       }
       if (error instanceof TypeError) {
         throw Object.assign(new Error('Network request failed'), { code: 'NETWORK_ERROR', cause: error })

@@ -273,6 +273,24 @@ test('a failed submit-time check shows the error inline, keeps the typed values 
   assert.deepEqual(triggers, [{ params: { workflow_id: pipeline.id, inputs: { branch: 'release' } } }])
 })
 
+test('a failed submit-time check hides its error once an input changes, without a new submit', async () => {
+  const user = userEvent.setup({ document })
+  state.checkFailure = true
+  renderModal()
+
+  const input = await view().findByRole('textbox', { name: 'Branch' })
+  await user.type(input, 'release')
+  await user.click(view().getByRole('button', { name: 'Trigger workflow' }))
+  await view().findByText(/inputs service unavailable/)
+
+  await user.type(input, '2')
+
+  await waitFor(() => assert.ok(!view().queryByText(/inputs service unavailable/)))
+  assert.ok(input instanceof HTMLInputElement)
+  assert.equal(input.value, 'release2')
+  assert.equal(triggers.length, 0)
+})
+
 test('a failed parameter load offers a retry that recovers', async () => {
   const user = userEvent.setup({ document })
   state.paramsFailure = true
