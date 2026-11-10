@@ -30,9 +30,7 @@
 </div>
 
 <p align="center">
-  <a href="https://pipedash.app">
-    <img src="https://pipedash.app/video/pipedash-hero-v5.webp" alt="Pipedash demo: the provider list, a workflow triggered with inputs, pinned workflows, a run history and build metrics" width="100%" />
-  </a>
+  <img src="./.github/diagrams/how-it-works.png" alt="How Pipedash works: it reads status and logs from the CI/CD providers, sends run and cancel actions back to them, and shows everything on desktop, web and mobile" width="100%" />
 </p>
 
 ## Screenshots
@@ -87,25 +85,27 @@
 
 Pipedash shows the pipelines of all your CI/CD providers in one table, so you stop switching between dashboards to find the build that failed. It polls each provider with the token or kubeconfig you add and caches the results. From the same table you open, trigger, rerun and cancel runs.
 
-It runs as a desktop app, as a self-hosted web server in Docker or as an iOS and [Android](https://pipedash.app/android) app. All of them share one Rust core.
-
-<p align="center">
-  <img src="./.github/diagrams/how-it-works.png" alt="How Pipedash works: it reads status and logs from the CI/CD providers, sends run and cancel actions back to them, and shows everything on desktop, web and mobile" width="100%" />
-</p>
+It runs as a desktop app, as a self-hosted web server in Docker or as an iOS and Android app. All of them share one Rust core.
 
 ## Features
 
 <div align="center">
 <table>
   <tr>
-    <td align="center" valign="top" width="270"><img src="./.github/icons/monitor.svg" width="32" height="32" alt="" /><br><b>Monitor</b><br><sub><a href="https://pipedash.app/docs/features/dashboard">Status across providers</a><br><a href="https://pipedash.app/docs/features/dashboard">Pinned and hidden workflows</a><br><a href="https://pipedash.app/docs/features/views">Nested views with rules</a></sub></td>
-    <td align="center" valign="top" width="270"><img src="./.github/icons/investigate.svg" width="32" height="32" alt="" /><br><b>Investigate</b><br><sub><a href="https://pipedash.app/docs/features/run-history">Run history</a><br><a href="https://pipedash.app/docs/features/metrics">Build metrics</a><br><a href="https://pipedash.app/docs/features/run-logs">Searchable job logs</a><br><a href="https://pipedash.app/docs/providers/argocd">ArgoCD sync results and pod logs</a></sub></td>
-    <td align="center" valign="top" width="270"><img src="./.github/icons/act.svg" width="32" height="32" alt="" /><br><b>Act</b><br><sub><a href="https://pipedash.app/docs/features/trigger-and-cancel">Trigger with inputs</a><br><a href="https://pipedash.app/docs/features/run-history">Rerun, cancel and approve deployments</a><br><a href="https://pipedash.app/docs/features/trigger-and-cancel#force-cancel-on-github">Force cancel stuck GitHub runs</a><br><a href="https://pipedash.app/docs/providers/github-actions#disabled-workflows">Re-enable disabled GitHub workflows</a></sub></td>
+    <td align="center" width="150"><img src="./.github/icons/monitor.svg" width="32" height="32" alt="" /><br><b>Monitor</b></td>
+    <td width="600">See the status of every pipeline in one place.<br><a href="https://pipedash.app/docs/features/dashboard">Dashboard</a> · <a href="https://pipedash.app/docs/features/views">Views</a> · <a href="https://pipedash.app/docs/features/provider-health">Provider health</a> · <a href="https://pipedash.app/docs/features/refresh">Refresh</a></td>
   </tr>
   <tr>
-    <td align="center" valign="top" width="270"><img src="./.github/icons/notify.svg" width="32" height="32" alt="" /><br><b>Notify</b><br><sub><a href="https://pipedash.app/docs/features/notifications">Alerts, mutes and watches per device</a><br><a href="https://pipedash.app/docs/features/notifications">Background alerts on phones</a><br><a href="https://pipedash.app/docs/features/notifications">Push alerts on iPhone and iPad</a></sub></td>
-    <td align="center" valign="top" width="270"><img src="./.github/icons/connect.svg" width="32" height="32" alt="" /><br><b>Connect</b><br><sub><a href="https://pipedash.app/docs/deployment/server-mode">Server mode for phones and computers</a><br>OIDC sign-in for <a href="https://pipedash.app/docs/providers/argocd">ArgoCD</a> and <a href="https://pipedash.app/docs/providers/prow">Prow</a><br><a href="https://pipedash.app/docs/providers/prow">Public Prow Deck, read-only</a></sub></td>
-    <td align="center" valign="top" width="270"><img src="./.github/icons/secure.svg" width="32" height="32" alt="" /><br><b>Secure</b><br><sub>Tokens in the system keyring<br>or an AES-256-GCM encrypted database<br>No analytics or telemetry</sub></td>
+    <td align="center" width="150"><img src="./.github/icons/investigate.svg" width="32" height="32" alt="" /><br><b>Investigate</b></td>
+    <td width="600">Find out why a run failed.<br><a href="https://pipedash.app/docs/features/run-history">Run history</a> · <a href="https://pipedash.app/docs/features/run-logs">Run logs</a> · <a href="https://pipedash.app/docs/features/metrics">Metrics</a></td>
+  </tr>
+  <tr>
+    <td align="center" width="150"><img src="./.github/icons/act.svg" width="32" height="32" alt="" /><br><b>Act</b></td>
+    <td width="600">Start a workflow with inputs or stop a run.<br><a href="https://pipedash.app/docs/features/trigger-and-cancel">Trigger and cancel</a></td>
+  </tr>
+  <tr>
+    <td align="center" width="150"><img src="./.github/icons/notify.svg" width="32" height="32" alt="" /><br><b>Notify</b></td>
+    <td width="600">Get an alert when a pipeline fails or recovers.<br><a href="https://pipedash.app/docs/features/notifications">Notifications</a></td>
   </tr>
 </table>
 </div>
@@ -140,26 +140,19 @@ It runs as a desktop app, as a self-hosted web server in Docker or as an iOS and
 
 ## Get started
 
-- **Install** the [desktop app](https://pipedash.app/downloads), the [iOS app](https://apps.apple.com/br/app/pipedash-ci-cd-monitoring/id6757285870?l=en-GB), the [Android beta](https://pipedash.app/android) or the [Docker image](https://pipedash.app/docs/deployment/docker).
+- **Install** it with the [installation guide](https://pipedash.app/docs/getting-started/installation).
 - **Add a provider** with the [quick start](https://pipedash.app/docs/getting-started/quick-start).
-- **Configure** [settings](https://pipedash.app/docs/configuration), [storage and tokens](https://pipedash.app/docs/configuration/storage-backends) and the [cache](https://pipedash.app/docs/features/cache).
-- **Keep it running** with the [desktop menu and background mode](https://pipedash.app/docs/deployment/desktop) and [notifications](https://pipedash.app/docs/features/notifications).
-- **Self-host** with [Server mode](https://pipedash.app/docs/deployment/server-mode), a [reverse proxy](https://pipedash.app/docs/deployment/reverse-proxy) and the [REST API](https://pipedash.app/docs/deployment/rest-api).
-- **Read more** about the [architecture](https://pipedash.app/docs/resources/architecture), [security](https://pipedash.app/docs/resources/security) and [releases](https://github.com/hcavarsan/pipedash/releases).
+- **Run** it on [desktop](https://pipedash.app/docs/deployment/desktop), [mobile](https://pipedash.app/docs/deployment/mobile) or [Docker](https://pipedash.app/docs/deployment/docker).
+- **Share** one server through [Server mode](https://pipedash.app/docs/deployment/server-mode), a [reverse proxy](https://pipedash.app/docs/deployment/reverse-proxy) or the [REST API](https://pipedash.app/docs/deployment/rest-api).
+- **Configure** [settings](https://pipedash.app/docs/configuration), [storage](https://pipedash.app/docs/configuration/storage-backends), [tokens](https://pipedash.app/docs/configuration/token-storage) and the [cache](https://pipedash.app/docs/features/cache).
 
 ## Contributing
 
-Read the [contribution guide](https://pipedash.app/docs/resources/contributing). For local builds, see [development](https://pipedash.app/docs/resources/development). To add a CI/CD provider, see [plugin development](https://pipedash.app/docs/resources/plugin-development).
-
-Run `mise install` before local checks. Rust is pinned to `nightly-2026-10-31` in `mise.toml` and `rust-toolchain.toml` because the November 1 nightly fails to compile the Linux `zbus` dependency; keep both pins aligned when upgrading. Use `cargo fmt` without a toolchain override to keep formatting on the same version.
-
-CI runs backend tests on Linux, macOS and Windows, including log-resume checks that preserve the previous revision while truncating and extending a copied checkpoint.
-
-Run `cargo nextest run --workspace --all-features` for Rust regressions and see [development](https://pipedash.app/docs/resources/development) for frontend checks.
-
-Regenerate and check app icons with the [development guide](https://pipedash.app/docs/resources/development).
-
-Report bugs or request features through [GitHub issues](https://github.com/hcavarsan/pipedash/issues). For help, see [support](https://pipedash.app/support).
+- **Contribute** through the [contribution guide](https://pipedash.app/docs/resources/contributing) and [GitHub issues](https://github.com/hcavarsan/pipedash/issues).
+- **Build** locally with the [development guide](https://pipedash.app/docs/resources/development). Run `mise install` first.
+- **Write a plugin** for a new provider with [plugin development](https://pipedash.app/docs/resources/plugin-development).
+- **Learn** the [architecture](https://pipedash.app/docs/resources/architecture) and the [security model](https://pipedash.app/docs/resources/security).
+- **Get help** from [support](https://pipedash.app/support).
 
 ## License
 
