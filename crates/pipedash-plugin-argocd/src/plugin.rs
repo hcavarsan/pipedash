@@ -56,21 +56,57 @@ impl ArgocdPlugin {
         self.server_url.as_deref().unwrap_or_default()
     }
 
-    async fn pipeline_with_live_state(
+    async fn live_state(
         backend: &Backend, app: &types::Application, server_url: &str,
-    ) -> Pipeline {
+    ) -> (Pipeline, PluginResult<()>) {
         let mut pipeline = mapper::map_application_to_pipeline(app, server_url);
-        if mapper::needs_resource_tree(app) {
-            match backend.health_tree(app).await {
-                Ok(tree) => mapper::degrade_from_tree(&mut pipeline, &tree),
-                Err(error) => warn!(
-                    app = %app.metadata.name,
-                    %error,
-                    "Resource tree unavailable, keeping provider-reported state"
-                ),
-            }
+        if !mapper::needs_resource_tree(app) {
+            return (pipeline, Ok(()));
         }
-        pipeline
+        let checked = backend
+            .health_tree(app)
+            .await
+            .map(|tree| mapper::degrade_from_tree(&mut pipeline, &tree));
+
+        (pipeline, checked)
+    }
+
+    async fn listed_pipeline(
+        backend: &Backend, app: &types::Application, server_url: &str,
+    ) -> PluginResult<Pipeline> {
+        let (pipeline, checked) = Self::live_state(backend, app, server_url).await;
+        match checked {
+            Err(error @ PluginError::RateLimited { .. }) => return Err(error),
+            Err(error) => warn!(
+                app = %app.metadata.name,
+                %error,
+                "Resource tree unavailable, keeping provider-reported state"
+            ),
+            Ok(()) => {}
+        }
+
+        Ok(pipeline)
+    }
+
+    async fn live_status(
+        backend: &Backend, app: &types::Application, server_url: &str,
+    ) -> PluginResult<PipelineStatus> {
+        let (pipeline, checked) = Self::live_state(backend, app, server_url).await;
+        let unhealthy = matches!(
+            pipeline.status,
+            PipelineStatus::Degraded | PipelineStatus::Failed
+        );
+        match checked {
+            Err(PluginError::PermissionDenied(reason)) => warn!(
+                app = %app.metadata.name,
+                %reason,
+                "Workload health is not permitted, keeping provider-reported state"
+            ),
+            Err(error) if !unhealthy => return Err(error),
+            _ => {}
+        }
+
+        Ok(pipeline.status)
     }
 }
 
@@ -221,9 +257,12 @@ plugin_impl!(ArgocdPlugin [
 
         let live_states: Vec<_> = filtered_apps
             .iter()
-            .map(|app| Self::pipeline_with_live_state(client, app, server_url))
+            .map(|app| Self::listed_pipeline(client, app, server_url))
             .collect();
-        let pipelines: Vec<Pipeline> = join_buffered(live_states, RESOURCE_TREE_CONCURRENCY).await;
+        let pipelines = join_buffered(live_states, RESOURCE_TREE_CONCURRENCY)
+            .await
+            .into_iter()
+            .collect::<PluginResult<Vec<Pipeline>>>()?;
 
         debug!(
             pipeline_count = pipelines.len(),
@@ -241,9 +280,7 @@ plugin_impl!(ArgocdPlugin [
 
         let app = client.get_application(&namespace, &app_name).await?;
 
-        let live = Self::pipeline_with_live_state(client, &app, server_url)
-            .await
-            .status;
+        let live = Self::live_status(client, &app, server_url).await?;
 
         Ok(mapper::runs::map_runs(&app, server_url, limit, live))
     }
@@ -272,9 +309,7 @@ plugin_impl!(ArgocdPlugin [
                     PluginError::PipelineNotFound(format!("Run {} not found", run_number))
                 })?,
         };
-        let live = Self::pipeline_with_live_state(client, &app, server_url)
-            .await
-            .status;
+        let live = Self::live_status(client, &app, server_url).await?;
         mapper::runs::reflect_live_state(&app, live, &mut run);
 
         Ok(run)

@@ -749,6 +749,17 @@ fn plain_app(name: &str, extra: serde_json::Value) -> serde_json::Value {
     app
 }
 
+fn progressing_app(name: &str, namespace: &str) -> serde_json::Value {
+    plain_app(
+        name,
+        serde_json::json!({"status": {
+            "sync": {"status": "Synced"}, "health": {"status": "Progressing"},
+            "operationState": {"phase": "Succeeded", "startedAt": "2026-10-27T10:00:00Z"},
+            "resources": [{"group": "apps", "kind": "Deployment", "namespace": namespace, "name": "cart"}],
+        }}),
+    )
+}
+
 fn cluster_reply(method: &str, target: &str) -> (&'static str, String) {
     let path = target.split('?').next().unwrap_or(target);
     let ok = |body: serde_json::Value| ("200 OK", body.to_string());
@@ -771,18 +782,21 @@ fn cluster_reply(method: &str, target: &str) -> (&'static str, String) {
                 "busy",
                 serde_json::json!({"operation": {"sync": {}}}),
             )),
-            "stuck" => ok(plain_app(
-                "stuck",
-                serde_json::json!({"status": {
-                    "sync": {"status": "Synced"}, "health": {"status": "Progressing"},
-                    "operationState": {"phase": "Succeeded", "startedAt": "2026-10-27T10:00:00Z"},
-                    "resources": [{"group": "apps", "kind": "Deployment", "namespace": "shop", "name": "cart"}],
-                }}),
-            )),
+            "stuck" => ok(progressing_app("stuck", "shop")),
+            "throttled" | "restricted" => ok(progressing_app(name, name)),
             _ => cluster_missing(),
         };
     }
+    if path.contains("/namespaces/throttled/") {
+        return cluster_refusal("429 Too Many Requests", 429);
+    }
+    if path.contains("/namespaces/restricted/") {
+        return cluster_refusal("403 Forbidden", 403);
+    }
     match path {
+        "/apis/argoproj.io/v1alpha1/namespaces/ops/applications" => {
+            ok(serde_json::json!({"items": [progressing_app("throttled", "throttled")]}))
+        }
         "/apis/argoproj.io/v1alpha1/namespaces/argocd/applications" => {
             let mut fresh = plain_app("fresh", serde_json::json!({}));
             fresh.as_object_mut().unwrap().remove("status");
@@ -827,6 +841,14 @@ fn cluster_reply(method: &str, target: &str) -> (&'static str, String) {
         }
         _ => cluster_missing(),
     }
+}
+
+fn cluster_refusal(status: &'static str, code: u16) -> (&'static str, String) {
+    let body = serde_json::json!({
+        "kind": "Status", "apiVersion": "v1", "status": "Failure",
+        "message": "refused", "reason": "Refused", "code": code,
+    });
+    (status, body.to_string())
 }
 
 fn cluster_missing() -> (&'static str, String) {
@@ -1094,4 +1116,54 @@ async fn kubernetes_sync_that_left_a_pod_unable_to_start_is_degraded() {
 
     assert_eq!(runs[0].status, PipelineStatus::Degraded);
     assert_eq!(details.status, PipelineStatus::Degraded);
+}
+
+#[tokio::test]
+async fn kubernetes_throttled_pod_check_fails_instead_of_reporting_a_partial_result() {
+    let (listing, _) = cluster_plugin(&[("namespaces", "ops")]).await;
+    let (plugin, _) = cluster_plugin(&[]).await;
+    let metadata = HashMap::new();
+    let run_number = run_at("2026-10-27T10:00:00Z");
+    let run = RunRef {
+        pipeline_id: "argocd__throttled",
+        run_number,
+        run_id: "argocd-sync-current",
+        metadata: &metadata,
+    };
+
+    let failures = [
+        listing.fetch_pipelines().await.map(drop),
+        plugin
+            .fetch_run_history("argocd__throttled", 5)
+            .await
+            .map(drop),
+        plugin
+            .fetch_run_details("argocd__throttled", run_number)
+            .await
+            .map(drop),
+        plugin.fetch_log_nodes(run).await.map(drop),
+    ];
+
+    for failure in failures {
+        assert!(
+            matches!(failure, Err(PluginError::RateLimited { .. })),
+            "{failure:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn kubernetes_without_pod_permissions_keeps_the_state_argocd_reports() {
+    let (plugin, _) = cluster_plugin(&[]).await;
+
+    let runs = plugin
+        .fetch_run_history("argocd__restricted", 5)
+        .await
+        .unwrap();
+
+    assert_eq!(runs[0].status, PipelineStatus::Success);
+    assert_eq!(
+        node_ids(&plugin, "argocd__restricted").await,
+        ["sync", "events"]
+    );
 }

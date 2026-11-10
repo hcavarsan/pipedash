@@ -45,17 +45,10 @@ impl Backend {
         }
     }
 
-    async fn cluster_pods(cluster: &ClusterClient, app: &Application) -> Vec<Pod> {
-        cluster.pods(app).await.unwrap_or_else(|error| {
-            warn!(app = %app.metadata.name, %error, "Pods unavailable, listing managed resources only");
-            Vec::new()
-        })
-    }
-
     pub async fn health_tree(&self, app: &Application) -> PluginResult<ApplicationTree> {
         match self {
             Self::Api(client) => client.resource_tree(&app.metadata.name).await,
-            Self::Cluster(cluster) => Ok(pods::tree(app, &Self::cluster_pods(cluster, app).await)),
+            Self::Cluster(cluster) => Ok(pods::tree(app, &cluster.pods(app).await?)),
         }
     }
 
@@ -63,7 +56,14 @@ impl Backend {
         match self {
             Self::Api(client) => client.resource_tree(&app.metadata.name).await,
             Self::Cluster(cluster) => {
-                Ok(pods::log_tree(app, &Self::cluster_pods(cluster, app).await))
+                let pods = match cluster.pods(app).await {
+                    Err(PluginError::PermissionDenied(reason)) => {
+                        warn!(app = %app.metadata.name, %reason, "Pods are not permitted, listing the sync result and events only");
+                        Vec::new()
+                    }
+                    listed => listed?,
+                };
+                Ok(pods::log_tree(app, &pods))
             }
         }
     }
