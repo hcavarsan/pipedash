@@ -10,7 +10,7 @@ interface SwipeActionsProps {
 }
 
 export function SwipeActions({ actions, children }: SwipeActionsProps): ReactNode {
-  const { slideRef, primaryRef, isOpen, close } = useSwipeActions(actions)
+  const { slideRef, underlayRef, primaryRef, isOpen, close } = useSwipeActions(actions)
 
   return (
     <>
@@ -27,7 +27,7 @@ export function SwipeActions({ actions, children }: SwipeActionsProps): ReactNod
       >
         {children}
       </div>
-      <SwipeActionButtons actions={actions} primaryRef={primaryRef} onBeforeSelect={close} />
+      <SwipeActionButtons actions={actions} underlayRef={underlayRef} primaryRef={primaryRef} onBeforeSelect={close} />
     </>
   )
 }
