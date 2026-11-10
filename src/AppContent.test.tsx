@@ -64,6 +64,16 @@ Object.assign(window, {
           return []
         case 'set_notification_preferences':
           return null
+        case 'get_update_status':
+          return {
+            phase: 'idle',
+            current_version: '0.13.0',
+            version: null,
+            notes: null,
+            downloaded: 0,
+            total: null,
+            message: '',
+          }
         case 'plugin:event|listen':
           return 1
         case 'plugin:event|unlisten':

@@ -32,6 +32,14 @@
     "targets": "all"
   },
   "identifier": "com.henrique.pipedash",
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/hcavarsan/pipedash/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDA5ODRCNjk3OThEQURBMUUKUldRZTJ0cVlsN2FFQ1lITDZKZk4rTCsza3BYeXA0czB3bUg3U3BBWHBTbS9ycml1cUhSWDFaTjYK"
+    }
+  },
   "productName": "pipedash",
   "version": "0.13.0"
 }

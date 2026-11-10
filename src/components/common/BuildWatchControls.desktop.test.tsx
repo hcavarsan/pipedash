@@ -94,7 +94,12 @@ function Screen() {
 function mount() {
   const desktop: DesktopStatus = {
     revision: 1,
-    settings: { show_tray: false, keep_running_on_close: false, notifications_enabled: false },
+    settings: {
+      show_tray: false,
+      keep_running_on_close: false,
+      notifications_enabled: false,
+      auto_check_updates: true,
+    },
     tray_state: 'off',
     tray_status: 'idle',
     unread: 0,

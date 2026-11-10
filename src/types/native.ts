@@ -27,6 +27,7 @@ export interface DesktopSettings {
   show_tray: boolean
   keep_running_on_close: boolean
   notifications_enabled: boolean
+  auto_check_updates: boolean
 }
 
 export type DesktopSettingsPatch = Partial<DesktopSettings>
@@ -40,6 +41,18 @@ export interface DesktopStatus {
   ready: boolean
   notification_preference_imported: boolean
   error: string | null
+}
+
+export type UpdatePhase = 'idle' | 'checking' | 'up_to_date' | 'available' | 'downloading' | 'installing' | 'failed'
+
+export interface UpdateStatus {
+  phase: UpdatePhase
+  current_version: string
+  version: string | null
+  notes: string | null
+  downloaded: number
+  total: number | null
+  message: string
 }
 
 export type DevicePlatform = 'macos' | 'windows' | 'linux' | 'ios' | 'android'

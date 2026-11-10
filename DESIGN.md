@@ -142,6 +142,7 @@ Run status uses its own tokens, `--status-success`, `--status-failed`, `--status
 - Native intents stay pending until setup and authentication finish. An authenticated consumer peeks, applies and acknowledges the observed ID. A stale acknowledgment cannot discard a newer intent. Mobile `open-run` actions open pipeline history when they have no exact run number.
 - Linux menu label changes replace only affected rows in the existing attached menu. Installed Muda 0.20.0 creates custom GTK label children that its `set_text` does not update in the exported AppIndicator menu. Other platforms update item values in place. Pipeline and shortcut action IDs belong to their attachment. Row replacement retires the old action IDs.
 - A waiting run watch reserves scheduler admission until its read finishes or stops. Automatic refresh cannot keep resetting the forced-read cooldown while that reservation exists. The existing cooldown and provider rate limits still apply. Cancellation releases the reservation for the matching provider generation.
+- The desktop app looks for a signed update on GitHub Releases shortly after it starts and once a day. Settings → About turns the automatic check off and keeps a manual check. Nothing downloads or installs until the person chooses **Update and restart** in the prompt. **Later** hides that version until the next launch. A finished install always restarts into the new version.
 
 ## iPhone
 

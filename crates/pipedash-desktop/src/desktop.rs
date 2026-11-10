@@ -6,6 +6,7 @@ mod state;
 #[cfg(test)]
 mod tests;
 mod tray;
+pub(crate) mod updater;
 pub(crate) mod watch;
 
 use std::{
@@ -119,6 +120,7 @@ pub async fn initialize(app: &AppHandle, path: PathBuf) -> Result<(), ErrorRespo
         generations: AtomicU64::new(0),
         render: Box::new(move || menu::render(&renderer)),
     });
+    updater::manage(app);
     menu::initialize(app).map_err(|_| failure("Couldn't initialize the native menu"))?;
     if saved.settings.show_tray {
         let result = menu::create_tray(app);
@@ -181,7 +183,10 @@ pub fn on_run_event(app: &AppHandle, event: &tauri::RunEvent) {
                 tracing::warn!(%error, "Couldn't reopen Pipedash");
             }
         }
-        tauri::RunEvent::Exit => projection::shutdown(app),
+        tauri::RunEvent::Exit => {
+            updater::stop(app);
+            projection::shutdown(app);
+        }
         _ => {}
     }
 }

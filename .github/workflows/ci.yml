@@ -155,6 +155,9 @@ jobs:
       - name: Test icon generation
         run: python3 scripts/test_icons.py
 
+      - name: Test updater manifest
+        run: python3 scripts/test_updater_manifest.py
+
       - name: Test screenshot exporter
         working-directory: ios/app-store-screenshots
         run: bun install --frozen-lockfile && bun run test
