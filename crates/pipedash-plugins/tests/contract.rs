@@ -6,6 +6,7 @@ use pipedash_core::infrastructure::config::{
     TokenRefError,
     TokenReference,
 };
+use pipedash_plugin_api::schema::ColumnSort;
 use pipedash_plugin_api::{
     PipelineFacts,
     PipelineStatus,
@@ -188,4 +189,51 @@ fn declared_token_prefixes_are_rejected_as_plain_text() {
             );
         }
     }
+}
+
+#[test]
+fn run_tables_name_one_history_order_and_sort_by_real_fields() {
+    let sample: pipedash_core::domain::PipelineRun = serde_json::from_value(serde_json::json!({
+        "id": "", "pipeline_id": "", "run_number": 1, "status": "success",
+        "started_at": "2026-01-01T00:00:00Z", "logs_url": ""
+    }))
+    .unwrap();
+    let sample = serde_json::to_value(sample).unwrap();
+    each_plugin(|metadata, _| {
+        let provider = &metadata.provider_type;
+        for table in &metadata.table_schema.tables {
+            let mut ids: Vec<_> = table.columns.iter().map(|column| &column.id).collect();
+            ids.sort_unstable();
+            ids.dedup();
+            assert_eq!(
+                ids.len(),
+                table.columns.len(),
+                "{provider}: {} repeats a column id",
+                table.id
+            );
+            let orders = table
+                .columns
+                .iter()
+                .filter(|column| column.sort == ColumnSort::HistoryOrder)
+                .count();
+            assert_eq!(
+                orders,
+                usize::from(table.id == "pipeline_runs"),
+                "{provider}: history-order columns in {}",
+                table.id
+            );
+        }
+        let runs = metadata.table_schema.get_table("pipeline_runs").unwrap();
+        for column in &runs.columns {
+            let root = column.field_path.split('.').next().unwrap_or_default();
+            assert!(
+                column.sort != ColumnSort::Value
+                    || root == "metadata"
+                    || sample.get(root).is_some(),
+                "{provider}: {} sorts by unknown field {}",
+                column.id,
+                column.field_path
+            );
+        }
+    });
 }

@@ -10,8 +10,6 @@ export function runHistoryQuery(
     page_size: pageSize,
     statuses: [],
     utc_offset_minutes: -new Date().getTimezoneOffset(),
-    sort_column: 'run_number',
-    direction: 'desc',
     ...overrides,
   }
 }

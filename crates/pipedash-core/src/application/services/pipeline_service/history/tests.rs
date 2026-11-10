@@ -1,8 +1,13 @@
+use crate::application::test_support::plugins::STUB_RENAMED_RUN;
 use crate::application::test_support::{
     pipeline,
     stub_run,
     Harness,
     StubProvider,
+};
+use crate::domain::run_history::{
+    AppliedRunSort,
+    RunSort,
 };
 use crate::domain::{
     DomainError,
@@ -16,6 +21,13 @@ fn run_as(pipeline_id: &str, number: i64, status: PipelineStatus) -> PipelineRun
     let mut run = stub_run(pipeline_id, number, 60);
     run.status = status;
     run
+}
+
+fn by(column: &str, direction: SortDirection) -> Option<RunSort> {
+    Some(RunSort {
+        column: column.to_string(),
+        direction,
+    })
 }
 
 async fn seeded(
@@ -74,8 +86,7 @@ async fn query_run_history_should_count_filtered_runs_across_all_cached_pages() 
                 page: 1,
                 page_size: 10,
                 statuses: vec![PipelineStatus::Failed],
-                sort_column: "run_number".into(),
-                direction: SortDirection::Desc,
+                sort: by("run_number", SortDirection::Desc),
                 ..Default::default()
             },
         )
@@ -107,7 +118,7 @@ async fn query_run_history_should_paginate_after_filtering_and_sorting() {
             RunHistoryQuery {
                 page: 2,
                 page_size: 10,
-                direction: SortDirection::Asc,
+                sort: by("run_number", SortDirection::Asc),
                 ..Default::default()
             },
         )
@@ -189,8 +200,7 @@ async fn query_run_history_should_sort_by_schema_column_and_reject_unknown_colum
         .query_run_history(
             &id,
             RunHistoryQuery {
-                sort_column: "branch".into(),
-                direction: SortDirection::Asc,
+                sort: by("branch", SortDirection::Asc),
                 ..Default::default()
             },
         )
@@ -201,7 +211,7 @@ async fn query_run_history_should_sort_by_schema_column_and_reject_unknown_colum
         .query_run_history(
             &id,
             RunHistoryQuery {
-                sort_column: "id; DROP TABLE".into(),
+                sort: by("id; DROP TABLE", SortDirection::Desc),
                 ..Default::default()
             },
         )
@@ -210,6 +220,52 @@ async fn query_run_history_should_sort_by_schema_column_and_reject_unknown_colum
     let order: Vec<i64> = sorted.runs.iter().map(|run| run.run_number).collect();
     assert_eq!(order, [2, 1, 3]);
     assert!(matches!(unknown, Err(DomainError::InvalidConfig(_))));
+    h.pipeline_service.settle().await;
+}
+
+#[tokio::test]
+async fn provider_order_needs_no_run_number_column() {
+    let h = Harness::new().await;
+    let (provider_id, _) = h.add_stub(StubProvider::new).await;
+    let mut pipeline = pipeline(provider_id, "web", PipelineStatus::Success);
+    pipeline.provider_type = STUB_RENAMED_RUN.to_string();
+    h.repository
+        .update_pipelines_cache(provider_id, std::slice::from_ref(&pipeline))
+        .await
+        .unwrap();
+    let runs: Vec<_> = (1..=3)
+        .map(|number| run_as(&pipeline.id, number, PipelineStatus::Success))
+        .collect();
+    h.repository
+        .cache_run_history(&pipeline.id, &runs)
+        .await
+        .unwrap();
+    let numbers = |query| async {
+        let page = h
+            .pipeline_service
+            .query_run_history(&pipeline.id, query)
+            .await
+            .unwrap();
+        let numbers: Vec<i64> = page.runs.iter().map(|run| run.run_number).collect();
+        (numbers, page.sort)
+    };
+
+    let (newest, applied) = numbers(RunHistoryQuery::default()).await;
+    let (oldest, _) = numbers(RunHistoryQuery {
+        sort: by("build", SortDirection::Asc),
+        ..Default::default()
+    })
+    .await;
+
+    assert_eq!(newest, [3, 2, 1]);
+    assert_eq!(
+        applied,
+        AppliedRunSort {
+            column: Some("build".to_string()),
+            direction: SortDirection::Desc,
+        }
+    );
+    assert_eq!(oldest, [1, 2, 3]);
     h.pipeline_service.settle().await;
 }
 
@@ -263,7 +319,7 @@ async fn oldest_first_history_stays_stable_after_loading_later_pages() {
             .query_run_history(
                 &id,
                 RunHistoryQuery {
-                    direction: SortDirection::Asc,
+                    sort: by("run_number", SortDirection::Asc),
                     ..RunHistoryQuery::page(page, 20)
                 },
             )
@@ -288,7 +344,7 @@ async fn global_sort_waits_for_a_complete_scan_instead_of_sorting_a_prefix() {
     })
     .await;
     let query = |page, scan_depth| RunHistoryQuery {
-        direction: SortDirection::Asc,
+        sort: by("run_number", SortDirection::Asc),
         scan_depth,
         ..RunHistoryQuery::page(page, 20)
     };
@@ -341,7 +397,7 @@ async fn descending_duration_sort_includes_runs_outside_the_newest_prefix() {
         .query_run_history(
             &id,
             RunHistoryQuery {
-                sort_column: "duration_seconds".to_string(),
+                sort: by("duration_seconds", SortDirection::Desc),
                 ..RunHistoryQuery::page(1, 20)
             },
         )

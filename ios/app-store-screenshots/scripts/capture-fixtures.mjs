@@ -124,11 +124,11 @@ function runsFor(pipeline) {
   })
 }
 const column = (id, label, data_type, renderer, width = null) => ({
-  id, label, description: null, field_path: id, data_type, renderer, visibility: 'Always', default_visible: true, width, sortable: true, filterable: false,
+  id, label, description: null, field_path: id, data_type, renderer, visibility: 'Always', default_visible: true, width, sort: 'value', filterable: false,
 })
 const tableSchema = { tables: [{
-  id: 'pipeline_runs', name: 'Run history', description: null, default_sort_column: 'run_number', default_sort_direction: 'desc',
-  columns: [column('run_number', 'Run', 'Number', 'Text', 75), column('status', 'Status', 'Status', 'StatusBadge', 110),
+  id: 'pipeline_runs', name: 'Run history', description: null,
+  columns: [{ ...column('run_number', 'Run', 'Number', 'Text', 75), sort: 'history_order' }, column('status', 'Status', 'Status', 'StatusBadge', 110),
     column('commit_message', 'Commit', 'String', 'TruncatedText', 220), column('branch', 'Branch', 'String', 'Badge', 90),
     column('actor', 'Actor', 'String', 'Text', 80), column('duration_seconds', 'Duration', 'Duration', 'Duration', 90),
     column('started_at', 'Started', 'DateTime', 'DateTime', 130)],
@@ -313,7 +313,7 @@ function mockPost(path, body) {
   if (!pipeline) throw new Error(`Unexpected API request: POST ${path}`)
   if (target[2] === 'trigger/prepare') return triggerDraft(pipeline, body)
   const runs = runsFor(pipeline)
-  return { runs, total_count: runs.length, has_more: false, can_scan_deeper: false, is_complete: true, page: 1, page_size: 20, total_pages: 1, branches: ['main'], actors: ['alex', 'jordan', 'sam'] }
+  return { runs, total_count: runs.length, has_more: false, can_scan_deeper: false, is_complete: true, sort: { column: 'run_number', direction: 'desc' }, page: 1, page_size: 20, total_pages: 1, branches: ['main'], actors: ['alex', 'jordan', 'sam'] }
 }
 export function mockResponse(method, url, body = null) {
   const path = decodeURIComponent(url.pathname.replace('/api/v1', ''))

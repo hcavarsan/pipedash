@@ -77,7 +77,7 @@ export interface ColumnDefinition {
   visibility: ColumnVisibility
   default_visible: boolean
   width: number | null
-  sortable: boolean
+  sort: 'none' | 'value' | 'history_order'
   filterable: boolean
 }
 
@@ -86,8 +86,6 @@ export interface TableDefinition {
   name: string
   description: string | null
   columns: ColumnDefinition[]
-  default_sort_column: string | null
-  default_sort_direction: string | null
 }
 
 export interface TableSchema {

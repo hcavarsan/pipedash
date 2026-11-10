@@ -150,12 +150,21 @@ pub struct ColumnDefinition {
     #[serde(default = "default_visible_true")]
     pub default_visible: bool,
     pub width: Option<u32>,
-    pub sortable: bool,
+    pub sort: ColumnSort,
     pub filterable: bool,
 }
 
 fn default_visible_true() -> bool {
     true
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ColumnSort {
+    #[default]
+    None,
+    Value,
+    HistoryOrder,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,8 +173,6 @@ pub struct TableDefinition {
     pub name: String,
     pub description: Option<String>,
     pub columns: Vec<ColumnDefinition>,
-    pub default_sort_column: Option<String>,
-    pub default_sort_direction: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

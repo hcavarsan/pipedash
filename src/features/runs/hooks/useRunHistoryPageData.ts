@@ -12,7 +12,6 @@ import { STATUS_META } from '../../../theme/status'
 import type { Pipeline, PipelineRun, PipelineStatus } from '../../../types/pipelines'
 import type { RunHistoryScanNotice } from '../../../types/run_history'
 import { isDateRange } from '../../../utils/dateRange'
-import { useTableDefinition } from '../queries/useTableSchemaQueries'
 
 const isPipelineStatus = (value: string): value is PipelineStatus => value in STATUS_META
 
@@ -54,12 +53,7 @@ export function useRunHistoryPageData(pipeline: Pipeline | null): RunHistoryPage
   const { search, status, branch, actor, dateRange, page } = filters
   const debouncedSearch = useDebounce(search, DEBOUNCE_DELAYS.FILTER)
 
-  const { data: runsTable } = useTableDefinition(pipeline?.provider_id ?? 0, 'pipeline_runs')
   const [sortOverride, setSortOverride] = useState<DataTableSortStatus<PipelineRun> | null>(null)
-  const sortStatus: DataTableSortStatus<PipelineRun> = sortOverride ?? {
-    columnAccessor: runsTable?.default_sort_column ?? 'run_number',
-    direction: runsTable?.default_sort_direction === 'asc' ? 'asc' : 'desc',
-  }
 
   const scanKey = pipelineId
   const [depth, setDepth] = useState({ key: scanKey, value: 1 })
@@ -73,11 +67,12 @@ export function useRunHistoryPageData(pipeline: Pipeline | null): RunHistoryPage
         branch: branch ?? undefined,
         actor: actor ?? undefined,
         date_range: isDateRange(dateRange) ? dateRange : undefined,
-        sort_column: String(sortStatus.columnAccessor),
-        direction: sortStatus.direction,
+        sort: sortOverride
+          ? { column: String(sortOverride.columnAccessor), direction: sortOverride.direction }
+          : undefined,
         scan_depth: scanDepth,
       }),
-    [page, debouncedSearch, status, branch, actor, dateRange, sortStatus, scanDepth]
+    [page, debouncedSearch, status, branch, actor, dateRange, sortOverride, scanDepth]
   )
   const { page: _page, scan_depth: _depth, ...infiniteQuery } = query
 
@@ -85,6 +80,11 @@ export function useRunHistoryPageData(pipeline: Pipeline | null): RunHistoryPage
   const infinite = useRunHistoryInfinite(isMobile ? pipelineId : '', infiniteQuery)
   const lastPage = isMobile ? infinite.data?.pages.at(-1) : paged.data
   const active = isMobile ? infinite : paged
+  const appliedSort = lastPage?.sort
+  const sortStatus: DataTableSortStatus<PipelineRun> = sortOverride ?? {
+    columnAccessor: appliedSort?.column ?? '',
+    direction: appliedSort?.direction ?? 'desc',
+  }
   const runs = useMemo(
     () =>
       isMobile

@@ -52,6 +52,7 @@ pub(crate) const STUB_OPTIONS: &str = "stub-options";
 pub(crate) const STUB_HTTP: &str = "stub-http";
 pub(crate) const STUB_OIDC: &str = "stub-oidc";
 pub(crate) const STUB_DRAFT: &str = "stub-draft";
+pub(crate) const STUB_RENAMED_RUN: &str = "stub-renamed-run";
 
 const SIGN_IN_REDIRECT: &str = "http://localhost:8085/auth/callback";
 const REFRESH_REJECTIONS: &[SignInRefreshRejection] = &[
@@ -112,6 +113,17 @@ impl StubPlugin {
     fn prefixed() -> Self {
         let mut plugin = Self::new();
         plugin.metadata.token_prefixes = STUB_TOKEN_PREFIXES.map(str::to_string).to_vec();
+        plugin
+    }
+
+    fn renamed_run() -> Self {
+        let mut plugin = Self::new();
+        let mut runs = default_pipeline_runs_table();
+        if let Some(run) = runs.column_mut("run_number") {
+            run.id = "build".to_string();
+            run.field_path = "metadata.build_id".to_string();
+        }
+        plugin.metadata.table_schema = table_schema(runs, default_pipelines_table());
         plugin
     }
 
@@ -363,6 +375,10 @@ pub(crate) fn registry() -> Arc<PluginRegistry> {
     registry.register(|| Box::new(StubPlugin::of(Kind::Http)), manifest(STUB_HTTP));
     registry.register(|| Box::new(StubPlugin::of(Kind::Oidc)), manifest(STUB_OIDC));
     registry.register(|| Box::new(StubPlugin::drafting()), manifest(STUB_DRAFT));
+    registry.register(
+        || Box::new(StubPlugin::renamed_run()),
+        manifest(STUB_RENAMED_RUN),
+    );
     Arc::new(registry)
 }
 
