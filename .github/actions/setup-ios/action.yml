@@ -43,6 +43,7 @@ runs:
         brew install xcodegen
 
     - name: Cache Rust build
+      if: ${{ inputs.cache == 'true' }}
       uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       with:
         shared-key: ios-${{ inputs.rust-targets }}
