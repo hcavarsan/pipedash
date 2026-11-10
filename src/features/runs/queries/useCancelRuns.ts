@@ -1,4 +1,5 @@
 import { type UseMutationResult, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useRef } from 'react'
 
 import { notifications } from '../../../lib/notifications'
 import { queryKeys } from '../../../lib/queryKeys'
@@ -8,17 +9,36 @@ import { summarizeCancellation } from '../../../utils/cancelActiveRuns'
 import { displayErrorNotification } from '../../../utils/errorDisplay'
 import { invalidateRunHistory } from '../lib/runHistoryCache'
 
+interface CancellationProgress {
+  batches: RunTarget[][]
+  nextBatch: number
+  combined: CancellationBatch
+}
+
 export function useCancelRuns(): UseMutationResult<CancellationBatch, Error, RunTarget[][], unknown> {
   const queryClient = useQueryClient()
+  const progress = useRef<CancellationProgress | null>(null)
 
   return useMutation({
     mutationFn: async (batches: RunTarget[][]) => {
-      const combined: CancellationBatch = { results: [], requested_count: 0, failed_count: 0 }
-      for (const targets of batches) {
+      if (progress.current?.batches !== batches) {
+        progress.current = {
+          batches,
+          nextBatch: 0,
+          combined: { results: [], requested_count: 0, failed_count: 0 },
+        }
+      }
+      const current = progress.current
+      const { combined } = current
+      for (const [index, targets] of batches.entries()) {
+        if (index < current.nextBatch) {
+          continue
+        }
         const batch = await service.cancelPipelineRuns(targets)
         combined.results.push(...batch.results)
         combined.requested_count += batch.requested_count
         combined.failed_count += batch.failed_count
+        current.nextBatch = index + 1
         for (const { target, error } of batch.results) {
           if (error === null) {
             void invalidateRunHistory(queryClient, target.pipeline_id, target.run_number)

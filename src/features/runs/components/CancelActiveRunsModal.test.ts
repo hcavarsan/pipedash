@@ -283,3 +283,47 @@ test('confirmation cancels 1001 discovered runs in bounded batches and reports p
   await act(async () => undefined)
   await waitFor(() => assert.equal(view().queryByRole('button', { name: 'Cancel 1,001 runs' }) === null, true))
 })
+
+test('retry resumes after completed batches and retains their failures after discovery refreshes', async (context) => {
+  const runs = [12, 13, 14].map((run_number) => ({ ...run, id: `r${run_number}`, run_number }))
+  const targets = runs.map(({ run_number }) => ({ pipeline_id: pipeline.id, run_number }))
+  context.mock.method(apiService, 'getCancellationTargets', async () => ({
+    groups: [{ pipeline, provider_name: 'Stub', runs }],
+    batches: [targets.slice(0, 2), targets.slice(2)],
+    failed_pipeline_ids: [],
+    skipped: [],
+    run_count: runs.length,
+  }))
+  const shown = context.mock.method(notifications, 'show', () => 'id')
+  context.mock.method(apiService, 'refreshProvider', async () => undefined)
+  const attempts: number[] = []
+  let reject = true
+  context.mock.method(apiService, 'cancelPipelineRuns', async (batch: RunTarget[]) => {
+    attempts.push(...batch.map(({ run_number }) => run_number))
+    if (batch[0]?.run_number === 14 && reject) {
+      reject = false
+      throw new Error('connection lost')
+    }
+    const results = batch.map((target) => ({
+      target,
+      pipeline_name: 'Build',
+      error: target.run_number === 13 ? 'run is locked' : null,
+    }))
+    return {
+      results,
+      requested_count: batch.length,
+      failed_count: results.filter(({ error }) => error !== null).length,
+    }
+  })
+
+  await openCancelDialog('3 runs')
+  await waitFor(() => assert.equal(shown.mock.callCount(), 1))
+  assert.equal(shown.mock.calls[0]?.arguments[0]?.title, "Couldn't cancel runs")
+  await act(async () => {
+    await client.refetchQueries()
+  })
+  await userEvent.setup({ document }).click(view().getByRole('button', { name: 'Cancel 3 runs' }))
+  await waitFor(() => assert.equal(shown.mock.callCount(), 2))
+  assert.deepEqual(attempts, [12, 13, 14, 14])
+  assert.match(String(shown.mock.calls[1]?.arguments[0]?.message), /2 of 3 runs.*#13/)
+})

@@ -1,5 +1,5 @@
 import { IconSquare } from '@tabler/icons-react'
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, useRef, useState } from 'react'
 import type { ContextMenuItem } from '../../../components/common/ContextMenu'
 import { usePipelines } from '../../../queries/usePipelinesQueries'
 import { useRefreshProvider } from '../../../queries/useRefreshQueries'
@@ -21,8 +21,11 @@ export function useCancelActiveRuns(): CancelActiveRunsResult {
   const { mutate: refreshProvider } = useRefreshProvider()
   const [scope, setScope] = useState<CancelScope | null>(null)
   const [opened, setOpened] = useState(false)
+  const submitted = useRef<CancellationTargets | null>(null)
 
-  const cancelGroups = async ({ groups, batches }: CancellationTargets) => {
+  const cancelGroups = async (targets: CancellationTargets) => {
+    submitted.current ??= targets
+    const { groups, batches } = submitted.current
     await cancelRuns(batches)
 
     for (const providerId of new Set(groups.map(({ pipeline }) => pipeline.provider_id))) {
@@ -37,6 +40,7 @@ export function useCancelActiveRuns(): CancelActiveRunsResult {
           icon: <IconSquare size={16} aria-hidden />,
           color: 'red',
           onClick: () => {
+            submitted.current = null
             setScope({ label, pipelines })
             setOpened(true)
           },
