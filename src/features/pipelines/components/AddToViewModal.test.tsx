@@ -22,14 +22,18 @@ const server: {
   members: Record<string, boolean>
   changes: Array<{ id: string; change: unknown }>
   gate: Promise<void>
+  fail: boolean
+  empty: boolean
 } = {
   members: {},
   changes: [],
   gate: Promise.resolve(),
+  fail: false,
+  empty: false,
 }
 
 const selection = (): ViewSelectionEntry[] =>
-  views.map((view) => ({
+  (server.empty ? [] : views).map((view) => ({
     view,
     depth: 1,
     selected_count: server.members[view.id] ? 2 : 0,
@@ -44,6 +48,10 @@ const installIpc = () =>
       switch (command) {
         case 'get_view_selection':
           await server.gate
+
+          if (server.fail) {
+            throw new Error('Selection unavailable')
+          }
 
           return selection()
         case 'set_view_memberships': {
@@ -82,6 +90,8 @@ beforeEach(() => {
   server.members = {}
   server.changes = []
   server.gate = Promise.resolve()
+  server.fail = false
+  server.empty = false
 })
 
 afterEach(async () => {
@@ -158,4 +168,55 @@ test('a pending change disables the checkboxes and shows the returned selection 
   await waitFor(() => assert.equal(checkboxesDisabled(false), true))
   assert.equal(view().queryByRole('status', { name: 'Updating Alpha' }), null)
   assert.equal(isChecked('Alpha'), true)
+})
+
+function mountModal() {
+  return render(
+    <MantineProvider env="test">
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <AddToViewModal />
+        </MemoryRouter>
+      </QueryClientProvider>
+    </MantineProvider>
+  )
+}
+
+test('the dialog shows a loading state until the views arrive', async () => {
+  const release = Promise.withResolvers<void>()
+  server.gate = release.promise
+  mountModal()
+  await act(async () => usePipelineViewStore.getState().openAddToView(['p1']))
+
+  await view().findByText('Loading views…')
+  assert.equal(view().queryByText('No views yet'), null)
+
+  release.resolve()
+  await view().findByRole('checkbox', { name: 'Alpha' })
+  assert.equal(view().queryByText('Loading views…'), null)
+})
+
+test('a rejected read shows an error with Retry instead of the empty state, and Retry loads the views', async () => {
+  const user = userEvent.setup({ document })
+  server.fail = true
+  mountModal()
+  await act(async () => usePipelineViewStore.getState().openAddToView(['p1']))
+
+  await view().findByText("Couldn't load views")
+  assert.equal(view().queryByText('No views yet'), null)
+
+  server.fail = false
+  await user.click(view().getByRole('button', { name: 'Retry' }))
+
+  await view().findByRole('checkbox', { name: 'Alpha' })
+  assert.equal(view().queryByText("Couldn't load views"), null)
+})
+
+test('a successful empty result shows the empty state', async () => {
+  server.empty = true
+  mountModal()
+  await act(async () => usePipelineViewStore.getState().openAddToView(['p1']))
+
+  await view().findByText('No views yet')
+  assert.equal(view().queryByText("Couldn't load views"), null)
 })

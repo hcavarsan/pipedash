@@ -117,17 +117,18 @@ function ViewRow({ view }: { view: PipelineView }): ReactNode {
 }
 
 export function BrowsePage(): ReactNode {
-  const { data: providers = [], isLoading, error, refetch, isRefetching } = useProviders()
+  const { data: loaded, isLoading, error, refetch, isRefetching } = useProviders()
+  const providers = loaded ?? []
   const openAddProviderModal = useProviderStore((s) => s.openAddProviderModal)
   const requestEditProvider = useProviderStore((s) => s.requestEditProvider)
   const confirmRemove = useConfirmRemoveProvider()
-  const { data: views = [] } = usePipelineViews()
+  const { data: views = [], error: viewsError, refetch: refetchViews, isFetching: fetchingViews } = usePipelineViews()
 
   if (isLoading) {
     return <LoadingState message="Loading providers" />
   }
 
-  if (error) {
+  if (error && loaded === undefined) {
     return (
       <ErrorState
         title="Couldn't load providers"
@@ -143,6 +144,22 @@ export function BrowsePage(): ReactNode {
 
   return (
     <Stack gap="md" pb="md">
+      {error && (
+        <ErrorState
+          title="Couldn't refresh providers"
+          error={error}
+          onRetry={() => void refetch()}
+          retrying={isRefetching}
+        />
+      )}
+      {viewsError && (
+        <ErrorState
+          title="Couldn't load views"
+          error={viewsError}
+          onRetry={() => void refetchViews()}
+          retrying={fetchingViews}
+        />
+      )}
       {providers.length > 0 && browsableViews.length > 0 && (
         <IosGroup header="Views">
           {browsableViews.map((view) => (

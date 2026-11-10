@@ -1,11 +1,14 @@
 import { ActionIcon, Group, Stack, Text, Title, Tooltip } from '@mantine/core'
 import { IconGripVertical, IconX } from '@tabler/icons-react'
+import type { UseQueryResult } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 
 import type { ViewMember } from '../../../types/views'
+import { QueryBoundary } from './QueryBoundary'
 import { type SortableDragProps, SortableList } from './SortableList'
 
 interface ViewMembersFieldsProps {
+  query: UseQueryResult<ViewMember[], Error>
   members: ViewMember[]
   onChange: (ids: string[]) => void
 }
@@ -48,27 +51,37 @@ function ViewMemberRow({ member, drag, onRemove }: ViewMemberRowProps): ReactNod
   )
 }
 
-export function ViewMembersFields({ members, onChange }: ViewMembersFieldsProps): ReactNode {
+function MemberList({ members, onChange }: Pick<ViewMembersFieldsProps, 'members' | 'onChange'>): ReactNode {
   const ids = members.map((m) => m.pipeline_id)
 
+  if (members.length === 0) {
+    return (
+      <Text size="sm" c="dimmed">
+        Use Add to view on any pipeline to add it here.
+      </Text>
+    )
+  }
+
+  return (
+    <Stack gap="4xs">
+      <SortableList items={members} getId={(m) => m.pipeline_id} orientation="vertical" handle onReorder={onChange}>
+        {(member, drag) => (
+          <ViewMemberRow member={member} drag={drag} onRemove={(pid) => onChange(ids.filter((id) => id !== pid))} />
+        )}
+      </SortableList>
+    </Stack>
+  )
+}
+
+export function ViewMembersFields({ query, members, onChange }: ViewMembersFieldsProps): ReactNode {
   return (
     <Stack gap="sm">
       <Title order={3} size="sm">
         Members
       </Title>
-      {members.length === 0 ? (
-        <Text size="sm" c="dimmed">
-          Use Add to view on any pipeline to add it here.
-        </Text>
-      ) : (
-        <Stack gap="4xs">
-          <SortableList items={members} getId={(m) => m.pipeline_id} orientation="vertical" handle onReorder={onChange}>
-            {(member, drag) => (
-              <ViewMemberRow member={member} drag={drag} onRemove={(pid) => onChange(ids.filter((id) => id !== pid))} />
-            )}
-          </SortableList>
-        </Stack>
-      )}
+      <QueryBoundary query={query} loading="Loading members…" failure="Couldn't load view members" variant="compact">
+        {() => <MemberList members={members} onChange={onChange} />}
+      </QueryBoundary>
     </Stack>
   )
 }

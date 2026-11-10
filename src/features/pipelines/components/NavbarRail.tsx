@@ -8,6 +8,7 @@ import { formatCount } from '../../../utils/formatCount'
 import { ProviderAvatar, providerStatus } from '../../providers/components/ProviderPresentation'
 import { useProviderNavigation } from '../../providers/queries/useProviderNavigation'
 import type { NavNode } from '../utils/navTree'
+import { RailReadFailures, type ReadFailure } from './NavbarReadFailures'
 import { ICON_TILE, type MenuProps, NavTile, VIEW_ICONS } from './NavbarTreeRow'
 import { PINNED_ID, viewTo } from './NavbarViewRows'
 
@@ -23,6 +24,7 @@ interface NavbarRailProps {
   onRetry: () => void
   providerMenu: (provider: ProviderSummary) => MenuProps
   viewMenu: (view: PipelineView | undefined) => MenuProps | undefined
+  readFailures: ReadFailure[]
 }
 
 interface RailItemProps {
@@ -120,6 +122,7 @@ export const NavbarRail = ({
   onRetry,
   providerMenu,
   viewMenu,
+  readFailures,
 }: NavbarRailProps): ReactNode => {
   const totalPipelines = providers.reduce((sum, p) => sum + p.pipeline_count, 0)
 
@@ -142,6 +145,7 @@ export const NavbarRail = ({
             menu={viewMenu(node.view)}
           />
         ))}
+        <RailReadFailures failures={readFailures} />
         <Divider w={32} my="3xs" />
         <RailProviders
           providers={providers}

@@ -16,6 +16,7 @@ import { useViewMenuItems } from '../hooks/useViewMenuItems'
 import { usePins, usePipelineViews } from '../queries/usePipelineViewQueries'
 import { usePipelineViewStore } from '../stores/pipelineViewStore'
 import { NavbarRail } from './NavbarRail'
+import { readFailureOf } from './NavbarReadFailures'
 import { NavbarTree } from './NavbarTree'
 import { activeRootOf, viewNodesOf } from './NavbarViewRows'
 
@@ -64,8 +65,10 @@ export const Navbar = ({ compact = false }: NavbarProps): ReactNode => {
   } = useProviders()
 
   const confirmRemove = useConfirmRemoveProvider()
-  const { data: views } = usePipelineViews()
-  const { data: pins = [] } = usePins()
+  const viewsQuery = usePipelineViews()
+  const pinsQuery = usePins()
+  const views = viewsQuery.data
+  const pins = pinsQuery.data ?? []
   const pinItem = usePinning()
   const openEditor = usePipelineViewStore((s) => s.openEditor)
   const contextMenu = useContextMenu()
@@ -76,6 +79,11 @@ export const Navbar = ({ compact = false }: NavbarProps): ReactNode => {
   const menuItems = useViewMenuItems(views ?? [], 'vertical')
   const viewMenu = (view: PipelineView | undefined) => (view ? contextMenu(() => menuItems(view)) : undefined)
   const pinMenu = (pin: { kind: PinKind; ref: string; name: string }) => contextMenu(() => [pinItem(pin.kind, pin.ref)])
+
+  const failures = [
+    ...readFailureOf('views', "Couldn't load views", viewsQuery),
+    ...readFailureOf('pins', "Couldn't load pins", pinsQuery),
+  ]
   const onRetry = () => refetchProviders()
 
   const content = compact ? (
@@ -91,6 +99,7 @@ export const Navbar = ({ compact = false }: NavbarProps): ReactNode => {
       onRetry={onRetry}
       providerMenu={providerMenu}
       viewMenu={viewMenu}
+      readFailures={failures}
     />
   ) : (
     <NavbarTree
@@ -111,6 +120,7 @@ export const Navbar = ({ compact = false }: NavbarProps): ReactNode => {
       onEditProvider={requestEditProvider}
       onRemoveProvider={confirmRemove}
       onCreateView={() => openEditor(null)}
+      readFailures={failures}
     />
   )
 

@@ -6,6 +6,7 @@ import { StandardModal } from '../../../components/common/StandardModal'
 import type { ViewSelectionEntry } from '../../../types/views'
 import { useSetViewMembership, useViewSelection } from '../queries/usePipelineViewQueries'
 import { usePipelineViewStore } from '../stores/pipelineViewStore'
+import { QueryBoundary } from './QueryBoundary'
 
 interface AddToViewSessionProps {
   ids: string[]
@@ -48,11 +49,50 @@ function ViewChoice({
   )
 }
 
+interface ViewChoicesProps {
+  entries: ViewSelectionEntry[]
+  ids: string[]
+  onNewView: () => void
+}
+
+function ViewChoices({ entries, ids, onNewView }: ViewChoicesProps): ReactNode {
+  const membership = useSetViewMembership()
+
+  if (entries.length === 0) {
+    return (
+      <EmptyState
+        icon={<IconFolder size={24} aria-hidden />}
+        title="No views yet"
+        description="Create a view to organize your pipelines your way."
+        action={
+          <Button size="sm" leftSection={<IconPlus size={16} aria-hidden />} onClick={onNewView}>
+            New view
+          </Button>
+        }
+      />
+    )
+  }
+
+  return (
+    <Stack gap="sm">
+      {entries.map((entry) => (
+        <ViewChoice
+          key={entry.view.id}
+          entry={entry}
+          total={ids.length}
+          disabled={membership.isPending}
+          pending={membership.isPending && membership.variables?.id === entry.view.id}
+          onToggle={(member) => membership.mutate({ id: entry.view.id, pipelineIds: ids, member })}
+        />
+      ))}
+    </Stack>
+  )
+}
+
 function AddToViewSession({ ids, opened }: AddToViewSessionProps): ReactNode {
   const closeAddToView = usePipelineViewStore((s) => s.closeAddToView)
   const openEditor = usePipelineViewStore((s) => s.openEditor)
-  const { data: entries = [] } = useViewSelection(ids, opened && ids.length > 0)
-  const membership = useSetViewMembership()
+  const selection = useViewSelection(ids, opened && ids.length > 0)
 
   const newView = () => {
     if (ids.length === 0) {
@@ -80,31 +120,9 @@ function AddToViewSession({ ids, opened }: AddToViewSessionProps): ReactNode {
         </Group>
       }
     >
-      {entries.length === 0 ? (
-        <EmptyState
-          icon={<IconFolder size={24} aria-hidden />}
-          title="No views yet"
-          description="Create a view to organize your pipelines your way."
-          action={
-            <Button size="sm" leftSection={<IconPlus size={16} aria-hidden />} onClick={newView}>
-              New view
-            </Button>
-          }
-        />
-      ) : (
-        <Stack gap="sm">
-          {entries.map((entry) => (
-            <ViewChoice
-              key={entry.view.id}
-              entry={entry}
-              total={ids.length}
-              disabled={membership.isPending}
-              pending={membership.isPending && membership.variables?.id === entry.view.id}
-              onToggle={(member) => membership.mutate({ id: entry.view.id, pipelineIds: ids, member })}
-            />
-          ))}
-        </Stack>
-      )}
+      <QueryBoundary query={selection} loading="Loading views…" failure="Couldn't load views">
+        {(entries) => <ViewChoices entries={entries} ids={ids} onNewView={newView} />}
+      </QueryBoundary>
     </StandardModal>
   )
 }

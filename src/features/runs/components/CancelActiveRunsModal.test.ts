@@ -101,6 +101,63 @@ test('a failed cancellation keeps the dialog open and a retry closes it', async 
   await waitFor(() => assert.equal(closed, 1))
 })
 
+const found = () => ({
+  groups: [{ pipeline, provider_name: 'GitHub', runs: [run] }],
+  failed_pipeline_ids: [],
+  skipped: [],
+  run_count: 1,
+})
+
+test('a rejected discovery shows an error with Retry instead of an empty result, and a retry shows the runs', async (context) => {
+  let failing = true
+  const search = context.mock.method(apiService, 'getCancellationTargets', async () => {
+    if (failing) {
+      throw new Error('Providers unreachable')
+    }
+
+    return found()
+  })
+  renderModal(
+    async () => undefined,
+    () => undefined
+  )
+
+  assert.ok(await view().findByText('Providers unreachable'))
+  assert.equal(view().queryByText(/Nothing is running/), null)
+  assert.equal(view().queryByRole('button', { name: /^Cancel \d+ run/ }), null)
+
+  failing = false
+  await userEvent.setup({ document }).click(view().getByRole('button', { name: 'Retry' }))
+
+  assert.ok(await view().findByRole('button', { name: 'Cancel 1 run' }))
+  assert.equal(view().queryByText('Providers unreachable'), null)
+  assert.equal(search.mock.callCount(), 2)
+})
+
+test('a failed re-check removes the confirm action even though a count was found before', async (context) => {
+  let failing = false
+  context.mock.method(apiService, 'getCancellationTargets', async () => {
+    if (failing) {
+      throw new Error('Providers unreachable')
+    }
+
+    return found()
+  })
+  renderModal(
+    async () => undefined,
+    () => undefined
+  )
+  assert.ok(await view().findByRole('button', { name: 'Cancel 1 run' }))
+
+  failing = true
+  await act(async () => {
+    await client.refetchQueries()
+  })
+
+  assert.ok(await view().findByText('Providers unreachable'))
+  assert.equal(view().queryByRole('button', { name: /^Cancel \d+ run/ }), null)
+})
+
 function CancelLauncher() {
   const { cancelItem, dialog } = useCancelActiveRuns()
   const item = cancelItem('Build', [pipeline])

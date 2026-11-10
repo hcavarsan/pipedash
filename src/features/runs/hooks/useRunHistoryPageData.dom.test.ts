@@ -113,7 +113,7 @@ test('a rejected history refresh rejects the promise and shows one error toast',
   context.mock.method(tauriService, 'fetchRunHistory', fetchHistory)
   const { result } = renderHook(() => useRunHistoryPageData(pipeline), { wrapper })
 
-  await waitFor(() => assert.equal(result.current.isLoading, false))
+  await waitFor(() => assert.equal(result.current.hasData, true))
   failing = true
 
   let outcome: unknown
@@ -128,4 +128,40 @@ test('a rejected history refresh rejects the promise and shows one error toast',
   assert.equal(outcome.message, 'History unavailable')
   assert.equal(shown.mock.callCount(), 1)
   assert.equal(shown.mock.calls[0]?.arguments[0]?.title, "Couldn't refresh run history")
+})
+
+test('a rejected next page keeps the first page and retry requests the failed page', async (context) => {
+  context.mock.getter(navigator, 'userAgent', () => 'iPhone')
+  const pages: number[] = []
+  let failing = true
+  const fetchHistory = async (_pipelineId: string, query: RunHistoryQuery) => {
+    pages.push(query.page)
+
+    if (query.page === 2 && failing) {
+      throw new Error('Page 2 unavailable')
+    }
+
+    return history({ ...query, scan_depth: 2 })
+  }
+  context.mock.method(apiService, 'fetchRunHistory', fetchHistory)
+  context.mock.method(tauriService, 'fetchRunHistory', fetchHistory)
+  const { result } = renderHook(() => useRunHistoryPageData(pipeline), { wrapper })
+
+  await waitFor(() => assert.equal(result.current.runs.length, 1))
+  await act(async () => result.current.fetchMore())
+  await waitFor(() => assert.equal(result.current.isFetchNextPageError, true))
+  assert.deepEqual(
+    result.current.runs.map((run) => run.run_number),
+    [1]
+  )
+  assert.equal(result.current.hasData, true)
+
+  await act(async () => result.current.fetchMore())
+  assert.deepEqual(pages, [1, 2])
+
+  failing = false
+  await act(async () => result.current.retryNextPage())
+  await waitFor(() => assert.equal(result.current.runs.length, 2))
+  assert.deepEqual(pages, [1, 2, 2])
+  assert.equal(result.current.isFetchNextPageError, false)
 })

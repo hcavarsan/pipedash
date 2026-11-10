@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { useLocation, useMatch, useNavigate, useSearchParams } from 'react-router-dom'
 
-import { AppRoutes } from './AppRoutes'
+import { AppRoutes, type PrerequisiteState } from './AppRoutes'
 import { DocumentTitle } from './components/common/DocumentTitle'
 import { AppLayout } from './components/layout/AppLayout'
 import { fromOf, pushState } from './components/layout/mobileChrome'
@@ -93,6 +93,7 @@ export function AppContent(): ReactNode {
   const {
     data: providers = [],
     isLoading: providersLoading,
+    isFetching: providersFetching,
     isSuccess: providersSuccess,
     error: providersError,
   } = useProviders({
@@ -107,6 +108,7 @@ export function AppContent(): ReactNode {
   const {
     data: pipelines = [],
     isLoading: pipelinesLoading,
+    isFetching: pipelinesFetching,
     error: pipelinesError,
   } = usePipelines(selectedProviderId, {
     enabled: shouldEnableQueries && providersSuccess,
@@ -131,6 +133,17 @@ export function AppContent(): ReactNode {
       queryClient.invalidateQueries({ queryKey: queryKeys.providers.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all }),
     ])
+  }
+
+  const listPrerequisites: PrerequisiteState = {
+    loading: providersLoading,
+    error: providersError,
+    retrying: providersFetching,
+  }
+  const detailPrerequisites: PrerequisiteState = {
+    loading: providersLoading || pipelinesLoading,
+    error: providersError ?? pipelinesError,
+    retrying: providersFetching || pipelinesFetching,
   }
 
   const listState = pushState(location.pathname, location.search, location.state)
@@ -159,8 +172,8 @@ export function AppContent(): ReactNode {
       <AppRoutes
         providers={providers}
         pipelines={pipelines}
-        loading={providersLoading || pipelinesLoading}
-        error={providersError ?? pipelinesError}
+        listPrerequisites={listPrerequisites}
+        detailPrerequisites={detailPrerequisites}
         onRetry={invalidateAll}
         onViewHistory={handleViewHistory}
         onViewMetrics={handleViewMetrics}

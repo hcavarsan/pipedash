@@ -127,8 +127,8 @@ function Screen({ page = 'general' }: { page?: Page }) {
         <AppRoutes
           providers={[]}
           pipelines={[]}
-          loading={false}
-          error={null}
+          listPrerequisites={{ loading: false, error: null, retrying: false }}
+          detailPrerequisites={{ loading: false, error: null, retrying: false }}
           onRetry={async () => {}}
           onBack={() => {}}
           onViewHistory={() => {}}

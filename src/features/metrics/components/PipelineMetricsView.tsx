@@ -130,16 +130,18 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository }: Pi
     />
   )
 
+  const configError = pipelineConfig.isError ? (
+    <ErrorState
+      title="Couldn't load metrics settings"
+      error={pipelineConfig.error}
+      onRetry={() => refetchConfig()}
+      retrying={pipelineConfig.isFetching}
+    />
+  ) : null
+
   const renderContent = () => {
-    if (pipelineConfig.isError) {
-      return (
-        <ErrorState
-          title="Couldn't load metrics settings"
-          error={pipelineConfig.error}
-          onRetry={() => refetchConfig()}
-          retrying={pipelineConfig.isFetching}
-        />
-      )
+    if (configError && !pipelineConfig.data) {
+      return configError
     }
 
     if (pipelineConfig.isPending) {
@@ -242,8 +244,10 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository }: Pi
 
   return (
     <>
-      {renderContent()}
-
+      <Stack gap="md">
+        {pipelineConfig.data && configError}
+        {renderContent()}
+      </Stack>
       <StandardModal
         opened={showDetailPage}
         onClose={() => setShowDetailPage(false)}

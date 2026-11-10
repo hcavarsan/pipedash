@@ -1,6 +1,13 @@
 import type { LogSearchState } from '../hooks/useLogSearch'
 
-export function searchCounter({ result, matches }: LogSearchState, currentIdx: number | null): string | null {
+export function searchCounter(
+  { result, matches, queryText, settled, failure }: LogSearchState,
+  currentIdx: number | null
+): string | null {
+  if (queryText && (!settled || (!result && !failure))) {
+    return 'Searching…'
+  }
+
   if (!result) {
     return null
   }

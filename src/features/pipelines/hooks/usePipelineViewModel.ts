@@ -32,6 +32,7 @@ interface PipelineViewModelInput {
   providers: ProviderSummary[]
   loading: boolean
   error: unknown
+  retrying: boolean
 }
 
 export interface PipelineViewPageModel {
@@ -43,6 +44,7 @@ export interface PipelineViewPageModel {
   mobileTitle: string | null
   loading: boolean
   error: unknown
+  retrying: boolean
   query: PipelineViewQuery
   page: PipelineViewPage | undefined
   view: PipelineView | undefined
@@ -87,6 +89,7 @@ export function usePipelineViewModel({
   providers,
   loading: loadingProp,
   error: errorProp,
+  retrying: retryingProp,
 }: PipelineViewModelInput): PipelineViewPageModel {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
@@ -100,6 +103,7 @@ export function usePipelineViewModel({
   const {
     data: page,
     isLoading: pageLoading,
+    isFetching: pageFetching,
     error: pageError,
   } = usePipelineViewPage(query, providers.length > 0 && !loadingProp)
   const view = page?.view
@@ -189,6 +193,7 @@ export function usePipelineViewModel({
     mobileTitle,
     loading: loadingProp || pageLoading,
     error: errorProp ?? pageError,
+    retrying: retryingProp || pageFetching,
     query,
     page,
     view,

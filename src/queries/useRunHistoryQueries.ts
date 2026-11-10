@@ -56,6 +56,7 @@ export function useRunHistoryInfinite(
     getNextPageParam: (lastPage, _pages, lastPageParam) => nextRunHistoryPage(lastPage, lastPageParam),
     staleTime: STALE_TIMES.FAST_CHANGING,
     gcTime: GC_TIMES.MEDIUM,
+    placeholderData: (previous, previousQuery) => (previousQuery?.queryKey[2] === pipelineId ? previous : undefined),
     enabled: !!pipelineId,
   })
 }

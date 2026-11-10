@@ -1,3 +1,4 @@
+import type { UseQueryResult } from '@tanstack/react-query'
 import { type Dispatch, type SetStateAction, useState } from 'react'
 import type { PipelineView, ViewDisplay, ViewMember, ViewRules } from '../../../types/views'
 import { useViewMembers } from '../queries/usePipelineViewQueries'
@@ -61,6 +62,7 @@ export interface ViewEditorDraftModel {
   nameError: string | undefined
   touchName: () => void
   sessionKey: number
+  membersQuery: UseQueryResult<ViewMember[], Error>
 }
 
 export function useViewEditorDraft({ editor, view, mobileShell }: UseViewEditorDraftInput): ViewEditorDraftModel {
@@ -72,7 +74,8 @@ export function useViewEditorDraft({ editor, view, mobileShell }: UseViewEditorD
   const showMembers = !creating && Boolean(caps?.edit_members)
   const showParent = creating || view?.kind === 'custom'
 
-  const { data: serverMembers = [] } = useViewMembers(editor.viewId ?? '', editor.open && showMembers)
+  const membersQuery = useViewMembers(editor.viewId ?? '', editor.open && showMembers)
+  const serverMembers = membersQuery.data ?? []
 
   const session = editor.open ? `${editor.viewId ?? 'new'}:${view ? 'ready' : 'pending'}` : null
   const [loaded, setLoaded] = useState<LoadedSession>({ session: null, key: 0 })
@@ -123,5 +126,6 @@ export function useViewEditorDraft({ editor, view, mobileShell }: UseViewEditorD
     nameError: nameTouched && nameMissing ? NAME_REQUIRED : undefined,
     touchName: () => setNameTouched(true),
     sessionKey: loaded.key,
+    membersQuery,
   }
 }

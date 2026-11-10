@@ -105,17 +105,23 @@ export function RunHistoryResults({
   const mobileShell = useMobileShell()
   const { labels } = useRunActions()
 
-  if (data.isError) {
-    return (
-      <ErrorState
-        title={`Couldn't load ${labels.history.toLowerCase()}`}
-        error={data.error}
-        onRetry={() => {
+  const failure = data.isError ? (
+    <ErrorState
+      title={`Couldn't load ${labels.history.toLowerCase()}`}
+      error={data.error}
+      onRetry={() => {
+        if (data.isFetchNextPageError) {
+          data.retryNextPage()
+        } else {
           void data.refetch()
-        }}
-        retrying={data.isFetching}
-      />
-    )
+        }
+      }}
+      retrying={data.isFetching}
+    />
+  ) : null
+
+  if (failure && !data.hasData) {
+    return failure
   }
 
   if (!isMobile && columns.error) {
@@ -136,6 +142,7 @@ export function RunHistoryResults({
   if (isMobile) {
     return (
       <>
+        {failure}
         <RunHistoryMobile
           data={data}
           selection={selection}
@@ -158,12 +165,13 @@ export function RunHistoryResults({
     )
   }
 
-  if (empty && !data.scanNotice) {
+  if (empty && !data.scanNotice && !failure) {
     return empty
   }
 
   return (
     <>
+      {failure}
       <RunHistoryTable data={data} columns={columns} selection={selection} emptyState={empty} />
       {data.hasMore && !data.scanNotice && (
         <Group justify="center" mt="sm">

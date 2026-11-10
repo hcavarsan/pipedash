@@ -137,3 +137,56 @@ test('a rejected reorder restores the previous order and shows one error toast',
   await waitFor(() => assert.deepEqual(labels(), ['Reorder a', 'Reorder child', 'Reorder b', 'Reorder c']))
   assert.equal(shown.mock.calls[0]?.arguments[0]?.color, 'red')
 })
+
+async function openWith(context: TestContext, list: () => Promise<PipelineView[]>) {
+  context.mock.method(apiService, 'listPipelineViews', list)
+  render(
+    <MantineProvider env="test">
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <ManageViewsModal />
+        </MemoryRouter>
+      </QueryClientProvider>
+    </MantineProvider>
+  )
+  await act(async () => usePipelineViewStore.getState().openManage())
+}
+
+test('the dialog shows a loading state until the views arrive', async (context) => {
+  const hold = Promise.withResolvers<PipelineView[]>()
+  await openWith(context, () => hold.promise)
+
+  await within(document.body).findByText('Loading views…')
+  assert.equal(within(document.body).queryByText('No views yet'), null)
+
+  hold.resolve(views)
+  await within(document.body).findByRole('button', { name: 'Reorder a' })
+  assert.equal(within(document.body).queryByText('Loading views…'), null)
+})
+
+test('a rejected read shows an error with Retry instead of the empty state, and Retry loads the views', async (context) => {
+  let failing = true
+  await openWith(context, async () => {
+    if (failing) {
+      throw new Error('Views unavailable')
+    }
+
+    return views
+  })
+
+  await within(document.body).findByText("Couldn't load views")
+  assert.equal(within(document.body).queryByText('No views yet'), null)
+
+  failing = false
+  fireEvent.click(within(document.body).getByRole('button', { name: 'Retry' }))
+
+  await within(document.body).findByRole('button', { name: 'Reorder a' })
+  assert.equal(within(document.body).queryByText("Couldn't load views"), null)
+})
+
+test('a successful empty result shows the empty state', async (context) => {
+  await openWith(context, async () => [])
+
+  await within(document.body).findByText('No views yet')
+  assert.equal(within(document.body).queryByText("Couldn't load views"), null)
+})

@@ -4,6 +4,7 @@ import { after, afterEach, beforeEach, type TestContext, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import type { RefObject } from 'react'
 
+import { installLogViewerLayout } from '../../../testing/logViewerLayout'
 import type {
   LogDocumentMeta,
   LogLinesPage,
@@ -73,62 +74,17 @@ const meta: LogDocumentMeta = {
 
 const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 
-interface Layout {
-  restore: () => void
-}
-
-function installLayout(): Layout {
-  const saved = {
-    clientHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight'),
-    clientWidth: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth'),
-    rect: Object.getOwnPropertyDescriptor(Element.prototype, 'getBoundingClientRect'),
-    observer: Object.getOwnPropertyDescriptor(globalThis, 'ResizeObserver'),
-  }
-
-  Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 400 })
-  Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 800 })
-  Object.defineProperty(Element.prototype, 'getBoundingClientRect', {
-    configurable: true,
-    value: () => new DOMRect(0, 0, 100, 20),
-  })
-  Object.defineProperty(globalThis, 'ResizeObserver', {
-    configurable: true,
-    value: class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    },
-  })
-
-  const put = (target: object, name: string, descriptor: PropertyDescriptor | undefined) => {
-    if (descriptor) {
-      Object.defineProperty(target, name, descriptor)
-    } else {
-      Reflect.deleteProperty(target, name)
-    }
-  }
-
-  return {
-    restore: () => {
-      put(HTMLElement.prototype, 'clientHeight', saved.clientHeight)
-      put(HTMLElement.prototype, 'clientWidth', saved.clientWidth)
-      put(Element.prototype, 'getBoundingClientRect', saved.rect)
-      put(globalThis, 'ResizeObserver', saved.observer)
-    },
-  }
-}
-
-let layout: Layout | null = null
+let restoreLayout: (() => void) | null = null
 
 beforeEach(() => {
   client.clear()
-  layout = installLayout()
+  restoreLayout = installLogViewerLayout()
 })
 
 afterEach(async () => {
   await act(async () => cleanup())
-  layout?.restore()
-  layout = null
+  restoreLayout?.()
+  restoreLayout = null
 })
 
 after(async () => {
@@ -138,7 +94,7 @@ after(async () => {
   await GlobalRegistrator.unregister()
 })
 
-type Search = (text: string) => LogSearchResult
+type Search = (text: string) => LogSearchResult | Promise<LogSearchResult>
 
 type Open = (pipelineId: string, runNumber: number, nodeId: string, retry?: boolean) => Promise<RunLogDocument>
 
@@ -268,6 +224,44 @@ test('a search changed during the debounce jumps to the new result, not the old 
   await user.click(await view().findByText('Show error lines only'))
 
   await waitFor(() => assert.ok(lineButton(180)), { timeout: 3000 })
+})
+
+test('Enter during a deferred search stays put, and the counter reads Searching… until it settles', async (context) => {
+  const gate = Promise.withResolvers<LogSearchResult>()
+  let asked = false
+  stubService(context, (text) => {
+    if (text === 'foo') {
+      return matches(80)
+    }
+    asked = true
+
+    return gate.promise
+  })
+  const ref = createRef<LogViewerHandle>()
+  const user = userEvent.setup({ document, delay: null })
+
+  mount(ref)
+  await waitFor(() => assert.ok(lineButton(0)))
+  const input = view().getByRole('textbox', { name: 'Search logs' })
+
+  await user.type(input, 'foo')
+  await waitFor(() => assert.ok(lineButton(80)), { timeout: 3000 })
+  act(() => ref.current?.scrollToStart())
+  await waitFor(() => assert.equal(lineButton(80), null))
+
+  await user.type(input, 'b{Enter}')
+  assert.ok(view().getAllByText('Searching…').length > 0)
+  assert.equal(lineButton(80), null)
+
+  await waitFor(() => assert.ok(asked), { timeout: 3000 })
+  await user.keyboard('{Enter}')
+  assert.ok(view().getAllByText('Searching…').length > 0)
+  assert.equal(lineButton(80), null)
+
+  await act(async () => gate.resolve(matches(180)))
+  await waitFor(() => assert.ok(lineButton(180)), { timeout: 3000 })
+  assert.ok(view().getAllByText('1 of 1').length > 0)
+  assert.equal(view().queryByText('Searching…'), null)
 })
 
 const failedRefresh = async (): Promise<RunLogDocument> => ({

@@ -193,3 +193,56 @@ test('a failed export reports the error and a retry can succeed', async (context
   await waitFor(() => assert.equal(notices.mock.callCount(), 2))
   assert.equal(noticeColor(1), 'green')
 })
+
+test('a range change keeps the old title while the new range loads, then shows the new one', async () => {
+  const user = userEvent.setup({ document })
+  renderMetricsDetail()
+  assert.ok(await view().findByText(/per hour · Last 24 hours/))
+
+  const gate = Promise.withResolvers<unknown>()
+  metricsResponse = () => gate.promise
+  await user.selectOptions(view().getByRole('combobox', { name: 'Time range' }), '7d')
+
+  assert.ok(await view().findByText('Updating metrics…'))
+  assert.ok(view().getByText(/per hour · Last 24 hours/))
+  assert.equal(view().queryByText(/per hour · Last 7 days/), null)
+
+  await act(async () => gate.resolve(dashboard(METRICS)))
+  await waitFor(() => assert.ok(view().getByText(/per hour · Last 7 days/)))
+  assert.equal(view().queryByText('Updating metrics…'), null)
+  assert.equal(view().queryByText(/per hour · Last 24 hours/), null)
+})
+
+test('a range change after an empty result shows updating, not the empty state', async () => {
+  const user = userEvent.setup({ document })
+  metricsResponse = async () => dashboard({ ...METRICS, total_count: 0, metrics: [] })
+  renderMetricsDetail()
+  assert.ok(await view().findByText('No runs in this time range'))
+
+  const gate = Promise.withResolvers<unknown>()
+  metricsResponse = () => gate.promise
+  await user.selectOptions(view().getByRole('combobox', { name: 'Time range' }), '7d')
+
+  assert.ok(await view().findByText('Updating metrics…'))
+  assert.equal(view().queryByText('No runs in this time range'), null)
+  await act(async () => gate.resolve(dashboard(METRICS)))
+  await waitFor(() => assert.equal(view().queryByText('Updating metrics…'), null))
+})
+
+test('a failed refetch keeps the loaded chart and offers Retry', async () => {
+  const user = userEvent.setup({ document })
+  const queryClient = renderMetricsDetail()
+  assert.ok(await view().findByText(/per hour · Last 24 hours/))
+
+  metricsResponse = async () => {
+    throw new Error('metrics backend down')
+  }
+  await act(async () => queryClient.invalidateQueries())
+
+  assert.ok(await view().findByText(/Couldn't load run duration metrics/))
+  assert.ok(view().getByText(/per hour · Last 24 hours/))
+
+  metricsResponse = async () => dashboard(METRICS)
+  await user.click(view().getByRole('button', { name: 'Retry' }))
+  await waitFor(() => assert.equal(view().queryByText(/Couldn't load run duration metrics/), null))
+})

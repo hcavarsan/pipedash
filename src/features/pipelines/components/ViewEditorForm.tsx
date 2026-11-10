@@ -1,14 +1,16 @@
 import { Button, Group, Select, Stack, Text, TextInput } from '@mantine/core'
+import type { UseQueryResult } from '@tanstack/react-query'
 import { type ChangeEvent, type ReactNode, useActionState, useId, useRef } from 'react'
 import { FormErrorDisplay } from '../../../components/common/FormErrorDisplay'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { logger } from '../../../lib/logger'
-import type { PipelineView, ViewPatch } from '../../../types/views'
+import type { PipelineView, ViewEditorOptions, ViewPatch } from '../../../types/views'
 import { errorMessage } from '../../../utils/errorDisplay'
 import { useConfirmDeleteView } from '../hooks/useConfirmDeleteView'
 import { NAME_REQUIRED, sameJson, TOP_LEVEL, type ViewEditorDraftModel } from '../hooks/useViewEditorDraft'
 import { useCreatePipelineView, useUpdatePipelineView } from '../queries/usePipelineViewQueries'
 import type { ViewEditorState } from '../stores/pipelineViewStore'
+import { QueryBoundary } from './QueryBoundary'
 
 interface ParentOption {
   value: string
@@ -20,6 +22,7 @@ interface ViewEditorFormProps {
   view: PipelineView | undefined
   draft: ViewEditorDraftModel
   parentOptions: ParentOption[]
+  parentQuery: UseQueryResult<ViewEditorOptions, Error>
   children: ReactNode
   onClose: () => void
   onSaved: (created: PipelineView | null) => void
@@ -56,11 +59,22 @@ function buildViewPatch(view: PipelineView, name: string, model: ViewEditorDraft
   return patch
 }
 
+interface ParentSelectProps {
+  options: ParentOption[]
+  value: string
+  onChange: (value: string | null) => void
+}
+
+const ParentSelect = ({ options, value, onChange }: ParentSelectProps): ReactNode => (
+  <Select label="Inside" data={options} value={value} allowDeselect={false} onChange={onChange} />
+)
+
 export function ViewEditorForm({
   editor,
   view,
   draft,
   parentOptions,
+  parentQuery,
   children,
   onClose,
   onSaved,
@@ -160,6 +174,9 @@ export function ViewEditorForm({
       draft.setDraft((d) => ({ ...d, parent: value === TOP_LEVEL ? null : value }))
     }
   }
+  const parentSelect = (
+    <ParentSelect options={parentOptions} value={draft.draft.parent ?? TOP_LEVEL} onChange={onParentChange} />
+  )
 
   return (
     <StandardModal
@@ -194,13 +211,14 @@ export function ViewEditorForm({
           )}
 
           {draft.showParent && (
-            <Select
-              label="Inside"
-              data={parentOptions}
-              value={fields.parent ?? TOP_LEVEL}
-              allowDeselect={false}
-              onChange={onParentChange}
-            />
+            <QueryBoundary
+              query={parentQuery}
+              loading="Loading parent views…"
+              failure="Couldn't load parent views"
+              variant="compact"
+            >
+              {() => parentSelect}
+            </QueryBoundary>
           )}
 
           {creating && editor.initialMembers.length > 0 && (

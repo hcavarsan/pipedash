@@ -57,7 +57,7 @@ export function RunHistoryPage({ pipeline, tab, onTabChange, onBack }: RunHistor
     cancellingRunNumber: cancellingRun,
   })
 
-  const historyLoading = data.isLoading || columns.loading
+  const historyLoading = columns.loading || (!data.hasData && !data.isError)
   const canSelect = !selecting && data.runs.some(selection.isRunCancellable)
   const historyMenu = tab === 'history' && !historyLoading
   const canTrigger = !triggerBlockedReason
