@@ -62,16 +62,9 @@ pub(crate) fn run_display(run: &RunFacts<'_>) -> RunDisplay {
         .get("run_label")
         .and_then(Value::as_str)
         .unwrap_or(DEFAULT_RUN_LABEL);
-    let message = run
-        .metadata
-        .get("message")
-        .and_then(Value::as_str)
-        .or(run.commit_message)
-        .filter(|message| !message.is_empty());
 
     RunDisplay {
         title: title.to_string(),
-        message: message.map(str::to_string),
         context: Vec::new(),
         started_label: "Recorded".to_string(),
     }

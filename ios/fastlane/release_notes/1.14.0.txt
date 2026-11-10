@@ -1,0 +1,8 @@
+- Open directly on Browse at startup, after unlocking and after pairing.
+- Identify pipelines, repositories and alert sources from notification titles.
+- Choose pipeline alerts from one Notifications menu, and Force cancel from the Cancel confirmation.
+- Keep loaded pipelines, run history and logs visible when a refresh fails, with Retry for errors.
+- See run and review updates across connected devices without reloading.
+- Open run history in the correct order, including pipelines that previously failed to load.
+- Find run messages in run details, with simpler status-only history rows.
+- Use provider row menus in Browse without covering navigation arrows.

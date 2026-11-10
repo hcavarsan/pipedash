@@ -368,7 +368,7 @@ fn an_incident_alert_links_to_the_incident() {
 
     assert_eq!(candidates.len(), 1);
     assert_eq!(candidates[0].key, "incident:inc1");
-    assert_eq!(candidates[0].draft.title, "Builds are failing");
+    assert_eq!(candidates[0].draft.title, "Example: Builds are failing");
     assert_eq!(candidates[0].draft.body, "We are looking into it");
     assert_eq!(candidates[0].provider_ids, [7]);
     assert_eq!(
@@ -499,6 +499,10 @@ fn connection_and_instance_alerts_have_no_link() {
     assert_eq!(from_connection.provider_ids, [3]);
     assert_eq!(from_instance.len(), 1);
     assert_eq!(from_instance[0].key, "component:kustomize-controller");
+    assert_eq!(
+        from_instance[0].draft.title,
+        "kustomize-controller on Stub Two: scaled to zero"
+    );
     assert_eq!(from_instance[0].draft.link, None);
     assert_eq!(connection_recovery("Stub").link, None);
     assert_eq!(instance_recovery("Stub Two").link, None);

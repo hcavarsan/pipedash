@@ -13,7 +13,6 @@ export interface PluginPresentation {
   view: ViewCopy
   trigger: ActionCopy
   rerun: ActionCopy
-  history_note: string | null
   empty_history_description: string
   run_details_title: string
   progress_title: string

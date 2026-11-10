@@ -33,10 +33,10 @@ fn run(number: i64, branch: Option<&str>) -> PipelineRun {
 }
 
 #[test]
-fn a_failure_names_the_pipeline_provider_branch_run_and_thread() {
+fn a_failure_names_the_pipeline_repository_provider_branch_run_and_thread() {
     let alert = failure_alert(&pipeline("CI", Some("main")), "Stub", Some(&run(42, None)));
 
-    assert_eq!(alert.title, "CI failed");
+    assert_eq!(alert.title, "CI failed · acme/app");
     assert_eq!(alert.body, "Stub · main · #42");
     assert_eq!(alert.thread_id.as_deref(), Some("stub__1__acme/app/ci.yml"));
     assert_eq!(
@@ -62,15 +62,21 @@ fn the_run_branch_wins_and_missing_parts_are_left_out() {
 }
 
 #[test]
-fn long_names_are_cut_so_the_relay_accepts_them() {
+fn long_names_and_repositories_are_cut_so_the_relay_accepts_them() {
     let alert = failure_alert(
         &pipeline(&"é".repeat(500), None),
         "p".repeat(1000).as_str(),
         None,
     );
+    let mut far = pipeline("CI", None);
+    far.repository = "r".repeat(500);
+    let distant = failure_alert(&far, "Stub", None);
 
     assert_eq!(alert.title.chars().count(), MAX_TITLE_CHARS);
-    assert!(alert.title.ends_with("… failed"));
+    assert!(alert.title.ends_with("… failed · acme/app"));
+    assert!(distant.title.starts_with("CI failed · rrr"));
+    assert!(distant.title.ends_with('…'));
+    assert!(distant.title.chars().count() <= MAX_TITLE_CHARS);
     assert_eq!(alert.body.chars().count(), MAX_BODY_CHARS);
     assert_eq!(truncate("short", 10), "short");
 }
@@ -86,7 +92,7 @@ fn a_degraded_pipeline_says_so_and_explains_why() {
 
     let alert = failure_alert(&degraded, "Stub", None);
 
-    assert_eq!(alert.title, "web is degraded");
+    assert_eq!(alert.title, "web is degraded · acme/app");
     assert_eq!(
         alert.body,
         "Stub · Pod web/web-7f9c: back-off restarting failed container"

@@ -1,12 +1,9 @@
-import { Button, Group, Text, Tooltip } from '@mantine/core'
+import { Button, Group, Tooltip } from '@mantine/core'
 import { IconAdjustments } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
-import { StatusBadge } from '../../../components/atoms/StatusBadge'
 import { PageHeader } from '../../../components/common/PageHeader'
-import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
 import type { Pipeline } from '../../../types/pipelines'
-import { getPipelineStatusLabel } from '../../../utils/pipelinePresentation'
 import { triggerIcon } from '../../../utils/pipelineRowActions'
 import { PipelineNotifyMenu } from '../../notifications/components/PipelineNotifyMenu'
 import { useRunActions } from './RunActionsContext'
@@ -58,42 +55,14 @@ function HeaderActions({
 }
 
 export function RunHistoryHeader(props: RunHistoryHeaderProps): ReactNode {
-  const { pipeline, onBack } = props
-  const { presentation } = useRunActions()
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
-  const state = pipeline.resource_state?.message ? pipeline : null
 
   return (
-    <>
-      <PageHeader
-        title={pipeline.name}
-        onBack={onBack}
-        actions={
-          mobileShell ? undefined : <HeaderActions {...props} showCustomize={props.showCustomize && !isMobile} />
-        }
-      />
-      {state && mobileShell && (
-        <IosGroup>
-          <IosRow
-            title={<StatusBadge status={state.status} label={getPipelineStatusLabel(state)} size="md" />}
-            subtitle={state.resource_state?.message}
-          />
-        </IosGroup>
-      )}
-      {state && !mobileShell && (
-        <Group gap="sm" align="flex-start" mb="sm">
-          <StatusBadge status={state.status} label={getPipelineStatusLabel(state)} size="md" />
-          <Text size="sm" style={{ overflowWrap: 'anywhere', flex: 1 }}>
-            {state.resource_state?.message}
-          </Text>
-        </Group>
-      )}
-      {presentation.history_note && (
-        <Text size={mobileShell ? 'xs' : 'sm'} c="dimmed" {...(mobileShell ? { px: 'md' } : { mb: 'sm' })}>
-          {presentation.history_note}
-        </Text>
-      )}
-    </>
+    <PageHeader
+      title={props.pipeline.name}
+      onBack={props.onBack}
+      actions={mobileShell ? undefined : <HeaderActions {...props} showCustomize={props.showCustomize && !isMobile} />}
+    />
   )
 }

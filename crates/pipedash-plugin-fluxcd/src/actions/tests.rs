@@ -33,15 +33,12 @@ fn pipeline(metadata: &HashMap<String, Value>) -> PipelineFacts<'_> {
     }
 }
 
-fn run<'a>(
-    status: PipelineStatus, commit_message: Option<&'a str>, metadata: &'a HashMap<String, Value>,
-) -> RunFacts<'a> {
+fn run<'a>(status: PipelineStatus, metadata: &'a HashMap<String, Value>) -> RunFacts<'a> {
     RunFacts {
         run_number: 4,
         status,
         branch: Some("main"),
         actor: Some("alice"),
-        commit_message,
         inputs: None,
         metadata,
     }
@@ -98,17 +95,11 @@ fn pipeline_actions_should_report_a_missing_resource_before_a_suspended_one() {
 fn run_actions_should_block_rerun_for_missing_and_suspended_resources_only() {
     let plugin = FluxcdPlugin::new();
     let empty = HashMap::new();
-    let ready = plugin.run_actions(
-        &pipeline(&empty),
-        &run(PipelineStatus::Success, None, &empty),
-    );
+    let ready = plugin.run_actions(&pipeline(&empty), &run(PipelineStatus::Success, &empty));
     assert!(ready.rerun.allowed);
 
     let suspended = metadata(&[("suspended", json!(true))]);
-    let blocked = plugin.run_actions(
-        &pipeline(&suspended),
-        &run(PipelineStatus::Success, None, &empty),
-    );
+    let blocked = plugin.run_actions(&pipeline(&suspended), &run(PipelineStatus::Success, &empty));
     assert!(!blocked.rerun.allowed);
     assert!(blocked
         .rerun
@@ -117,53 +108,23 @@ fn run_actions_should_block_rerun_for_missing_and_suspended_resources_only() {
         .is_some_and(|reason| reason.contains("suspended")));
 
     let missing = metadata(&[("missing", json!(true))]);
-    let gone = plugin.run_actions(
-        &pipeline(&missing),
-        &run(PipelineStatus::Failed, None, &empty),
-    );
+    let gone = plugin.run_actions(&pipeline(&missing), &run(PipelineStatus::Failed, &empty));
     assert!(!gone.rerun.allowed);
 }
 
 #[test]
-fn run_display_should_use_the_run_label_and_message() {
+fn run_display_should_title_the_row_with_the_run_label_or_the_default() {
     let plugin = FluxcdPlugin::new();
     let empty = HashMap::new();
-    let labelled = metadata(&[
-        ("run_label", json!("Reconciliation abc1234")),
-        ("message", json!("Applied revision main@sha1:abc1234")),
-    ]);
+    let labelled = metadata(&[("run_label", json!("Reconciliation abc1234"))]);
 
-    let display = plugin.run_display(
-        &pipeline(&empty),
-        &run(PipelineStatus::Success, Some("ignored"), &labelled),
-    );
+    let display = plugin.run_display(&pipeline(&empty), &run(PipelineStatus::Success, &labelled));
+    let bare = plugin.run_display(&pipeline(&empty), &run(PipelineStatus::Success, &empty));
 
     assert_eq!(display.title, "Reconciliation abc1234");
-    assert_eq!(
-        display.message.as_deref(),
-        Some("Applied revision main@sha1:abc1234")
-    );
     assert!(display.context.is_empty());
     assert_eq!(display.started_label, "Recorded");
-}
-
-#[test]
-fn run_display_should_fall_back_to_the_commit_message_and_default_label() {
-    let plugin = FluxcdPlugin::new();
-    let empty = HashMap::new();
-
-    let display = plugin.run_display(
-        &pipeline(&empty),
-        &run(PipelineStatus::Success, Some("fix typo"), &empty),
-    );
-    assert_eq!(display.title, "Reconciliation");
-    assert_eq!(display.message.as_deref(), Some("fix typo"));
-
-    let bare = plugin.run_display(
-        &pipeline(&empty),
-        &run(PipelineStatus::Success, None, &empty),
-    );
-    assert_eq!(bare.message, None);
+    assert_eq!(bare.title, "Reconciliation");
 }
 
 #[test]

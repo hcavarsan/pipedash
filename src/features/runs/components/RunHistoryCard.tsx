@@ -77,23 +77,16 @@ const ContextField = ({ label, value }: { label: string; value: string }): React
 )
 
 function RunCardContext({ run }: { run: PipelineRun }): ReactNode {
-  const { message, context } = run.display
+  const { context } = run.display
 
   return (
-    <>
-      {message && (
-        <Text size="sm" c="dimmed">
-          {message}
-        </Text>
-      )}
-      {context.length > 0 && (
-        <Group gap="lg" wrap="nowrap" align="flex-start">
-          {context.map((field) => (
-            <ContextField key={field.label} {...field} />
-          ))}
-        </Group>
-      )}
-    </>
+    context.length > 0 && (
+      <Group gap="lg" wrap="nowrap" align="flex-start">
+        {context.map((field) => (
+          <ContextField key={field.label} {...field} />
+        ))}
+      </Group>
+    )
   )
 }
 

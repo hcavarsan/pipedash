@@ -82,3 +82,25 @@ test('disabled swipe buttons cannot be activated', () => {
   assert.equal(pin.mock.callCount(), 0)
   assert.equal(go.mock.callCount(), 0)
 })
+
+test('an open row shows its action colors only in the part the row uncovered', async () => {
+  render(
+    <SwipeActions
+      actions={[
+        { key: 'remove', label: 'Remove', tone: 'red', onSelect: () => undefined },
+        { key: 'edit', label: 'Edit', tone: 'blue', primary: true, onSelect: () => undefined },
+      ]}
+    >
+      <span>Row</span>
+    </SwipeActions>
+  )
+  const slide = within(document.body).getByText('Row').parentElement
+  const underlay = within(document.body).getByText('Remove').closest('[data-tone="red"]:not(button)')
+
+  assert.ok(slide)
+  assert.ok(underlay instanceof HTMLElement)
+  fireEvent.keyDown(slide, { key: 'ArrowLeft' })
+
+  await waitFor(() => assert.equal(slide.style.transform, 'translateX(-160px)'), { timeout: 5000 })
+  assert.match(underlay.style.getPropertyValue('clip-path'), /^inset\(0(px)? 0(px)? 0(px)? calc\(100% - 160px\)\)$/)
+})

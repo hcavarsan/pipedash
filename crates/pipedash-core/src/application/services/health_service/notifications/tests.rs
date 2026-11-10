@@ -37,7 +37,7 @@ use crate::domain::{
 };
 use crate::infrastructure::HttpClientManager;
 
-const BODY: &str = "acme/app · Provider 1";
+const BODY: &str = "Provider 1";
 
 fn at(minutes: i64) -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 10, 26, 12, 0, 0).unwrap() + chrono::Duration::minutes(minutes)
@@ -263,7 +263,7 @@ async fn a_cold_scan_baselines_silently_and_later_failures_notify() {
         found,
         [LocalNotification {
             key: "pipeline:stub__1__api".to_owned(),
-            title: "api failed".to_owned(),
+            title: "api failed · acme/app".to_owned(),
             body: BODY.to_owned(),
             pipeline_id: Some("stub__1__api".to_owned()),
             provider_id: Some(1),
@@ -285,7 +285,7 @@ fn a_finished_run_names_its_outcome_and_remembers_the_previous_finish() {
     state.seed(&[run(1, "api", PipelineStatus::Running, 1)], &[summary(1)]);
 
     let first = state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Success, 1)]));
-    assert_eq!(titles(&first), ["api succeeded"]);
+    assert_eq!(titles(&first), ["api succeeded · acme/app"]);
     assert_eq!(first[0].kind, AlertKind::Finished);
     let first_at = first[0].finish.map(|finish| finish.at);
     assert!(first_at.is_some());
@@ -293,14 +293,14 @@ fn a_finished_run_names_its_outcome_and_remembers_the_previous_finish() {
 
     state = reload(&state);
     let skipped = state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Skipped, 2)]));
-    assert_eq!(titles(&skipped), ["api was skipped"]);
+    assert_eq!(titles(&skipped), ["api was skipped · acme/app"]);
     assert_eq!(
         skipped[0].finish.and_then(|finish| finish.previous),
         first_at
     );
 
     let flipped = state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Failed, 2)]));
-    assert_eq!(titles(&flipped), ["api failed"]);
+    assert_eq!(titles(&flipped), ["api failed · acme/app"]);
     assert_eq!(flipped[0].finish, None);
 
     state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Running, 3)]));
@@ -308,7 +308,7 @@ fn a_finished_run_names_its_outcome_and_remembers_the_previous_finish() {
         1,
         vec![run(1, "api", PipelineStatus::Cancelled, 3)],
     ));
-    assert_eq!(titles(&cancelled), ["api was cancelled"]);
+    assert_eq!(titles(&cancelled), ["api was cancelled · acme/app"]);
     assert!(state
         .observe_event(&updated(
             1,
@@ -368,12 +368,12 @@ async fn rehydrated_state_keeps_the_baseline_and_holds_no_credentials() {
 
     rig.state = reload(&rig.state);
     stub.set_pipelines(vec![run(1, "api", PipelineStatus::Failed, 2)]);
-    assert_eq!(titles(&rig.scan(&[1]).await), ["api failed"]);
+    assert_eq!(titles(&rig.scan(&[1]).await), ["api failed · acme/app"]);
 
     rig.state = reload(&rig.state);
     assert!(rig.scan(&[1]).await.is_empty());
     stub.set_pipelines(vec![run(1, "api", PipelineStatus::Failed, 3)]);
-    assert_eq!(titles(&rig.scan(&[1]).await), ["api failed"]);
+    assert_eq!(titles(&rig.scan(&[1]).await), ["api failed · acme/app"]);
     assert!(!serde_json::to_string(&rig.state)
         .unwrap()
         .contains("secret-token"));
@@ -392,7 +392,7 @@ async fn an_event_then_a_scan_notify_once() {
     let repeated = rig.state.observe_event(&failed_event(vec![failed.clone()]));
     stub.set_pipelines(vec![failed]);
 
-    assert_eq!(titles(&first), ["api failed"]);
+    assert_eq!(titles(&first), ["api failed · acme/app"]);
     assert!(repeated.is_empty());
     assert!(rig.scan(&[1]).await.is_empty());
 }
@@ -409,7 +409,7 @@ async fn a_scan_then_an_event_notify_once() {
 
     let scanned = rig.scan(&[1]).await;
 
-    assert_eq!(titles(&scanned), ["api failed"]);
+    assert_eq!(titles(&scanned), ["api failed · acme/app"]);
     assert!(rig
         .state
         .observe_event(&failed_event(vec![failed.clone()]))
@@ -429,7 +429,7 @@ fn updated_and_failed_events_for_one_failure_notify_once() {
     let first = state.observe_event(&updated(1, vec![failed.clone()]));
     let second = state.observe_event(&failed_event(vec![failed]));
 
-    assert_eq!(titles(&first), ["api failed"]);
+    assert_eq!(titles(&first), ["api failed · acme/app"]);
     assert_eq!(first[0].body, BODY);
     assert!(second.is_empty());
 }
@@ -455,7 +455,7 @@ fn a_failed_pipeline_notifies_once_when_it_passes_again() {
             found,
             [LocalNotification {
                 key: "pipeline:stub__1__api".to_owned(),
-                title: "api passed again".to_owned(),
+                title: "api passed again · acme/app".to_owned(),
                 body: BODY.to_owned(),
                 pipeline_id: Some(success.id.clone()),
                 provider_id: Some(1),
@@ -472,14 +472,14 @@ fn a_failed_pipeline_notifies_once_when_it_passes_again() {
             titles(
                 &state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Success, 3)]))
             ),
-            ["api succeeded"]
+            ["api succeeded · acme/app"]
         );
         state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Failed, 4)]));
         assert_eq!(
             titles(
                 &state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Success, 5)]))
             ),
-            ["api passed again"]
+            ["api passed again · acme/app"]
         );
     }
 }
@@ -495,7 +495,7 @@ fn passing_without_a_known_failure_is_an_ordinary_finish() {
         state.seed(&[run(1, "api", initial, 1)], &[summary(1)]);
         let found =
             state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Success, 2)]));
-        assert_eq!(titles(&found), ["api succeeded"]);
+        assert_eq!(titles(&found), ["api succeeded · acme/app"]);
         assert_eq!(found[0].kind, AlertKind::Finished);
     }
     let mut state = NotificationState::default();
@@ -515,7 +515,10 @@ async fn a_background_scan_reports_a_recovery_once_after_reloading() {
     assert!(rig.scan(&[1]).await.is_empty());
     rig.state = reload(&rig.state);
     stub.set_pipelines(vec![run(1, "api", PipelineStatus::Success, 2)]);
-    assert_eq!(titles(&rig.scan(&[1]).await), ["api passed again"]);
+    assert_eq!(
+        titles(&rig.scan(&[1]).await),
+        ["api passed again · acme/app"]
+    );
     assert!(rig.scan(&[1]).await.is_empty());
 }
 
@@ -531,7 +534,7 @@ fn a_degraded_pipeline_notice_says_why() {
 
     let found = state.observe_event(&updated(1, vec![degraded]));
 
-    assert_eq!(titles(&found), ["api is degraded"]);
+    assert_eq!(titles(&found), ["api is degraded · acme/app"]);
     assert_eq!(
         found[0].body,
         format!("{BODY} · Pod apps/api-7f9c: CrashLoopBackOff")
@@ -553,7 +556,7 @@ fn seeding_is_silent_and_replaces_older_state() {
     let next = run(1, "api", PipelineStatus::Failed, 2);
     assert_eq!(
         titles(&state.observe_event(&updated(1, vec![next]))),
-        ["api failed"]
+        ["api failed · acme/app"]
     );
 }
 
@@ -569,7 +572,10 @@ fn an_overdue_event_notifies_once_per_run() {
     slow.overdue_run = Some("run-2".to_owned());
     let next = state.observe_event(&updated(1, vec![slow]));
 
-    assert_eq!(titles(&first), ["api is running longer than usual"]);
+    assert_eq!(
+        titles(&first),
+        ["api is running longer than usual · acme/app"]
+    );
     assert!(repeated.is_empty());
     assert_eq!(next.len(), 1);
 }
@@ -587,7 +593,10 @@ async fn a_scan_flags_a_running_pipeline_past_its_usual_duration_once() {
     stub.set_pipelines(vec![run(1, "api", PipelineStatus::Running, 2)]);
     let found = rig.scan(&[1]).await;
 
-    assert_eq!(titles(&found), ["api is running longer than usual"]);
+    assert_eq!(
+        titles(&found),
+        ["api is running longer than usual · acme/app"]
+    );
     assert_eq!(found[0].key, "pipeline:stub__1__api");
     assert!(rig.scan(&[1]).await.is_empty());
 }
@@ -614,7 +623,7 @@ async fn failed_scans_keep_the_baseline_and_an_outage_recovers_once() {
     assert!(rig.scan(&[1]).await.is_empty());
 
     stub.set_pipelines(vec![run(1, "api", PipelineStatus::Failed, 2)]);
-    assert_eq!(titles(&rig.scan(&[1]).await), ["api failed"]);
+    assert_eq!(titles(&rig.scan(&[1]).await), ["api failed · acme/app"]);
 }
 
 #[tokio::test]
@@ -722,7 +731,7 @@ async fn a_status_page_outage_alerts_once_and_recovers_only_after_calm_checks() 
     assert!(rig.scan(&[1]).await.is_empty());
     feed.respond_json(outage());
     let found = rig.scan(&[1]).await;
-    assert_eq!(titles(&found), ["Incident inc1"]);
+    assert_eq!(titles(&found), ["Example: Incident inc1"]);
     assert_eq!(found[0].key, key);
     assert_eq!(found[0].body, "We are investigating");
     assert_eq!(found[0].provider_id, Some(1));
@@ -815,12 +824,9 @@ async fn controller_health_alerts_and_recovers_without_trusting_failed_checks() 
 
     stub.set_health(Ok(vec![broken]));
     let found = rig.scan(&[1]).await;
-    assert_eq!(titles(&found), ["stub: scaled to zero"]);
+    assert_eq!(titles(&found), ["stub on Provider 1: scaled to zero"]);
     assert_eq!(found[0].key, "instance:1");
-    assert_eq!(
-        found[0].body,
-        "Reported by the controller health check of Provider 1."
-    );
+    assert_eq!(found[0].body, "Reported by the controller health check.");
 
     stub.set_health(Ok(Vec::new()));
     assert!(rig.scan(&[1]).await.is_empty());
@@ -847,7 +853,7 @@ async fn a_controller_outage_is_reported_when_pipeline_access_fails() {
     stub.set_health(Ok(vec![broken()]));
     let found = rig.scan(&[1]).await;
 
-    assert!(titles(&found).contains(&"stub: scaled to zero"));
+    assert!(titles(&found).contains(&"stub on Provider 1: scaled to zero"));
 }
 
 #[tokio::test]
@@ -863,7 +869,7 @@ async fn a_controller_outage_survives_a_pipeline_fetch_that_outlasts_the_scan() 
     stub.set_health(Ok(vec![broken()]));
     let found = rig.scan_within(&[1], Duration::from_millis(300)).await;
 
-    assert_eq!(titles(&found), ["stub: scaled to zero"]);
+    assert_eq!(titles(&found), ["stub on Provider 1: scaled to zero"]);
 }
 
 #[tokio::test]
@@ -915,7 +921,7 @@ async fn a_scan_over_budget_returns_finished_notifications() {
     first.set_pipelines(vec![run(1, "api", PipelineStatus::Failed, 2)]);
     let found = rig.scan_within(&[1, 2], Duration::from_millis(300)).await;
 
-    assert_eq!(titles(&found), ["api failed"]);
+    assert_eq!(titles(&found), ["api failed · acme/app"]);
 }
 
 #[tokio::test]
@@ -1096,7 +1102,7 @@ async fn hanging_run_history_does_not_block_outage_checks_within_the_deadline() 
     stub.set_health(Ok(vec![broken()]));
     let found = rig.scan_within(&[1], Duration::from_millis(300)).await;
 
-    assert_eq!(titles(&found), ["stub: scaled to zero"]);
+    assert_eq!(titles(&found), ["stub on Provider 1: scaled to zero"]);
 }
 
 #[tokio::test]
@@ -1133,7 +1139,7 @@ async fn a_status_page_outage_after_a_healthy_opt_in_alerts_on_the_first_scan() 
     rig.state = reload(&rig.state);
     feed.respond_json(outage());
 
-    assert_eq!(titles(&rig.scan(&[1]).await), ["Incident inc1"]);
+    assert_eq!(titles(&rig.scan(&[1]).await), ["Example: Incident inc1"]);
     assert!(rig.scan(&[1]).await.is_empty());
 }
 
@@ -1164,7 +1170,10 @@ async fn a_controller_outage_after_a_healthy_opt_in_alerts_on_the_first_scan() {
     rig.state.seed(&[], &[summary_with(1, Vec::new(), false)]);
     rig.state = reload(&rig.state);
 
-    assert_eq!(titles(&rig.scan(&[1]).await), ["stub: scaled to zero"]);
+    assert_eq!(
+        titles(&rig.scan(&[1]).await),
+        ["stub on Provider 1: scaled to zero"]
+    );
     assert!(rig.scan(&[1]).await.is_empty());
 }
 

@@ -118,6 +118,7 @@ pub(crate) async fn attach(
     notifications::publish(app, &history);
     refresh_projection(app).await;
     publish_status(app);
+    super::updater::core_attached(app);
 }
 
 pub(crate) fn detach(app: &AppHandle) {

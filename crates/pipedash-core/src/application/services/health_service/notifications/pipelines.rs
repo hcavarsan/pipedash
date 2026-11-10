@@ -5,6 +5,7 @@ use super::{
     NotificationState,
     PipelineMark,
 };
+use crate::domain::pipeline::notice_title;
 use crate::domain::{
     AlertKind,
     Pipeline,
@@ -33,25 +34,21 @@ impl NotificationState {
                         finish,
                         ..self.pipeline_notice(
                             pipeline,
-                            attention_title(pipeline),
+                            attention_event(pipeline),
                             attention_kind(pipeline),
                         )
                     });
                 } else if recovered {
                     found.push(LocalNotification {
                         finish,
-                        ..self.pipeline_notice(
-                            pipeline,
-                            format!("{} passed again", pipeline.name),
-                            AlertKind::Recovered,
-                        )
+                        ..self.pipeline_notice(pipeline, "passed again", AlertKind::Recovered)
                     });
                 } else if let Some(finish) = finish {
                     found.push(LocalNotification {
                         finish: Some(finish),
                         ..self.pipeline_notice(
                             pipeline,
-                            finished_title(pipeline),
+                            finished_event(pipeline),
                             AlertKind::Finished,
                         )
                     });
@@ -59,7 +56,7 @@ impl NotificationState {
                 if pipeline.overdue_run.is_some() && old.overdue != pipeline.overdue_run {
                     found.push(self.pipeline_notice(
                         pipeline,
-                        format!("{} is running longer than usual", pipeline.name),
+                        "is running longer than usual",
                         AlertKind::LongRun,
                     ));
                 }
@@ -92,7 +89,7 @@ impl NotificationState {
                     finish,
                     ..self.pipeline_notice(
                         pipeline,
-                        attention_title(pipeline),
+                        attention_event(pipeline),
                         attention_kind(pipeline),
                     )
                 });
@@ -103,7 +100,7 @@ impl NotificationState {
     }
 
     pub(super) fn pipeline_notice(
-        &self, pipeline: &Pipeline, title: String, kind: AlertKind,
+        &self, pipeline: &Pipeline, event: &str, kind: AlertKind,
     ) -> LocalNotification {
         let provider = self
             .providers
@@ -116,7 +113,7 @@ impl NotificationState {
             .as_ref()
             .and_then(|state| state.message.as_deref())
             .unwrap_or_default();
-        let body = [pipeline.repository.as_str(), provider, message]
+        let body = [provider, message]
             .iter()
             .filter(|part| !part.is_empty())
             .copied()
@@ -125,7 +122,7 @@ impl NotificationState {
 
         LocalNotification {
             key: format!("pipeline:{}", pipeline.id),
-            title,
+            title: notice_title(&pipeline.name, event, &pipeline.repository),
             body,
             pipeline_id: Some(pipeline.id.clone()),
             provider_id: Some(pipeline.provider_id),
@@ -138,18 +135,18 @@ impl NotificationState {
     }
 }
 
-fn attention_title(pipeline: &Pipeline) -> String {
+fn attention_event(pipeline: &Pipeline) -> &'static str {
     match pipeline.status {
-        PipelineStatus::Degraded => format!("{} is degraded", pipeline.name),
-        _ => format!("{} failed", pipeline.name),
+        PipelineStatus::Degraded => "is degraded",
+        _ => "failed",
     }
 }
 
-fn finished_title(pipeline: &Pipeline) -> String {
+fn finished_event(pipeline: &Pipeline) -> &'static str {
     match pipeline.status {
-        PipelineStatus::Cancelled => format!("{} was cancelled", pipeline.name),
-        PipelineStatus::Skipped => format!("{} was skipped", pipeline.name),
-        _ => format!("{} succeeded", pipeline.name),
+        PipelineStatus::Cancelled => "was cancelled",
+        PipelineStatus::Skipped => "was skipped",
+        _ => "succeeded",
     }
 }
 

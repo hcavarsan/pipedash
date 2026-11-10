@@ -5,16 +5,22 @@ import { ACTION_WIDTH, type SwipeAction } from './swipeAction'
 
 interface SwipeActionButtonsProps {
   actions: SwipeAction[]
+  underlayRef: RefObject<HTMLDivElement | null>
   primaryRef: RefObject<HTMLButtonElement | null>
   onBeforeSelect: () => void
 }
 
-export function SwipeActionButtons({ actions, primaryRef, onBeforeSelect }: SwipeActionButtonsProps): ReactNode {
+export function SwipeActionButtons({
+  actions,
+  underlayRef,
+  primaryRef,
+  onBeforeSelect,
+}: SwipeActionButtonsProps): ReactNode {
   const primary = actions.find((action) => action.primary)
   const rest = actions.filter((action) => !action.primary)
 
   return (
-    <div className={classes.underlay} data-tone={(rest[0] ?? primary)?.tone}>
+    <div ref={underlayRef} className={classes.underlay} data-tone={(rest[0] ?? primary)?.tone}>
       <div className={classes.rest} style={{ right: primary ? ACTION_WIDTH : 0 }}>
         {rest.map((action) => (
           <button

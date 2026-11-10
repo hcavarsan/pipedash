@@ -117,7 +117,6 @@ pub(super) fn presentation(provider_name: &str) -> PluginPresentation {
         view: ViewCopy::default(),
         trigger: trigger_copy(),
         rerun: rerun_copy(),
-        history_note: None,
         empty_history_description: "This workflow has no recorded runs.".to_string(),
         run_details_title: "Run details".to_string(),
         progress_title: "Run in progress".to_string(),

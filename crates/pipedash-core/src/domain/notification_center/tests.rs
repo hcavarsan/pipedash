@@ -425,8 +425,8 @@ fn a_watched_run_names_its_outcome_and_keeps_the_run_number() {
 
         assert_eq!(notice.key, "watch:s1");
         assert_eq!(notice.tone, tone);
-        assert_eq!(notice.title, format!("Watched run #42 {result}"));
-        assert_eq!(notice.body, "api · Stub");
+        assert_eq!(notice.title, format!("api #42 {result}"));
+        assert_eq!(notice.body, "Watched run · Stub");
         assert_eq!(notice.pipeline_id.as_deref(), Some("stub__1__api"));
         assert_eq!(notice.run_number, Some(42));
         assert!(!notice.read);

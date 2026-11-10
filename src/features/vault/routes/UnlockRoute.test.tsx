@@ -84,7 +84,7 @@ async function unlockFrom(entry: string): Promise<string> {
 
 for (const target of ['//evil.example/phish', 'https://evil.example/phish', '/\\evil.example', 'pipelines']) {
   test(`unlock ignores a return target that is not an app path: ${target}`, async () => {
-    assert.equal(await unlockFrom(`/unlock?return=${encodeURIComponent(target)}`), '/pipelines')
+    assert.equal(await unlockFrom(`/unlock?return=${encodeURIComponent(target)}`), '/')
   })
 }
 

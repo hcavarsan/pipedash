@@ -12,7 +12,9 @@ import { useDesktopNotifications } from './features/notifications/queries/useDes
 import { useLocalNotificationsLifecycle } from './features/notifications/queries/useLocalNotificationQueries'
 import { useNotificationPreferencesSync } from './features/notifications/queries/useNotificationPreferencesSync'
 import { useLegacyPipelineMarksImport, usePipelineViews } from './features/pipelines/queries/usePipelineViewQueries'
+import { UpdatePrompt } from './features/settings/components/UpdatePrompt'
 import { useDesktopLifecycle } from './features/settings/queries/useDesktopQueries'
+import { useUpdaterLifecycle } from './features/settings/queries/useUpdaterQueries'
 import { useEventSync } from './hooks/useEventSync'
 import { useMissedAlerts } from './hooks/useMissedAlerts'
 import { useNotificationEvents } from './hooks/useNotificationEvents'
@@ -26,6 +28,7 @@ import { isTauri } from './services/isTauri'
 import { useAuthStore } from './stores/authStore'
 import { useModalStore } from './stores/modalStore'
 import type { Pipeline } from './types/pipelines'
+import { isDesktopTauri } from './utils/platform'
 import { WorkflowModalHost } from './WorkflowModalHost'
 
 interface PageTitleContext {
@@ -69,6 +72,7 @@ export function AppContent(): ReactNode {
   useBuildWatchLifecycle()
   useLocalNotificationsLifecycle()
   useDesktopLifecycle()
+  useUpdaterLifecycle()
   useDesktopNotifications()
   useNotificationPreferencesSync()
   useRecordHistory()
@@ -169,6 +173,7 @@ export function AppContent(): ReactNode {
     <AppLayout onOpenSettings={handleOpenSettings}>
       <DocumentTitle title={pageTitle} />
       <NativeIntentBridge />
+      {isDesktopTauri() && <UpdatePrompt />}
       <AppRoutes
         providers={providers}
         pipelines={pipelines}

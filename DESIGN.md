@@ -77,6 +77,8 @@ Run status uses its own tokens, `--status-success`, `--status-failed`, `--status
 - Variants of one operation share one control. The variant is an option inside that control's dialog or menu, never a second button beside it. A run has one Cancel action; when the provider allows it, the confirmation offers an unchecked "Force cancel" option, preselected only after a normal cancellation was already requested. A pipeline has one "Notifications…" entry that opens a single choice: follow settings, next finish only, all runs or muted.
 - Selecting a failed provider opens its pipelines page first. An SSO authentication failure starts sign-in; other connection failures or outages open Pipedash's provider status sheet. Dismissing recovery leaves the provider page open. Background failures never open login or status sheets automatically.
 - Provider recovery saves only credentials, preserving current settings and pipeline selections. The status sheet shows the Pipedash connection and its recovery action before upstream service status. Mobile long-press menus include Provider status and, when the backend requests it, Sign in.
+- List rows show status, never the message. A pipeline or run row carries its status glyph or badge, its name and its timing. A desktop table may add the provider's short reason code as its own column. Condition messages, error text and logs open with the run, where the details list them. A history page has no state banner and no provider note above its list; progress shows inside the running run.
+- A notification title says what happened, to what and where, so it reads alone in a list or on a lock screen: `<pipeline> failed · <repository>`, `<pipeline> #<run> failed` for a watched run, `Can't reach <provider>`, `<status page>: <incident>`, `<component> on <provider>: <state>`. The body adds the provider and the cause. Core writes every title and body; clients show them unchanged.
 
 ## Forms
 
@@ -142,10 +144,12 @@ Run status uses its own tokens, `--status-success`, `--status-failed`, `--status
 - Native intents stay pending until setup and authentication finish. An authenticated consumer peeks, applies and acknowledges the observed ID. A stale acknowledgment cannot discard a newer intent. Mobile `open-run` actions open pipeline history when they have no exact run number.
 - Linux menu label changes replace only affected rows in the existing attached menu. Installed Muda 0.20.0 creates custom GTK label children that its `set_text` does not update in the exported AppIndicator menu. Other platforms update item values in place. Pipeline and shortcut action IDs belong to their attachment. Row replacement retires the old action IDs.
 - A waiting run watch reserves scheduler admission until its read finishes or stops. Automatic refresh cannot keep resetting the forced-read cooldown while that reservation exists. The existing cooldown and provider rate limits still apply. Cancellation releases the reservation for the matching provider generation.
+- The desktop app looks for a signed update on GitHub Releases shortly after it starts and once a day. Settings → About turns the automatic check off and keeps a manual check. Nothing downloads or installs until the person chooses **Update and restart** in the prompt. **Later** hides that version until the next launch. A finished install always restarts into the new version.
 
 ## iPhone
 
 - The phone shell sets `data-ios` on the root. Desktop and iPad styles never read these tokens.
+- The app opens on Browse, and the Browse tab starts there. All pipelines, views and providers are pushed from it.
 - Safe areas use the larger of WebKit's CSS inset and the native `WKWebView.safeAreaInsets` value. The native bridge updates on layout changes and navigation. The phone header reserves equal side insets to keep its title centered in landscape.
 - Text uses the `--ios-fs-*` and `--ios-lh-*` tokens: large title, title1 to title3, headline, body, callout, subheadline, footnote, caption1 and caption2. The Mantine sizes map to them: `xs` footnote, `sm` subheadline, `md` body, `lg` title3, `xl` title2. Headline is 600, the navigation large title is 700, everything else is 400. Letter spacing stays `normal` because the system font tracks itself.
 - Dynamic Type: when WebKit supports `font: -apple-system-body`, a hidden probe measures the body size and sets `--ios-text-scale` on the root. It updates live. Paddings next to text use `em` and containers use minimum heights, so rows grow with the text. Zoom stays enabled.
@@ -159,6 +163,8 @@ Run status uses its own tokens, `--status-success`, `--status-failed`, `--status
 - Every sheet uses one background for its header and body, and content starts 16pt below the header. Multi-step sheets show a compact progress row instead of a desktop stepper.
 - Sheets resize with the keyboard before revealing the focused field. Main-page field reveal excludes the fixed app header and the keyboard from the visible area. Modal fields use their own sheet boundaries. Picker sheets use one scroll surface and stay above the keyboard and home indicator.
 - The pressed highlight covers the whole row, including the chevron and the trailing … button.
+- A row with a trailing … button reserves 44pt for it, so text and the chevron never sit under it. `IosRow` takes the button through its `menu` prop and `IosPipelineRow` through its own; pages never build their own row shell.
+- Swipe actions are clipped to the width the row uncovered, so their color never shows under the row, along its bottom edge or in the group's rounded corners.
 - The search row on list pages, including run history, hides by default. A short pull reveals it, a longer pull refreshes. During refresh, the indicator stays fixed below the header and connection banner. Its spokes fade without rotating the container.
 - With filters active, the filter button switches to the filled icon in the tint color, and its label carries the count.
 - Run history edit mode uses 22pt selection circles and a full-width bottom toolbar with the bar material and the safe-area inset. The tab bar is hidden and inert while editing.

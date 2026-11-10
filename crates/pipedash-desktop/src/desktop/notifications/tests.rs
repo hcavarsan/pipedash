@@ -69,27 +69,27 @@ fn a_watch_snapshot_maps_its_status_to_a_notice() {
         (
             BuildWatchRunStatus::Success,
             CenterTone::Success,
-            "Watched run #42 succeeded",
+            "api #42 succeeded",
         ),
         (
             BuildWatchRunStatus::Failed,
             CenterTone::Danger,
-            "Watched run #42 failed",
+            "api #42 failed",
         ),
         (
             BuildWatchRunStatus::Cancelled,
             CenterTone::Warning,
-            "Watched run #42 was cancelled",
+            "api #42 was cancelled",
         ),
         (
             BuildWatchRunStatus::Skipped,
             CenterTone::Warning,
-            "Watched run #42 was skipped",
+            "api #42 was skipped",
         ),
         (
             BuildWatchRunStatus::Running,
             CenterTone::Warning,
-            "Watched run #42 finished",
+            "api #42 finished",
         ),
     ] {
         let notice = watched(&watch(status));
@@ -97,7 +97,7 @@ fn a_watch_snapshot_maps_its_status_to_a_notice() {
         assert_eq!(notice.key, "watch:s1");
         assert_eq!(notice.tone, tone);
         assert_eq!(notice.title, title);
-        assert_eq!(notice.body, "api · Stub");
+        assert_eq!(notice.body, "Watched run · Stub");
         assert_eq!(notice.run_number, Some(42));
     }
 }

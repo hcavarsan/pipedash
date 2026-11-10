@@ -36,7 +36,6 @@ fn run<'a>(
         status,
         branch: Some("feature"),
         actor: Some("ada"),
-        commit_message: None,
         inputs,
         metadata,
     }
@@ -132,7 +131,6 @@ fn default_run_display_lists_branch_and_actor() {
 
     let display = plugin.run_display(&facts, &run(PipelineStatus::Success, &empty, None));
     assert_eq!(display.title, "#7");
-    assert_eq!(display.message, None);
     assert_eq!(display.started_label, "Started");
     assert_eq!(
         display.context,

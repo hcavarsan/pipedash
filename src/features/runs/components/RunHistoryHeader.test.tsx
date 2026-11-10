@@ -49,18 +49,14 @@ function mount(overrides: Parameters<typeof pipelineFixture>[0]) {
 afterEach(() => cleanup())
 after(() => GlobalRegistrator.unregister())
 
-test('shows the current state block for a non-Flux pipeline with a resource state', () => {
-  mount({ status: 'degraded', resource_state: { label: 'Progressing', message: 'Waiting for rollout' } })
-  assert.ok(view().getByText('Progressing'))
-  assert.ok(view().getByText('Waiting for rollout'))
-})
+test('names the pipeline and leaves its state and message to the rows and run details', () => {
+  mount({
+    name: 'checkout',
+    status: 'degraded',
+    resource_state: { label: 'Progressing', message: 'Waiting for rollout' },
+  })
 
-test('omits the current state block without a state message', () => {
-  mount({ status: 'success', resource_state: { label: 'Up' } })
-  assert.equal(view().queryByText('Up'), null)
-})
-
-test('omits the current state block without a resource state', () => {
-  mount({ status: 'success' })
-  assert.equal(view().queryByText('Success'), null)
+  assert.ok(view().getAllByText('checkout').length > 0)
+  assert.equal(view().queryByText('Progressing'), null)
+  assert.equal(view().queryByText('Waiting for rollout'), null)
 })

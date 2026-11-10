@@ -96,6 +96,14 @@ impl Pipeline {
     }
 }
 
+pub(crate) fn notice_title(name: &str, event: &str, repository: &str) -> String {
+    if repository.is_empty() {
+        format!("{name} {event}")
+    } else {
+        format!("{name} {event} · {repository}")
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PipelineRun {
     pub id: String,

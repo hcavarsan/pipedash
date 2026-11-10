@@ -14,8 +14,7 @@ import { ErrorState } from '../../../components/common/ErrorState'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { ActionSheetCancel } from '../../../components/ios/ActionSheetCancel'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
-import { SwipeActions } from '../../../components/ios/SwipeActions'
-import { useRowMenuLongPress } from '../../../hooks/useLongPress'
+import { AccentText } from '../../../components/ios/mobileParts'
 import { useProviders } from '../../../queries/useProvidersQueries'
 import { useNotificationCenterStore } from '../../../stores/notificationCenterStore'
 import { useProviderStore } from '../../../stores/providerStore'
@@ -25,7 +24,6 @@ import { useNotifyItems } from '../../notifications/hooks/useNotifyItems'
 import { usePipelineViews } from '../../pipelines/queries/usePipelineViewQueries'
 import { useProviderNavigation } from '../queries/useProviderNavigation'
 import { useProviderSignIn } from '../queries/useProviderSignIn'
-import classes from './BrowsePage.module.css'
 import { useConfirmRemoveProvider } from './ProviderModals'
 import { ProviderAvatar, ProviderStatusLine } from './ProviderPresentation'
 
@@ -38,7 +36,6 @@ interface ProviderRowProps {
 }
 
 function ProviderRow({ provider, onEdit, onRemove }: ProviderRowProps) {
-  const pressRef = useRowMenuLongPress()
   const openProvider = useProviderNavigation()
   const signIn = useProviderSignIn()
   const openStatus = useNotificationCenterStore((state) => state.open)
@@ -69,20 +66,18 @@ function ProviderRow({ provider, onEdit, onRemove }: ProviderRowProps) {
   ]
 
   return (
-    <div ref={pressRef} className={classes.shell}>
-      <SwipeActions
-        actions={[
-          { key: 'remove', label: 'Remove', tone: 'red', onSelect: onRemove },
-          { key: 'edit', label: 'Edit', tone: 'blue', primary: true, onSelect: onEdit },
-        ]}
-      >
-        <IosRow
-          icon={<ProviderAvatar provider={provider} size={AVATAR} />}
-          title={provider.name}
-          subtitle={<ProviderStatusLine provider={provider} />}
-          chevron
-          onClick={() => openProvider(provider)}
-        />
+    <IosRow
+      icon={<ProviderAvatar provider={provider} size={AVATAR} />}
+      title={provider.name}
+      subtitle={<ProviderStatusLine provider={provider} />}
+      chevron
+      longPressMenu
+      onClick={() => openProvider(provider)}
+      swipeActions={[
+        { key: 'remove', label: 'Remove', tone: 'red', onSelect: onRemove },
+        { key: 'edit', label: 'Edit', tone: 'blue', primary: true, onSelect: onEdit },
+      ]}
+      menu={
         <Menu position="bottom-end" withinPortal>
           <Menu.Target>
             <ActionIcon size={44} data-row-menu aria-label={`Actions for ${provider.name}`}>
@@ -95,8 +90,8 @@ function ProviderRow({ provider, onEdit, onRemove }: ProviderRowProps) {
             <ActionSheetCancel />
           </Menu.Dropdown>
         </Menu>
-      </SwipeActions>
-    </div>
+      }
+    />
   )
 }
 
@@ -189,7 +184,7 @@ export function BrowsePage(): ReactNode {
         ))}
         <IosRow
           icon={<IconPlus size={16} />}
-          title={<span className={classes.addTitle}>Add provider</span>}
+          title={<AccentText>Add provider</AccentText>}
           onClick={openAddProviderModal}
         />
       </IosGroup>

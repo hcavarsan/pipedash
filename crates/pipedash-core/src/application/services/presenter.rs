@@ -165,7 +165,6 @@ pub(crate) fn run_facts(run: &PipelineRun) -> RunFacts<'_> {
         status: plugin_status(&run.status),
         branch: run.branch.as_deref(),
         actor: run.actor.as_deref(),
-        commit_message: run.commit_message.as_deref(),
         inputs: run.inputs.as_ref(),
         metadata: &run.metadata,
     }
