@@ -457,10 +457,11 @@ jobs:
     needs: [ pipedash, create-release-draft ]
     permissions:
       contents: write # upload latest.json to the draft release
+      pull-requests: read # credit pull request authors in the release notes
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     outputs:
-      notes: ${{ steps.git-cliff.outputs.content }}
+      notes: ${{ steps.notes.outputs.content }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -468,14 +469,27 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Generate changelog
-        uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff # v4.9.1
-        id: git-cliff
-        with:
-          config: cliff.toml
-          args: --latest --strip header
+      - name: Generate release notes
+        id: notes
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPO: ${{ github.repository }}
+          CLIFF_VERSION: "2.13.1"
+          CLIFF_SHA512: "02aba6bf3149d4529709a8d942ee57229c50614539daf61507b723a7f2cfafca32d77b53f15b7f055b57aef0bc5eef72ac7d3aaa02ce5c97fad009fc4a051ddf"
+        run: |
+          asset="git-cliff-$CLIFF_VERSION-x86_64-unknown-linux-musl.tar.gz"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/$asset" \
+            "https://github.com/orhun/git-cliff/releases/download/v$CLIFF_VERSION/$asset"
+          (cd "$RUNNER_TEMP" && echo "$CLIFF_SHA512  $asset" | sha512sum -c -)
+          tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP"
+          PATH="$RUNNER_TEMP/git-cliff-$CLIFF_VERSION:$PATH" scripts/release_notes.sh "$RUNNER_TEMP/notes.md"
+          delimiter="notes-$(openssl rand -hex 16)"
+          {
+            echo "content<<$delimiter"
+            cat "$RUNNER_TEMP/notes.md"
+            echo
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Upload latest.json
         env:
@@ -483,7 +497,6 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
           RELEASE_ID: ${{ needs.create-release-draft.outputs.release_id }}
-          NOTES: ${{ steps.git-cliff.outputs.content }}
         run: |
           dir="$RUNNER_TEMP/signatures"; mkdir -p "$dir"
           gh api --paginate "repos/$GH_REPO/releases/$RELEASE_ID/assets" \
@@ -495,7 +508,6 @@ jobs:
               gh api -H 'Accept: application/octet-stream' "repos/$GH_REPO/releases/assets/$id" > "$dir/$name"
             fi
           done < "$RUNNER_TEMP/assets.txt"
-          printf '%s' "$NOTES" > "$RUNNER_TEMP/notes.md"
           python3 scripts/updater_manifest.py --tag "$TAG" --repo "$GH_REPO" --signatures "$dir" \
             --notes-file "$RUNNER_TEMP/notes.md" --output "$RUNNER_TEMP/latest.json"
           gh api --method POST -H 'Content-Type: application/json' \

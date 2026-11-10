@@ -24,6 +24,14 @@ ASSETS = {
     "pipedash_0.14.0_x86-setup.exe": ["windows-i686", "windows-i686-nsis"],
     "pipedash_0.14.0_arm64-setup.exe": ["windows-aarch64", "windows-aarch64-nsis"],
 }
+NOTES = """## What's new:
+
+## Features
+- feat(desktop): add in-app updates (#354) (@hcavarsan [ef07302](https://github.com/hcavarsan/pipedash/commit/ef073025))
+
+## Bug Fixes
+- fix(api): allow a custom base url (@avoidik [#22](https://github.com/hcavarsan/pipedash/pull/22))
+"""
 
 
 class UpdaterManifestTest(unittest.TestCase):
@@ -34,7 +42,7 @@ class UpdaterManifestTest(unittest.TestCase):
             signatures.mkdir()
             for asset in assets:
                 (signatures / f"{asset}.sig").write_text(f"signature of {asset}\n")
-            (root / "notes.md").write_text("### Features\n- In-app updates")
+            (root / "notes.md").write_text(NOTES)
             output = root / "latest.json"
             result = subprocess.run(
                 [
@@ -62,7 +70,11 @@ class UpdaterManifestTest(unittest.TestCase):
         result, manifest = self.run_script(ASSETS)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(manifest["version"], "0.14.0")
-        self.assertEqual(manifest["notes"], "### Features\n- In-app updates")
+        self.assertEqual(
+            manifest["notes"],
+            "What's new:\n\nFeatures\n- feat(desktop): add in-app updates (#354)"
+            "\n\nBug Fixes\n- fix(api): allow a custom base url",
+        )
         datetime.strptime(manifest["pub_date"], "%Y-%m-%dT%H:%M:%SZ")
         expected = {
             key: {

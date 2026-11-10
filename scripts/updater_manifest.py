@@ -1,5 +1,6 @@
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,6 +22,12 @@ PLATFORMS = {
     "_x86-setup.exe": ["windows-i686", "windows-i686-nsis"],
     "_arm64-setup.exe": ["windows-aarch64", "windows-aarch64-nsis"],
 }
+CREDIT = re.compile(r" \((?:@\S+ )?\[[^\]]+\]\([^)]+\)\)$")
+
+
+def plain(notes):
+    lines = (re.sub(r"^#+ ", "", CREDIT.sub("", line)) for line in notes.splitlines())
+    return "\n".join(lines).strip()
 
 
 def build(tag, repo, signatures, notes):
@@ -50,7 +57,7 @@ def build(tag, repo, signatures, notes):
         raise ValueError(f"no signature for {', '.join(missing)}")
     return {
         "version": tag.removeprefix("v"),
-        "notes": notes,
+        "notes": plain(notes),
         "pub_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "platforms": platforms,
     }
