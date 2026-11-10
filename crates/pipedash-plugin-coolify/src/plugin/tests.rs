@@ -134,7 +134,7 @@ fn deployments_of(app: &str) -> Option<Vec<Value>> {
                 })
                 .collect(),
         ),
-        "app-api" => Some(
+        "app-api" | "app-gone" => Some(
             (API_OLDEST..=API_NEWEST)
                 .rev()
                 .map(|id| deployment(app, id, "finished"))
@@ -774,4 +774,19 @@ fn configured_repositories_should_be_empty() {
     assert!(CoolifyPlugin::new()
         .configured_repositories(&config)
         .is_empty());
+}
+
+#[tokio::test]
+async fn an_application_that_is_no_longer_listed_is_not_reported_as_healthy() {
+    let stub = stub(&[]).await;
+
+    let history = stub.plugin.fetch_run_history("app-gone", 2).await;
+    let details = stub.plugin.fetch_run_details("app-gone", API_NEWEST).await;
+
+    for missing in [history.map(drop), details.map(drop)] {
+        assert!(
+            matches!(missing, Err(PluginError::PipelineNotFound(_))),
+            "{missing:?}"
+        );
+    }
 }

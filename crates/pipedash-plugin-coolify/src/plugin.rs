@@ -43,11 +43,14 @@ plugin_struct!(
 impl CoolifyPlugin {
     async fn live_status(&self, app_uuid: &str) -> PluginResult<PipelineStatus> {
         let applications = self.client()?.applications().await?;
-        let app = applications.iter().find(|app| app.uuid == app_uuid);
+        let app = applications
+            .iter()
+            .find(|app| app.uuid == app_uuid)
+            .ok_or_else(|| {
+                PluginError::PipelineNotFound(format!("Application {app_uuid} not found"))
+            })?;
 
-        Ok(app.map_or(PipelineStatus::Success, |app| {
-            mapper::map_app_state(&app.status).0
-        }))
+        Ok(mapper::map_app_state(&app.status).0)
     }
 }
 

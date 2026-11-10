@@ -205,7 +205,7 @@ fn updates_of(stack_id: &str) -> Vec<Value> {
         "id-running" => (0..RUNNING_UPDATES)
             .map(|i| stack_update(stack_id, i, RUNNING_START - i as i64 * 1_000))
             .collect(),
-        "id-down" => vec![stack_update(stack_id, 0, DOWN_START)],
+        "id-down" | "id-gone" => vec![stack_update(stack_id, 0, DOWN_START)],
         _ => QUIET_STACKS
             .iter()
             .position(|quiet| *quiet == stack_id)
@@ -1510,4 +1510,19 @@ fn configured_repositories_should_be_empty() {
     assert!(KomodoPlugin::new()
         .configured_repositories(&config)
         .is_empty());
+}
+
+#[tokio::test]
+async fn a_stack_that_is_no_longer_listed_is_not_reported_as_healthy() {
+    let (plugin, _, _) = stub_plugin(&[]).await;
+
+    let history = plugin.fetch_run_history("id-gone", 2).await;
+    let details = plugin.fetch_run_details("id-gone", DOWN_START).await;
+
+    for missing in [history.map(drop), details.map(drop)] {
+        assert!(
+            matches!(missing, Err(PluginError::PipelineNotFound(_))),
+            "{missing:?}"
+        );
+    }
 }

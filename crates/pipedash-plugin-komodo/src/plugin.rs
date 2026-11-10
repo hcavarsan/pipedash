@@ -43,11 +43,12 @@ plugin_struct!(
 impl KomodoPlugin {
     async fn live_status(&self, stack_id: &str) -> PluginResult<PipelineStatus> {
         let stacks = self.client()?.list_stacks().await?;
-        let stack = stacks.iter().find(|stack| stack.id == stack_id);
+        let stack = stacks
+            .iter()
+            .find(|stack| stack.id == stack_id)
+            .ok_or_else(|| PluginError::PipelineNotFound(format!("Stack {stack_id} not found")))?;
 
-        Ok(stack.map_or(PipelineStatus::Success, |stack| {
-            mapper::map_stack_state(&stack.info).0
-        }))
+        Ok(mapper::map_stack_state(&stack.info).0)
     }
 
     async fn update_started_at(
