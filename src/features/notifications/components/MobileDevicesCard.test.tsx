@@ -63,7 +63,7 @@ test('removing a push device sends nothing until it is confirmed, and cancel sen
   assert.equal(remove.mock.callCount(), 0)
 
   await user.click(within(confirmation).getByRole('button', { name: 'Cancel' }))
-  await waitFor(() => assert.equal(view().queryByRole('dialog'), null))
+  await waitFor(() => assert.ok(!view().queryByRole('dialog')))
 
   assert.equal(remove.mock.callCount(), 0)
   assert.ok(view().getByRole('button', { name: "Remove Henrique's iPhone" }))
@@ -92,6 +92,6 @@ test('confirming sends one request and shows that the device no longer receives 
       )
     )
   )
-  await waitFor(() => assert.equal(view().queryByRole('button', { name: "Remove Henrique's iPhone" }), null))
+  await waitFor(() => assert.ok(!view().queryByRole('button', { name: "Remove Henrique's iPhone" })))
   assert.equal(remove.mock.callCount(), 1)
 })

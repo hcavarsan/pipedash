@@ -132,7 +132,7 @@ test('a failed background refetch keeps the loaded pipelines and Retry shows bus
   assert.ok(view().getByText('Nightly build'))
 
   await act(async () => gate.resolve())
-  await waitFor(() => assert.equal(view().queryByText("Couldn't load pipelines"), null))
+  await waitFor(() => assert.ok(!view().queryByText("Couldn't load pipelines")))
   assert.ok(view().getByText('Nightly build'))
 })
 

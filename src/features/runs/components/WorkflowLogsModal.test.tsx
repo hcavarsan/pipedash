@@ -149,7 +149,7 @@ test('a failed run-details refetch keeps the loaded run and actions on screen wi
   failing = false
   await userEvent.setup({ document }).click(view().getByRole('button', { name: 'Retry' }))
 
-  await waitFor(() => assert.equal(view().queryByText('Run unavailable'), null))
+  await waitFor(() => assert.ok(!view().queryByText('Run unavailable')))
   assert.ok(view().getByText(/Details update live/))
 })
 

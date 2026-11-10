@@ -226,7 +226,7 @@ test('a range change after an empty result shows updating, not the empty state',
   assert.ok(await view().findByText('Updating metrics…'))
   assert.equal(view().queryByText('No runs in this time range'), null)
   await act(async () => gate.resolve(dashboard(METRICS)))
-  await waitFor(() => assert.equal(view().queryByText('Updating metrics…'), null))
+  await waitFor(() => assert.ok(!view().queryByText('Updating metrics…')))
 })
 
 test('a failed refetch keeps the loaded chart and offers Retry', async () => {
@@ -244,5 +244,5 @@ test('a failed refetch keeps the loaded chart and offers Retry', async () => {
 
   metricsResponse = async () => dashboard(METRICS)
   await user.click(view().getByRole('button', { name: 'Retry' }))
-  await waitFor(() => assert.equal(view().queryByText(/Couldn't load run duration metrics/), null))
+  await waitFor(() => assert.ok(!view().queryByText(/Couldn't load run duration metrics/)))
 })

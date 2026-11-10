@@ -218,7 +218,7 @@ test('a failed tray save keeps the confirmed settings and exposes retry', async 
   assert.equal(tray.checked, false)
   failure = null
   await user.click(view().getByRole('button', { name: /retry|try again/i }))
-  await waitFor(() => assert.equal(view().queryByText('Tray creation failed'), null))
+  await waitFor(() => assert.ok(!view().queryByText('Tray creation failed')))
   assert.deepEqual(patches, [{ show_tray: true }, {}])
 })
 
@@ -230,7 +230,7 @@ test('tray errors remain visible and Retry submits an empty patch', async () => 
   const background = view().getByRole('switch', { name: 'Keep running when the window closes' })
   assert.ok(background instanceof HTMLInputElement && background.disabled)
   await user.click(view().getByRole('button', { name: /retry|try again/i }))
-  await waitFor(() => assert.equal(view().queryByText('Tray unavailable'), null))
+  await waitFor(() => assert.ok(!view().queryByText('Tray unavailable')))
   assert.deepEqual(patches, [{}])
 })
 

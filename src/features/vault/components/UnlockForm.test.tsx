@@ -168,7 +168,7 @@ test('nothing renders when the vault needs no unlock', async () => {
   status.locked = false
   render(ui({ onSuccess: () => undefined }))
 
-  await waitFor(() => assert.equal(view().queryByText(/Loading vault status/), null))
+  await waitFor(() => assert.ok(!view().queryByText(/Loading vault status/)))
   assert.equal(view().queryAllByRole('button').length, 0)
   assert.equal(view().queryByLabelText(/^Password/), null)
 })
@@ -273,7 +273,7 @@ test('an unsuccessful response keeps the error visible until the user edits', as
   assert.equal(inputValue(await passwordField()), 'wrong')
 
   await user.type(await passwordField(), 'x')
-  await waitFor(() => assert.equal(view().queryByText('Incorrect vault password'), null))
+  await waitFor(() => assert.ok(!view().queryByText('Incorrect vault password')))
 })
 
 test('on the mobile shell an unlock error clears when the user edits the password', async () => {
@@ -298,7 +298,7 @@ test('on the mobile shell an unlock error clears when the user edits the passwor
   assert.ok(await view().findByText('Incorrect vault password'))
 
   await user.type(await passwordField(), 'x')
-  await waitFor(() => assert.equal(view().queryByText('Incorrect vault password'), null))
+  await waitFor(() => assert.ok(!view().queryByText('Incorrect vault password')))
 })
 
 test('a pending unlock disables duplicate submission', async () => {

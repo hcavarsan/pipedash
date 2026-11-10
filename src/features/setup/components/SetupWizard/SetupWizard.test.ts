@@ -195,7 +195,7 @@ test('a rejected storage check shows an error with retry and a retry recovers', 
 
   backend.prepareFails = false
   await user.click(view().getByRole('button', { name: 'Retry' }))
-  await waitFor(() => assert.equal(view().queryByText("Couldn't check the storage settings"), null))
+  await waitFor(() => assert.ok(!view().queryByText("Couldn't check the storage settings")))
 
   await typeBoth(user, 'longenough1')
   await waitFor(() => assert.equal(continueButton().disabled, false))

@@ -393,6 +393,6 @@ test('a failed settings refetch keeps the loaded cards and offers Retry', async 
 
   settingsFail = false
   await user.click(view().getByRole('button', { name: 'Retry' }))
-  await waitFor(() => assert.equal(view().queryByText(/Couldn't load metrics settings/), null))
+  await waitFor(() => assert.ok(!view().queryByText(/Couldn't load metrics settings/)))
   assert.ok(view().getByRole('button', { name: /Expand .*run duration/ }))
 })

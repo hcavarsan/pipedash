@@ -267,7 +267,7 @@ test('the save error disappears when the user edits a field', async () => {
   await view().findByText(/provider rejected the update/)
 
   await user.type(note, '!')
-  await waitFor(() => assert.equal(view().queryByText(/provider rejected the update/), null))
+  await waitFor(() => assert.ok(!view().queryByText(/provider rejected the update/)))
 })
 
 function renderAdd(onSave: (draft: ProviderDraft) => Promise<void>): { value: boolean } {
