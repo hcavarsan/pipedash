@@ -25,6 +25,7 @@ const available = (): BuildWatchStatus => ({ supported: true, available: true, w
 let status = available()
 let change: ((status: BuildWatchStatus) => void) | undefined
 let gate: PromiseWithResolvers<void> | null = null
+let listenFailure = false
 const commands: string[] = []
 const callbacks = new Map<number, (event: unknown) => void>()
 let next = 0
@@ -40,6 +41,9 @@ Object.assign(window, {
     invoke: async (command: string, args: Record<string, unknown> = {}) => {
       commands.push(command)
       if (command === 'plugin:event|listen') {
+        if (listenFailure) {
+          throw new Error('bridge down')
+        }
         const callback = callbacks.get(Number(args.handler))
         change = (payload) => callback?.({ event: 'build-watch-changed', payload })
         await gate?.promise
@@ -73,6 +77,7 @@ const { MemoryRouter } = await import('react-router-dom')
 const { BuildWatchControls, BuildWatchSection } = await import('./BuildWatchControls')
 const { useBuildWatchLifecycle } = await import('../../queries/useBuildWatchQueries')
 const { queryKeys } = await import('../../lib/queryKeys')
+const { useBuildWatchListenerStore } = await import('../../stores/buildWatchListenerStore')
 let client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
 const view = () => within(document.body)
 
@@ -117,6 +122,8 @@ afterEach(async () => {
   status = available()
   change = undefined
   gate = null
+  listenFailure = false
+  useBuildWatchListenerStore.setState({ error: null })
   callbacks.clear()
 })
 
@@ -174,4 +181,17 @@ test('desktop unavailability uses General settings without invoking mobile app s
   await user.click(view().getByRole('button', { name: 'Open Settings' }))
   assert.equal(commands.includes('native_open_settings'), false)
   assert.equal(commands.includes('start_build_watch'), false)
+})
+
+test('a failed listener registration still reads the status, shows the failure and retries on request', async () => {
+  listenFailure = true
+  const user = userEvent.setup({ document, delay: null })
+  mount()
+
+  assert.ok(await view().findByText("Couldn't follow watch updates"))
+  await waitFor(() => assert.ok(commands.includes('get_build_watch')))
+
+  listenFailure = false
+  await user.click(view().getByRole('button', { name: 'Retry' }))
+  await waitFor(() => assert.equal(view().queryByText("Couldn't follow watch updates"), null))
 })

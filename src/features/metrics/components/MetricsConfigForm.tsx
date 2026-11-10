@@ -2,8 +2,8 @@ import { Button, Group, Stack, Text } from '@mantine/core'
 import { type ReactNode, useActionState, useId, useRef, useState } from 'react'
 import { FormErrorDisplay } from '../../../components/common/FormErrorDisplay'
 import { StandardModal } from '../../../components/common/StandardModal'
-import { useBlurValidation } from '../../../hooks/useBlurValidation'
 import { useMobileShell } from '../../../hooks/useIsMobile'
+import { useNumberDraft } from '../../../hooks/useNumberDraft'
 import { logger } from '../../../lib/logger'
 import { Z } from '../../../theme/zIndex'
 import { openConfirm } from '../../../utils/confirm'
@@ -69,22 +69,23 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
   const [retentionMode, setRetentionMode] = useState<RetentionMode>(
     RETENTION_PRESETS.some((option) => option.value === String(initial.retentionDays)) ? 'preset' : 'custom'
   )
-  const [retentionDraft, setRetentionDraft] = useState<string | number>(initial.retentionDays)
-
-  const draftNow = { enabled, retention: retentionDraft }
-  const validation = useBlurValidation<'retention'>((_key, value) => {
-    if (value.trim() === '') {
-      return 'Enter a number'
-    }
-
-    const days = Number(value)
-
-    return Number.isInteger(days) && days >= 1 ? undefined : 'Must be at least 1'
+  const [committedDays, setCommittedDays] = useState(initial.retentionDays)
+  const retention = useNumberDraft({
+    saved: committedDays,
+    min: 1,
+    save: async (days) => setCommittedDays(days),
   })
+
+  const draftNow = { enabled, retention: retention.value }
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const saveAction = async (): Promise<SaveState> => {
-    if (!validation.validateAll({ retention: String(retentionDraft) })) {
+    retention.commit()
+
+    const retentionDays =
+      typeof retention.value === 'string' && retention.value.trim() === '' ? Number.NaN : Number(retention.value)
+
+    if (!Number.isInteger(retentionDays) || retentionDays < 1) {
       return INITIAL_STATE
     }
 
@@ -95,8 +96,6 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
     }
 
     try {
-      const retentionDays = Number(retentionDraft)
-
       if (pipelineId) {
         await updatePipeline.mutateAsync({ pipelineId, enabled, retentionDays })
       } else {
@@ -128,11 +127,6 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
 
   const [state, formAction, isPending] = useActionState(saveAction, INITIAL_STATE)
 
-  const changeRetention = (value: string | number): void => {
-    setRetentionDraft(value)
-    validation.onChange('retention', String(value))
-  }
-
   const retryDelete = async (): Promise<void> => {
     try {
       await flushMutation.mutateAsync(pipelineId)
@@ -161,7 +155,7 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
 
   const isBusy = isPending || flushMutation.isPending
   const dirty =
-    deleteError === null && (enabled !== baseline.enabled || Number(retentionDraft) !== baseline.retentionDays)
+    deleteError === null && (enabled !== baseline.enabled || Number(retention.value) !== baseline.retentionDays)
   const saveDisabled = flushMutation.isPending || deleteError !== null
 
   const deleteFailure = deleteError && (
@@ -209,13 +203,13 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
             scope={props}
             enabled={enabled}
             onEnabledChange={setEnabled}
-            retentionDraft={retentionDraft}
-            onRetentionChange={changeRetention}
+            retentionDraft={retention.value}
+            onRetentionChange={retention.onChange}
             retentionMode={retentionMode}
             onRetentionModeChange={setRetentionMode}
             disabled={isBusy}
-            retentionError={validation.errors.retention}
-            onRetentionBlur={() => validation.onBlur('retention', String(retentionDraft))}
+            retentionError={retention.error ?? undefined}
+            onRetentionCommit={retention.commit}
           />
           <MetricsStorageSection
             scope={props}

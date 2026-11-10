@@ -111,7 +111,7 @@ function PipelineCard({ pipeline, getProvider, actions, selection, pinned }: Pip
           </UnstyledButton>
           <Group gap="xs" wrap="nowrap" style={{ flexShrink: 0 }}>
             {pinned ? (
-              <StatusIcon status={pipelineStatusKey(pipeline)} label={getPipelineStatusLabel(pipeline)} />
+              <StatusIcon focusable status={pipelineStatusKey(pipeline)} label={getPipelineStatusLabel(pipeline)} />
             ) : (
               <PipelineStatusBadge pipeline={pipeline} provider={provider} />
             )}

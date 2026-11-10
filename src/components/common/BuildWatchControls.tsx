@@ -139,7 +139,7 @@ export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps): ReactN
     return null
   }
   const current = watch.data?.watch
-  if (!current && !watch.isError) {
+  if (!current && !watch.isError && !watch.listenerError) {
     return null
   }
   const state = current
@@ -199,7 +199,7 @@ export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps): ReactN
             >
               <WatchSummary watch={current} state={state} />
             </UnstyledButton>
-            <StatusIcon status={current.status} />
+            <StatusIcon focusable status={current.status} />
           </Group>
           <Group justify="space-between" wrap="nowrap" gap="sm">
             <Text size="xs" c="dimmed" truncate>
@@ -210,13 +210,25 @@ export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps): ReactN
         </Stack>
       </Card>
     ))
-  const recovery = watch.isError && (
-    <ErrorState
-      title="Couldn't refresh watch"
-      error={watch.error}
-      onRetry={() => void watch.refetch()}
-      retrying={watch.isFetching}
-    />
+  const recovery = (
+    <>
+      {watch.isError && (
+        <ErrorState
+          title="Couldn't refresh watch"
+          error={watch.error}
+          onRetry={() => void watch.refetch()}
+          retrying={watch.isFetching}
+        />
+      )}
+      {watch.listenerError && (
+        <ErrorState
+          title="Couldn't follow watch updates"
+          error={watch.listenerError}
+          hint="The watch still refreshes when you return to Pipedash."
+          onRetry={watch.retryListener}
+        />
+      )}
+    </>
   )
 
   const live = (
