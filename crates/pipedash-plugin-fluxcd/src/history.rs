@@ -15,7 +15,10 @@ pub(crate) fn can_archive_run(
 
     run_metadata.get("uid").and_then(Value::as_str) == Some(uid)
         && run_metadata.get("record_source").and_then(Value::as_str) == Some(RECORD_HISTORY)
-        && !matches!(status, PipelineStatus::Running | PipelineStatus::Pending)
+        && !matches!(
+            status,
+            PipelineStatus::Running | PipelineStatus::Pending | PipelineStatus::Degraded
+        )
 }
 
 #[cfg(test)]

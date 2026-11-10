@@ -758,11 +758,26 @@ fn cluster_reply(method: &str, target: &str) -> (&'static str, String) {
     if let Some(name) = path.strip_prefix(&format!("{APPS_API}/namespaces/argocd/applications/")) {
         return match name {
             "web" => ok(cluster_app("web", "https://kubernetes.default.svc")),
-            "remote" => ok(cluster_app("remote", "https://prod.example.com")),
+            "remote" => {
+                let mut app = cluster_app("remote", "https://prod.example.com");
+                app["status"]["resources"] = serde_json::json!([
+                    {"group": "apps", "kind": "Deployment", "namespace": "web", "name": "api"},
+                    {"group": "", "kind": "Pod", "namespace": "web", "name": "bare"}
+                ]);
+                ok(app)
+            }
             "idle" => ok(plain_app("idle", serde_json::json!({}))),
             "busy" => ok(plain_app(
                 "busy",
                 serde_json::json!({"operation": {"sync": {}}}),
+            )),
+            "stuck" => ok(plain_app(
+                "stuck",
+                serde_json::json!({"status": {
+                    "sync": {"status": "Synced"}, "health": {"status": "Progressing"},
+                    "operationState": {"phase": "Succeeded", "startedAt": "2026-10-27T10:00:00Z"},
+                    "resources": [{"group": "apps", "kind": "Deployment", "namespace": "shop", "name": "cart"}],
+                }}),
             )),
             _ => cluster_missing(),
         };
@@ -790,6 +805,19 @@ fn cluster_reply(method: &str, target: &str) -> (&'static str, String) {
                 "ownerReferences": [{"kind": "Deployment", "name": "api"}]}},
         ]})),
         "/apis/batch/v1/namespaces/web/jobs" => ok(serde_json::json!({"items": []})),
+        "/api/v1/namespaces/shop/pods" => ok(serde_json::json!({"items": [
+            {"metadata": {"name": "cart-5c-x", "namespace": "shop", "uid": "u3",
+                "ownerReferences": [{"kind": "ReplicaSet", "name": "cart-5c"}]},
+                "spec": {"containers": [{"name": "app"}]},
+                "status": {"phase": "Pending", "containerStatuses": [
+                    {"name": "app", "ready": false, "restartCount": 0,
+                        "state": {"waiting": {"reason": "ImagePullBackOff"}}}]}},
+        ]})),
+        "/apis/apps/v1/namespaces/shop/replicasets" => ok(serde_json::json!({"items": [
+            {"metadata": {"name": "cart-5c", "namespace": "shop",
+                "ownerReferences": [{"kind": "Deployment", "name": "cart"}]}},
+        ]})),
+        "/apis/batch/v1/namespaces/shop/jobs" => ok(serde_json::json!({"items": []})),
         "/api/v1/namespaces/web/pods/api-7f-a/log" => (
             "200 OK",
             "2026-10-27T10:05:01.5Z first line\n2026-10-27T10:05:02Z second line\n".to_string(),
@@ -1052,4 +1080,18 @@ async fn kubernetes_pod_log_is_written_one_line_per_log_line() {
             line(LineMarker::Plain, "second line"),
         ]
     );
+}
+
+#[tokio::test]
+async fn kubernetes_sync_that_left_a_pod_unable_to_start_is_degraded() {
+    let (plugin, _) = cluster_plugin(&[]).await;
+
+    let runs = plugin.fetch_run_history("argocd__stuck", 5).await.unwrap();
+    let details = plugin
+        .fetch_run_details("argocd__stuck", runs[0].run_number)
+        .await
+        .unwrap();
+
+    assert_eq!(runs[0].status, PipelineStatus::Degraded);
+    assert_eq!(details.status, PipelineStatus::Degraded);
 }

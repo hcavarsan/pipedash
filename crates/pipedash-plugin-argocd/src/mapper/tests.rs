@@ -47,12 +47,55 @@ fn current_operation_replaces_its_own_history_entry() {
             "startedAt":"2026-10-20T11:00:00Z","finishedAt":"2026-10-20T11:00:30Z"}"#,
     );
 
-    let ids: Vec<_> = map_runs(&app, "https://argocd.acme.dev", 10)
+    let ids: Vec<_> = map_runs(&app, "https://argocd.acme.dev", 10, PipelineStatus::Success)
         .into_iter()
         .map(|run| run.id)
         .collect();
 
     assert_eq!(ids, ["argocd-sync-web-current", "argocd-sync-web-1"]);
+}
+
+#[test]
+fn only_the_latest_successful_sync_follows_the_live_health() {
+    let spec = r#"{"source":{"repoURL":"https://github.com/acme/web"},"destination":{"namespace":"web"},"project":"default"}"#;
+    let history = r#""history":[
+        {"deployedAt":"2026-10-20T10:00:30Z","deployStartedAt":"2026-10-20T10:00:00Z","id":1,"revision":"abc"},
+        {"deployedAt":"2026-10-20T11:00:30Z","deployStartedAt":"2026-10-20T11:00:00Z","id":2,"revision":"def"}]"#;
+    let operation = |phase: &str| {
+        format!(
+            r#",{history},"operationState":{{"phase":"{phase}","startedAt":"2026-10-20T11:00:00Z"}}"#
+        )
+    };
+    let statuses = |status_extra: &str, live| {
+        map_runs(&app(spec, status_extra), "", 10, live)
+            .into_iter()
+            .map(|run| run.status)
+            .collect::<Vec<_>>()
+    };
+    use PipelineStatus::{
+        Degraded,
+        Failed,
+        Running,
+        Success,
+    };
+
+    assert_eq!(
+        statuses(&operation("Succeeded"), Degraded),
+        [Degraded, Success]
+    );
+    assert_eq!(
+        statuses(&operation("Succeeded"), Failed),
+        [Degraded, Success]
+    );
+    assert_eq!(
+        statuses(&operation("Succeeded"), Running),
+        [Success, Success]
+    );
+    assert_eq!(statuses(&operation("Failed"), Degraded), [Failed, Success]);
+    assert_eq!(
+        statuses(&format!(",{history}"), Degraded),
+        [Degraded, Success]
+    );
 }
 
 #[test]

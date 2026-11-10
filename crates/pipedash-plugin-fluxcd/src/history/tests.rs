@@ -91,15 +91,15 @@ fn can_archive_run_should_reject_entries_that_are_not_status_history() {
 }
 
 #[test]
-fn can_archive_run_should_reject_running_and_pending_entries() {
-    assert!(!can_archive_run(
-        &pipeline(),
-        &run(),
-        PipelineStatus::Running
-    ));
-    assert!(!can_archive_run(
-        &pipeline(),
-        &run(),
-        PipelineStatus::Pending
-    ));
+fn can_archive_run_should_reject_entries_whose_state_can_still_change() {
+    for unsettled in [
+        PipelineStatus::Running,
+        PipelineStatus::Pending,
+        PipelineStatus::Degraded,
+    ] {
+        assert!(
+            !can_archive_run(&pipeline(), &run(), unsettled),
+            "{unsettled:?}"
+        );
+    }
 }

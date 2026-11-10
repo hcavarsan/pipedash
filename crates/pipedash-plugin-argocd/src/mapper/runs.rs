@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use pipedash_plugin_api::utils::duration_seconds;
+use pipedash_plugin_api::utils::{
+    deployed_status,
+    duration_seconds,
+};
 use pipedash_plugin_api::{
     PipelineRun,
     PipelineStatus,
@@ -80,8 +83,26 @@ pub(crate) fn map_history_to_run(
     }
 }
 
+fn latest_run_number(app: &types::Application) -> Option<i64> {
+    let operation = app.status.operation_state.as_ref();
+    operation
+        .map(|operation| operation.started_at.timestamp())
+        .or_else(|| {
+            let history = app.status.history.iter().flatten();
+            history.map(|entry| entry.deployed_at.timestamp()).max()
+        })
+}
+
+pub(crate) fn reflect_live_state(
+    app: &types::Application, live: PipelineStatus, run: &mut PipelineRun,
+) {
+    if latest_run_number(app) == Some(run.run_number) {
+        run.status = deployed_status(run.status, live);
+    }
+}
+
 pub(crate) fn map_runs(
-    app: &types::Application, server_url: &str, limit: usize,
+    app: &types::Application, server_url: &str, limit: usize, live: PipelineStatus,
 ) -> Vec<PipelineRun> {
     let operation = map_operation_to_run(app, server_url);
     let operation_started = app.status.operation_state.as_ref().map(|op| op.started_at);
@@ -94,8 +115,12 @@ pub(crate) fn map_runs(
         .filter(|entry| operation_started.is_none() || entry.deploy_started_at != operation_started)
         .take(limit)
         .map(|entry| map_history_to_run(entry, app, server_url));
+    let mut runs: Vec<PipelineRun> = operation.into_iter().chain(history).collect();
+    for run in &mut runs {
+        reflect_live_state(app, live, run);
+    }
 
-    operation.into_iter().chain(history).collect()
+    runs
 }
 
 pub(crate) fn map_operation_to_run(

@@ -203,6 +203,28 @@ fn conclusion_mapping_uses_supplied_lists() {
 }
 
 #[test]
+fn a_successful_deploy_is_degraded_while_what_it_deployed_is_unhealthy() {
+    use PipelineStatus::{
+        Cancelled,
+        Degraded,
+        Failed,
+        Pending,
+        Running,
+        Success,
+    };
+
+    for live in [Degraded, Failed] {
+        assert_eq!(deployed_status(Success, live), Degraded, "{live:?}");
+    }
+    for live in [Success, Running, Pending, Cancelled] {
+        assert_eq!(deployed_status(Success, live), Success, "{live:?}");
+    }
+    for result in [Failed, Running, Pending, Cancelled] {
+        assert_eq!(deployed_status(result, Degraded), result, "{result:?}");
+    }
+}
+
+#[test]
 fn durations_are_signed_and_optional() {
     let a = parse_timestamp("2026-01-01T00:00:10Z");
     let b = parse_timestamp("2026-01-01T00:00:00Z");

@@ -194,7 +194,7 @@ fn only_the_in_cluster_destination_has_pods() {
 }
 
 #[test]
-fn tree_lists_managed_resources_and_adds_pods_it_does_not_know() {
+fn tree_reports_the_live_health_of_every_fetched_pod() {
     let app: Application = serde_json::from_value(json!({
         "metadata": {"name": "web"},
         "spec": {"destination": {}, "project": "default"},
@@ -228,7 +228,7 @@ fn tree_lists_managed_resources_and_adds_pods_it_does_not_know() {
         summary,
         [
             ("apps", "Deployment", "api", Some("Progressing")),
-            ("", "Pod", "lonely", Some("Healthy")),
+            ("", "Pod", "lonely", Some("Unknown")),
             ("", "Pod", "api-7f-a", Some("Unknown")),
         ]
     );

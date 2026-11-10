@@ -27,6 +27,7 @@ impl CoolifyPlugin {
                 .client()?
                 .find_deployment(app_uuid, run.run_number)
                 .await?
+                .0
                 .deployment_uuid),
         }
     }

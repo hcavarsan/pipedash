@@ -131,24 +131,35 @@ pub(crate) fn tree(app: &Application, pods: &[Pod]) -> ApplicationTree {
     let listed = nodes.len();
     for pod in pods {
         let (namespace, name) = (&pod.metadata.namespace, &pod.metadata.name);
-        let known = nodes[..listed].iter().any(|node| {
+        let health = Some(pod_health(pod));
+        let known = nodes[..listed].iter_mut().find(|node| {
             node.kind == "Pod"
                 && node.group.is_empty()
                 && node.namespace == *namespace
                 && node.name == *name
         });
-        if !known {
-            nodes.push(ResourceNode {
+        match known {
+            Some(node) => node.health = health,
+            None => nodes.push(ResourceNode {
                 group: String::new(),
                 kind: "Pod".to_string(),
                 namespace: namespace.clone(),
                 name: name.clone(),
-                health: Some(pod_health(pod)),
+                health,
                 info: Vec::new(),
-            });
+            }),
         }
     }
     ApplicationTree { nodes }
+}
+
+pub(crate) fn log_tree(app: &Application, pods: &[Pod]) -> ApplicationTree {
+    let mut tree = tree(app, pods);
+    if !in_cluster(&app.spec.destination) {
+        tree.nodes
+            .retain(|node| node.kind != "Pod" || !node.group.is_empty());
+    }
+    tree
 }
 
 #[cfg(test)]

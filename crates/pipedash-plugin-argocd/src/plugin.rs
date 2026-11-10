@@ -241,7 +241,11 @@ plugin_impl!(ArgocdPlugin [
 
         let app = client.get_application(&namespace, &app_name).await?;
 
-        Ok(mapper::runs::map_runs(&app, server_url, limit))
+        let live = Self::pipeline_with_live_state(client, &app, server_url)
+            .await
+            .status;
+
+        Ok(mapper::runs::map_runs(&app, server_url, limit, live))
     }
 
     async fn fetch_run_details(
@@ -253,25 +257,27 @@ plugin_impl!(ArgocdPlugin [
 
         let app = client.get_application(&namespace, &app_name).await?;
 
-        if let Some(operation) = mapper::runs::map_operation_to_run(&app, server_url) {
-            if operation.run_number == run_number {
-                return Ok(operation);
-            }
-        }
+        let operation = mapper::runs::map_operation_to_run(&app, server_url)
+            .filter(|operation| operation.run_number == run_number);
+        let mut run = match operation {
+            Some(run) => run,
+            None => app
+                .status
+                .history
+                .iter()
+                .flatten()
+                .find(|entry| entry.deployed_at.timestamp() == run_number)
+                .map(|entry| mapper::runs::map_history_to_run(entry, &app, server_url))
+                .ok_or_else(|| {
+                    PluginError::PipelineNotFound(format!("Run {} not found", run_number))
+                })?,
+        };
+        let live = Self::pipeline_with_live_state(client, &app, server_url)
+            .await
+            .status;
+        mapper::runs::reflect_live_state(&app, live, &mut run);
 
-        let history = app.status.history.as_deref().unwrap_or(&[]);
-        let history_item = history
-            .iter()
-            .find(|h| h.deployed_at.timestamp() == run_number)
-            .ok_or_else(|| {
-                PluginError::PipelineNotFound(format!("Run {} not found", run_number))
-            })?;
-
-        Ok(mapper::runs::map_history_to_run(
-            history_item,
-            &app,
-            server_url,
-        ))
+        Ok(run)
     }
 
     fn log_dialect(&self) -> &'static dyn LogDialect {

@@ -488,6 +488,26 @@ async fn run_history_pages_until_the_limit_or_a_short_page() {
 }
 
 #[tokio::test]
+async fn the_newest_finished_deployment_is_degraded_while_the_application_is_unhealthy() {
+    let stub = stub(&[]).await;
+
+    let runs = stub.plugin.fetch_run_history("app-api", 2).await.unwrap();
+    let newest = stub.plugin.fetch_run_details("app-api", API_NEWEST).await;
+    let older = stub
+        .plugin
+        .fetch_run_details("app-api", API_NEWEST - 1)
+        .await;
+
+    let statuses: Vec<_> = runs.iter().map(|run| run.status).collect();
+    assert_eq!(
+        statuses,
+        [PipelineStatus::Degraded, PipelineStatus::Success]
+    );
+    assert_eq!(newest.unwrap().status, PipelineStatus::Degraded);
+    assert_eq!(older.unwrap().status, PipelineStatus::Success);
+}
+
+#[tokio::test]
 async fn run_details_page_until_the_id_and_stop_once_ids_are_older() {
     let stub = stub(&[]).await;
 
