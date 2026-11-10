@@ -198,7 +198,7 @@ async fn a_pipeline_that_passes_again_is_recorded_once_as_a_recovery_with_its_fi
 
     assert_eq!(stored.len(), 1);
     assert_eq!(stored[0].kind, AlertKind::Recovered);
-    assert_eq!(stored[0].title, "api passed again");
+    assert_eq!(stored[0].title, "api passed again · acme/app");
     assert_eq!(stored[0].pipeline_id.as_deref(), Some("stub__1__api"));
     assert!(stored[0].finish.is_some());
 }
@@ -252,7 +252,7 @@ async fn a_finished_run_is_recorded_only_while_a_device_watches_it() {
 
     assert_eq!(stored.len(), 1);
     assert_eq!(stored[0].kind, AlertKind::Finished);
-    assert_eq!(stored[0].title, "api succeeded");
+    assert_eq!(stored[0].title, "api succeeded · acme/app");
     assert!(stored[0].finish.is_some());
 }
 

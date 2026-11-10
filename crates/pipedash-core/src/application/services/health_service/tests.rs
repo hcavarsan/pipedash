@@ -885,7 +885,7 @@ async fn alert_links_follow_what_the_alert_is_about() {
             kind: AlertLinkKind::Incident,
         })
     );
-    assert_eq!(alerts[0].title, "Incident inc1");
+    assert_eq!(alerts[0].title, "Example: Incident inc1");
     assert_eq!(
         alerts[1].link,
         Some(AlertLink {

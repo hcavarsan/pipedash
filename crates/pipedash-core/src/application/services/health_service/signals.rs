@@ -119,15 +119,15 @@ pub(super) fn source_title(source: &StatusSource, level: HealthLevel) -> String 
     format!("{} reports {}", source.name, level_label(level))
 }
 
-pub(super) fn component_title(component: &ComponentHealth) -> String {
-    format!(
-        "{}: {}",
-        component.name,
-        component
-            .detail
-            .as_deref()
-            .unwrap_or_else(|| level_label(component.level))
-    )
+pub(super) fn component_state(component: &ComponentHealth) -> &str {
+    component
+        .detail
+        .as_deref()
+        .unwrap_or_else(|| level_label(component.level))
+}
+
+fn component_title(component: &ComponentHealth) -> String {
+    format!("{}: {}", component.name, component_state(component))
 }
 
 pub(super) fn status_page(

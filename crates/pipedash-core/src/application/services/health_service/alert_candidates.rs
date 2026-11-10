@@ -10,7 +10,7 @@ use super::alerts::{
     CALM_CHECKS,
 };
 use super::signals::{
-    component_title,
+    component_state,
     connection,
     https_url,
     level_label,
@@ -51,7 +51,7 @@ pub(super) fn feed_candidates(
             key: format!("incident:{}", incident.id),
             draft: Draft {
                 level: incident.level,
-                title: incident.name.clone(),
+                title: format!("{}: {}", source.name, incident.name),
                 body: incident
                     .latest_update
                     .clone()
@@ -138,8 +138,12 @@ pub(super) fn instance_candidates(
             key: format!("component:{}", component.name),
             draft: Draft {
                 level: component.level,
-                title: component_title(component),
-                body: format!("Reported by the controller health check of {display_name}."),
+                title: format!(
+                    "{} on {display_name}: {}",
+                    component.name,
+                    component_state(component)
+                ),
+                body: "Reported by the controller health check.".to_owned(),
                 link: None,
             },
             provider_ids: vec![provider_id],

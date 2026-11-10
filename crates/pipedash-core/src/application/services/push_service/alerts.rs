@@ -4,6 +4,7 @@ use super::{
     fan_out,
     PushService,
 };
+use crate::domain::pipeline::notice_title;
 use crate::domain::{
     DomainResult,
     Pipeline,
@@ -13,8 +14,7 @@ use crate::domain::{
 
 const RUN_LOOKUP_TIMEOUT: Duration = Duration::from_secs(10);
 const RUN_LOOKUP_LIMIT: usize = 3;
-const FAILED_SUFFIX: &str = " failed";
-const DEGRADED_SUFFIX: &str = " is degraded";
+const MAX_REPOSITORY_CHARS: usize = 48;
 pub(super) const MAX_TITLE_CHARS: usize = 120;
 pub(super) const MAX_BODY_CHARS: usize = 400;
 
@@ -57,16 +57,19 @@ pub(super) fn failure_alert(
     .flatten()
     .collect::<Vec<_>>()
     .join(" · ");
-    let suffix = match pipeline.status {
-        PipelineStatus::Degraded => DEGRADED_SUFFIX,
-        _ => FAILED_SUFFIX,
+    let event = match pipeline.status {
+        PipelineStatus::Degraded => "is degraded",
+        _ => "failed",
     };
+    let tail = notice_title(
+        "",
+        event,
+        &truncate(&pipeline.repository, MAX_REPOSITORY_CHARS),
+    );
+    let name = truncate(&pipeline.name, MAX_TITLE_CHARS - tail.chars().count());
 
     PushAlert {
-        title: format!(
-            "{}{suffix}",
-            truncate(&pipeline.name, MAX_TITLE_CHARS - suffix.len())
-        ),
+        title: format!("{name}{tail}"),
         body: truncate(&details, MAX_BODY_CHARS),
         thread_id: Some(pipeline.id.clone()),
         pipeline_id: Some(pipeline.id.clone()),

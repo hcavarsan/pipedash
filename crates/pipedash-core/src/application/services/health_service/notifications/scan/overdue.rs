@@ -161,7 +161,7 @@ impl NotificationState {
             if known && changed {
                 found.push(self.pipeline_notice(
                     &pipeline,
-                    format!("{} is running longer than usual", pipeline.name),
+                    "is running longer than usual",
                     AlertKind::LongRun,
                 ));
             }
