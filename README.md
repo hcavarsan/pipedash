@@ -93,6 +93,23 @@ It runs as a desktop app, as a self-hosted web server in Docker or as an iOS and
   <img src="./.github/diagrams/how-it-works.png" alt="How Pipedash works: it reads status and logs from the CI/CD providers, sends run and cancel actions back to them, and shows everything on desktop, web and mobile" width="100%" />
 </p>
 
+## Features
+
+<div align="center">
+<table>
+  <tr>
+    <td align="center" valign="top" width="270"><img src="./.github/icons/monitor.svg" width="32" height="32" alt="" /><br><b>Monitor</b><br><sub><a href="https://pipedash.app/docs/features/dashboard">Status across providers</a><br><a href="https://pipedash.app/docs/features/dashboard">Pinned and hidden workflows</a><br><a href="https://pipedash.app/docs/features/views">Nested views with rules</a></sub></td>
+    <td align="center" valign="top" width="270"><img src="./.github/icons/investigate.svg" width="32" height="32" alt="" /><br><b>Investigate</b><br><sub><a href="https://pipedash.app/docs/features/run-history">Run history</a><br><a href="https://pipedash.app/docs/features/metrics">Build metrics</a><br><a href="https://pipedash.app/docs/features/run-logs">Searchable job logs</a><br><a href="https://pipedash.app/docs/providers/argocd">ArgoCD sync results and pod logs</a></sub></td>
+    <td align="center" valign="top" width="270"><img src="./.github/icons/act.svg" width="32" height="32" alt="" /><br><b>Act</b><br><sub><a href="https://pipedash.app/docs/features/trigger-and-cancel">Trigger with inputs</a><br><a href="https://pipedash.app/docs/features/run-history">Rerun, cancel and approve deployments</a><br><a href="https://pipedash.app/docs/features/trigger-and-cancel#force-cancel-on-github">Force cancel stuck GitHub runs</a><br><a href="https://pipedash.app/docs/providers/github-actions#disabled-workflows">Re-enable disabled GitHub workflows</a></sub></td>
+  </tr>
+  <tr>
+    <td align="center" valign="top" width="270"><img src="./.github/icons/notify.svg" width="32" height="32" alt="" /><br><b>Notify</b><br><sub><a href="https://pipedash.app/docs/features/notifications">Alerts, mutes and watches per device</a><br><a href="https://pipedash.app/docs/features/notifications">Background alerts on phones</a><br><a href="https://pipedash.app/docs/features/notifications">Push alerts on iPhone and iPad</a></sub></td>
+    <td align="center" valign="top" width="270"><img src="./.github/icons/connect.svg" width="32" height="32" alt="" /><br><b>Connect</b><br><sub><a href="https://pipedash.app/docs/deployment/server-mode">Server mode for phones and computers</a><br>OIDC sign-in for <a href="https://pipedash.app/docs/providers/argocd">ArgoCD</a> and <a href="https://pipedash.app/docs/providers/prow">Prow</a><br><a href="https://pipedash.app/docs/providers/prow">Public Prow Deck, read-only</a></sub></td>
+    <td align="center" valign="top" width="270"><img src="./.github/icons/secure.svg" width="32" height="32" alt="" /><br><b>Secure</b><br><sub>Tokens in the system keyring<br>or an AES-256-GCM encrypted database<br>No analytics or telemetry</sub></td>
+  </tr>
+</table>
+</div>
+
 ## Supported providers
 
 <div align="center">
@@ -121,54 +138,14 @@ It runs as a desktop app, as a self-hosted web server in Docker or as an iOS and
 </table>
 </div>
 
-## Features
-
-- See pipeline status across providers and pin or hide workflows in the [dashboard](https://pipedash.app/docs/features/dashboard).
-- Organize pipelines into nested views with rules, layouts and bulk actions in the [views guide](https://pipedash.app/docs/features/views).
-- Browse [run history](https://pipedash.app/docs/features/run-history) and track [build metrics](https://pipedash.app/docs/features/metrics) per pipeline. Metrics refreshes advance the selected time range to include runs that finish after you open the page.
-- Read, search and download [job logs](https://pipedash.app/docs/features/run-logs) without leaving Pipedash.
-- Open an ArgoCD sync to read its per-resource results, the app's recent events and the last 1000 lines of each pod container. A restarted container also shows its previous attempt. Pod logs need the `logs, get` permission in ArgoCD RBAC.
-- Sign in to ArgoCD through bundled Dex or an external OIDC provider instead of pasting a token. A Prow Deck can use any OpenID Connect provider. Pipedash renews the session before it expires and asks you to sign in again when the identity provider ends it. The self-hosted web app asks you to paste the address of the page the browser opens after sign-in.
-- Monitor a public Prow Deck without credentials through its [read-only connection](https://pipedash.app/docs/providers/prow).
-- Trigger workflows with provider inputs, clear CircleCI string defaults or rerun past runs through the [trigger guide](https://pipedash.app/docs/features/trigger-and-cancel).
-- Cancel runs, approve GitHub deployment reviews and rerun failed jobs through the [run history guide](https://pipedash.app/docs/features/run-history).
-- Force cancel stuck GitHub runs through the [trigger guide](https://pipedash.app/docs/features/trigger-and-cancel#force-cancel-on-github).
-- See why GitHub disabled a workflow and enable it again with the [GitHub Actions guide](https://pipedash.app/docs/providers/github-actions#disabled-workflows).
-- Choose per-device alerts, mutes and pipeline watches in the [notifications guide](https://pipedash.app/docs/features/notifications).
-- Connect phones and computers to a server or sharing desktop through [Server mode](https://pipedash.app/docs/deployment/server-mode).
-- Get background alerts on phones and push alerts on iPhone and iPad through the [notifications guide](https://pipedash.app/docs/features/notifications).
-- Keep provider tokens in the system keyring or in a database encrypted with AES-256-GCM. Pipedash sends no analytics or telemetry.
-
 ## Get started
 
-Download the [desktop app](https://pipedash.app/downloads), install the [iOS app](https://apps.apple.com/br/app/pipedash-ci-cd-monitoring/id6757285870?l=en-GB), join the [Android beta](https://pipedash.app/android) or run the [Docker image](https://pipedash.app/docs/deployment/docker). The [quick start](https://pipedash.app/docs/getting-started/quick-start) walks through your first provider.
-
-To install the self-hosted web app on iPhone, open it in Safari and choose Share > Add to Home Screen. Keep "Open as Web App" enabled when available. Its manifest covers the deployment base path and starts the app at that root. After deploying changes to scope, status-bar settings or icon artwork, add a new Home Screen icon to avoid cached installation metadata.
-
-Move storage with retained run history and metrics from Settings or the config editor on desktop and web with the [storage guide](https://pipedash.app/docs/configuration/storage-backends).
-
-Clear cached run history in Settings with the controls in the [cache guide](https://pipedash.app/docs/features/cache).
-
-- [Configuration](https://pipedash.app/docs/configuration): `config.toml`, environment variables, secrets and provider refresh intervals that take effect during startup.
-- [Storage and tokens](https://pipedash.app/docs/configuration/storage-backends): SQLite, PostgreSQL and token encryption.
-- [REST API](https://pipedash.app/docs/deployment/rest-api): routes, authentication and WebSocket events.
-- [Architecture](https://pipedash.app/docs/resources/architecture): crates, refresh loop and plugin system.
-- [Security](https://pipedash.app/docs/resources/security): encryption, API authentication and vulnerability reports.
-- [Releases](https://github.com/hcavarsan/pipedash/releases): changes and release assets.
-
-## Desktop menu and background monitoring
-
-In Settings > General, turn on "Show in menu bar" on macOS or "Show in system tray" on Windows and Linux. The menu shows the first 8 pinned pipelines, an overflow link and your pinned views and repositories. It uses the same pins as the main window.
-
-Background mode is a separate opt-in. On macOS and Windows, closing the window hides it while monitoring continues. On Linux, closing minimizes the window so it stays accessible without a tray host. Your desktop may need an indicator extension. Use "Quit Pipedash" to stop the app.
-
-Choose a run from its history to watch that exact run. Pipedash watches 1 run at a time, with or without the tray. Stopping a watch does not cancel the provider's run. The native menu has shortcuts to the watched run, refresh, settings and vault locking.
-
-Turn on system notifications in Settings > Notifications. Desktop alerts and watch completion notices work without a visible window. The notification center keeps the latest 50 notices for the current session, including notices received while system notifications are off. Locking, changing storage, resetting or quitting clears that history. A watched failure and a general pipeline failure are separate notices.
-
-See alerts missed during a server disconnection in the desktop [notification center](https://pipedash.app/docs/features/notifications) after reconnecting.
-
-The operating system decides whether to display an alert. Do Not Disturb may suppress it. On Windows, install Pipedash for its notification identity. Open a Windows notification while its toast is visible. Action Center cannot reopen Pipedash after that toast disappears, so the app and native menu remain the navigation paths.
+- **Install** the [desktop app](https://pipedash.app/downloads), the [iOS app](https://apps.apple.com/br/app/pipedash-ci-cd-monitoring/id6757285870?l=en-GB), the [Android beta](https://pipedash.app/android) or the [Docker image](https://pipedash.app/docs/deployment/docker).
+- **Add a provider** with the [quick start](https://pipedash.app/docs/getting-started/quick-start).
+- **Configure** [settings](https://pipedash.app/docs/configuration), [storage and tokens](https://pipedash.app/docs/configuration/storage-backends) and the [cache](https://pipedash.app/docs/features/cache).
+- **Keep it running** with the [desktop menu and background mode](https://pipedash.app/docs/deployment/desktop) and [notifications](https://pipedash.app/docs/features/notifications).
+- **Self-host** with [Server mode](https://pipedash.app/docs/deployment/server-mode), a [reverse proxy](https://pipedash.app/docs/deployment/reverse-proxy) and the [REST API](https://pipedash.app/docs/deployment/rest-api).
+- **Read more** about the [architecture](https://pipedash.app/docs/resources/architecture), [security](https://pipedash.app/docs/resources/security) and [releases](https://github.com/hcavarsan/pipedash/releases).
 
 ## Contributing
 
