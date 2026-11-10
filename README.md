@@ -2,7 +2,7 @@
   <br>
   <img src="./app-icon.png" width="102px" alt="Pipedash logo" />
   <h3>Pipedash</h3>
-  <p>One dashboard for the CI/CD pipelines of every provider you use.</p>
+  <p>One dashboard for CI/CD pipelines across providers.</p>
   <a href="https://pipedash.app">Website</a> | <a href="https://demo.pipedash.app">Live Demo</a> | <a href="https://pipedash.app/downloads">Downloads</a> | <a href="https://pipedash.app/docs">Docs</a>
   <br><br>
   <a href="https://trendshift.io/repositories/17107?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-17107" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/17107/daily?language=Rust" alt="hcavarsan%2Fpipedash | Trendshift" width="250" height="55"/></a>
@@ -67,7 +67,7 @@
 
 ## About
 
-Pipedash shows the pipelines of all your CI/CD providers in one table, so you stop switching between dashboards to find the build that failed. It polls each provider with the token or kubeconfig you add and caches the results. From the same table you open, trigger, rerun and cancel runs.
+Pipedash shows pipelines from the supported CI/CD providers in one table, so finding a failed build no longer means switching between dashboards. It polls each provider with a token or kubeconfig and caches the results. The same table opens, triggers, reruns and cancels runs.
 
 It runs as a desktop app, as a self-hosted web server in Docker or as an iOS and Android app. All of them share one Rust core.
 
