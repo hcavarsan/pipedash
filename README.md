@@ -72,20 +72,24 @@ It runs as a desktop app, as a self-hosted web server in Docker or as an iOS and
 <div align="center">
 <table>
   <tr>
-    <td align="center" width="150"><img src="./.github/icons/monitor.svg" width="32" height="32" alt="" /><br><b>Monitor</b></td>
-    <td width="600">See the status of every pipeline in one place.<br><a href="https://pipedash.app/docs/features/dashboard">Dashboard</a> · <a href="https://pipedash.app/docs/features/views">Views</a> · <a href="https://pipedash.app/docs/features/provider-health">Provider health</a> · <a href="https://pipedash.app/docs/features/refresh">Refresh</a></td>
+    <td align="center" width="120"><img src="./.github/icons/monitor.svg" width="32" height="32" alt="" /><br><b>Monitor</b></td>
+    <td width="420">See the status of every pipeline in one place.</td>
+    <td width="264"><a href="https://pipedash.app/docs/features/dashboard">Dashboard</a><br><a href="https://pipedash.app/docs/features/views">Views</a><br><a href="https://pipedash.app/docs/features/provider-health">Provider health</a><br><a href="https://pipedash.app/docs/features/refresh">Refresh</a></td>
   </tr>
   <tr>
-    <td align="center" width="150"><img src="./.github/icons/investigate.svg" width="32" height="32" alt="" /><br><b>Investigate</b></td>
-    <td width="600">Find out why a run failed.<br><a href="https://pipedash.app/docs/features/run-history">Run history</a> · <a href="https://pipedash.app/docs/features/run-logs">Run logs</a> · <a href="https://pipedash.app/docs/features/metrics">Metrics</a></td>
+    <td align="center" width="120"><img src="./.github/icons/investigate.svg" width="32" height="32" alt="" /><br><b>Investigate</b></td>
+    <td width="420">Find out why a run failed.</td>
+    <td width="264"><a href="https://pipedash.app/docs/features/run-history">Run history</a><br><a href="https://pipedash.app/docs/features/run-logs">Run logs</a><br><a href="https://pipedash.app/docs/features/metrics">Metrics</a></td>
   </tr>
   <tr>
-    <td align="center" width="150"><img src="./.github/icons/act.svg" width="32" height="32" alt="" /><br><b>Act</b></td>
-    <td width="600">Start a workflow with inputs or stop a run.<br><a href="https://pipedash.app/docs/features/trigger-and-cancel">Trigger and cancel</a></td>
+    <td align="center" width="120"><img src="./.github/icons/act.svg" width="32" height="32" alt="" /><br><b>Act</b></td>
+    <td width="420">Start a workflow with inputs or stop a run.</td>
+    <td width="264"><a href="https://pipedash.app/docs/features/trigger-and-cancel">Trigger and cancel</a></td>
   </tr>
   <tr>
-    <td align="center" width="150"><img src="./.github/icons/notify.svg" width="32" height="32" alt="" /><br><b>Notify</b></td>
-    <td width="600">Get an alert when a pipeline fails or recovers.<br><a href="https://pipedash.app/docs/features/notifications">Notifications</a></td>
+    <td align="center" width="120"><img src="./.github/icons/notify.svg" width="32" height="32" alt="" /><br><b>Notify</b></td>
+    <td width="420">Get an alert when a pipeline fails or recovers.</td>
+    <td width="264"><a href="https://pipedash.app/docs/features/notifications">Notifications</a></td>
   </tr>
 </table>
 </div>
