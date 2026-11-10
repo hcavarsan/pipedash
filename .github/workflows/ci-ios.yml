@@ -1,9 +1,24 @@
-name: iOS check
+name: CI / iOS
+
 on:
   pull_request:
     paths:
       - ".github/actions/setup-ios/**"
-      - ".github/workflows/ios-check.yml"
+      - ".github/workflows/ci-ios.yml"
+      - "crates/**"
+      - "src/**"
+      - "ios/**"
+      - "index.html"
+      - "package.json"
+      - "bun.lock"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/actions/setup-ios/**"
+      - ".github/workflows/ci-ios.yml"
       - "crates/**"
       - "src/**"
       - "ios/**"
@@ -24,8 +39,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  app-store-checks:
-    name: Unsigned IPA and App Store checks
+  store-checks:
+    name: Build / Unsigned IPA and App Store checks
+    if: ${{ github.event_name != 'push' }}
     runs-on: macos-26
     timeout-minutes: 40
     permissions:
@@ -53,7 +69,8 @@ jobs:
         run: bundle exec fastlane ios check
 
   simulator:
-    name: Launch on iPhone and iPad simulators
+    name: Smoke / iPhone and iPad simulators
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: macos-26
     timeout-minutes: 40
     permissions:

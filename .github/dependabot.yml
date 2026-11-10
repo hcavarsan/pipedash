@@ -4,7 +4,9 @@ updates:
     directories:
       - /
       - /.github/actions/setup-android
+      - /.github/actions/setup-frontend
       - /.github/actions/setup-ios
+      - /.github/actions/setup-rust
     schedule:
       interval: weekly
     cooldown:

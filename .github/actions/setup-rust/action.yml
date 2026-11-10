@@ -1,0 +1,54 @@
+name: Set up Rust
+description: Install the pinned Rust toolchain, the Linux desktop libraries and a shared build cache.
+inputs:
+  cache-key:
+    description: Cache name shared by jobs that build the same way
+    required: true
+  desktop-libs:
+    description: Install the Linux libraries the desktop crates link against
+    required: false
+    default: "true"
+  tools:
+    description: Comma-separated cargo tools to install, such as cargo-nextest
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Install Linux desktop libraries
+      if: ${{ runner.os == 'Linux' && inputs.desktop-libs == 'true' }}
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libwebkit2gtk-4.1-dev \
+            patchelf \
+            xdg-utils
+
+    - name: Install mise
+      uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
+      with:
+        install: false
+        cache: true
+
+    - name: Install Rust
+      shell: bash
+      run: mise install rust
+
+    - name: Cache Rust build
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      with:
+        shared-key: ${{ inputs.cache-key }}
+        save-if: ${{ github.ref == 'refs/heads/main' }}
+
+    - name: Install cargo tools
+      if: ${{ inputs.tools != '' }}
+      uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2.89.0
+      with:
+        tool: ${{ inputs.tools }}
