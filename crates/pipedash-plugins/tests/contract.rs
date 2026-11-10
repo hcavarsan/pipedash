@@ -50,7 +50,6 @@ fn run(status: PipelineStatus, metadata: &HashMap<String, serde_json::Value>) ->
         status,
         branch: Some("main"),
         actor: Some("someone"),
-        commit_message: Some("change"),
         inputs: None,
         metadata,
     }

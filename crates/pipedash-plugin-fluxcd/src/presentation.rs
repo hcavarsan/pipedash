@@ -118,10 +118,6 @@ pub(crate) fn presentation() -> PluginPresentation {
         view: view(),
         trigger: trigger(),
         rerun: rerun(),
-        history_note: Some(
-            "FluxCD retains a limited reconciliation history. Repeated reconciliations may be grouped, and older entries may be unavailable."
-                .to_string(),
-        ),
         empty_history_description:
             "Flux has not recorded a reconciliation for this resource yet.".to_string(),
         run_details_title: "Reconciliation details".to_string(),

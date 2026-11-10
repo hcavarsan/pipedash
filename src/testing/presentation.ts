@@ -30,7 +30,7 @@ export function runActionsFixture(overrides: Partial<RunActionState> = {}): RunA
 }
 
 export function runDisplayFixture(overrides: Partial<RunDisplay> = {}): RunDisplay {
-  return { title: '#1', message: null, context: [], started_label: 'Started', ...overrides }
+  return { title: '#1', context: [], started_label: 'Started', ...overrides }
 }
 
 export function runPaceFixture(overrides: Partial<RunPace> = {}): RunPace {
@@ -98,7 +98,6 @@ export function pluginPresentationFixture(): PluginPresentation {
     view: viewCopy,
     trigger: actionCopy,
     rerun: { ...actionCopy, label: 'Rerun workflow', title: 'Rerun workflow' },
-    history_note: null,
     empty_history_description: 'No runs yet',
     run_details_title: 'Run details',
     progress_title: 'Run in progress',

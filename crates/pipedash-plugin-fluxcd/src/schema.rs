@@ -309,3 +309,6 @@ fn create_pipelines_table() -> TableDefinition {
         ],
     )
 }
+
+#[cfg(test)]
+mod tests;

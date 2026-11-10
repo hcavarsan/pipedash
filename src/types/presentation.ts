@@ -51,7 +51,6 @@ export interface ViewCopy {
 
 export interface RunDisplay {
   title: string
-  message: string | null
   context: DisplayField[]
   started_label: string
 }

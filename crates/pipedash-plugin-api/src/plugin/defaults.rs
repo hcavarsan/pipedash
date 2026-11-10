@@ -92,7 +92,6 @@ pub fn run_display(run: &RunFacts<'_>) -> RunDisplay {
 
     RunDisplay {
         title: format!("#{}", run.run_number),
-        message: None,
         context,
         started_label: "Started".to_string(),
     }

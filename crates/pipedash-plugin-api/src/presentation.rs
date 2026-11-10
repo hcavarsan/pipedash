@@ -83,7 +83,6 @@ pub struct PluginPresentation {
     pub view: ViewCopy,
     pub trigger: ActionCopy,
     pub rerun: ActionCopy,
-    pub history_note: Option<String>,
     pub empty_history_description: String,
     pub run_details_title: String,
     pub progress_title: String,
@@ -100,7 +99,6 @@ impl PluginPresentation {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RunDisplay {
     pub title: String,
-    pub message: Option<String>,
     pub context: Vec<DisplayField>,
     pub started_label: String,
 }
@@ -121,7 +119,6 @@ pub struct RunFacts<'a> {
     pub status: PipelineStatus,
     pub branch: Option<&'a str>,
     pub actor: Option<&'a str>,
-    pub commit_message: Option<&'a str>,
     pub inputs: Option<&'a serde_json::Value>,
     pub metadata: &'a HashMap<String, serde_json::Value>,
 }

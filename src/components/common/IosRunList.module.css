@@ -24,9 +24,6 @@
 
 .title {
   composes: title from "../ios/IosList.module.css";
-}
-
-.number {
   font-variant-numeric: tabular-nums;
 }
 

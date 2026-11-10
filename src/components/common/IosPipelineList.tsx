@@ -175,9 +175,8 @@ interface WorkflowRowViewProps {
 
 function WorkflowRowView({ row, now, getProvider, actions, selection }: WorkflowRowViewProps): ReactNode {
   const { pipeline } = row
-  const message = pipeline.resource_state?.message ?? ''
   const nested = Boolean(row.depth)
-  const subtitle = [nested ? '' : row.organization, pipeline.branch, relativeOrNever(row.lastRun, now), message]
+  const subtitle = [nested ? '' : row.organization, pipeline.branch, relativeOrNever(row.lastRun, now)]
     .filter(Boolean)
     .join(' · ')
 

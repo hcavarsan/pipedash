@@ -39,7 +39,7 @@ const IosRunRow = ({ run, noun, now, selecting, selectable, selected, onToggle }
   const onOpen = () => openRun(run)
   const hintId = useId()
   const pressRef = useRowMenuLongPress(!selecting)
-  const { title, message, context } = run.display
+  const { title, context } = run.display
   const timing = [
     run.started_at && relativeOrNever(run.started_at, now),
     isLiveRun(run)
@@ -72,10 +72,7 @@ const IosRunRow = ({ run, noun, now, selecting, selectable, selected, onToggle }
         )}
         <StatusGlyph status={run.status} />
         <span className={classes.text}>
-          <span className={classes.title}>
-            <span className={classes.number}>{title}</span>
-            {message && ` ${message}`}
-          </span>
+          <span className={classes.title}>{title}</span>
           <span className={classes.srOnly}>, {statusLabel}</span>
           {subtitle && <span className={classes.subtitle}>{subtitle}</span>}
         </span>
