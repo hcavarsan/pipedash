@@ -26,7 +26,16 @@ fn create_config_schema() -> ConfigSchema {
     const SIGNED: &[AuthMode] = &[AuthMode::Token, AuthMode::SignIn];
 
     ConfigSchema::new()
-        .allow_no_auth()
+        .auth_option(AuthOption::none())
+        .auth_option(AuthOption::token(
+            "Access token",
+            "Sends a credential with every request, for a Deck behind OAuth2 Proxy or an API \
+             gateway.",
+        ))
+        .auth_option(AuthOption::sign_in(
+            "Signs you in through your identity provider in the browser. Pipedash renews the \
+             session for you.",
+        ))
         .add_field(
             ConfigField::text(config::DECK_URL, ConfigSection::Connection, "Deck URL")
                 .description("Address of Prow's Deck dashboard, for example https://prow.k8s.io")
@@ -50,11 +59,14 @@ fn create_config_schema() -> ConfigSchema {
             )
             .default_text("bearer"),
         )
-        .add_field(ConfigField::token(
-            "Access token",
-            "Credential for a Deck behind OAuth2 Proxy or an API gateway. Choose No auth for \
-             public Deck instances such as prow.k8s.io",
-        ))
+        .add_auth_field(
+            TOKEN,
+            ConfigField::token(
+                "Access token",
+                "Credential for a Deck behind OAuth2 Proxy or an API gateway. Choose No auth \
+                 for public Deck instances such as prow.k8s.io",
+            ),
+        )
         .add_auth_field(
             SIGN_IN,
             ConfigField::text(

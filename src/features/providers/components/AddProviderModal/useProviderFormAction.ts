@@ -8,6 +8,7 @@ import type { ProviderDraftResult } from '../../../../types/provider_draft'
 import type { ProviderConfig } from '../../../../types/providers'
 import { errorMessage } from '../../../../utils/errorDisplay'
 import { sameJson } from '../../../../utils/sameJson'
+import { fieldInMode } from '../../lib/authModes'
 import { TOKEN_KEY } from '../../lib/credentials'
 import { useProviderDraftCheck } from '../../queries/useProviderDraftCheck'
 
@@ -131,7 +132,7 @@ export function useProviderFormAction({
     onlyProviderStep: boolean
   ): Promise<CredentialsOutcome> => {
     const draft = buildProviderDraft(state, providerId, null)
-    const fields = plugin.config_schema.fields
+    const fields = plugin.config_schema.fields.filter((field) => fieldInMode(field, state.authMode))
     const result = draft ? await service.validateProviderDraft(draft) : null
     const errors = Object.fromEntries(
       Object.entries(result?.errors ?? {}).filter(
@@ -166,16 +167,15 @@ export function useProviderFormAction({
       return initialActionState
     } catch (err: unknown) {
       const failure = toPipedashError(err)
-      const fieldErrors = isValidationError(failure)
-        ? mapProviderFieldErrors(failure.fields ?? {}, plugin.config_schema.fields)
-        : {}
+      const fields = plugin.config_schema.fields.filter((field) => fieldInMode(field, state.authMode))
+      const fieldErrors = isValidationError(failure) ? mapProviderFieldErrors(failure.fields ?? {}, fields) : {}
       const result = fail(
         errorMessage(err, editMode ? "Couldn't update provider" : "Couldn't add provider"),
         fieldErrors
       )
 
       if (Object.keys(fieldErrors).length > 0) {
-        dispatch({ type: 'SET_STEP', step: stepWithErrors(fieldErrors, plugin.config_schema.fields) })
+        dispatch({ type: 'SET_STEP', step: stepWithErrors(fieldErrors, fields) })
         focusFirstInvalid()
       }
 

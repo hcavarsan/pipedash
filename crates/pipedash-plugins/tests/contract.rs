@@ -1,6 +1,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::collections::HashMap;
+use std::collections::{
+    HashMap,
+    HashSet,
+};
 
 use pipedash_core::infrastructure::config::{
     TokenRefError,
@@ -8,6 +11,7 @@ use pipedash_core::infrastructure::config::{
 };
 use pipedash_plugin_api::schema::ColumnSort;
 use pipedash_plugin_api::{
+    AuthMode,
     PipelineFacts,
     PipelineStatus,
     PluginMetadata,
@@ -55,6 +59,57 @@ fn run(status: PipelineStatus, metadata: &HashMap<String, serde_json::Value>) ->
     }
 }
 
+fn assert_auth_methods_are_consistent(metadata: &PluginMetadata) {
+    let provider = &metadata.provider_type;
+    let schema = &metadata.config_schema;
+    let options = &schema.auth_options;
+    let modes: Vec<AuthMode> = options.iter().map(|option| option.mode).collect();
+
+    assert_ne!(
+        options.len(),
+        1,
+        "{provider}: a single method needs no option"
+    );
+    for (index, option) in options.iter().enumerate() {
+        assert!(
+            !modes[..index].contains(&option.mode),
+            "{provider}: {option:?}"
+        );
+        assert!(!option.label.trim().is_empty(), "{provider}: {option:?}");
+        assert!(
+            !option.description.trim().is_empty(),
+            "{provider}: {option:?}"
+        );
+    }
+    for field in &schema.fields {
+        assert!(
+            field.auth_modes.iter().all(|mode| modes.contains(mode)),
+            "{provider}: {} is scoped to a method that is not offered",
+            field.key
+        );
+    }
+    assert_eq!(
+        modes.contains(&AuthMode::SignIn),
+        metadata.capabilities.sign_in,
+        "{provider}: sign-in option and capability disagree"
+    );
+    let offered = if modes.is_empty() {
+        vec![AuthMode::Token]
+    } else {
+        modes
+    };
+    for mode in offered {
+        let mut keys = HashSet::new();
+        for field in schema.active_fields(mode) {
+            assert!(
+                keys.insert(&field.key),
+                "{provider}: {mode:?} repeats {}",
+                field.key
+            );
+        }
+    }
+}
+
 #[test]
 fn metadata_survives_a_serde_round_trip() {
     each_plugin(|metadata, _| {
@@ -83,13 +138,7 @@ fn config_schema_is_internally_consistent() {
                 );
             }
         }
-        for key in schema.auth_modes.keys() {
-            assert!(
-                schema.fields.iter().any(|field| &field.key == key),
-                "{}: auth mode for unknown field {key}",
-                metadata.provider_type
-            );
-        }
+        assert_auth_methods_are_consistent(metadata);
     });
 }
 

@@ -10,7 +10,11 @@ use pipedash_plugin_api::config::{
     comma_separated,
     value,
 };
-use pipedash_plugin_api::kubernetes::KubeconfigSource;
+use pipedash_plugin_api::kubernetes::{
+    is_namespace,
+    is_resource_name,
+    KubeconfigSource,
+};
 use pipedash_plugin_api::{
     PluginError,
     PluginResult,
@@ -67,23 +71,6 @@ impl fmt::Display for Target {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {}/{}", self.kind, self.namespace, self.name)
     }
-}
-
-fn is_dns_label(value: &str) -> bool {
-    !value.is_empty()
-        && !value.starts_with('-')
-        && !value.ends_with('-')
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
-}
-
-pub(crate) fn is_namespace(value: &str) -> bool {
-    value.len() <= 63 && is_dns_label(value)
-}
-
-fn is_resource_name(value: &str) -> bool {
-    value.len() <= 253 && value.split('.').all(is_dns_label)
 }
 
 pub(crate) fn parse_selection(item: &str) -> PluginResult<Target> {

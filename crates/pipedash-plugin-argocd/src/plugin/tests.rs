@@ -206,7 +206,10 @@ fn argocd_reply(target: &str) -> (&'static str, String) {
     }
 }
 
-async fn stub_argocd(requests: Arc<tokio::sync::Mutex<Vec<String>>>) -> String {
+type Requests = Arc<tokio::sync::Mutex<Vec<String>>>;
+type Reply = fn(&str, &str) -> (&'static str, String);
+
+async fn serve(requests: Requests, reply: Reply) -> String {
     use tokio::io::{
         AsyncReadExt,
         AsyncWriteExt,
@@ -218,27 +221,53 @@ async fn stub_argocd(requests: Arc<tokio::sync::Mutex<Vec<String>>>) -> String {
         while let Ok((mut stream, _)) = listener.accept().await {
             let requests = requests.clone();
             tokio::spawn(async move {
-                let mut head = Vec::new();
+                let mut data = Vec::new();
                 let mut buffer = [0; 4096];
-                while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+                let split = loop {
+                    if let Some(at) = data.windows(4).position(|w| w == b"\r\n\r\n") {
+                        break at + 4;
+                    }
                     match stream.read(&mut buffer).await {
                         Ok(0) | Err(_) => return,
-                        Ok(n) => head.extend_from_slice(&buffer[..n]),
+                        Ok(n) => data.extend_from_slice(&buffer[..n]),
+                    }
+                };
+                let head = String::from_utf8_lossy(&data[..split]).to_string();
+                let length = head
+                    .lines()
+                    .filter_map(|line| line.split_once(':'))
+                    .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                    .and_then(|(_, value)| value.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                while data.len() < split + length {
+                    match stream.read(&mut buffer).await {
+                        Ok(0) | Err(_) => return,
+                        Ok(n) => data.extend_from_slice(&buffer[..n]),
                     }
                 }
-                let head = String::from_utf8_lossy(&head);
-                let target = head.split_whitespace().nth(1).unwrap_or("/").to_string();
-                let (status, body) = argocd_reply(&target);
-                requests.lock().await.push(target);
+                let body = String::from_utf8_lossy(&data[split..split + length]).to_string();
+                let mut parts = head.split_whitespace();
+                let method = parts.next().unwrap_or("GET").to_string();
+                let target = parts.next().unwrap_or("/").to_string();
+                let (status, payload) = reply(&method, &target);
+                requests.lock().await.push(if method == "GET" {
+                    target
+                } else {
+                    format!("{method} {target} {body}")
+                });
                 let response = format!(
-                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                    body.len()
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
+                    payload.len()
                 );
                 let _ = stream.write_all(response.as_bytes()).await;
             });
         }
     });
     format!("http://{addr}")
+}
+
+async fn stub_argocd(requests: Requests) -> String {
+    serve(requests, |_, target| argocd_reply(target)).await
 }
 
 async fn stub_plugin() -> (ArgocdPlugin, Arc<tokio::sync::Mutex<Vec<String>>>) {
@@ -375,9 +404,15 @@ fn run_at(stamp: &str) -> i64 {
 async fn read(
     plugin: &ArgocdPlugin, run_number: i64, node_id: &str,
 ) -> PluginResult<Vec<(LineMarker, String)>> {
+    read_in(plugin, PIPELINE_ID, run_number, node_id).await
+}
+
+async fn read_in(
+    plugin: &ArgocdPlugin, pipeline_id: &str, run_number: i64, node_id: &str,
+) -> PluginResult<Vec<(LineMarker, String)>> {
     let metadata = HashMap::new();
     let run = RunRef {
-        pipeline_id: PIPELINE_ID,
+        pipeline_id,
         run_number,
         run_id: "argocd-sync-web-current",
         metadata: &metadata,
@@ -683,4 +718,338 @@ fn pipeline_actions_should_target_the_destination_cluster_and_namespace() {
             "a".to_string()
         )]))
         .is_empty());
+}
+
+const APPS_API: &str = "/apis/argoproj.io/v1alpha1";
+
+fn cluster_app(name: &str, server: &str) -> serde_json::Value {
+    let mut app: serde_json::Value = serde_json::from_str(APP).unwrap();
+    app["metadata"]["name"] = serde_json::json!(name);
+    app["metadata"]["resourceVersion"] = serde_json::json!("7");
+    app["spec"]["destination"]["server"] = serde_json::json!(server);
+    app["status"]["resources"] = serde_json::json!([
+        {"group": "apps", "kind": "Deployment", "namespace": "web", "name": "api"}
+    ]);
+    app
+}
+
+fn plain_app(name: &str, extra: serde_json::Value) -> serde_json::Value {
+    let mut app = serde_json::json!({
+        "metadata": {"name": name, "namespace": "argocd", "resourceVersion": "7"},
+        "spec": {"source": {"repoURL": "https://github.com/acme/web"},
+            "destination": {"name": "in-cluster"}, "project": "default"},
+        "status": {"sync": {"status": "Synced"}, "health": {"status": "Healthy"},
+            "operationState": {"phase": "Succeeded", "startedAt": "2026-10-27T10:00:00Z"}},
+    });
+    if let Some(extra) = extra.as_object() {
+        for (key, value) in extra {
+            app[key] = value.clone();
+        }
+    }
+    app
+}
+
+fn cluster_reply(method: &str, target: &str) -> (&'static str, String) {
+    let path = target.split('?').next().unwrap_or(target);
+    let ok = |body: serde_json::Value| ("200 OK", body.to_string());
+    if method == "PATCH" {
+        return ok(serde_json::json!({}));
+    }
+    if let Some(name) = path.strip_prefix(&format!("{APPS_API}/namespaces/argocd/applications/")) {
+        return match name {
+            "web" => ok(cluster_app("web", "https://kubernetes.default.svc")),
+            "remote" => ok(cluster_app("remote", "https://prod.example.com")),
+            "idle" => ok(plain_app("idle", serde_json::json!({}))),
+            "busy" => ok(plain_app(
+                "busy",
+                serde_json::json!({"operation": {"sync": {}}}),
+            )),
+            _ => cluster_missing(),
+        };
+    }
+    match path {
+        "/apis/argoproj.io/v1alpha1/namespaces/argocd/applications" => {
+            let mut fresh = plain_app("fresh", serde_json::json!({}));
+            fresh.as_object_mut().unwrap().remove("status");
+            ok(serde_json::json!({"items": [fresh]}))
+        }
+        "/apis/argoproj.io/v1alpha1/namespaces/team/applications" => {
+            ok(serde_json::json!({"items": []}))
+        }
+        "/api/v1/namespaces/web/pods" => ok(serde_json::json!({"items": [
+            {"metadata": {"name": "api-7f-a", "namespace": "web", "uid": "u1",
+                "ownerReferences": [{"kind": "ReplicaSet", "name": "api-7f"}]},
+                "spec": {"containers": [{"name": "app"}]},
+                "status": {"phase": "Running", "containerStatuses": [
+                    {"name": "app", "ready": true, "restartCount": 0, "state": {"running": {}}}]}},
+            {"metadata": {"name": "stranger", "namespace": "web", "uid": "u2"},
+                "spec": {"containers": [{"name": "app"}]}, "status": {"phase": "Running"}},
+        ]})),
+        "/apis/apps/v1/namespaces/web/replicasets" => ok(serde_json::json!({"items": [
+            {"metadata": {"name": "api-7f", "namespace": "web",
+                "ownerReferences": [{"kind": "Deployment", "name": "api"}]}},
+        ]})),
+        "/apis/batch/v1/namespaces/web/jobs" => ok(serde_json::json!({"items": []})),
+        "/api/v1/namespaces/web/pods/api-7f-a/log" => (
+            "200 OK",
+            "2026-10-27T10:05:01.5Z first line\n2026-10-27T10:05:02Z second line\n".to_string(),
+        ),
+        "/api/v1/namespaces/web/events" | "/api/v1/namespaces/argocd/events" => {
+            ok(serde_json::json!({"items": []}))
+        }
+        _ => cluster_missing(),
+    }
+}
+
+fn cluster_missing() -> (&'static str, String) {
+    (
+        "404 Not Found",
+        r#"{"kind":"Status","apiVersion":"v1","status":"Failure","message":"not found","reason":"NotFound","code":404}"#
+            .to_string(),
+    )
+}
+
+async fn cluster_plugin(extra: &[(&str, &str)]) -> (ArgocdPlugin, Requests) {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let requests = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+    let server = serve(requests.clone(), cluster_reply).await;
+    let kubeconfig = format!(
+        "apiVersion: v1\nkind: Config\nclusters:\n- name: c\n  cluster:\n    server: {server}\ncontexts:\n- name: ctx\n  context:\n    cluster: c\n    user: u\ncurrent-context: ctx\nusers:\n- name: u\n  user:\n    token: t\n"
+    );
+    let mut config = cfg(&[("auth_mode", "kubeconfig"), ("token", &kubeconfig)]);
+    config.extend(cfg(extra));
+    let mut plugin = ArgocdPlugin::new();
+    plugin.initialize(1, config, None).unwrap();
+    (plugin, requests)
+}
+
+fn patches(requests: &[String]) -> Vec<(String, serde_json::Value)> {
+    requests
+        .iter()
+        .filter_map(|request| request.strip_prefix("PATCH "))
+        .map(|rest| {
+            let (target, body) = rest.split_once(' ').unwrap();
+            (target.to_string(), serde_json::from_str(body).unwrap())
+        })
+        .collect()
+}
+
+fn sync_of(pipeline: &str, inputs: serde_json::Value) -> TriggerParams {
+    TriggerParams {
+        workflow_id: pipeline.to_string(),
+        inputs: Some(inputs),
+    }
+}
+
+#[tokio::test]
+async fn kubernetes_mode_needs_neither_http_client_nor_server_url() {
+    let (plugin, requests) = cluster_plugin(&[]).await;
+
+    assert!(plugin.server_url.is_none());
+    assert!(plugin.client().is_ok());
+    let runs = plugin.fetch_run_history("argocd__web", 5).await.unwrap();
+    assert!(!runs.is_empty());
+    assert!(runs.iter().all(|run| run.logs_url.is_empty()));
+    assert_eq!(requests.lock().await.len(), 1);
+}
+
+#[tokio::test]
+async fn kubernetes_mode_lists_each_configured_namespace_and_never_cluster_wide() {
+    let (plugin, requests) = cluster_plugin(&[("namespaces", "argocd,team")]).await;
+
+    let pipelines = plugin.fetch_pipelines().await.unwrap();
+
+    assert_eq!(pipelines.len(), 1);
+    assert_eq!(
+        state_of(&pipelines[0]),
+        (PipelineStatus::Pending, "Unknown", None)
+    );
+    let paths: Vec<_> = requests
+        .lock()
+        .await
+        .iter()
+        .map(|request| request.split('?').next().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        paths,
+        [
+            format!("{APPS_API}/namespaces/argocd/applications"),
+            format!("{APPS_API}/namespaces/team/applications"),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn kubernetes_mode_without_namespaces_lists_cluster_wide() {
+    let (plugin, requests) = cluster_plugin(&[("namespaces", "")]).await;
+
+    let _ = plugin.fetch_pipelines().await;
+
+    let requests = requests.lock().await;
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].starts_with(&format!("{APPS_API}/applications")));
+}
+
+#[tokio::test]
+async fn kubernetes_sync_sends_one_merge_patch_guarded_by_the_resource_version() {
+    let (plugin, requests) = cluster_plugin(&[]).await;
+
+    plugin
+        .trigger_pipeline(sync_of(
+            "argocd__idle",
+            serde_json::json!({"prune": true, "dry_run": true}),
+        ))
+        .await
+        .unwrap();
+
+    let patches = patches(&requests.lock().await);
+    assert_eq!(patches.len(), 1);
+    let (target, body) = &patches[0];
+    assert!(target.starts_with(&format!("{APPS_API}/namespaces/argocd/applications/idle")));
+    assert_eq!(body["metadata"]["resourceVersion"], "7");
+    assert_eq!(body["operation"]["initiatedBy"]["username"], "pipedash");
+    assert_eq!(body["operation"]["sync"]["prune"], true);
+    assert_eq!(body["operation"]["sync"]["dryRun"], true);
+}
+
+#[tokio::test]
+async fn kubernetes_sync_is_refused_while_an_operation_is_pending() {
+    let (plugin, requests) = cluster_plugin(&[]).await;
+
+    let error = plugin
+        .trigger_pipeline(sync_of("argocd__busy", serde_json::json!({})))
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, PluginError::ApiError(_)), "{error:?}");
+    assert!(patches(&requests.lock().await).is_empty());
+}
+
+#[tokio::test]
+async fn kubernetes_cancel_marks_the_running_operation_as_terminating() {
+    let (plugin, requests) = cluster_plugin(&[]).await;
+
+    plugin.cancel_run("argocd__busy", 0).await.unwrap();
+
+    let patches = patches(&requests.lock().await);
+    assert_eq!(patches.len(), 1);
+    assert_eq!(patches[0].1["metadata"]["resourceVersion"], "7");
+    assert_eq!(
+        patches[0].1["status"]["operationState"]["phase"],
+        "Terminating"
+    );
+}
+
+#[tokio::test]
+async fn kubernetes_cancel_without_an_operation_sends_no_patch() {
+    let (plugin, requests) = cluster_plugin(&[]).await;
+
+    let error = plugin.cancel_run("argocd__idle", 0).await.unwrap_err();
+
+    assert!(matches!(error, PluginError::InvalidConfig(_)), "{error:?}");
+    assert!(patches(&requests.lock().await).is_empty());
+}
+
+#[tokio::test]
+async fn kubernetes_mode_rejects_pipelines_outside_the_configured_namespaces() {
+    let (plugin, requests) = cluster_plugin(&[("namespaces", "argocd")]).await;
+    let run = run_at("2026-10-27T10:00:00Z");
+
+    let errors = [
+        plugin.fetch_run_history("other__web", 5).await.unwrap_err(),
+        plugin.cancel_run("other__web", 0).await.unwrap_err(),
+        plugin
+            .trigger_pipeline(sync_of("other__web", serde_json::json!({})))
+            .await
+            .unwrap_err(),
+        read_in(&plugin, "other__web", run, "events")
+            .await
+            .unwrap_err(),
+    ];
+
+    for error in errors {
+        assert!(
+            matches!(&error, PluginError::InvalidConfig(message) if message.contains("outside the configured namespaces")),
+            "{error:?}"
+        );
+    }
+    assert!(requests.lock().await.is_empty());
+}
+
+async fn node_ids(plugin: &ArgocdPlugin, pipeline_id: &str) -> Vec<String> {
+    let metadata = HashMap::new();
+    let run = RunRef {
+        pipeline_id,
+        run_number: run_at("2026-10-27T10:00:00Z"),
+        run_id: "argocd-sync-current",
+        metadata: &metadata,
+    };
+    let nodes = plugin.fetch_log_nodes(run).await.unwrap();
+    assert!(nodes.iter().all(|node| node.web_url.is_none()));
+    nodes.into_iter().map(|node| node.id).collect()
+}
+
+#[tokio::test]
+async fn kubernetes_log_nodes_list_only_pods_the_application_owns() {
+    let (plugin, _) = cluster_plugin(&[]).await;
+
+    assert_eq!(
+        node_ids(&plugin, "argocd__web").await,
+        ["sync", "events", "pods", "pod:web:api-7f-a"]
+    );
+}
+
+#[tokio::test]
+async fn kubernetes_application_in_another_cluster_lists_no_pods() {
+    let (plugin, requests) = cluster_plugin(&[]).await;
+
+    assert_eq!(
+        node_ids(&plugin, "argocd__remote").await,
+        ["sync", "events"]
+    );
+
+    let requests = requests.lock().await;
+    for kind in ["/pods", "/replicasets", "/jobs"] {
+        assert!(
+            requests.iter().all(|request| !request.contains(kind)),
+            "{kind}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn kubernetes_pod_outside_the_application_cannot_be_read() {
+    let (plugin, requests) = cluster_plugin(&[]).await;
+
+    let error = read(&plugin, run_at("2026-10-27T10:00:00Z"), "pod:web:stranger")
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(error, PluginError::PipelineNotFound(_)),
+        "{error:?}"
+    );
+    assert!(requests
+        .lock()
+        .await
+        .iter()
+        .all(|request| !request.contains("/log")));
+}
+
+#[tokio::test]
+async fn kubernetes_pod_log_is_written_one_line_per_log_line() {
+    let (plugin, _) = cluster_plugin(&[]).await;
+
+    let lines = read(&plugin, run_at("2026-10-27T10:00:00Z"), "pod:web:api-7f-a")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        lines[lines.len() - 3..],
+        [
+            line(OPEN, "Container app"),
+            line(LineMarker::Plain, "first line"),
+            line(LineMarker::Plain, "second line"),
+        ]
+    );
 }

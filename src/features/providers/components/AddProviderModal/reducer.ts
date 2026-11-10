@@ -1,15 +1,16 @@
-import type { AuthMode } from '../../../../types/plugins'
+import type { ConfigField } from '../../../../types/plugins'
 import type { ProviderConfig } from '../../../../types/providers'
+import { authOptions, defaultAuthMode, fieldInMode } from '../../lib/authModes'
 import { AUTH_MODE_KEY, SIGN_IN_KEY, TOKEN_KEY } from '../../lib/credentials'
 
 import { type FieldRequest, type FormAction, type FormState, initialFormState } from './types'
 
-function authModeOf(config: Record<string, string>): AuthMode {
-  if (config[AUTH_MODE_KEY] === 'none') {
-    return 'none'
+function seedDefaults(config: Record<string, string>, fields: ConfigField[]): void {
+  for (const field of fields) {
+    if (config[field.key] === undefined && field.default_value !== null && field.default_value !== undefined) {
+      config[field.key] = String(field.default_value)
+    }
   }
-
-  return SIGN_IN_KEY in config ? 'sign_in' : 'token'
 }
 
 export function fieldRequest(state: FormState, key: string): FieldRequest {
@@ -36,25 +37,23 @@ export function formReducer(state: FormState, action: FormAction): FormState {
       return { ...state, step: action.step, selectingAll: false }
 
     case 'SELECT_PLUGIN': {
+      const mode = defaultAuthMode(action.plugin)
       const initialConfig: Record<string, string> = {}
 
-      const noAuth = action.plugin.config_schema.no_auth === true
+      seedDefaults(
+        initialConfig,
+        action.plugin.config_schema.fields.filter((field) => fieldInMode(field, mode))
+      )
 
-      action.plugin.config_schema.fields.forEach((field) => {
-        if (field.default_value !== null && field.default_value !== undefined) {
-          initialConfig[field.key] = String(field.default_value)
-        }
-      })
-
-      if (noAuth) {
-        initialConfig[AUTH_MODE_KEY] = 'none'
+      if (authOptions(action.plugin).length > 0) {
+        initialConfig[AUTH_MODE_KEY] = mode
       }
 
       return {
         ...state,
         selectedPlugin: action.plugin,
         providerName: action.isEditMode ? state.providerName : action.plugin.name,
-        authMode: noAuth ? 'none' : 'token',
+        authMode: mode,
         configValues: initialConfig,
         selectedOrganization: '',
         selectedPipelines: new Set(),
@@ -92,20 +91,21 @@ export function formReducer(state: FormState, action: FormAction): FormState {
     case 'SET_AUTH_MODE': {
       const configValues = { ...state.configValues }
       const fieldErrors = { ...state.fieldErrors }
+      const fields = state.selectedPlugin?.config_schema.fields ?? []
+      const active = fields.filter((field) => fieldInMode(field, action.mode))
+      const activeKeys = new Set(active.map((field) => field.key))
+      const dropped = [
+        TOKEN_KEY,
+        SIGN_IN_KEY,
+        ...fields.map((field) => field.key).filter((key) => !activeKeys.has(key)),
+      ]
 
-      if (action.mode !== 'token') {
-        delete configValues[TOKEN_KEY]
+      for (const key of dropped) {
+        delete configValues[key]
+        delete fieldErrors[key]
       }
-      if (action.mode !== 'sign_in') {
-        delete configValues[SIGN_IN_KEY]
-      }
-      if (action.mode === 'none') {
-        configValues[AUTH_MODE_KEY] = 'none'
-      } else {
-        delete configValues[AUTH_MODE_KEY]
-      }
-      delete fieldErrors[SIGN_IN_KEY]
-      delete fieldErrors[TOKEN_KEY]
+      seedDefaults(configValues, active)
+      configValues[AUTH_MODE_KEY] = action.mode
 
       return { ...state, authMode: action.mode, configValues, fieldErrors }
     }
@@ -221,7 +221,9 @@ export function formReducer(state: FormState, action: FormAction): FormState {
         ...state,
         selectedPlugin: action.plugin,
         providerName: action.provider.config.display_name || action.provider.name,
-        authMode: authModeOf(initialConfig),
+        authMode:
+          authOptions(action.plugin).find((option) => option.mode === initialConfig[AUTH_MODE_KEY])?.mode ??
+          defaultAuthMode(action.plugin),
         configValues: initialConfig,
         selectedPipelines: new Set(
           (initialConfig.selected_items ?? '')

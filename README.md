@@ -126,6 +126,7 @@ Rerun continued CircleCI pipelines without restarting setup workflows through th
 - Read, search and download [job logs](https://pipedash.app/docs/features/run-logs) without leaving Pipedash.
 - Open an ArgoCD sync to read its per-resource results, the app's recent events and the last 1000 lines of each pod container. A restarted container also shows its previous attempt. Pod logs need the `logs, get` permission in ArgoCD RBAC.
 - Sign in to ArgoCD through bundled Dex or an external OIDC provider instead of pasting a token. A Prow Deck can use any OpenID Connect provider. Pipedash renews the session before it expires and asks you to sign in again when the identity provider ends it. The self-hosted web app asks you to paste the address of the page the browser opens after sign-in.
+- Connect ArgoCD with a kubeconfig when the ArgoCD server is not reachable. Pipedash reads Applications from the cluster, syncs and cancels them there, and shows pod logs for applications deployed to that same cluster.
 - Monitor a public Prow Deck without credentials through its [read-only connection](https://pipedash.app/docs/providers/prow).
 - Trigger workflows with provider inputs, clear CircleCI string defaults or rerun past runs through the [trigger guide](https://pipedash.app/docs/features/trigger-and-cancel).
 - Cancel runs, approve GitHub deployment reviews and rerun failed jobs through the [run history guide](https://pipedash.app/docs/features/run-history).

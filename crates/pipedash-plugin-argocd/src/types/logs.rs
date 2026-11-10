@@ -106,9 +106,19 @@ pub struct Pod {
 }
 
 #[derive(Debug, Default, Deserialize)]
-#[serde(default)]
+#[serde(default, rename_all = "camelCase")]
 pub struct PodMetadata {
+    pub name: String,
+    pub namespace: String,
     pub uid: String,
+    pub owner_references: Vec<OwnerReference>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct OwnerReference {
+    pub kind: String,
+    pub name: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -140,6 +150,7 @@ pub struct PodStatus {
 pub struct ContainerStatus {
     pub name: String,
     pub restart_count: i64,
+    pub ready: bool,
     pub state: ContainerState,
     pub last_state: ContainerState,
 }

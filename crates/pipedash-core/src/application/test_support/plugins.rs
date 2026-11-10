@@ -11,6 +11,7 @@ use pipedash_plugin_api::plugin::defaults::pipeline_actions;
 use pipedash_plugin_api::{
     http,
     AuthMode,
+    AuthOption,
     ClientOptions,
     ConfigField,
     ConfigSchema,
@@ -90,7 +91,9 @@ impl StubPlugin {
         Self {
             metadata: PluginMetadata::new(
                 "Stub",
-                ConfigSchema::new().allow_no_auth(),
+                ConfigSchema::new()
+                    .auth_option(AuthOption::none())
+                    .auth_option(AuthOption::token("Token", "Stub token")),
                 table_schema(default_pipeline_runs_table(), default_pipelines_table()),
                 capabilities,
             ),
@@ -143,7 +146,10 @@ impl StubPlugin {
         let mut plugin = Self::new();
         let text = |key: &str, section, label: &str| ConfigField::text(key, section, label);
         plugin.metadata.config_schema = ConfigSchema::new()
-            .allow_no_auth()
+            .auth_option(AuthOption::none())
+            .auth_option(AuthOption::token("Token", "Stub token"))
+            .auth_option(AuthOption::sign_in("Stub sign-in"))
+            .auth_option(AuthOption::kubeconfig("Stub kubeconfig"))
             .add_field(
                 text("deck_url", ConfigSection::Connection, "Deck URL")
                     .required()
@@ -163,7 +169,14 @@ impl StubPlugin {
             .add_field(text("kubeconfig", ConfigSection::Connection, "Kubeconfig"))
             .add_field(text("context", ConfigSection::Connection, "Context"))
             .add_field(text("namespaces", ConfigSection::Settings, "Namespaces"))
-            .add_field(ConfigField::token("Token", "Access token"))
+            .add_auth_field(
+                &[AuthMode::Token],
+                ConfigField::token("Token", "Access token"),
+            )
+            .add_auth_field(
+                &[AuthMode::Kubeconfig],
+                ConfigField::kubeconfig_content("token", "Kubeconfig content"),
+            )
             .add_auth_field(
                 &[AuthMode::SignIn],
                 text("sso_issuer", ConfigSection::Authentication, "SSO Issuer").required(),

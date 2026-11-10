@@ -323,3 +323,12 @@ fn tree_without_degraded_nodes_keeps_the_provider_state() {
     assert_eq!(pipeline.status, PipelineStatus::Running);
     assert_eq!(pipeline.resource_state, before);
 }
+
+#[test]
+fn application_links_exist_only_with_a_server_url() {
+    assert_eq!(
+        app_url("https://argo.example.com/", "web"),
+        "https://argo.example.com/applications/web"
+    );
+    assert_eq!(app_url("", "web"), "");
+}

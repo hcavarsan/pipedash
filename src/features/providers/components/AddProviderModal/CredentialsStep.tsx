@@ -1,11 +1,13 @@
-import { Box, SegmentedControl, Stack, Text } from '@mantine/core'
+import { Box, Stack, Text } from '@mantine/core'
 import { type Dispatch, Fragment, type ReactNode, type RefObject } from 'react'
 import { FillScrollArea } from '../../../../components/common/FillScrollArea'
 import shell from '../../../../components/forms/ShellForm.module.css'
 import { useFormEnterNavigation } from '../../../../hooks/useFormEnterNavigation'
 import { useMobileShell } from '../../../../hooks/useIsMobile'
-import type { AuthMode, ConfigField, ConfigSection } from '../../../../types/plugins'
-import { SIGN_IN_KEY, TOKEN_KEY } from '../../lib/credentials'
+import type { ConfigSection } from '../../../../types/plugins'
+import { authOptions } from '../../lib/authModes'
+import { SIGN_IN_KEY } from '../../lib/credentials'
+import { AuthMethodPicker } from './AuthMethodPicker'
 import { ProviderConfigField } from './ProviderConfigField'
 import { StepHeading } from './ShellForm'
 import { SignInField } from './SignInField'
@@ -55,112 +57,51 @@ export function CredentialsStep({
     dispatch,
     validateKey,
     step: 'credentials',
+    authMode,
   })
-  const authModes = selectedPlugin?.config_schema.auth_modes
-  const tokenField = fields.find((field) => field.key === TOKEN_KEY)
-  const visibleFields = fields.filter((field) => authModes?.[field.key]?.includes(authMode) ?? true)
-  const inAuthBlock = (field: ConfigField): boolean =>
-    authModes?.[field.key]?.length === 1 && field.section === tokenField?.section
-  const modeFields = visibleFields.filter(inAuthBlock)
+  const options = authOptions(selectedPlugin)
   const sections = STEP_SECTIONS.credentials.map((section) => ({
     section,
-    items: visibleFields.filter((field) => !inAuthBlock(field) && field.section === section),
+    items: fields.filter((field) => field.section === section),
   }))
-
-  const renderField = (field: ConfigField): ReactNode => (
-    <ProviderConfigField
-      field={field}
-      model={fieldStateFor(field)}
-      formId={formId}
-      shell={mobileShell}
-      disabled={submitting}
-      onChange={handleConfigChange}
-      onBlur={handleConfigBlur}
-    />
-  )
-
-  const renderAuthField = (field: ConfigField): ReactNode => {
-    const input = renderField(field)
-
-    if (field.key !== TOKEN_KEY) {
-      return input
-    }
-
-    const scoped = modeFields.map((modeField) => <Fragment key={modeField.key}>{renderField(modeField)}</Fragment>)
-    const options: { value: AuthMode; label: string }[] = [
-      ...(selectedPlugin?.config_schema.no_auth ? [{ value: 'none' as const, label: 'No auth' }] : []),
-      { value: 'token', label: field.label },
-      ...(selectedPlugin?.capabilities.sign_in ? [{ value: 'sign_in' as const, label: 'Single sign-on' }] : []),
-    ]
-
-    if (!selectedPlugin || options.length < 2) {
-      return (
-        <>
-          {scoped}
-          {input}
-        </>
-      )
-    }
-
-    const authControl = (
-      <SegmentedControl
-        aria-label="Authentication method"
-        fullWidth
-        data={options}
-        value={authMode}
-        disabled={submitting}
-        onChange={(value) => {
-          const mode = options.find((option) => option.value === value)?.value
-
-          if (mode) {
-            dispatch({ type: 'SET_AUTH_MODE', mode })
-          }
-        }}
-      />
-    )
-    const noAuthNote = 'Connects without credentials. Read-only: starting and stopping runs is turned off.'
-    let body: ReactNode = input
-
-    if (authMode === 'none') {
-      body = mobileShell ? (
-        <p className={shell.note}>{noAuthNote}</p>
-      ) : (
-        <Text size="sm" c="dimmed">
-          {noAuthNote}
-        </Text>
-      )
-    } else if (authMode === 'sign_in') {
-      body = (
-        <SignInField
-          id={`${formId}-${SIGN_IN_KEY}`}
-          providerType={selectedPlugin.provider_type}
-          configValues={configValues}
-          missing={missingLabels}
-          error={fieldErrors[SIGN_IN_KEY]}
-          disabled={submitting}
-          shell={mobileShell}
-          onChange={(reference) => dispatch({ type: 'SET_SIGN_IN', reference })}
-        />
-      )
-    }
-
-    return (
-      <>
-        {authControl}
-        {scoped}
-        {body}
-      </>
-    )
-  }
 
   const renderSections = (): ReactNode =>
     sections.map(({ section, items }) => {
-      if (items.length === 0) {
+      const signIn = section === 'authentication' && authMode === 'sign_in' && selectedPlugin !== null
+
+      if (items.length === 0 && !signIn) {
         return null
       }
 
       const headingId = `${formId}-${section}`
-      const content = items.map((field) => <Fragment key={field.key}>{renderAuthField(field)}</Fragment>)
+      const content = (
+        <>
+          {items.map((field) => (
+            <ProviderConfigField
+              key={field.key}
+              field={field}
+              model={fieldStateFor(field)}
+              formId={formId}
+              shell={mobileShell}
+              disabled={submitting}
+              onChange={handleConfigChange}
+              onBlur={handleConfigBlur}
+            />
+          ))}
+          {signIn && (
+            <SignInField
+              id={`${formId}-${SIGN_IN_KEY}`}
+              providerType={selectedPlugin.provider_type}
+              configValues={configValues}
+              missing={missingLabels}
+              error={fieldErrors[SIGN_IN_KEY]}
+              disabled={submitting}
+              shell={mobileShell}
+              onChange={(reference) => dispatch({ type: 'SET_SIGN_IN', reference })}
+            />
+          )}
+        </>
+      )
 
       return mobileShell ? (
         <Fragment key={section}>
@@ -179,11 +120,27 @@ export function CredentialsStep({
       )
     })
 
+  const renderBody = (): ReactNode => (
+    <>
+      {options.length > 1 && (
+        <AuthMethodPicker
+          options={options}
+          value={authMode}
+          disabled={submitting}
+          shell={mobileShell}
+          headingId={`${formId}-auth-method`}
+          onChange={(mode) => dispatch({ type: 'SET_AUTH_MODE', mode })}
+        />
+      )}
+      {renderSections()}
+    </>
+  )
+
   if (mobileShell) {
     return (
       <div className={shell.step}>
         <StepHeading title="Credentials" subtitle={selectedPlugin?.presentation.wizard.credentials_description ?? ''} />
-        {renderSections()}
+        {renderBody()}
         {permissionRow}
         {scopeNote && <p className={shell.note}>{scopeNote}</p>}
         {secondaryRow}
@@ -195,7 +152,7 @@ export function CredentialsStep({
     <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <FillScrollArea type="auto">
         <Stack gap={isMobile ? 'lg' : 'xl'} px="lg" pb="lg" pt="xs">
-          {renderSections()}
+          {renderBody()}
         </Stack>
       </FillScrollArea>
     </Box>

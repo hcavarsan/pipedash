@@ -26,14 +26,20 @@ export interface ConfigField {
   validation_regex: string | null
   validation_message: string | null
   section: ConfigSection
+  auth_modes?: AuthMode[]
 }
 
-export type AuthMode = 'none' | 'token' | 'sign_in'
+export type AuthMode = 'none' | 'token' | 'sign_in' | 'kubeconfig'
+
+export interface AuthOption {
+  mode: AuthMode
+  label: string
+  description: string
+}
 
 interface ConfigSchema {
   fields: ConfigField[]
-  auth_modes?: Record<string, AuthMode[]>
-  no_auth?: boolean
+  auth_options?: AuthOption[]
 }
 
 export type ColumnDataType =

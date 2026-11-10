@@ -7,6 +7,8 @@ use crate::metadata::{
 };
 use crate::presentation::PluginPresentation;
 use crate::schema::{
+    AuthMode,
+    AuthOption,
     ConfigField,
     ConfigFieldType,
     ConfigSchema,
@@ -37,6 +39,7 @@ impl ConfigField {
             options: None,
             validation_regex: None,
             validation_message: None,
+            auth_modes: Vec::new(),
         }
     }
 
@@ -112,6 +115,36 @@ impl ConfigField {
     pub fn kubeconfig_content(key: &str, label: &str) -> Self {
         Self::textarea(key, ConfigSection::Authentication, label)
             .description(KUBECONFIG_CONTENT_DESCRIPTION)
+    }
+}
+
+impl AuthOption {
+    fn new(mode: AuthMode, label: &str, description: &str) -> Self {
+        Self {
+            mode,
+            label: label.to_string(),
+            description: description.to_string(),
+        }
+    }
+
+    pub fn none() -> Self {
+        Self::new(
+            AuthMode::None,
+            "No auth",
+            "Connects without credentials. Read-only: starting and stopping runs is turned off.",
+        )
+    }
+
+    pub fn token(label: &str, description: &str) -> Self {
+        Self::new(AuthMode::Token, label, description)
+    }
+
+    pub fn sign_in(description: &str) -> Self {
+        Self::new(AuthMode::SignIn, "Single sign-on", description)
+    }
+
+    pub fn kubeconfig(description: &str) -> Self {
+        Self::new(AuthMode::Kubeconfig, "Kubernetes", description)
     }
 }
 

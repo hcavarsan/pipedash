@@ -108,6 +108,7 @@ pub use registry::PluginRegistry;
 pub use schema::{
     is_no_auth,
     AuthMode,
+    AuthOption,
     ConfigField,
     ConfigSchema,
     ConfigSection,

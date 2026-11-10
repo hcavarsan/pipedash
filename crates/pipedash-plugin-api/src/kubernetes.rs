@@ -19,6 +19,26 @@ use crate::http::from_status;
 const MAX_RETRY_AFTER_SECONDS: u32 = 3600;
 
 pub const KUBECONFIG_CONTENT_KEY: &str = "token";
+pub const NAMESPACE_LIST_REGEX: &str =
+    r"^$|^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(\s*,\s*[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)*$";
+pub const NAMESPACE_LIST_MESSAGE: &str = "Use comma-separated Kubernetes namespace names: lowercase letters, numbers and hyphens, starting and ending with a letter or number, up to 63 characters each.";
+
+fn is_dns_label(value: &str) -> bool {
+    !value.is_empty()
+        && !value.starts_with('-')
+        && !value.ends_with('-')
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+pub fn is_namespace(value: &str) -> bool {
+    value.len() <= 63 && is_dns_label(value)
+}
+
+pub fn is_resource_name(value: &str) -> bool {
+    value.len() <= 253 && value.split('.').all(is_dns_label)
+}
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum KubeconfigSource {
