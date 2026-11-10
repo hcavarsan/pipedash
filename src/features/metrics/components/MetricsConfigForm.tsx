@@ -25,9 +25,12 @@ interface SaveState {
 
 const INITIAL_STATE: SaveState = { error: null }
 
-function confirmDisable(pipeline: boolean, mobileShell: boolean): Promise<boolean> {
+const leaveFormTransition = (): Promise<void> => Promise.resolve()
+
+async function confirmDisable(pipeline: boolean, mobileShell: boolean): Promise<boolean> {
   const { promise, resolve } = Promise.withResolvers<boolean>()
 
+  await leaveFormTransition()
   openConfirm({
     ...(mobileShell ? { zIndex: 400 } : {}),
     title: 'Disable metrics',
@@ -72,10 +75,6 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
     }
 
     try {
-      if (disabling) {
-        await flushMutation.mutateAsync(pipelineId)
-      }
-
       const retentionDays = Number(retentionDraft)
 
       if (pipelineId) {
@@ -83,16 +82,24 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
       } else {
         await updateGlobal.mutateAsync({ enabled, retentionDays })
       }
-
-      onConfigChange?.()
-      onClose()
-
-      return INITIAL_STATE
     } catch (error) {
       logger.error('MetricsConfigForm', 'Failed to save metrics configuration', error)
 
       return { error: errorMessage(error, 'Try saving the metrics settings again.') }
     }
+
+    if (disabling) {
+      try {
+        await flushMutation.mutateAsync(pipelineId)
+      } catch (error) {
+        logger.error('MetricsConfigForm', 'Failed to delete stored metrics', error)
+      }
+    }
+
+    onConfigChange?.()
+    onClose()
+
+    return INITIAL_STATE
   }
 
   const [state, formAction, isPending] = useActionState(saveAction, INITIAL_STATE)

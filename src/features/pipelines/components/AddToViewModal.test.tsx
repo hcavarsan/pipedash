@@ -18,9 +18,14 @@ const views = [
 Object.assign(window, { __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'linux' } })
 mockWindows('main')
 
-const server: { members: Record<string, boolean>; changes: Array<{ id: string; change: unknown }> } = {
+const server: {
+  members: Record<string, boolean>
+  changes: Array<{ id: string; change: unknown }>
+  gate: Promise<void>
+} = {
   members: {},
   changes: [],
+  gate: Promise.resolve(),
 }
 
 const selection = (): ViewSelectionEntry[] =>
@@ -35,9 +40,11 @@ const selection = (): ViewSelectionEntry[] =>
 
 const installIpc = () =>
   mockIPC(
-    (command, payload) => {
+    async (command, payload) => {
       switch (command) {
         case 'get_view_selection':
+          await server.gate
+
           return selection()
         case 'set_view_memberships': {
           const id = isRecord(payload) ? String(payload.id) : ''
@@ -74,6 +81,7 @@ beforeEach(() => {
   installIpc()
   server.members = {}
   server.changes = []
+  server.gate = Promise.resolve()
 })
 
 afterEach(async () => {
@@ -93,6 +101,11 @@ const isChecked = (name: string): boolean => {
 
   return box instanceof HTMLInputElement && box.checked
 }
+
+const checkboxesDisabled = (disabled: boolean): boolean =>
+  view()
+    .getAllByRole('checkbox')
+    .every((box) => box instanceof HTMLInputElement && box.disabled === disabled)
 
 test('toggling a view sends one batch change and shows the backend selection', async () => {
   const user = userEvent.setup({ document })
@@ -114,4 +127,35 @@ test('toggling a view sends one batch change and shows the backend selection', a
   await waitFor(() => assert.equal(isChecked('Alpha'), true))
   assert.deepEqual(server.changes, [{ id: 'alpha', change: { pipeline_ids: ['p1', 'p2'], member: true } }])
   assert.equal(isChecked('Beta'), false)
+})
+
+test('a pending change disables the checkboxes and shows the returned selection before the refetch resolves', async () => {
+  const user = userEvent.setup({ document })
+
+  render(
+    <MantineProvider env="test">
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <AddToViewModal />
+        </MemoryRouter>
+      </QueryClientProvider>
+    </MantineProvider>
+  )
+  await act(async () => usePipelineViewStore.getState().openAddToView(['p1', 'p2']))
+  await view().findByRole('checkbox', { name: 'Alpha' })
+  const refetch = Promise.withResolvers<void>()
+  server.gate = refetch.promise
+
+  await user.click(view().getByRole('checkbox', { name: 'Alpha' }))
+
+  await waitFor(() => assert.equal(isChecked('Alpha'), true))
+  assert.equal(checkboxesDisabled(true), true)
+  assert.ok(view().getByRole('status', { name: 'Updating Alpha' }))
+  assert.equal(view().queryByRole('status', { name: 'Updating Beta' }), null)
+
+  refetch.resolve()
+
+  await waitFor(() => assert.equal(checkboxesDisabled(false), true))
+  assert.equal(view().queryByRole('status', { name: 'Updating Alpha' }), null)
+  assert.equal(isChecked('Alpha'), true)
 })

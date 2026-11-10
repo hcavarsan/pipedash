@@ -1,4 +1,4 @@
-import { Button, Checkbox, Group, Stack } from '@mantine/core'
+import { Button, Checkbox, Group, Loader, Stack } from '@mantine/core'
 import { IconFolder, IconPlus } from '@tabler/icons-react'
 import { type ReactNode, useState } from 'react'
 import { EmptyState } from '../../../components/common/EmptyState'
@@ -23,21 +23,28 @@ const selectionNote = (rule: boolean, subView: boolean): string | undefined => {
 function ViewChoice({
   entry,
   total,
+  disabled,
+  pending,
   onToggle,
 }: {
   entry: ViewSelectionEntry
   total: number
+  disabled: boolean
+  pending: boolean
   onToggle: (member: boolean) => void
 }): ReactNode {
   return (
-    <Checkbox
-      ml={(entry.depth - 1) * 24}
-      label={entry.view.name}
-      description={selectionNote(entry.included_by_rule, entry.included_by_sub_view)}
-      checked={entry.selected_count > 0 && entry.selected_count === total}
-      indeterminate={entry.selected_count > 0 && entry.selected_count < total}
-      onChange={() => onToggle(entry.selected_count < total)}
-    />
+    <Group gap="xs" wrap="nowrap" ml={(entry.depth - 1) * 24}>
+      <Checkbox
+        label={entry.view.name}
+        description={selectionNote(entry.included_by_rule, entry.included_by_sub_view)}
+        checked={entry.selected_count > 0 && entry.selected_count === total}
+        indeterminate={entry.selected_count > 0 && entry.selected_count < total}
+        disabled={disabled}
+        onChange={() => onToggle(entry.selected_count < total)}
+      />
+      {pending && <Loader size="xs" role="status" aria-label={`Updating ${entry.view.name}`} />}
+    </Group>
   )
 }
 
@@ -45,7 +52,7 @@ function AddToViewSession({ ids, opened }: AddToViewSessionProps): ReactNode {
   const closeAddToView = usePipelineViewStore((s) => s.closeAddToView)
   const openEditor = usePipelineViewStore((s) => s.openEditor)
   const { data: entries = [] } = useViewSelection(ids, opened && ids.length > 0)
-  const { mutate: setMembership } = useSetViewMembership()
+  const membership = useSetViewMembership()
 
   const newView = () => {
     if (ids.length === 0) {
@@ -91,7 +98,9 @@ function AddToViewSession({ ids, opened }: AddToViewSessionProps): ReactNode {
               key={entry.view.id}
               entry={entry}
               total={ids.length}
-              onToggle={(member) => setMembership({ id: entry.view.id, pipelineIds: ids, member })}
+              disabled={membership.isPending}
+              pending={membership.isPending && membership.variables?.id === entry.view.id}
+              onToggle={(member) => membership.mutate({ id: entry.view.id, pipelineIds: ids, member })}
             />
           ))}
         </Stack>

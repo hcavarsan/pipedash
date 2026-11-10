@@ -8,7 +8,6 @@ import {
 } from '@tanstack/react-query'
 import { useCallback } from 'react'
 import { GC_TIMES, STALE_TIMES } from '../../../lib/cacheConfig'
-import { notifications } from '../../../lib/notifications'
 import { queryKeys } from '../../../lib/queryKeys'
 import { service } from '../../../services/service'
 import type {
@@ -22,7 +21,7 @@ import type {
   MetricType,
 } from '../../../types/metrics'
 import type { DateRange } from '../../../utils/dateRange'
-import { errorMessage } from '../../../utils/errorDisplay'
+import { displayErrorNotification, displaySuccessNotification } from '../../../utils/errorDisplay'
 
 export function useInvalidatePipelineMetrics(pipelineId: string): () => Promise<void> {
   const queryClient = useQueryClient()
@@ -121,19 +120,10 @@ export function useUpdateGlobalMetricsConfig(): UseMutationResult<
       )
       void queryClient.invalidateQueries({ queryKey: queryKeys.metrics.all })
 
-      notifications.show({
-        title: 'Global metrics settings saved',
-        message: 'Metrics collection and retention settings were updated.',
-        color: 'green',
-      })
-    },
-
-    onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't save global metrics settings",
-        message: errorMessage(error, 'Try saving the global metrics settings again.'),
-        color: 'red',
-      })
+      displaySuccessNotification(
+        'Metrics collection and retention settings were updated.',
+        'Global metrics settings saved'
+      )
     },
   })
 }
@@ -164,19 +154,10 @@ export function useUpdatePipelineMetricsConfig(): UseMutationResult<
 
       void queryClient.invalidateQueries({ queryKey: queryKeys.metrics.stats() })
 
-      notifications.show({
-        title: 'Pipeline metrics settings saved',
-        message: 'Metrics collection and retention settings were updated.',
-        color: 'green',
-      })
-    },
-
-    onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't save pipeline metrics settings",
-        message: errorMessage(error, 'Try saving the pipeline metrics settings again.'),
-        color: 'red',
-      })
+      displaySuccessNotification(
+        'Metrics collection and retention settings were updated.',
+        'Pipeline metrics settings saved'
+      )
     },
   })
 }
@@ -211,19 +192,11 @@ export function useFlushMetrics(): UseMutationResult<number, Error, string | und
         void queryClient.invalidateQueries({ queryKey: queryKeys.metrics.all })
       }
 
-      notifications.show({
-        title: 'Metrics deleted',
-        message: `Deleted ${deletedCount} metric${deletedCount !== 1 ? 's' : ''}`,
-        color: 'green',
-      })
+      displaySuccessNotification(`Deleted ${deletedCount} metric${deletedCount !== 1 ? 's' : ''}`, 'Metrics deleted')
     },
 
     onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't delete metrics",
-        message: errorMessage(error, 'Try deleting the stored metrics again.'),
-        color: 'red',
-      })
+      displayErrorNotification(error, "Couldn't delete stored metrics")
     },
   })
 }

@@ -88,7 +88,9 @@ function LoadedRunDetails({
       {isRunning &&
         (mobileShell ? (
           <Alert color="blue" icon={<IconRefresh size={16} aria-hidden />} title={presentation?.progress_title}>
-            <Text size={TYPOGRAPHY.HELPER_TEXT.size}>{progress}</Text>
+            <Text size={TYPOGRAPHY.HELPER_TEXT.size} role="status">
+              {status}
+            </Text>
           </Alert>
         ) : (
           <Alert color="gray" title={<StatusBadge status={run.status} />}>

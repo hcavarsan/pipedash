@@ -1,6 +1,5 @@
 import { Button, Group, Stack, Text } from '@mantine/core'
 import { type ReactNode, useActionState, useId, useMemo } from 'react'
-import { FormErrorDisplay } from '../../../components/common/FormErrorDisplay'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { LiveStatus } from '../../../components/forms/LiveStatus'
@@ -8,15 +7,10 @@ import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
 import { useNow } from '../../../hooks/useNow'
 import type { Pipeline } from '../../../types/pipelines'
 import type { CancelGroup } from '../../../types/run_action_batch'
-import { errorMessage } from '../../../utils/errorDisplay'
 import { formatCount } from '../../../utils/formatCount'
 import { useCancellationTargets } from '../queries/useCancellationTargets'
 
 import { CancelRunTargets } from './CancelRunTargets'
-
-interface CancelActionState {
-  error: string | null
-}
 
 export interface CancelScope {
   label: string
@@ -61,20 +55,17 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
     unreadable.length > 0 ? `Couldn't load runs for ${formatCount(unreadable.length, 'pipeline')}.` : null
   const ready = !loading && count > 0
 
-  const [state, formAction, isPending] = useActionState(
-    async (): Promise<CancelActionState> => {
-      try {
-        await onConfirm(groups)
-      } catch (error) {
-        return { error: errorMessage(error, "Couldn't cancel the runs. Check them in your provider and try again.") }
-      }
+  const [, formAction, isPending] = useActionState(async (): Promise<null> => {
+    try {
+      await onConfirm(groups)
+    } catch {
+      return null
+    }
 
-      onClose()
+    onClose()
 
-      return { error: null }
-    },
-    { error: null }
-  )
+    return null
+  }, null)
 
   const status = loading
     ? 'Looking for running runs…'
@@ -108,7 +99,6 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
       ) : (
         <form id={formId} action={formAction}>
           <Stack gap={mobileShell ? 'lg' : 'md'}>
-            <FormErrorDisplay title="Couldn't cancel runs" globalError={state.error} />
             {emptyNote && <Text size="sm">{emptyNote}</Text>}
             <CancelRunTargets groups={groups} now={now} shell={mobileShell} where={where} />
             <CancelNote color="red" text={unreadableNote} />

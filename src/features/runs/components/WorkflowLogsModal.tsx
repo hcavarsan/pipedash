@@ -88,7 +88,7 @@ function WorkflowLogsSession({
     rerunCompactLabel: presentation?.rerun.compact_label ?? '',
     triggerNote: presentation?.trigger.note,
     canViewLogs,
-    stopDisabled: !mobileShell && cancellationRequested,
+    stopDisabled: cancellationRequested,
     rerunPending: actions.rerunPending,
     cancelPending: actions.cancelPending,
     forceCancelPending: actions.forceCancelPending,

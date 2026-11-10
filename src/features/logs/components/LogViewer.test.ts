@@ -26,6 +26,7 @@ const { wsClient } = await import('../../../services/websocket')
 const { apiService } = await import('../../../services/api')
 const { tauriService } = await import('../../../services/tauri')
 const { LogViewer } = await import('./LogViewer')
+const { notifications } = await import('../../../lib/notifications')
 
 const wasServer = environmentManager.isServer()
 
@@ -332,4 +333,47 @@ test('a rejected retry of an unavailable document shows the new error', async (c
 
   await view().findByText(/Still down/)
   assert.equal(view().queryByText(/Original failure/), null)
+})
+
+async function downloadLog(context: TestContext, exportLog: () => Promise<boolean>) {
+  stubService(context, () => matches())
+  const exported = [apiService, tauriService].map((target) => context.mock.method(target, 'exportRunLog', exportLog))
+  const shown = context.mock.method(notifications, 'show', () => 'toast')
+  const user = userEvent.setup({ document })
+
+  mount(createRef<LogViewerHandle>())
+  await waitFor(() => assert.ok(lineButton(0)))
+  await user.click(view().getByRole('button', { name: 'Log options' }))
+  await user.click(await view().findByRole('menuitem', { name: 'Download log' }))
+  await waitFor(() =>
+    assert.equal(
+      exported.reduce((total, spy) => total + spy.mock.callCount(), 0),
+      1
+    )
+  )
+  await act(async () => undefined)
+
+  return shown.mock.calls.map((call) => call.arguments[0])
+}
+
+test('a saved log export shows one success toast', async (context) => {
+  const toasts = await downloadLog(context, async () => true)
+
+  assert.equal(toasts.length, 1)
+  assert.equal(toasts[0]?.title, 'Log exported')
+  assert.equal(toasts[0]?.color, 'green')
+})
+
+test('a cancelled log export shows no toast', async (context) => {
+  assert.deepEqual(await downloadLog(context, async () => false), [])
+})
+
+test('a failed log export shows one error toast', async (context) => {
+  const toasts = await downloadLog(context, async () => {
+    throw new Error('Disk full')
+  })
+
+  assert.equal(toasts.length, 1)
+  assert.equal(toasts[0]?.title, "Couldn't export the log")
+  assert.equal(toasts[0]?.color, 'red')
 })

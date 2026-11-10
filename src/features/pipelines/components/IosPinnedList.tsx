@@ -14,7 +14,8 @@ import { historyLabel, workflowSwipeActions } from '../../../utils/pipelineRowAc
 import { reorderSlots } from '../../../utils/viewTree'
 import type { PipelineViewPageModel } from '../hooks/usePipelineViewModel'
 import { inMemberOrder, pinnedFromBlocks } from '../lib/pipelineRows'
-import { useReorderPinned, useViewMembers } from '../queries/usePipelineViewQueries'
+import { useViewMembers } from '../queries/usePipelineViewQueries'
+import { useReorderPinned } from '../queries/useViewReorderQueries'
 import { type SortableDragProps, SortableList } from './SortableList'
 
 const ROW_ESTIMATE = 64
@@ -92,7 +93,7 @@ export function IosPinnedList({
   const pinned = inMemberOrder(page?.sections ?? [], manual ? members : undefined)
   const extras = pinnedFromBlocks(pinned, pinnedBlocks)
   const reorderable = Boolean(selection) && manual && pinned.length > 1
-  const { mutate: reorder } = useReorderPinned()
+  const reorder = useReorderPinned()
 
   if (pinned.length + extras.length === 0) {
     return null
@@ -111,18 +112,18 @@ export function IosPinnedList({
   )
   const entries: PinnedEntry[] = [
     ...pinned.map((pipeline) => ({ pipeline })),
-    ...extras.map(({ pipeline, block }) => ({
-      pipeline,
-      pin: {
-        pinned: true,
-        label: 'Unpin repository',
-        onToggle: () => actions.pinItem('repository', block.ref).onClick(),
-      },
-    })),
+    ...extras.map(({ pipeline, block }) => {
+      const item = actions.pinItem('repository', block.ref)
+
+      return {
+        pipeline,
+        pin: { pinned: true, label: 'Unpin repository', pending: item.disabled ?? false, onToggle: item.onClick },
+      }
+    }),
   ]
   const sorting = reorderable && members
   const reorderPinned = (next: string[]) =>
-    reorder(
+    reorder.mutate(
       reorderSlots(
         (members ?? []).map((member) => member.pipeline_id),
         next
@@ -139,6 +140,7 @@ export function IosPinnedList({
           getId={(pipeline) => pipeline.id}
           orientation="vertical"
           handle
+          disabled={reorder.isPending}
           onReorder={reorderPinned}
         >
           {(pipeline, drag) => (

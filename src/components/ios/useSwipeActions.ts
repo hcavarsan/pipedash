@@ -206,14 +206,14 @@ export function useSwipeActions(actions: SwipeAction[]): SwipeActionsController 
       },
       move: (context, { dx }) => {
         position.current = rowPosition(context.start - dx, maxWidth, context.rowWidth)
-        if (actionsRef.current.some((action) => action.primary)) {
+        if (actionsRef.current.some((action) => action.primary && !action.disabled)) {
           setArmed(nextArmed(armed.current, position.current, context.rowWidth))
         }
         draw()
       },
       end: (context, _drag, { vx }) => {
         const leftward = -vx
-        const target = actionsRef.current.find((action) => action.primary)
+        const target = actionsRef.current.find((action) => action.primary && !action.disabled)
         const decision = settleDecision(
           decideRowSwipe(position.current, leftward, maxWidth, context.rowWidth),
           armed.current

@@ -10,7 +10,8 @@ import {
 import type { ContextMenuItem } from '../../../components/common/ContextMenu'
 import type { PipelineView } from '../../../types/views'
 import { reorderSlots } from '../../../utils/viewTree'
-import { useReorderPipelineViews, useSubViewAllowance } from '../queries/usePipelineViewQueries'
+import { useSubViewAllowance } from '../queries/usePipelineViewQueries'
+import { useReorderPipelineViews, useViewsReordering } from '../queries/useViewReorderQueries'
 import { usePipelineViewStore } from '../stores/pipelineViewStore'
 import { useConfirmDeleteView } from './useConfirmDeleteView'
 import { usePinning } from './usePinning'
@@ -31,6 +32,7 @@ export function useViewMenuItems(
 ): (view: PipelineView) => ContextMenuItem[] {
   const openEditor = usePipelineViewStore((s) => s.openEditor)
   const { mutate: reorder } = useReorderPipelineViews()
+  const { reordering, reorderingNow } = useViewsReordering()
   const confirmDelete = useConfirmDeleteView()
   const pinItem = usePinning()
   const canAddSubView = useSubViewAllowance(views)
@@ -44,7 +46,11 @@ export function useViewMenuItems(
     const { rename, edit_rules, reorder: canReorder, delete: canDelete } = view.capabilities
     const siblingIds = views.filter((v) => v.parent === view.parent && v.capabilities.reorder).map((v) => v.id)
     const index = siblingIds.indexOf(view.id)
-    const move = (to: number) => reorder(reorderSlots(movableIds, moveId(siblingIds, index, to)))
+    const move = (to: number) => {
+      if (!reorderingNow()) {
+        reorder(reorderSlots(movableIds, moveId(siblingIds, index, to)))
+      }
+    }
     const items: ContextMenuItem[] = []
 
     if (rename || edit_rules) {
@@ -65,13 +71,13 @@ export function useViewMenuItems(
         {
           label: prevLabel,
           icon: <PrevIcon size={16} aria-hidden />,
-          disabled: index === 0,
+          disabled: reordering || index === 0,
           onClick: () => move(index - 1),
         },
         {
           label: nextLabel,
           icon: <NextIcon size={16} aria-hidden />,
-          disabled: index === siblingIds.length - 1,
+          disabled: reordering || index === siblingIds.length - 1,
           onClick: () => move(index + 1),
         }
       )

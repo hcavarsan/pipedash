@@ -5,7 +5,8 @@ import { StandardModal } from '../../../components/common/StandardModal'
 import type { PipelineView } from '../../../types/views'
 import { reorderSlots } from '../../../utils/viewTree'
 import { useConfirmDeleteView } from '../hooks/useConfirmDeleteView'
-import { usePipelineViews, useReorderPipelineViews } from '../queries/usePipelineViewQueries'
+import { usePipelineViews } from '../queries/usePipelineViewQueries'
+import { useReorderPipelineViews, useViewsReordering } from '../queries/useViewReorderQueries'
 import { usePipelineViewStore } from '../stores/pipelineViewStore'
 import { type SortableDragProps, SortableList } from './SortableList'
 
@@ -65,6 +66,7 @@ interface ManageViewListProps {
 function ManageViewList({ views, parentId, movableIds }: ManageViewListProps): ReactNode {
   const openEditor = usePipelineViewStore((s) => s.openEditor)
   const { mutate: reorder } = useReorderPipelineViews()
+  const { reordering } = useViewsReordering()
   const confirmDelete = useConfirmDeleteView()
   const siblings = views.filter((v) => v.parent === parentId && v.capabilities.reorder)
 
@@ -79,6 +81,7 @@ function ManageViewList({ views, parentId, movableIds }: ManageViewListProps): R
         getId={(g) => g.id}
         orientation="vertical"
         handle
+        disabled={reordering}
         onReorder={(order) => reorder(reorderSlots(movableIds, order))}
       >
         {(view, drag) => (

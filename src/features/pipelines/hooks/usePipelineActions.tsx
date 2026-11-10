@@ -4,13 +4,14 @@ import { usePlugins } from '../../../queries/usePluginsQueries'
 import { useRefreshProviders } from '../../../queries/useRefreshQueries'
 import type { PipelineActions } from '../../../types/pipelineRows'
 import type { Pipeline } from '../../../types/pipelines'
-import type { PipelineView, ViewDisplay } from '../../../types/views'
+import type { PipelineView, ViewDisplay, ViewPipeline } from '../../../types/views'
 import { useNotifyItems } from '../../notifications/hooks/useNotifyItems'
 import { useEnableWorkflow } from '../../runs/queries/useWorkflowQueries'
 import {
+  type PipelineMark,
+  useBusyPipelines,
+  useSetPipelineMarks,
   useSetViewMembership,
-  useToggleHidden,
-  useTogglePin,
   useUpdatePipelineView,
 } from '../queries/usePipelineViewQueries'
 import { usePipelineViewStore } from '../stores/pipelineViewStore'
@@ -36,12 +37,12 @@ export function usePipelineActions({
   onViewHistory,
   onViewMetrics,
 }: PipelineActionsInput): PipelineActionsResult {
-  const { mutate: togglePin } = useTogglePin()
-  const { mutate: toggleHidden } = useToggleHidden()
+  const { mutate: setMarks } = useSetPipelineMarks()
   const { mutate: setMembership } = useSetViewMembership()
   const { mutate: updateView } = useUpdatePipelineView()
   const { refresh: refreshProviders, refreshing } = useRefreshProviders()
   const { mutate: enableWorkflow } = useEnableWorkflow()
+  const { isBusy, isBusyNow } = useBusyPipelines()
   const { data: plugins } = usePlugins()
   const pinItem = usePinning()
   const { notifyItems } = useNotifyItems()
@@ -61,15 +62,32 @@ export function usePipelineActions({
       { replace: true }
     )
 
+  const setMarksOf = (mark: PipelineMark, pipelines: ViewPipeline[], value: boolean) => {
+    const pipelineIds = pipelines.map((p) => p.id).filter((id) => !isBusyNow(id))
+
+    if (pipelineIds.length > 0) {
+      setMarks({ mark, pipelineIds, value })
+    }
+  }
+  const whenFree = (pipeline: Pipeline, run: () => void) => {
+    if (!isBusyNow(pipeline.id)) {
+      run()
+    }
+  }
+
   const actions: PipelineActions = {
-    onTogglePin: (p) => togglePin(p),
-    onToggleHidden: (p) => toggleHidden(p),
+    onTogglePin: (p) => setMarksOf('pinned', [p], !p.pinned),
+    onToggleHidden: (p) => setMarksOf('hidden', [p], !p.hidden),
+    onSetMarks: setMarksOf,
+    isBusy,
     onAddToView: (p) => usePipelineViewStore.getState().openAddToView([p.id]),
     onRemoveFromView:
-      view && canRemove ? (p) => setMembership({ id: view.id, pipelineIds: [p.id], member: false }) : undefined,
+      view && canRemove
+        ? (p) => whenFree(p, () => setMembership({ id: view.id, pipelineIds: [p.id], member: false }))
+        : undefined,
     removeLabel: view && canRemove ? `Remove from ${view.name}` : undefined,
     onTrigger,
-    onEnable: (p) => enableWorkflow(p),
+    onEnable: (p) => whenFree(p, () => enableWorkflow(p)),
     onViewMetrics,
     onViewHistory,
     onOpenView: openView,

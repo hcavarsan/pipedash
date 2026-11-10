@@ -84,7 +84,7 @@ export function RunHistoryPage({ pipeline, tab, onTabChange, onBack }: RunHistor
 
   return (
     <PageContainer>
-      {mobileShell && <PullToRefresh refresh={data.refetch} />}
+      {mobileShell && <PullToRefresh refresh={data.refresh} />}
       {mobileShell && (canTrigger || historyMenu || notify) && (
         <NavBarMenu label="More">
           {canTrigger && (

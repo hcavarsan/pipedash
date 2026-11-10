@@ -15,6 +15,7 @@ const { MantineProvider } = await import('@mantine/core')
 const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 const { apiService } = await import('../../../../services/api')
 const { SignInField } = await import('./SignInField')
+const { notifications } = await import('../../../../lib/notifications')
 
 const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
 const view = () => within(document.body)
@@ -135,5 +136,64 @@ test('a failed status check keeps the started sign-in until the status loads', a
   })
   assert.ok(await view().findByText('Signed in as dev@example.com'))
   assert.equal(view().queryByText(/Server restarting/), null)
+  await act(async () => field.unmount())
+})
+
+test('a rejected cancel keeps the sign-in visible, shows the button loading and reports one error', async (context) => {
+  const cancelling = Promise.withResolvers<void>()
+  const changes: (string | null)[] = []
+  const shown = context.mock.method(notifications, 'show', () => 'toast')
+  context.mock.method(apiService, 'startSignIn', async () => started('stuck-flow'))
+  context.mock.method(apiService, 'signInStatus', neverSettles)
+  context.mock.method(apiService, 'cancelSignIn', () => cancelling.promise)
+  notifyManager.setNotifyFunction((callback) => act(callback))
+
+  const field = await renderField((reference) => changes.push(reference))
+  const user = userEvent.setup({ document })
+  await user.click(view().getByRole('button', { name: 'Sign in with SSO' }))
+  const cancel = await view().findByRole('button', { name: 'Cancel' })
+  await user.click(cancel)
+
+  await waitFor(() => assert.equal(cancel.hasAttribute('data-loading'), true))
+  assert.deepEqual(changes, ['stuck-flow'])
+  assert.equal(shown.mock.callCount(), 0)
+
+  await act(async () => cancelling.reject(new Error('Server restarting')))
+
+  await waitFor(() => assert.equal(shown.mock.callCount(), 1))
+  const options = shown.mock.calls[0]?.arguments[0]
+  assert.equal(options?.title, "Couldn't cancel sign-in")
+  assert.equal(options?.color, 'red')
+  assert.deepEqual(changes, ['stuck-flow'])
+  assert.equal(cancel.hasAttribute('data-loading'), false)
+  assert.ok(view().getByRole('button', { name: 'Cancel' }))
+  assert.equal(view().queryByRole('button', { name: 'Sign in with SSO' }), null)
+  await act(async () => field.unmount())
+  assert.equal(shown.mock.callCount(), 1)
+})
+
+test('a successful cancel resets the field only after the cancellation finishes', async (context) => {
+  const cancelling = Promise.withResolvers<void>()
+  const changes: (string | null)[] = []
+  const shown = context.mock.method(notifications, 'show', () => 'toast')
+  context.mock.method(apiService, 'startSignIn', async () => started('ending-flow'))
+  context.mock.method(apiService, 'signInStatus', neverSettles)
+  context.mock.method(apiService, 'cancelSignIn', () => cancelling.promise)
+  notifyManager.setNotifyFunction((callback) => act(callback))
+
+  const field = await renderField((reference) => changes.push(reference))
+  const user = userEvent.setup({ document })
+  await user.click(view().getByRole('button', { name: 'Sign in with SSO' }))
+  await user.click(await view().findByRole('button', { name: 'Cancel' }))
+
+  assert.deepEqual(changes, ['ending-flow'])
+  assert.ok(view().getByRole('button', { name: 'Cancel' }))
+
+  await act(async () => cancelling.resolve())
+
+  await waitFor(() => assert.deepEqual(changes, ['ending-flow', null]))
+  assert.ok(await view().findByRole('button', { name: 'Sign in with SSO' }))
+  assert.equal(view().queryByRole('button', { name: 'Cancel' }), null)
+  assert.equal(shown.mock.callCount(), 0)
   await act(async () => field.unmount())
 })

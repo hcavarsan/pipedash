@@ -13,7 +13,7 @@ import { service } from '../services/service'
 import type { PermissionCheckResult } from '../types/plugins'
 import type { ProviderDraft } from '../types/provider_draft'
 import type { ProviderConfig, ProviderImportResult, ProviderSummary } from '../types/providers'
-import { errorMessage } from '../utils/errorDisplay'
+import { displayErrorNotification, displaySuccessNotification } from '../utils/errorDisplay'
 import { saveFile } from '../utils/saveFile'
 
 export function useProviders(options?: { enabled?: boolean }): UseQueryResult<ProviderSummary[], Error> {
@@ -46,19 +46,14 @@ export function useSaveProviderDraft(): UseMutationResult<number, Error, Provide
       void queryClient.invalidateQueries({ queryKey: queryKeys.providers.detail(id) })
       void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
 
-      notifications.show({
-        title: updated ? 'Provider updated' : 'Provider added',
-        message: updated ? 'Refreshing pipelines...' : 'Fetching pipelines...',
-        color: 'green',
-      })
+      displaySuccessNotification(
+        updated ? 'Changes saved.' : 'Pipelines appear here when the first fetch finishes.',
+        updated ? 'Provider updated' : 'Provider added'
+      )
     },
 
     onError: (error: Error, draft) => {
-      notifications.show({
-        title: draft.provider_id === null ? "Couldn't add provider" : "Couldn't update provider",
-        message: errorMessage(error, 'Check the provider settings and try again.'),
-        color: 'red',
-      })
+      displayErrorNotification(error, draft.provider_id === null ? "Couldn't add provider" : "Couldn't update provider")
     },
   })
 }
@@ -93,11 +88,7 @@ export function useRemoveProvider(): UseMutationResult<void, Error, number, unkn
     },
 
     onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't remove provider",
-        message: errorMessage(error, 'Try removing the provider again.'),
-        color: 'red',
-      })
+      displayErrorNotification(error, "Couldn't remove provider")
     },
   })
 }
@@ -113,20 +104,15 @@ export function useExportProviders(): UseMutationResult<boolean, Error, void, un
 
     onSuccess: (saved) => {
       if (saved) {
-        notifications.show({
-          title: 'Providers exported',
-          message: 'Tokens are not in the file. Set each token variable on the other machine.',
-          color: 'green',
-        })
+        displaySuccessNotification(
+          'Tokens are not in the file. Set each token variable on the other machine.',
+          'Providers exported'
+        )
       }
     },
 
     onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't export providers",
-        message: errorMessage(error, 'Try exporting the providers again.'),
-        color: 'red',
-      })
+      displayErrorNotification(error, "Couldn't export providers")
     },
   })
 }
@@ -163,11 +149,7 @@ export function useImportProviders(): UseMutationResult<ProviderImportResult, Er
     },
 
     onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't import providers",
-        message: errorMessage(error, 'Check the providers file and try again.'),
-        color: 'red',
-      })
+      displayErrorNotification(error, "Couldn't import providers")
     },
   })
 }
@@ -206,11 +188,7 @@ export function useUpdateProviderRefreshInterval(
       if (!notify) {
         return
       }
-      notifications.show({
-        title: "Couldn't update refresh interval",
-        message: errorMessage(error, 'Try saving the refresh interval again.'),
-        color: 'red',
-      })
+      displayErrorNotification(error, "Couldn't update refresh interval")
     },
 
     onSuccess: (_data, { id }) => {
@@ -220,11 +198,7 @@ export function useUpdateProviderRefreshInterval(
         return
       }
 
-      notifications.show({
-        title: 'Refresh interval updated',
-        message: 'Provider will use the new refresh interval',
-        color: 'green',
-      })
+      displaySuccessNotification('Provider will use the new refresh interval', 'Refresh interval updated')
     },
   })
 }

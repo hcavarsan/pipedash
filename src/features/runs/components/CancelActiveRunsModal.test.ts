@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, afterEach, test } from 'node:test'
+import { after, afterEach, type TestContext, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement } from 'react'
@@ -16,6 +16,8 @@ const { MantineProvider } = await import('@mantine/core')
 const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 const { CancelActiveRunsModal } = await import('./CancelActiveRunsModal')
 const { apiService } = await import('../../../services/api')
+const { notifications } = await import('../../../lib/notifications')
+const { useCancelActiveRuns } = await import('../../pipelines/hooks/useCancelActiveRuns')
 const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 
 const view = () => within(document.body)
@@ -75,8 +77,11 @@ test('a failed cancellation keeps the dialog open and a retry closes it', async 
   const user = userEvent.setup({ document })
   let closed = 0
   let fail = true
+  let attempts = 0
   renderModal(
     async () => {
+      attempts += 1
+
       if (fail) {
         throw new Error('cancel failed')
       }
@@ -87,10 +92,86 @@ test('a failed cancellation keeps the dialog open and a retry closes it', async 
   )
 
   await user.click(await view().findByRole('button', { name: 'Cancel 1 run' }))
-  await waitFor(() => assert.ok(view().queryByRole('alert')))
+  await waitFor(() => assert.equal(attempts, 1))
+  assert.equal(view().queryByRole('alert'), null)
   assert.equal(closed, 0)
 
   fail = false
   await user.click(view().getByRole('button', { name: 'Cancel 1 run' }))
   await waitFor(() => assert.equal(closed, 1))
+})
+
+function CancelLauncher() {
+  const { cancelItem, dialog } = useCancelActiveRuns()
+  const item = cancelItem('Build', [pipeline])
+
+  return createElement(
+    'div',
+    null,
+    createElement('button', { type: 'button', onClick: () => item?.onClick() }, 'Open'),
+    dialog
+  )
+}
+
+async function openCancelDialog() {
+  const user = userEvent.setup({ document })
+  render(
+    createElement(MantineProvider, null, createElement(QueryClientProvider, { client }, createElement(CancelLauncher)))
+  )
+  await user.click(view().getByRole('button', { name: 'Open' }))
+  await user.click(await view().findByRole('button', { name: 'Cancel 1 run' }))
+}
+
+function stubDiscovery(context: TestContext) {
+  context.mock.method(apiService, 'getCancellationTargets', async () => ({
+    groups: [{ pipeline, provider_name: 'GitHub', runs: [run] }],
+    failed_pipeline_ids: [],
+    skipped: [],
+    run_count: 1,
+  }))
+  return context.mock.method(notifications, 'show', () => 'id')
+}
+
+test('cancelling active runs shows one summary toast and refreshes the provider', async (context) => {
+  const shown = stubDiscovery(context)
+  const refresh = context.mock.method(apiService, 'refreshProvider', async () => ({
+    provider_id: 1,
+    state: 'ok',
+    kind: null,
+    message: null,
+  }))
+  context.mock.method(apiService, 'cancelPipelineRuns', async () => ({
+    results: [{ target: { pipeline_id: 'p1', run_number: 11 }, pipeline_name: 'Build', error: null }],
+    requested_count: 1,
+    failed_count: 0,
+  }))
+
+  await openCancelDialog()
+
+  await waitFor(() => assert.equal(refresh.mock.callCount(), 1))
+  assert.equal(shown.mock.callCount(), 1)
+  assert.equal(shown.mock.calls[0]?.arguments[0]?.title, 'Cancellation requested')
+})
+
+test('a rejected batch shows one error toast, no dialog alert, and the dialog can retry', async (context) => {
+  const shown = stubDiscovery(context)
+  const refresh = context.mock.method(apiService, 'refreshProvider', async () => undefined)
+  const request = context.mock.method(apiService, 'cancelPipelineRuns', async () => {
+    throw new Error('provider unreachable')
+  })
+  const errorToasts = () => shown.mock.calls.filter((call) => call.arguments[0]?.title === "Couldn't cancel runs")
+
+  await openCancelDialog()
+
+  await waitFor(() => assert.equal(errorToasts().length, 1))
+  const confirm = view().getByRole('button', { name: 'Cancel 1 run' })
+  await waitFor(() => assert.equal(confirm.hasAttribute('disabled'), false))
+  assert.equal(view().queryByRole('alert'), null)
+  assert.equal(shown.mock.callCount(), 1)
+  assert.equal(refresh.mock.callCount(), 0)
+
+  await userEvent.setup({ document }).click(confirm)
+  await waitFor(() => assert.equal(request.mock.callCount(), 2))
+  await waitFor(() => assert.equal(errorToasts().length, 2))
+  assert.equal(view().queryByRole('alert'), null)
 })

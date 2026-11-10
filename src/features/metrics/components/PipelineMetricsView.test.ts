@@ -17,6 +17,7 @@ const { MantineProvider } = await import('@mantine/core')
 const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 const { MemoryRouter } = await import('react-router-dom')
 const { PipelineMetricsView } = await import('./PipelineMetricsView')
+const { notifications } = await import('../../../lib/notifications')
 const { apiService } = await import('../../../services/api')
 const { wsClient } = await import('../../../services/websocket')
 const view = () => within(document.body)
@@ -112,6 +113,90 @@ test('saving a new retention re-reads run history without deleting the cached ru
   await waitFor(() => assert.deepEqual(historyReads, [1]))
   assert.equal(config.retention_days, 14)
   assert.deepEqual(requests, [])
+})
+
+test('a failed history fetch after saving reports it and still refreshes the metrics', async (context) => {
+  const user = userEvent.setup({ document })
+  const pipelineId = 'fluxcd__1__apps'
+  const config: MetricsConfig = {
+    pipeline_id: pipelineId,
+    enabled: true,
+    retention_days: 30,
+    created_at: '2026-10-25T00:00:00Z',
+    updated_at: '2026-10-25T00:00:00Z',
+  }
+  const emptyHistory: RunHistoryPage = {
+    runs: [],
+    total_count: 0,
+    has_more: false,
+    can_scan_deeper: false,
+    is_complete: true,
+    scan_notice: null,
+    page: 1,
+    page_size: 50,
+    total_pages: 0,
+    branches: [],
+    actors: [],
+  }
+  let saved = false
+  let dashboardReads = 0
+  context.mock.method(apiService, 'getPipelineMetricsConfig', async () => ({ ...config }))
+  context.mock.method(
+    apiService,
+    'updatePipelineMetricsConfig',
+    async (_id: string, enabled: boolean, days: number) => {
+      saved = true
+      config.enabled = enabled
+      config.retention_days = days
+    }
+  )
+  context.mock.method(apiService, 'getMetricsDashboard', async () => {
+    dashboardReads += 1
+
+    return dashboardFixture({ metric_type: 'run_duration', aggregation_period: 'hourly', total_count: 0, metrics: [] })
+  })
+  context.mock.method(apiService, 'getMetricsStorageStats', async () => ({
+    total_metrics_count: 0,
+    estimated_size_bytes: 0,
+    estimated_size_mb: 0,
+    last_cleanup_at: null,
+    by_pipeline: [],
+  }))
+  context.mock.method(apiService, 'fetchRunHistory', async () => {
+    if (saved) {
+      throw new Error('Provider is unreachable')
+    }
+
+    return emptyHistory
+  })
+  context.mock.method(globalThis, 'fetch', async () => new Response(null, { status: 204 }))
+  context.mock.method(wsClient, 'listen', async () => () => undefined)
+  const shown = context.mock.method(notifications, 'show')
+  notifyManager.setNotifyFunction((callback) => act(callback))
+  await act(async () => {
+    render(
+      createElement(
+        MantineProvider,
+        null,
+        createElement(
+          QueryClientProvider,
+          { client },
+          createElement(MemoryRouter, null, createElement(PipelineMetricsView, { pipelineId, pipelineName: 'apps' }))
+        )
+      )
+    )
+  })
+
+  await user.click(await view().findByText('Configure metrics'))
+  await user.selectOptions(await view().findByRole('combobox', { name: 'Retention period' }), '14')
+  await waitFor(() => assert.ok(dashboardReads > 0))
+  dashboardReads = 0
+  await user.click(view().getByRole('button', { name: 'Save' }))
+
+  await waitFor(() =>
+    assert.ok(shown.mock.calls.some((call) => call.arguments[0]?.title === "Couldn't refresh metrics"))
+  )
+  await waitFor(() => assert.ok(dashboardReads > 0))
 })
 
 test('refreshing the mounted metrics page advances both time bounds without creating new cache entries', async (context) => {

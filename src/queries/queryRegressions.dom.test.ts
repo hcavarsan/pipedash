@@ -176,6 +176,38 @@ test('saving an edited provider draft keeps credentials out of the cached summar
   assert.equal(summary !== undefined && 'token' in summary, false)
 })
 
+test('saving a new provider says pipelines appear after the first fetch, without claiming a refresh', async (context) => {
+  stub(context, 'saveProviderDraft', async () => 7)
+  const shown = context.mock.method(notifications, 'show', () => 'saved')
+  const { result } = renderHook(() => useSaveProviderDraft(), { wrapper })
+
+  await act(async () => {
+    await result.current.mutateAsync(providerDraft(null))
+  })
+
+  assert.equal(shown.mock.callCount(), 1)
+  const options = shown.mock.calls[0]?.arguments[0]
+  assert.equal(options?.title, 'Provider added')
+  assert.equal(options?.message, 'Pipelines appear here when the first fetch finishes.')
+  assert.equal(options?.color, 'green')
+})
+
+test('saving changes to a provider only says the changes were saved', async (context) => {
+  stub(context, 'saveProviderDraft', async () => 1)
+  const shown = context.mock.method(notifications, 'show', () => 'saved')
+  const { result } = renderHook(() => useSaveProviderDraft(), { wrapper })
+
+  await act(async () => {
+    await result.current.mutateAsync(providerDraft(1))
+  })
+
+  assert.equal(shown.mock.callCount(), 1)
+  const options = shown.mock.calls[0]?.arguments[0]
+  assert.equal(options?.title, 'Provider updated')
+  assert.equal(options?.message, 'Changes saved.')
+  assert.equal(options?.color, 'green')
+})
+
 test('refreshing providers keeps in-flight ids marked when another provider fails', async (context) => {
   const slow = Promise.withResolvers<RefreshResult>()
   stub(context, 'refreshProvider', (id) => (id === 1 ? Promise.reject(new Error('down')) : slow.promise))

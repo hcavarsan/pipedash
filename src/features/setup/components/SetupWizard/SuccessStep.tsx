@@ -1,15 +1,13 @@
 import { Button, Stack, Text, ThemeIcon, Title } from '@mantine/core'
 import { IconCheck, IconCircleCheckFilled } from '@tabler/icons-react'
-import { useMutation } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { ErrorState } from '../../../../components/common/ErrorState'
 import { IosGroup, IosRow } from '../../../../components/ios/IosList'
 import { useMobileShell } from '../../../../hooks/useIsMobile'
-import { logger } from '../../../../lib/logger'
 import { hasLocalCore } from '../../../../services/connection'
-import { service } from '../../../../services/service'
 import { isMobilePlatform } from '../../../../utils/platform'
 
+import { useRestartApp } from '../../queries/useSetupQueries'
 import { MigrationSummaryCard } from './MigrationSummaryCard'
 import { PasswordReminderCard } from './PasswordReminderCard'
 import { RestartPrompt } from './RestartPrompt'
@@ -24,10 +22,7 @@ export function SuccessStep({
 }: SuccessStepProps): ReactNode {
   const onDevice = isMobilePlatform()
   const mobileShell = useMobileShell()
-  const restart = useMutation({
-    mutationFn: () => service.restartApp(),
-    onError: (error) => logger.error('SuccessStep', 'Failed to restart app', error),
-  })
+  const restart = useRestartApp()
   const restarting = restart.isPending || restart.isSuccess
   const restartError = restart.error
 
