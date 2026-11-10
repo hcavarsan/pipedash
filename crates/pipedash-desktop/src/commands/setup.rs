@@ -40,10 +40,10 @@ async fn blocking<T: Send + 'static>(
 pub async fn check_setup_status(
     app_data_dir: State<'_, AppDataDir>,
 ) -> Result<SetupStatus, ErrorResponse> {
-    let data_dir = app_data_dir.0.clone();
+    let config_path = app_data_dir.0.join("config.toml");
     blocking(move || {
         Ok(ConfigLoader::get_setup_status(
-            &data_dir,
+            &config_path,
             &crate::plugin_registry::plugin_registry(),
         ))
     })

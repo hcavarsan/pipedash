@@ -183,8 +183,8 @@ impl ConfigLoader {
         path.exists()
     }
 
-    pub fn get_setup_status(data_dir: &Path, registry: &PluginRegistry) -> SetupStatus {
-        let config_path = data_dir.join("config.toml");
+    pub fn get_setup_status(config_path: &Path, registry: &PluginRegistry) -> SetupStatus {
+        let data_dir = config_path.parent().unwrap_or(Path::new("."));
         let legacy_path = data_dir.join("storage_config.json");
 
         if legacy_path.exists() && !config_path.exists() {
@@ -211,7 +211,7 @@ impl ConfigLoader {
             };
         }
 
-        match Self::load(&config_path) {
+        match Self::load(config_path) {
             Ok(config) => {
                 let validation = ConfigValidator::validate_with_plugins(&config, registry);
                 let errors: Vec<String> = validation.errors.iter().map(|e| e.to_string()).collect();
