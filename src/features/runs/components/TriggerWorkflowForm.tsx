@@ -8,14 +8,15 @@ import { useFormEnterNavigation } from '../../../hooks/useFormEnterNavigation'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
 import { usePlugins } from '../../../queries/usePluginsQueries'
 import { useNotificationStore } from '../../../stores/notificationStore'
-import type { Pipeline, TriggerDraft, TriggerResult, WorkflowParameter } from '../../../types/pipelines'
+import type { Pipeline, TriggerResult, WorkflowParameter } from '../../../types/pipelines'
 import { displayWarningNotification, errorMessage } from '../../../utils/errorDisplay'
 import { useFocusFirstInvalid } from '../../../utils/formFocus'
 import { getPluginByType } from '../../../utils/pluginHelpers'
 import { sameJson } from '../../../utils/sameJson'
 import { changePreference } from '../../notifications/queries/changePreference'
+import { useTriggerValidation } from '../hooks/useTriggerValidation'
 import { comparable, type ParamValues } from '../lib/triggerParams'
-import { useCheckTrigger, usePreparedTrigger, useTriggerWorkflow } from '../queries/useWorkflowQueries'
+import { usePreparedTrigger, useTriggerWorkflow } from '../queries/useWorkflowQueries'
 import { TriggerWorkflowBody } from './TriggerWorkflowBody'
 import { WorkflowParameterField } from './WorkflowParameterField'
 
@@ -48,10 +49,9 @@ export function TriggerWorkflowForm({ onClose, pipeline, onSuccess, rerunOf }: T
   const formRef = useRef<HTMLFormElement>(null)
   const focusFirstInvalid = useFocusFirstInvalid(formRef)
   useFormEnterNavigation(formRef)
-  const [errors, setErrors] = useState<Record<string, string>>({})
-  const announcement = useErrorAnnouncement(errors)
   const triggerMutation = useTriggerWorkflow()
-  const checkTrigger = useCheckTrigger()
+  const { errors, checkAll, blur, change } = useTriggerValidation(pipeline.id, rerunOf)
+  const announcement = useErrorAnnouncement(errors)
   const { data: plugins } = usePlugins()
   const asyncTrigger = !!getPluginByType(plugins, pipeline.provider_type)?.capabilities.async_trigger
   const notifyTriggeredRuns = useNotificationStore((state) => state.notifyTriggeredRuns)
@@ -80,15 +80,14 @@ export function TriggerWorkflowForm({ onClose, pipeline, onSuccess, rerunOf }: T
       return IDLE_STATE
     }
 
-    let checked: TriggerDraft
+    let valid: boolean
     let result: TriggerResult
 
     try {
-      checked = await checkTrigger.mutateAsync({
-        pipelineId: pipeline.id,
-        rerunOf: rerunOf ?? null,
-        inputs: paramValues,
-      })
+      valid = await checkAll(
+        paramValues,
+        parameters.map((param) => param.name)
+      )
     } catch (checkError) {
       return {
         error: errorMessage(checkError, "Couldn't check the workflow inputs. Try again."),
@@ -96,9 +95,7 @@ export function TriggerWorkflowForm({ onClose, pipeline, onSuccess, rerunOf }: T
       }
     }
 
-    setErrors(checked.errors)
-
-    if (Object.keys(checked.errors).length > 0) {
+    if (!valid) {
       focusFirstInvalid()
 
       return IDLE_STATE
@@ -146,8 +143,7 @@ export function TriggerWorkflowForm({ onClose, pipeline, onSuccess, rerunOf }: T
     const input = param.type === 'number' && value === '' ? null : value
 
     setDraft((current) => current && { ...current, values: { ...current.values, [param.name]: input } })
-
-    setErrors(({ [param.name]: _removed, ...rest }) => rest)
+    change(param.name, { ...paramValues, [param.name]: input })
   }
 
   const triggerDisabled = !draft || !!fetchError || !!blockedReason
@@ -175,6 +171,7 @@ export function TriggerWorkflowForm({ onClose, pipeline, onSuccess, rerunOf }: T
       mobileShell={mobileShell}
       pending={isPending}
       onChange={(value) => changeValue(param, value)}
+      onBlur={() => blur(param.name, paramValues)}
     />
   ))
 

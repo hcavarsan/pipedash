@@ -338,7 +338,7 @@ async function downloadLog(context: TestContext, exportLog: () => Promise<boolea
   mount(createRef<LogViewerHandle>())
   await waitFor(() => assert.ok(lineButton(0)))
   await user.click(view().getByRole('button', { name: 'Log options' }))
-  await user.click(await view().findByRole('menuitem', { name: 'Download log' }))
+  await user.click(await view().findByRole('menuitem', { name: 'Export log' }))
   await waitFor(() =>
     assert.equal(
       exported.reduce((total, spy) => total + spy.mock.callCount(), 0),

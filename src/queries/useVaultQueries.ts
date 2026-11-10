@@ -6,14 +6,13 @@ import {
   useQueryClient,
 } from '@tanstack/react-query'
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
-import { notifications } from '../lib/notifications'
 import { queryKeys } from '../lib/queryKeys'
 import { mobileService } from '../services/mobile'
 import { service } from '../services/service'
 import { useAuthStore } from '../stores/authStore'
 import { getHttpStatus } from '../types/errors'
 import type { AppLockStatus, UnlockVaultResponse, VaultStatusResponse } from '../types/vault'
-import { displayErrorNotification, errorMessage } from '../utils/errorDisplay'
+import { displayErrorNotification } from '../utils/errorDisplay'
 
 export function useVaultPasswordStatus(options?: {
   enabled?: boolean
@@ -82,13 +81,7 @@ export function useLockVault(): UseMutationResult<UnlockVaultResponse, Error, vo
       useAuthStore.getState().clearToken()
       void queryClient.invalidateQueries({ queryKey: queryKeys.vault.all })
     },
-    onError: (error) => {
-      notifications.show({
-        title: "Couldn't lock vault",
-        message: errorMessage(error, 'Try locking the vault again.'),
-        color: 'red',
-      })
-    },
+    onError: (error) => displayErrorNotification(error, "Couldn't lock vault"),
   })
 }
 

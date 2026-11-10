@@ -46,7 +46,6 @@ function Sidebar() {
       viewMenu={menu}
       pinMenu={menu}
       onEditProvider={noop}
-      onRemoveProvider={noop}
       onCreateView={noop}
       readFailures={[]}
     />

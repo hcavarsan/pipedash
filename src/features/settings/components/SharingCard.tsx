@@ -3,13 +3,13 @@ import { IconAlertTriangle } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
 import { CopyButton } from '@/components/atoms/CopyButton'
-import { ErrorState } from '@/components/common/ErrorState'
-import { LoadingState } from '@/components/common/LoadingState'
+import { QueryBoundary } from '@/components/common/QueryBoundary'
 import {
   useResetSharingPort,
   useSetSharing,
   useSharingStatus,
 } from '@/features/connection/queries/useConnectionQueries'
+import type { SharingStatus } from '@/types/native'
 
 interface SharingRecoveryProps {
   pending: boolean
@@ -29,31 +29,13 @@ function SharingRecovery({ pending, onReset }: SharingRecoveryProps): ReactNode 
   )
 }
 
-export function SharingCard(): ReactNode {
-  const { data: status, error, isLoading, isRefetching, refetch } = useSharingStatus({ enabled: true })
+function SharingControls({ status }: { status: SharingStatus }): ReactNode {
   const setSharing = useSetSharing()
   const resetPort = useResetSharingPort()
-
-  if (error) {
-    return (
-      <ErrorState
-        title="Couldn't load sharing status"
-        error={error}
-        onRetry={() => refetch()}
-        retrying={isRefetching}
-      />
-    )
-  }
-
   const recovery =
-    status?.errorCode === 'PORT_IN_USE' ? (
+    status.errorCode === 'PORT_IN_USE' ? (
       <SharingRecovery pending={resetPort.isPending} onReset={() => resetPort.mutate()} />
     ) : null
-
-  if (isLoading || !status) {
-    return <LoadingState message="Loading sharing status" />
-  }
-
   return (
     <Card padding="md">
       <Stack gap="md">
@@ -101,5 +83,17 @@ export function SharingCard(): ReactNode {
         )}
       </Stack>
     </Card>
+  )
+}
+
+export function SharingCard(): ReactNode {
+  return (
+    <QueryBoundary
+      query={useSharingStatus({ enabled: true })}
+      loading="Loading sharing status…"
+      failure="Couldn't load sharing status"
+    >
+      {(status) => <SharingControls status={status} />}
+    </QueryBoundary>
   )
 }

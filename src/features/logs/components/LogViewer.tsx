@@ -7,7 +7,7 @@ import { LoadingState } from '../../../components/common/LoadingState'
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import { useRetryRunLog, useRunLogDocument } from '../../../queries/useRunLogQueries'
 import { formatBytes } from '../../../utils/formatBytes'
-import { openExternal } from '../../../utils/openExternal'
+import { openLink } from '../../../utils/openExternal'
 import type { LogViewerProps } from '../lib/logViewerTypes'
 import { LiveMarker } from './LiveMarker'
 import { PendingLogSteps } from './PendingLogSteps'
@@ -29,7 +29,7 @@ function OpenJobButton({ node, providerName }: Pick<LogViewerProps, 'node' | 'pr
       variant="default"
       size="xs"
       leftSection={<IconExternalLink size={14} aria-hidden />}
-      onClick={() => void openExternal(url)}
+      onClick={() => openLink(url)}
     >
       Open job in {providerName}
     </Button>

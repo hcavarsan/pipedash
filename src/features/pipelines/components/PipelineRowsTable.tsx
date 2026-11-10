@@ -1,6 +1,7 @@
-import { Box, Group, Stack, Text, UnstyledButton } from '@mantine/core'
+import { Group, Stack, Text, UnstyledButton } from '@mantine/core'
 import { IconChevronDown, IconChevronRight, IconFolder, IconFolders, IconGitBranch } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
+import { StatusBadge } from '../../../components/atoms/StatusBadge'
 import { useContextMenu } from '../../../components/common/ContextMenu'
 import { RepositoryFetchIndicator, RowFetchInfo } from '../../../components/common/PipelineFetchInfo'
 import { SectionActions, WorkflowActions } from '../../../components/common/PipelineRowActions'
@@ -112,12 +113,15 @@ export function usePipelineColumns({
       title: 'Status',
       sortable,
       width: 120,
-      textAlign: 'center',
+      textAlign: 'left',
       render: (row) =>
         row.type === 'workflow' ? (
           <PipelineStatusBadge pipeline={row.pipeline} provider={getProvider(row.pipeline.provider_id)} />
         ) : (
-          <RowFetchInfo row={row} getProvider={getProvider} />
+          <Group gap="xs" wrap="nowrap">
+            {row.status && <StatusBadge status={row.status} />}
+            <RowFetchInfo row={row} getProvider={getProvider} />
+          </Group>
         ),
     },
     {
@@ -189,32 +193,30 @@ export function PipelineRowsTable({ model, actions, onDisplayChange }: PipelineR
     : undefined
 
   return (
-    <Box style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
-      <VirtualTable<TableRow>
-        records={rows}
-        columns={columns}
-        getKey={(row) => row.id}
-        height="100%"
-        rowHeight={ROW_HEIGHT}
-        label={`${terminology?.items ?? 'pipelines'} table`}
-        sort={sortStatus}
-        onSortChange={({ columnId, direction }) => {
-          const sort = accessorSort(columnId)
+    <VirtualTable<TableRow>
+      records={rows}
+      columns={columns}
+      getKey={(row) => row.id}
+      height="100%"
+      rowHeight={ROW_HEIGHT}
+      label={`${terminology?.items ?? 'pipelines'} table`}
+      sort={sortStatus}
+      onSortChange={({ columnId, direction }) => {
+        const sort = accessorSort(columnId)
 
-          if (display && sort) {
-            onDisplayChange({ ...display, sort, direction })
-          }
-        }}
-        onRowClick={(row) =>
-          row.type === 'workflow' ? actions.onViewHistory(row.pipeline) : model.toggleSection(row.id)
+        if (display && sort) {
+          onDisplayChange({ ...display, sort, direction })
         }
-        rowAttributes={(row) =>
-          contextMenu(() =>
-            row.type === 'workflow' ? workflowMenuItems(row.pipeline, actions) : rowMenuItems(row, actions)
-          )
-        }
-        selection={tableSelection}
-      />
-    </Box>
+      }}
+      onRowClick={(row) =>
+        row.type === 'workflow' ? actions.onViewHistory(row.pipeline) : model.toggleSection(row.id)
+      }
+      rowAttributes={(row) =>
+        contextMenu(() =>
+          row.type === 'workflow' ? workflowMenuItems(row.pipeline, actions) : rowMenuItems(row, actions)
+        )
+      }
+      selection={tableSelection}
+    />
   )
 }

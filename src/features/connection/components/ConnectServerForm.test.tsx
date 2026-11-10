@@ -107,3 +107,24 @@ test('consent given for one address is not sent for another', async () => {
   await waitFor(() => assert.equal(pairs.length, 2))
   assert.deepEqual(pairs[1], { address: 'http://192.168.1.5:80800', code: 'ABCD-EFGH', allowPrivateHttp: false })
 })
+
+test('leaving an empty address field shows the required error before submitting', async () => {
+  const user = userEvent.setup({ document })
+  render(ui())
+  await user.click(await addressField())
+  await user.tab()
+
+  assert.ok(await view().findByText('Enter the server address or pairing link.'))
+  assert.equal(pairs.length, 0)
+})
+
+test('a connection failure is hidden once the address or code no longer matches what was sent', async () => {
+  const user = userEvent.setup({ document })
+  render(ui())
+  await user.type(await addressField(), 'https://pipedash.example.com')
+  await user.click(connectButton())
+  assert.ok(await view().findByText('Enter the 8-character code.'))
+
+  await user.type(await codeField(), 'A')
+  await waitFor(() => assert.equal(view().queryByText('Enter the 8-character code.'), null))
+})

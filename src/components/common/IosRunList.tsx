@@ -21,6 +21,8 @@ import { relativeOrNever } from './IosPipelineList'
 import classes from './IosRunList.module.css'
 import { VirtualList } from './VirtualList'
 
+const FADE_MS = 160
+
 interface IosRunRowProps {
   run: PipelineRun
   noun: string
@@ -79,7 +81,7 @@ const IosRunRow = ({ run, noun, now, selecting, selectable, selected, onToggle }
         </span>
         {!selecting && (
           <span className={classes.chevron} aria-hidden>
-            <IconChevronRight size={18} />
+            <IconChevronRight size={16} />
           </span>
         )}
       </button>
@@ -94,6 +96,7 @@ const IosRunRow = ({ run, noun, now, selecting, selectable, selected, onToggle }
     <div
       ref={pressRef}
       className={classes.row}
+      data-glyph=""
       data-selecting={selecting ? '' : undefined}
       data-dimmed={selecting && !selectable ? '' : undefined}
       data-swipeable={swipeable ? '' : undefined}
@@ -165,6 +168,10 @@ export const IosToolbar = ({ label, children }: { label: string; children: React
     if (tabBar) {
       tabBar.inert = true
       tabBar.setAttribute('aria-hidden', 'true')
+    }
+
+    if (prefersReducedMotion()) {
+      toolbar.animate({ opacity: [0, 1] }, { duration: FADE_MS, easing: 'ease-out' })
     }
 
     const animation = animateSpring({

@@ -11,6 +11,7 @@ import { useRunLogTree } from '../../../queries/useRunLogQueries'
 import type { RunLogTree } from '../../../types/logs'
 import type { Pipeline } from '../../../types/pipelines'
 import { getPluginDisplayName } from '../../../utils/pluginHelpers'
+import { useRunDetailActionItems } from '../hooks/useRunDetailActionItems'
 import { useRunDetailActions } from '../hooks/useRunDetailActions'
 import { resolveLogGroups } from '../lib/logTree'
 import { useRunDetails } from '../queries/useRunDetailsQuery'
@@ -107,25 +108,21 @@ function WorkflowLogsSession({
     }
   }
 
+  const actionItems = useRunDetailActionItems({
+    pipeline,
+    presentation,
+    run,
+    actions,
+    cancellationRequested,
+    requestRerun,
+  })
   const runActionProps = run && {
     run,
     providerName,
     isMobile,
-    rerunLabel: presentation?.rerun.label ?? '',
-    rerunCompactLabel: presentation?.rerun.compact_label ?? '',
-    triggerNote: presentation?.trigger.note,
     canViewLogs,
-    stopDisabled: cancellationRequested,
-    rerunPending: actions.rerunPending,
-    cancelPending: actions.cancelPending,
-    forceCancelPending: actions.forceCancelPending,
-    onRerun: requestRerun,
-    onCancel: () => {
-      actions.cancel().catch(() => undefined)
-    },
-    onForceCancel: () => {
-      actions.forceCancel().catch(() => undefined)
-    },
+    note: run.actions.rerun.reason ?? presentation?.trigger.note,
+    actions: actionItems,
   }
   const nodes = logTree.data?.nodes ?? []
 

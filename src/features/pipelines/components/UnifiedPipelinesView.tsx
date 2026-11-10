@@ -41,7 +41,7 @@ export function UnifiedPipelinesView({
 }: UnifiedPipelinesViewProps): ReactNode {
   const model = usePipelineViewModel({ providers, loading, error, retrying })
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const { actions, changeDisplay, cancelDialog } = usePipelineActions({
+  const { actions, changeDisplay, cancelDialog, viewUpdating } = usePipelineActions({
     view: model.view,
     onTrigger,
     onViewHistory,
@@ -71,7 +71,12 @@ export function UnifiedPipelinesView({
   return (
     <PipelineViewStatus model={model} onRetry={onRetry} onViewRun={onViewRun} onDisplayChange={changeDisplay}>
       <PageContainer>
-        <PipelineViewToolbar model={model} onDisplayChange={changeDisplay} onOpenFilters={() => setFiltersOpen(true)} />
+        <PipelineViewToolbar
+          model={model}
+          viewUpdating={viewUpdating}
+          onDisplayChange={changeDisplay}
+          onOpenFilters={() => setFiltersOpen(true)}
+        />
         {header}
         <PipelineBuildWatch model={model} onViewRun={onViewRun} />
         <PipelineViewReloadError model={model} onRetry={onRetry} />

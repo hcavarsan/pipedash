@@ -18,8 +18,9 @@
   justify-content: center;
   column-gap: 0.4em;
   box-sizing: border-box;
-  min-height: calc(28px * var(--ios-chrome-scale, 1));
-  padding: 0.25em calc(var(--safe-right) + 12px) 0.25em calc(var(--safe-left) + 12px);
+  min-height: calc(28px * var(--ios-text-scale, 1));
+  padding: 0.25em calc(var(--safe-right) + var(--mantine-spacing-sm)) 0.25em
+    calc(var(--safe-left) + var(--mantine-spacing-sm));
   border-bottom: 0.5px solid var(--ios-separator);
   background: var(--ios-material-bar);
   -webkit-backdrop-filter: var(--ios-material-filter);

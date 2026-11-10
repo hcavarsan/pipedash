@@ -48,12 +48,20 @@ export const RunLogsPanel = ({
     return <ErrorState title="Couldn't load jobs" error={error} onRetry={() => refetch()} retrying={isFetching} />
   }
 
+  const failure = error ? (
+    <ErrorState title="Couldn't load jobs" error={error} onRetry={() => refetch()} retrying={isFetching} />
+  ) : null
   const node =
     tree.nodes.find((n) => n.id === selectedId && n.log !== null) ??
     tree.nodes.find((n) => n.id === tree.default_node_id && n.log !== null)
 
   if (!node) {
-    return <EmptyState title="This run has no jobs yet" description="Jobs appear here once the provider starts them." />
+    return (
+      <>
+        {failure}
+        <EmptyState title="This run has no jobs yet" description="Jobs appear here once the provider starts them." />
+      </>
+    )
   }
 
   const viewer = (
@@ -69,33 +77,38 @@ export const RunLogsPanel = ({
     />
   )
 
-  if (narrow) {
-    return (
-      <Box display="flex" flex={1} mih={0} style={{ flexDirection: 'column' }}>
-        <Box p="sm" flex="none">
-          <Select
-            aria-label="Job"
-            data={selectData}
-            value={node.id}
-            limit={50}
-            searchable
-            allowDeselect={false}
-            onChange={(value) => setSelectedId(value)}
-          />
-        </Box>
-        <Box flex={1} mih={0} display="flex" style={{ flexDirection: 'column' }}>
-          {viewer}
-        </Box>
+  const body = narrow ? (
+    <Box display="flex" flex={1} mih={0} style={{ flexDirection: 'column' }}>
+      <Box p="sm" flex="none">
+        <Select
+          aria-label="Job"
+          data={selectData}
+          value={node.id}
+          limit={50}
+          searchable
+          allowDeselect={false}
+          onChange={(value) => setSelectedId(value)}
+        />
       </Box>
-    )
-  }
-
-  return (
+      <Box flex={1} mih={0} display="flex" style={{ flexDirection: 'column' }}>
+        {viewer}
+      </Box>
+    </Box>
+  ) : (
     <Box display="flex" flex={1} mih={0}>
       <LogJobList nodes={tree.nodes} selectedId={node.id} onSelect={setSelectedId} />
       <Box flex={1} miw={0} mih={0} display="flex" style={{ flexDirection: 'column' }}>
         {viewer}
       </Box>
     </Box>
+  )
+
+  return failure ? (
+    <Box display="flex" flex={1} mih={0} style={{ flexDirection: 'column' }}>
+      {failure}
+      {body}
+    </Box>
+  ) : (
+    body
   )
 }

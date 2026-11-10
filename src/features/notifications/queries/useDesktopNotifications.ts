@@ -11,7 +11,6 @@ import { listen } from '@tauri-apps/api/event'
 import { useCallback, useEffect } from 'react'
 
 import { logger } from '../../../lib/logger'
-import { notifications } from '../../../lib/notifications'
 import {
   DESKTOP_NOTIFICATIONS_EVENT,
   type DesktopNotificationSnapshot,
@@ -19,7 +18,7 @@ import {
 } from '../../../services/desktop'
 import { type CenterSelection, useNotificationCenterStore } from '../../../stores/notificationCenterStore'
 import type { CenterNotification } from '../../../types/notifications'
-import { displayErrorNotification } from '../../../utils/errorDisplay'
+import { displayErrorNotification, displaySuccessNotification } from '../../../utils/errorDisplay'
 import { isRecord } from '../../../utils/isRecord'
 import { isDesktopTauri } from '../../../utils/platform'
 
@@ -49,11 +48,30 @@ export function refreshDesktopNotifications(client: QueryClient): Promise<Deskto
   return client.fetchQuery({ ...snapshotOptions, staleTime: 0 })
 }
 
-export function useNotificationItems(): CenterNotification[] {
-  const { data } = useQuery(snapshotOptions)
+function bulkPending(action: { type: 'read'; key: string | null } | { type: 'clear' }): 'markAll' | 'clear' | null {
+  if (action.type === 'clear') {
+    return 'clear'
+  }
+
+  return action.key === null ? 'markAll' : null
+}
+
+interface NotificationItems {
+  items: CenterNotification[]
+  status: 'pending' | 'error' | 'success'
+  error: Error | null
+  refetch: () => void
+}
+
+export function useNotificationItems(): NotificationItems {
+  const { data, status, error, refetch } = useQuery(snapshotOptions)
   const localItems = useNotificationCenterStore((state) => state.items)
 
-  return isDesktopTauri() ? (data?.items ?? emptyItems) : localItems
+  if (!isDesktopTauri()) {
+    return { items: localItems, status: 'success', error: null, refetch: () => undefined }
+  }
+
+  return { items: data?.items ?? emptyItems, status, error, refetch: () => void refetch() }
 }
 
 export function useNotificationActions(): {
@@ -61,9 +79,10 @@ export function useNotificationActions(): {
   markRead: (key: string) => void
   markAllRead: () => void
   clear: () => void
+  pending: 'markAll' | 'clear' | null
 } {
   const client = useQueryClient()
-  const { mutate } = useMutation({
+  const { mutate, isPending, variables } = useMutation({
     mutationFn: (action: { type: 'read'; key: string | null } | { type: 'clear' }) =>
       action.type === 'read' ? desktopService.markNotificationsRead(action.key) : desktopService.clearNotifications(),
     onMutate: () => client.getQueryCache().find({ queryKey: desktopNotificationsKey, exact: true }),
@@ -76,6 +95,9 @@ export function useNotificationActions(): {
     },
     onError: (error) => displayErrorNotification(error, "Couldn't update notifications"),
   })
+  const storePending = useNotificationCenterStore((state) => state.pending)
+  const desktopPending = isPending && variables ? bulkPending(variables) : null
+  const pending = isDesktopTauri() ? desktopPending : storePending
   const markRead = useCallback(
     (key: string) => {
       if (isDesktopTauri()) {
@@ -87,19 +109,27 @@ export function useNotificationActions(): {
     [mutate]
   )
   const markAllRead = useCallback(() => {
+    if (pending) {
+      return
+    }
+
     if (isDesktopTauri()) {
       mutate({ type: 'read', key: null })
     } else {
       void useNotificationCenterStore.getState().markAllRead()
     }
-  }, [mutate])
+  }, [mutate, pending])
   const clear = useCallback(() => {
+    if (pending) {
+      return
+    }
+
     if (isDesktopTauri()) {
       mutate({ type: 'clear' })
     } else {
       void useNotificationCenterStore.getState().clear()
     }
-  }, [mutate])
+  }, [mutate, pending])
   const open = useCallback(
     (selection: CenterSelection) => {
       useNotificationCenterStore.getState().open(selection)
@@ -110,18 +140,14 @@ export function useNotificationActions(): {
     [markRead]
   )
 
-  return { open, markRead, markAllRead, clear }
+  return { open, markRead, markAllRead, clear, pending }
 }
 
 export function useSendTestDesktopNotification(): UseMutationResult<void, Error, void> {
   return useMutation<void, Error, void>({
     mutationFn: () => desktopService.testNotification(),
     onSuccess: () =>
-      notifications.show({
-        title: 'Notification submitted',
-        message: 'Your operating system decides whether to display it.',
-        color: 'green',
-      }),
+      displaySuccessNotification('Your operating system decides whether to display it.', 'Notification submitted'),
   })
 }
 
@@ -152,8 +178,14 @@ export function useDesktopNotifications(): void {
         await refreshDesktopNotifications(client)
       })
       .catch((error: unknown) => {
-        if (!isCancelledError(error)) {
-          logger.warn('Desktop', "Couldn't load desktop notifications", error)
+        if (isCancelledError(error)) {
+          return
+        }
+
+        logger.warn('Desktop', "Couldn't load desktop notifications", error)
+
+        if (active && !remove) {
+          refreshDesktopNotifications(client).catch(() => undefined)
         }
       })
 

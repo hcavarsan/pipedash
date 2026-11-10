@@ -144,7 +144,7 @@ test('a failed run-details refetch keeps the loaded run and actions on screen wi
 
   assert.ok(await view().findByText('Run unavailable'))
   assert.ok(view().getByText(/Details update live/))
-  assert.ok(view().getByRole('button', { name: 'Stop workflow' }))
+  assert.ok(view().getByRole('button', { name: /^Cancel run #/ }))
 
   failing = false
   await userEvent.setup({ document }).click(view().getByRole('button', { name: 'Retry' }))
@@ -165,14 +165,14 @@ test('mobile jobs show loading, then an error with Retry, then the jobs, and the
 
   assert.ok(await view().findByText('Loading jobs…'))
   assert.ok(await view().findByText(/Details update live/))
-  assert.ok(view().getByRole('button', { name: 'Stop workflow' }))
+  assert.ok(view().getByRole('button', { name: /^Cancel run #/ }))
 
   await act(async () => pending.reject(new Error('Jobs unavailable')))
 
   assert.ok(await view().findByText('Jobs unavailable'))
   assert.equal(view().queryByText('Loading jobs…'), null)
   assert.ok(view().getByText(/Details update live/))
-  assert.ok(view().getByRole('button', { name: 'Stop workflow' }))
+  assert.ok(view().getByRole('button', { name: /^Cancel run #/ }))
 
   await userEvent.setup({ document }).click(view().getByRole('button', { name: 'Retry' }))
 

@@ -30,7 +30,7 @@ export function WorkflowModalHost({ pipelines, invalidateAll }: WorkflowModalHos
   const { mutate: refreshProvider } = useRefreshProvider()
   const triggerModal = useModalStore((s) => s.triggerModal)
   const logsModal = useModalStore((s) => s.logsModal)
-  const openLogsModal = useModalStore((s) => s.openLogsModal)
+  const showRunAfterAction = useModalStore((s) => s.showRunAfterAction)
   const closeTriggerModal = useModalStore((s) => s.closeTriggerModal)
   const closeLogsModal = useModalStore((s) => s.closeLogsModal)
 
@@ -46,19 +46,19 @@ export function WorkflowModalHost({ pipelines, invalidateAll }: WorkflowModalHos
 
   const handleTriggerSuccess = async (pipelineId: string, runNumber: number): Promise<void> => {
     await syncAfterAction(triggerPipeline?.provider_id)
-    openLogsModal(pipelineId, runNumber)
+    showRunAfterAction(pipelineId, runNumber)
   }
 
   const handleRerunSuccess = async (pipelineId: string, newRunNumber: number): Promise<void> => {
     await syncAfterAction(logsPipeline?.provider_id)
-    openLogsModal(pipelineId, newRunNumber)
+    showRunAfterAction(pipelineId, newRunNumber)
   }
 
   return (
     <>
       {triggerModal.open && triggerPipeline && (
         <ErrorBoundary scope="feature" name="Trigger workflow">
-          <Suspense fallback={<LoadingState message="Loading dialog..." />}>
+          <Suspense fallback={<LoadingState message="Loading dialog…" />}>
             <TriggerWorkflowModal
               opened
               onClose={closeTriggerModal}
@@ -72,7 +72,7 @@ export function WorkflowModalHost({ pipelines, invalidateAll }: WorkflowModalHos
 
       {logsModal.open && (
         <ErrorBoundary scope="feature" name="Run details">
-          <Suspense fallback={<LoadingState message="Loading dialog..." />}>
+          <Suspense fallback={<LoadingState message="Loading dialog…" />}>
             <WorkflowLogsModal
               opened
               onClose={closeLogsModal}

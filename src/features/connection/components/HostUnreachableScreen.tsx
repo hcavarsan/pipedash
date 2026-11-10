@@ -1,4 +1,4 @@
-import { Box, Button, Center, Paper, Stack } from '@mantine/core'
+import { Button, Stack, ThemeIcon } from '@mantine/core'
 import { IconWifiOff } from '@tabler/icons-react'
 import { type ReactNode, useState } from 'react'
 
@@ -9,7 +9,7 @@ import { logger } from '../../../lib/logger'
 import { connectionService, getConnection } from '../../../services/connection'
 import { confirmDisconnect } from '../confirmDisconnect'
 import { useDisconnectServer } from '../queries/useConnectionQueries'
-import { ConnectionScreenHeading } from './ConnectionScreenHeading'
+import { EntryScreen } from './EntryScreen'
 
 interface HostUnreachableScreenProps {
   onRetry: () => Promise<unknown>
@@ -20,7 +20,7 @@ export function HostUnreachableScreen({ onRetry }: HostUnreachableScreenProps): 
   const disconnect = useDisconnectServer()
   const [retrying, setRetrying] = useState(false)
   const host = getConnection().host ?? 'the server'
-  const title = `Can't reach ${host}`
+  const title = `Couldn't connect to ${host}`
   const message = `Check that ${host} is running and that this device can reach it.`
   const size = mobileShell ? 'lg' : 'md'
 
@@ -68,11 +68,12 @@ export function HostUnreachableScreen({ onRetry }: HostUnreachableScreenProps): 
         <DocumentTitle title={title} />
         <StatusScreen
           icon={
-            <Box c="dimmed" lh={0}>
-              <IconWifiOff size={48} aria-hidden />
-            </Box>
+            <ThemeIcon variant="transparent" color="gray" size={48}>
+              <IconWifiOff size={24} aria-hidden />
+            </ThemeIcon>
           }
           title={title}
+          headingOrder={1}
           message={message}
           actions={actions}
           minHeight="100dvh"
@@ -82,17 +83,8 @@ export function HostUnreachableScreen({ onRetry }: HostUnreachableScreenProps): 
   }
 
   return (
-    <Box component="main" h="100vh" className="safe-area">
-      <DocumentTitle title={title} />
-      <Center h="100%" p={{ base: 'md', sm: 'xl' }}>
-        <Paper p={{ base: 'lg', sm: 'xl' }} w="100%" maw={480} withBorder>
-          <Stack gap="xl">
-            <ConnectionScreenHeading title={title} message={message} wrapTitle />
-
-            <Stack gap="sm">{actions}</Stack>
-          </Stack>
-        </Paper>
-      </Center>
-    </Box>
+    <EntryScreen title={title} message={message} wrapTitle documentTitle={title}>
+      <Stack gap="sm">{actions}</Stack>
+    </EntryScreen>
   )
 }

@@ -2,12 +2,11 @@ import { Button, Group, Text } from '@mantine/core'
 import { type ReactNode, useActionState, useId, useRef, useState } from 'react'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { useMobileShell } from '../../../hooks/useIsMobile'
-import { notifications } from '../../../lib/notifications'
 import { useMigrateAndSaveConfig, useSaveConfigContent } from '../../../queries/useStorageQueries'
+import { Z } from '../../../theme/zIndex'
 import type { ConfigAnalysisResponse, MigrationOptions, MigrationPlan } from '../../../types/storage'
 import { openConfirm } from '../../../utils/confirm'
-import { errorMessage } from '../../../utils/errorDisplay'
-import { formatCount } from '../../../utils/formatCount'
+import { displayErrorNotification, errorMessage } from '../../../utils/errorDisplay'
 import { useAnalyzeConfigNow, useConfigAnalysis } from '../hooks/useConfigAnalysis'
 import { ConfigAnalysisNotices } from './ConfigAnalysisNotices'
 import { ConfigEditorField } from './ConfigEditorField'
@@ -41,7 +40,7 @@ export const ConfigEditorModal = ({ onClose, initialContent, onSaved }: ConfigEd
   const [content, setContent] = useState(initialContent)
   const [submission, setSubmission] = useState<Submission | null>(null)
   const saveConfig = useSaveConfigContent()
-  const migrateAndSave = useMigrateAndSaveConfig()
+  const migrateAndSave = useMigrateAndSaveConfig({ toastErrors: false })
   const analyzeNow = useAnalyzeConfigNow()
 
   const hasChanges = content !== initialContent
@@ -52,23 +51,12 @@ export const ConfigEditorModal = ({ onClose, initialContent, onSaved }: ConfigEd
   const persist = async (submitted: string): Promise<string | null> => {
     try {
       await saveConfig.mutateAsync(submitted)
-      notifications.show({
-        title: 'Configuration saved',
-        message: 'Your changes to config.toml were saved.',
-        color: 'green',
-      })
       onSaved?.()
       onClose()
 
       return null
     } catch (error) {
-      const message = errorMessage(error, 'Check the file for errors and try again.')
-
-      if (mobileShell) {
-        notifications.show({ title: "Couldn't save configuration", message, color: 'red' })
-      }
-
-      return message
+      return errorMessage(error, 'Check the file for errors and try again.')
     }
   }
 
@@ -88,11 +76,7 @@ export const ConfigEditorModal = ({ onClose, initialContent, onSaved }: ConfigEd
 
     if (!result.valid) {
       if (mobileShell) {
-        notifications.show({
-          title: 'Configuration is invalid',
-          message: 'Fix the validation errors before saving',
-          color: 'red',
-        })
+        displayErrorNotification(new Error('Fix the validation errors before saving'), 'Configuration is invalid')
       }
 
       return IDLE_STATE
@@ -107,7 +91,7 @@ export const ConfigEditorModal = ({ onClose, initialContent, onSaved }: ConfigEd
     if (mobileShell && result.warnings.length > 0) {
       setSubmission({ kind: 'warnings' })
       openConfirm({
-        zIndex: 400,
+        zIndex: Z.alert,
         title: 'Configuration warnings',
         children: <ConfigWarningsList warnings={result.warnings} />,
         labels: { confirm: 'Save anyway', cancel: 'Cancel' },
@@ -131,30 +115,14 @@ export const ConfigEditorModal = ({ onClose, initialContent, onSaved }: ConfigEd
       return
     }
 
-    try {
-      const result = await migrateAndSave.mutateAsync({
-        plan: submission.plan,
-        options,
-        content: submission.content,
-      })
-
-      notifications.show({
-        title: 'Migration complete',
-        message: `Migrated ${formatCount(result.stats.providers_migrated, 'provider')}`,
-        color: 'green',
-      })
-      setSubmission(null)
-      onSaved?.()
-      onClose()
-    } catch (error) {
-      notifications.show({
-        title: "Couldn't save configuration",
-        message: errorMessage(error, 'Check the file for errors and try again.'),
-        color: 'red',
-      })
-
-      throw error
-    }
+    await migrateAndSave.mutateAsync({
+      plan: submission.plan,
+      options,
+      content: submission.content,
+    })
+    setSubmission(null)
+    onSaved?.()
+    onClose()
   }
 
   const submitting = isPending || submission !== null || saveConfig.isPending || migrateAndSave.isPending

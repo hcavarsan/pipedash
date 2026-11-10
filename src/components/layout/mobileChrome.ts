@@ -159,5 +159,24 @@ export function pushState(pathname: string, search: string, state?: unknown): Na
 }
 
 export function routeKey(pathname: string, search: string, state?: unknown): string {
-  return `${mobileChrome(pathname, search, state).tab}|${pathname}`
+  const params = new URLSearchParams(search)
+  const screen = new URLSearchParams()
+
+  for (const key of ['view', 'provider']) {
+    const value = params.get(key)
+
+    if (value) {
+      screen.set(key, value)
+    }
+  }
+
+  const query = screen.toString()
+
+  return `${mobileChrome(pathname, search, state).tab}|${pathname}${query ? `?${query}` : ''}`
+}
+
+export function locationKey(location: string, tab: MobileTab): string {
+  const { pathname, search } = splitLocation(location)
+
+  return routeKey(pathname, search, { tab })
 }

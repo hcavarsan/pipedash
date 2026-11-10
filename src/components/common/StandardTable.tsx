@@ -4,6 +4,8 @@ import { Box } from '@mantine/core'
 import { DataTable, type DataTableProps, type DataTableRowClickHandler } from 'mantine-datatable'
 import type { ReactNode } from 'react'
 
+import { rowClassName, TABLE_HEADER_STYLE, TABLE_NUMERIC } from './tableStyles'
+
 const INTERACTIVE_TARGET = 'button, a, input, label, [role="checkbox"]'
 
 export function StandardTable<T>(props: DataTableProps<T>): ReactNode {
@@ -37,7 +39,7 @@ export function StandardTable<T>(props: DataTableProps<T>): ReactNode {
       <DataTable<T>
         {...props}
         withTableBorder={false}
-        rowClassName={props.onRowClick ? 'interactive-surface row-clickable' : 'interactive-surface'}
+        rowClassName={rowClassName(Boolean(props.onRowClick)) ?? ''}
         {...(props.onRowClick ? { onRowClick: handleRowClick } : {})}
         withColumnBorders={false}
         scrollAreaProps={{
@@ -49,15 +51,7 @@ export function StandardTable<T>(props: DataTableProps<T>): ReactNode {
           ...props.styles,
           header: {
             ...(props.styles?.header || {}),
-            fontSize: 'var(--mantine-font-size-sm)',
-            fontWeight: 600,
-            paddingTop: 'var(--mantine-spacing-sm)',
-            paddingBottom: 'var(--mantine-spacing-sm)',
-            paddingLeft: 'var(--mantine-spacing-md)',
-            paddingRight: 'var(--mantine-spacing-md)',
-            whiteSpace: 'nowrap',
-            verticalAlign: 'middle',
-            borderBottom: '1px solid var(--mantine-color-default-border)',
+            ...TABLE_HEADER_STYLE,
           },
           table: {
             ...(props.styles?.table || {}),
@@ -65,7 +59,7 @@ export function StandardTable<T>(props: DataTableProps<T>): ReactNode {
             tableLayout: 'auto',
             width: '100%',
             fontSize: 'var(--mantine-font-size-sm)',
-            fontVariantNumeric: 'tabular-nums',
+            ...TABLE_NUMERIC,
           },
           pagination: {
             ...(props.styles?.pagination || {}),

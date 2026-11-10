@@ -23,17 +23,16 @@ interface PipelineMetricCardsProps {
 interface MetricCardProps {
   type: MetricType
   query: UseQueryResult<MetricsDashboard, Error>
-  dateRange: DateRange
   aggregationPeriod: AggregationPeriod
   onExpand: (metricType: MetricType) => void
 }
 
-function MetricCard({ type, query, dateRange, aggregationPeriod, onExpand }: MetricCardProps): ReactNode {
-  const resolved = useRef({ aggregationPeriod, dateRange })
+function MetricCard({ type, query, aggregationPeriod, onExpand }: MetricCardProps): ReactNode {
+  const resolved = useRef({ aggregationPeriod })
   const { data, isPlaceholderData } = query
 
   if (data && !isPlaceholderData) {
-    resolved.current = { aggregationPeriod, dateRange }
+    resolved.current = { aggregationPeriod }
   }
 
   const error = query.isError && (
@@ -59,12 +58,7 @@ function MetricCard({ type, query, dateRange, aggregationPeriod, onExpand }: Met
         <CompactMetricsCard
           metricType={type}
           data={data}
-          title={buildChartTitle(
-            type,
-            getDefaultAggregationType(type),
-            resolved.current.aggregationPeriod,
-            resolved.current.dateRange
-          )}
+          title={buildChartTitle(type, getDefaultAggregationType(type), resolved.current.aggregationPeriod)}
           loading={query.isPending || (isPlaceholderData && !hasMetrics)}
           onExpand={() => onExpand(type)}
         />
@@ -101,13 +95,7 @@ export function PipelineMetricCards({
   }
 
   const renderCard = (type: MetricType) => (
-    <MetricCard
-      type={type}
-      query={queries[type]}
-      dateRange={dateRange}
-      aggregationPeriod={aggregationPeriod}
-      onExpand={onExpand}
-    />
+    <MetricCard type={type} query={queries[type]} aggregationPeriod={aggregationPeriod} onExpand={onExpand} />
   )
 
   if (mobileShell) {

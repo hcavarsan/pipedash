@@ -99,7 +99,7 @@ export const baseTheme = createTheme({
     Card: Card.extend({ defaultProps: { radius: 'md', withBorder: true } }),
     Paper: Paper.extend({ defaultProps: { radius: 'md' } }),
     Modal: Modal.extend({ defaultProps: { radius: 'md' } }),
-    Tooltip: Tooltip.extend({ defaultProps: { withArrow: true } }),
+    Tooltip: Tooltip.extend({ defaultProps: { withArrow: true, events: { hover: true, focus: true, touch: false } } }),
   },
 })
 
@@ -141,7 +141,6 @@ export const theme = mergeThemeOverrides(
       Tooltip: Tooltip.extend({
         defaultProps: {
           withArrow: true,
-          events: { hover: true, focus: true, touch: false },
           transitionProps: { transition: 'fade', duration: 100, timingFunction: PRESENT_EASING },
         },
       }),

@@ -124,8 +124,8 @@ export function RunHistoryResults({
     return failure
   }
 
-  if (!isMobile && columns.error) {
-    return (
+  const columnsFailure =
+    !isMobile && columns.error ? (
       <ErrorState
         title="Couldn't load run table columns"
         error={columns.error}
@@ -134,7 +134,10 @@ export function RunHistoryResults({
         }}
         retrying={columns.loading}
       />
-    )
+    ) : null
+
+  if (columnsFailure && !columns.hasSchema) {
+    return columnsFailure
   }
 
   const empty = !data.isFetching && data.runs.length === 0 ? <RunHistoryEmpty data={data} /> : null
@@ -165,13 +168,14 @@ export function RunHistoryResults({
     )
   }
 
-  if (empty && !data.scanNotice && !failure) {
+  if (empty && !data.scanNotice && !failure && !columnsFailure) {
     return empty
   }
 
   return (
     <>
       {failure}
+      {columnsFailure}
       <RunHistoryTable data={data} columns={columns} selection={selection} emptyState={empty} />
       {data.hasMore && !data.scanNotice && (
         <Group justify="center" mt="sm">

@@ -101,20 +101,22 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps): ReactNode => {
       onError: () => haptic('error'),
     })
 
+  const alert = error && (
+    <ErrorState
+      title="Couldn't load cache statistics"
+      error={error}
+      onRetry={() => refetch()}
+      retrying={isRefetching}
+    />
+  )
+
   const renderContent = () => {
     if (isLoading) {
-      return <LoadingState message="Loading cache statistics..." />
+      return <LoadingState message="Loading cache statistics…" />
     }
 
     if (!cacheStats) {
-      return (
-        <ErrorState
-          title="Couldn't load cache statistics"
-          error={error}
-          onRetry={() => refetch()}
-          retrying={isRefetching}
-        />
-      )
+      return alert
     }
 
     const cacheItems = [
@@ -129,7 +131,7 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps): ReactNode => {
     ]
 
     if (mobileShell) {
-      const clearing = <Loader size={18} aria-label="Clearing" role="status" />
+      const clearing = <Loader size="xs" aria-label="Clearing" role="status" />
       const clearRows = cacheItems.map((item) => (
         <IosRow
           key={item.key}
@@ -208,5 +210,10 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps): ReactNode => {
     )
   }
 
-  return <Box>{renderContent()}</Box>
+  return (
+    <Box>
+      {cacheStats && alert}
+      {renderContent()}
+    </Box>
+  )
 }

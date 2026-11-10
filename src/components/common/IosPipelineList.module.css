@@ -1,132 +1,41 @@
 .row {
-  --pad: 1em;
-  --glyph: 1.1em;
-  --gap: 0.75em;
-  --inset: var(--pad);
-  position: relative;
-  display: flex;
-  align-items: center;
-  font-size: var(--ios-fs-body);
-  background: var(--ios-cell);
-  background-image: linear-gradient(var(--row-press, transparent), var(--row-press, transparent));
-}
-
-.row[data-glyph] {
-  --inset: calc(var(--pad) + var(--glyph) + var(--gap));
-}
-
-.row[data-swipeable] {
-  overflow: hidden;
-}
-
-.row + .row::before,
-[data-virtual-item]:not([data-first]) > .row::before,
-.cell:not([data-first]) > .row::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  z-index: 2;
-  pointer-events: none;
-  right: 0;
-  left: var(--inset);
-  height: 0.5px;
-  background: var(--ios-separator);
+  composes: listRow from "../ios/IosList.module.css";
 }
 
 .cell {
-  background: var(--ios-cell);
-}
-
-.cell[data-first] {
-  overflow: hidden;
-  border-top-left-radius: var(--ios-radius-grouped);
-  border-top-right-radius: var(--ios-radius-grouped);
-}
-
-.cell[data-last] {
-  overflow: hidden;
-  border-bottom-left-radius: var(--ios-radius-grouped);
-  border-bottom-right-radius: var(--ios-radius-grouped);
+  composes: listCell from "../ios/IosList.module.css";
 }
 
 .main {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: var(--gap);
-  min-width: 0;
-  min-height: 44px;
-  padding: 0.47em var(--pad);
-  box-sizing: border-box;
-  border: 0;
-  background: transparent;
-  color: var(--ios-label);
-  font-family: inherit;
-  font-size: var(--ios-fs-body);
-  text-decoration: none;
-  font-weight: 400;
-  line-height: var(--ios-lh-body);
-  text-align: left;
-  transition: background-color 120ms ease;
+  composes: listMain from "../ios/IosList.module.css";
 }
 
 .row[data-trailing] .main {
-  padding-right: 4px;
-}
-
-.row[data-selecting] {
-  --check: 22px;
-  --inset: calc(var(--pad) + var(--check) + var(--gap));
-}
-
-.row[data-selecting][data-glyph] {
-  --inset: calc(var(--pad) + var(--check) + var(--gap) + var(--glyph) + var(--gap));
-}
-
-.row:has(.main:active),
-.row:has([data-row-menu]:active),
-.row[data-pressing],
-.row:has([data-row-menu][aria-expanded="true"]) {
-  --row-press: var(--ios-fill);
-}
-
-.main:focus-visible {
-  outline: 2px solid var(--ios-tint);
-  outline-offset: -2px;
+  padding-right: var(--mantine-spacing-3xs);
 }
 
 .text {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.title,
-.subtitle {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  composes: text from "../ios/IosList.module.css";
 }
 
 .title {
-  font-size: var(--ios-fs-body);
-  line-height: var(--ios-lh-body);
+  composes: title from "../ios/IosList.module.css";
 }
 
 .subtitle {
-  font-size: var(--ios-fs-subheadline);
-  line-height: var(--ios-lh-subheadline);
-  color: var(--ios-secondary-label);
+  composes: subtitle from "../ios/IosList.module.css";
 }
 
 .srOnly {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
+  composes: srOnly from "../ios/IosList.module.css";
+}
+
+.chevron {
+  composes: chevron from "../ios/IosList.module.css";
+}
+
+.selectCheck {
+  composes: listCheck from "../ios/IosList.module.css";
 }
 
 .value {
@@ -134,53 +43,6 @@
   font-size: var(--ios-fs-subheadline);
   color: var(--ios-secondary-label);
   font-variant-numeric: tabular-nums;
-}
-
-.chevron {
-  display: flex;
-  flex-shrink: 0;
-  color: var(--ios-chevron);
-}
-
-.trailing {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  padding-right: 4px;
-  color: var(--ios-secondary-label);
-}
-
-.row[data-flat] {
-  --inset: var(--pad);
-}
-
-.check {
-  display: flex;
-  flex-shrink: 0;
-  width: 1.2em;
-  color: var(--ios-tint);
-}
-
-.selectCheck {
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  width: var(--check);
-  height: var(--check);
-  box-sizing: border-box;
-  border: 1.5px solid var(--ios-separator);
-  border-radius: 50%;
-  color: var(--ios-on-tint);
-  pointer-events: none;
-}
-
-.selectCheck[data-selected] {
-  border-color: var(--ios-tint);
-  background: var(--ios-tint);
-}
-
-.selectCheck svg {
-  display: block;
 }
 
 .reorder {

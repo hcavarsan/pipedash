@@ -1,10 +1,11 @@
-import { Alert, Badge, Button, Card, Checkbox, Group, PasswordInput, Stack, Text } from '@mantine/core'
+import { Alert, Button, Card, Checkbox, Group, PasswordInput, Stack, Text } from '@mantine/core'
 import { IconAlertCircle } from '@tabler/icons-react'
 import { type ReactNode, useActionState, useId, useRef, useState } from 'react'
 import { FormErrorDisplay } from '../../../components/common/FormErrorDisplay'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { FieldRow, SwitchRow } from '../../../components/ios/mobileParts'
+import { useBlurValidation } from '../../../hooks/useBlurValidation'
 import { useFormEnterNavigation } from '../../../hooks/useFormEnterNavigation'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import type { MigrationOptions, MigrationPlan, MigrationStatsPreview } from '../../../types/storage'
@@ -32,23 +33,34 @@ const PASSWORD_ATTRIBUTES = {
 
 interface MigrationPasswordFieldProps {
   value: string
+  error: string | undefined
   onChange: (value: string) => void
+  onBlur: () => void
   disabled: boolean
   id: string
   errorId: string
 }
 
-const MigrationPasswordField = ({ value, onChange, disabled, id, errorId }: MigrationPasswordFieldProps): ReactNode => (
+const MigrationPasswordField = ({
+  value,
+  error,
+  onChange,
+  onBlur,
+  disabled,
+  id,
+  errorId,
+}: MigrationPasswordFieldProps): ReactNode => (
   <PasswordInput
     id={id}
     name="password"
     variant="unstyled"
     aria-required
-    aria-invalid={!value}
-    aria-describedby={value ? undefined : errorId}
+    aria-invalid={Boolean(error)}
+    aria-describedby={error ? errorId : undefined}
     placeholder="Required"
     value={value}
     onChange={(e) => onChange(e.currentTarget.value)}
+    onBlur={onBlur}
     disabled={disabled}
     w="12em"
     styles={{ input: { minHeight: '2em', paddingInlineStart: 0, textAlign: 'right' } }}
@@ -69,7 +81,9 @@ export const MigrationConfirmModal = ({
   const passwordErrorId = useId()
   const [password, setPassword] = useState('')
   const [migrateData, setMigrateData] = useState(true)
-  const [passwordBlurred, setPasswordBlurred] = useState(false)
+  const validation = useBlurValidation<'password'>((_key, value) =>
+    value ? undefined : 'Password is required for token migration'
+  )
 
   const needsPassword = migrationPlan.migrate_tokens && migrateData
   const blocked = needsPassword && !password
@@ -80,7 +94,7 @@ export const MigrationConfirmModal = ({
       const tokenPassword = typeof submitted === 'string' ? submitted : password
 
       if (needsPassword && !tokenPassword) {
-        setPasswordBlurred(true)
+        validation.validateAll({ password: tokenPassword })
 
         return { error: null, submitted: null }
       }
@@ -104,6 +118,10 @@ export const MigrationConfirmModal = ({
     { error: null, submitted: null }
   )
   const submittedError = sameJson(state.submitted, { password, migrateData }) ? state.error : null
+  const changePassword = (value: string): void => {
+    setPassword(value)
+    validation.onChange('password', value)
+  }
 
   const summaryRows = [
     { label: 'Providers', value: stats?.providers_count },
@@ -118,17 +136,17 @@ export const MigrationConfirmModal = ({
         Cancel
       </Button>
       <Button size="sm" type="submit" form={formId} loading={loading} color="orange" disabled={mobileShell && blocked}>
-        Proceed with migration
+        Migrate
       </Button>
     </Group>
   )
 
-  const passwordFooter = password ? (
-    'Required to decrypt and migrate your encrypted tokens.'
-  ) : (
+  const passwordFooter = validation.errors.password ? (
     <Text span inherit c="red" id={passwordErrorId}>
-      Password is required for token migration
+      {validation.errors.password}
     </Text>
+  ) : (
+    'Required to decrypt and migrate your encrypted tokens.'
   )
 
   const renderPasswordField = (fieldId: string): ReactNode => (
@@ -136,7 +154,9 @@ export const MigrationConfirmModal = ({
       id={fieldId}
       errorId={passwordErrorId}
       value={password}
-      onChange={setPassword}
+      error={validation.errors.password}
+      onChange={changePassword}
+      onBlur={() => validation.onBlur('password', password)}
       disabled={loading}
     />
   )
@@ -175,10 +195,10 @@ export const MigrationConfirmModal = ({
 
   const desktopSummaryRows = summaryRows.map((row) => (
     <Group key={row.label} justify="space-between">
+      <Text size="sm">{row.label}</Text>
       <Text size="sm" c="dimmed">
-        {row.label}
+        {row.value ?? 'Unavailable'}
       </Text>
-      <Badge>{row.value ?? 'Unavailable'}</Badge>
     </Group>
   ))
 
@@ -215,11 +235,11 @@ export const MigrationConfirmModal = ({
           description="Required to decrypt and migrate your encrypted tokens"
           placeholder="Enter your vault password"
           value={password}
-          onChange={(e) => setPassword(e.currentTarget.value)}
-          onBlur={() => setPasswordBlurred(true)}
+          onChange={(e) => changePassword(e.currentTarget.value)}
+          onBlur={() => validation.onBlur('password', password)}
           required
           disabled={loading}
-          error={passwordBlurred && !password ? 'Password is required for token migration' : undefined}
+          error={validation.errors.password}
           {...PASSWORD_ATTRIBUTES}
         />
       )}

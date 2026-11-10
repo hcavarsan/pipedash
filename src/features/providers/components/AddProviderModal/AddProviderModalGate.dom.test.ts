@@ -60,11 +60,11 @@ test('a rejected plugin list shows an error, and Retry opens a usable wizard', a
 
   assert.ok(await view().findByText("Couldn't load providers"))
   assert.ok(view().getByText('plugins offline'))
-  assert.equal(view().queryByRole('button', { name: /^Next/ }), null)
+  assert.equal(view().queryByRole('button', { name: /^Continue/ }), null)
 
   await user.click(view().getByRole('button', { name: 'Retry' }))
 
-  assert.ok(await view().findByRole('button', { name: /^Next/ }))
+  assert.ok(await view().findByRole('button', { name: /^Continue/ }))
   assert.equal(view().queryByText("Couldn't load providers"), null)
 })
 
@@ -79,13 +79,13 @@ test('a failed background plugin refetch keeps the wizard', async (context) => {
     return [pluginFixture()]
   })
   mount()
-  assert.ok(await view().findByRole('button', { name: /^Next/ }))
+  assert.ok(await view().findByRole('button', { name: /^Continue/ }))
 
   await act(async () => {
     await client.invalidateQueries({ queryKey: queryKeys.plugins.list() })
   })
 
   await waitFor(() => assert.equal(reads, 2))
-  assert.ok(view().getByRole('button', { name: /^Next/ }))
+  assert.ok(view().getByRole('button', { name: /^Continue/ }))
   assert.equal(view().queryByText("Couldn't load providers"), null)
 })

@@ -17,7 +17,7 @@ export function useCancelRuns(): UseMutationResult<CancellationBatch, Error, Run
     onSuccess: ({ results, ...batch }) => {
       for (const { target, error } of results) {
         if (error === null) {
-          invalidateRunHistory(queryClient, target.pipeline_id, target.run_number)
+          void invalidateRunHistory(queryClient, target.pipeline_id, target.run_number)
         }
       }
 

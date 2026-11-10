@@ -24,7 +24,7 @@ export function PasswordReminderCard({ envVarName, password }: PasswordReminderC
         <Group gap="xs">
           <IconAlertTriangle size={16} color="var(--mantine-color-orange-light-color)" aria-hidden />
           <Text size="sm" fw={600}>
-            Required for next launch
+            Required to auto-unlock
           </Text>
         </Group>
 

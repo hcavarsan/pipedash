@@ -4,7 +4,6 @@ import { useProviderPermissions } from '../../../../queries/useProvidersQueries'
 import { isAuthError, isNetworkError, isPermissionError, toPipedashError } from '../../../../types/errors'
 import type { FeatureAvailability, PermissionStatus, PluginMetadata } from '../../../../types/plugins'
 import type { ProviderConfig } from '../../../../types/providers'
-import { displayErrorNotification, displaySuccessNotification } from '../../../../utils/errorDisplay'
 
 interface UsePermissionCheckParams {
   selectedPlugin: PluginMetadata | null
@@ -56,13 +55,7 @@ export function usePermissionCheck({
 
     setModalOpen(true)
 
-    const result = await refetch()
-
-    if (result.error) {
-      displayErrorNotification(result.error, "Couldn't check permissions")
-    } else if (result.data?.permission_status?.all_granted) {
-      displaySuccessNotification('Required permissions granted', 'Permissions verified')
-    }
+    await refetch()
   }
 
   return {

@@ -1,4 +1,4 @@
-import { Button, Group, Modal, Stack, Text, ThemeIcon } from '@mantine/core'
+import { Button, Group, Stack, Text, ThemeIcon } from '@mantine/core'
 import type { ReactNode } from 'react'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
@@ -21,10 +21,10 @@ function MobileDetails({ notification, actions, now }: DetailsViewProps): ReactN
   const HeaderIcon = notificationIcon(notification)
 
   return (
-    <Stack gap={24}>
+    <Stack gap="lg">
       <IosGroup>
         <IosRow
-          icon={<HeaderIcon size={18} color={TONE_COLORS[notification.tone]} aria-hidden />}
+          icon={<HeaderIcon size={16} color={TONE_COLORS[notification.tone]} aria-hidden />}
           title={notificationLabel(notification)}
           value={formatRelativeTime(notification.at, now)}
         />
@@ -41,7 +41,7 @@ function MobileDetails({ notification, actions, now }: DetailsViewProps): ReactN
           {actions.map((action) => (
             <IosRow
               key={action.key}
-              icon={action.icon(18)}
+              icon={action.icon(16)}
               title={action.label}
               chevron={action.chevron}
               onClick={action.onClick}
@@ -59,7 +59,7 @@ function DesktopTitle({ notification, now }: Pick<DetailsViewProps, 'notificatio
   return (
     <Group gap="sm" wrap="nowrap">
       <ThemeIcon variant="default" size="md" aria-hidden>
-        <HeaderIcon size={16} />
+        <HeaderIcon size={16} color={TONE_COLORS[notification.tone]} />
       </ThemeIcon>
       <Stack gap={0}>
         <Text fw={600}>{notification.title}</Text>
@@ -100,30 +100,28 @@ function DesktopDetails({ notification, actions }: Pick<DetailsViewProps, 'notif
 export function NotificationDetailsModal(): ReactNode {
   const selection = useNotificationCenterStore((state) => state.selection)
   const close = useNotificationCenterStore((state) => state.close)
-  const items = useNotificationItems()
+  const { items } = useNotificationItems()
   const now = useNow(30_000)
   const mobileShell = useMobileShell()
 
   const notification =
     selection?.type === 'notification' ? (items.find((item) => item.key === selection.key) ?? null) : null
   const actions = useNotificationDetailActions(notification)
+  let title: ReactNode = null
+  let body: ReactNode = null
 
-  if (mobileShell) {
-    return (
-      <Modal opened={Boolean(notification)} onClose={close} title={notification?.title}>
-        {notification && <MobileDetails notification={notification} actions={actions} now={now} />}
-      </Modal>
+  if (notification) {
+    title = mobileShell ? notification.title : <DesktopTitle notification={notification} now={now} />
+    body = mobileShell ? (
+      <MobileDetails notification={notification} actions={actions} now={now} />
+    ) : (
+      <DesktopDetails notification={notification} actions={actions} />
     )
   }
 
   return (
-    <StandardModal
-      opened={Boolean(notification)}
-      onClose={close}
-      size="md"
-      title={notification && <DesktopTitle notification={notification} now={now} />}
-    >
-      {notification && <DesktopDetails notification={notification} actions={actions} />}
+    <StandardModal opened={Boolean(notification)} onClose={close} size="md" title={title}>
+      {body}
     </StandardModal>
   )
 }

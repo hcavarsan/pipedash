@@ -1,7 +1,8 @@
-import { Box, Stack, Text } from '@mantine/core'
-import { IconBellCheck } from '@tabler/icons-react'
-import { type ReactNode, useEffect } from 'react'
+import { Loader, Stack, Text } from '@mantine/core'
+import type { ReactNode } from 'react'
 import { ProviderIcon } from '../../../components/atoms/ProviderIcon'
+import { ErrorState } from '../../../components/common/ErrorState'
+import { LoadingState } from '../../../components/common/LoadingState'
 import { PageContainer } from '../../../components/common/PageContainer'
 import { PageHeader } from '../../../components/common/PageHeader'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
@@ -12,7 +13,7 @@ import { openConfirm } from '../../../utils/confirm'
 
 import { useNotificationActions, useNotificationItems } from '../queries/useDesktopNotifications'
 
-import { NotificationList, useAffectedProviders } from './NotificationCenter'
+import { NotificationList, NotificationsEmptyState, useAffectedProviders } from './NotificationCenter'
 import { NotificationListItem } from './NotificationListItem'
 
 const DAY_MS = 86_400_000
@@ -46,8 +47,8 @@ function groupByDay(items: CenterNotification[], now: number) {
 }
 
 function ShellNotificationList() {
-  const items = useNotificationItems()
-  const { open, markAllRead, markRead, clear } = useNotificationActions()
+  const { items, status, error, refetch } = useNotificationItems()
+  const { open, markAllRead, markRead, clear, pending } = useNotificationActions()
   const now = useNow(30_000)
   const affected = useAffectedProviders()
   const unread = items.some((item) => !item.read)
@@ -66,25 +67,21 @@ function ShellNotificationList() {
       Mark all as read
     </Text>
   )
+  const failure = status === 'error' && (
+    <ErrorState title="Couldn't load notifications" error={error} onRetry={refetch} />
+  )
 
   if (items.length === 0 && affected.length === 0) {
-    return (
-      <Stack align="center" gap={6} px="xl" pt={72}>
-        <Box c="dimmed">
-          <IconBellCheck size={48} stroke={1.4} aria-hidden />
-        </Box>
-        <Text size="lg" fw={600}>
-          You're all caught up
-        </Text>
-        <Text size="sm" c="dimmed" ta="center">
-          Provider outages and pipeline failures show up here.
-        </Text>
-      </Stack>
-    )
+    if (status === 'pending') {
+      return <LoadingState message="Loading notifications…" />
+    }
+
+    return failure || <NotificationsEmptyState />
   }
 
   return (
-    <Stack gap={24}>
+    <Stack gap="lg">
+      {failure}
       {affected.length > 0 && (
         <IosGroup header="Affecting pipelines now">
           {affected.map(({ provider, headline }) => (
@@ -110,13 +107,24 @@ function ShellNotificationList() {
 
       {unread && (
         <IosGroup>
-          <IosRow title={markAllReadTitle} onClick={markAllRead} />
+          <IosRow
+            title={markAllReadTitle}
+            disabled={pending !== null}
+            accessory={pending === 'markAll' ? <Loader size="xs" aria-label="Marking as read" /> : undefined}
+            onClick={markAllRead}
+          />
         </IosGroup>
       )}
 
       {items.length > 0 && (
         <IosGroup>
-          <IosRow destructive title="Clear all" onClick={confirmClear} />
+          <IosRow
+            destructive
+            title="Clear all"
+            disabled={pending !== null}
+            accessory={pending === 'clear' ? <Loader size="xs" aria-label="Clearing" /> : undefined}
+            onClick={confirmClear}
+          />
         </IosGroup>
       )}
     </Stack>
@@ -124,10 +132,7 @@ function ShellNotificationList() {
 }
 
 export function NotificationsPage(): ReactNode {
-  const { markAllRead } = useNotificationActions()
   const mobileShell = useMobileShell()
-
-  useEffect(() => markAllRead, [markAllRead])
 
   return mobileShell ? (
     <ShellNotificationList />

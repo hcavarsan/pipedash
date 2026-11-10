@@ -1,4 +1,4 @@
-import { Badge, Box, Card, Code, Divider, Group, Stack, Text, ThemeIcon, Tooltip } from '@mantine/core'
+import { Box, Card, Code, Divider, Group, Stack, Text, ThemeIcon, Tooltip } from '@mantine/core'
 import { IconCheck, IconX } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import type { FeatureAvailability, PermissionCheck } from '../../../types/plugins'
@@ -70,9 +70,9 @@ function PermissionHeader({ check }: { check: PermissionCheck }): ReactNode {
         </Tooltip>
         <Code fz="sm">{check.permission.name}</Code>
       </Group>
-      <Badge size="xs" variant="light" color="gray">
+      <Text size="sm" c="dimmed">
         {check.permission.required ? 'Required' : 'Optional'}
-      </Badge>
+      </Text>
     </Group>
   )
 }

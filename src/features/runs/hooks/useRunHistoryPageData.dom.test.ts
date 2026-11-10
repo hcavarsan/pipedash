@@ -99,7 +99,7 @@ test('completed history stays complete across forward and backward page navigati
   assert.equal(requests.at(-1)?.scan_depth, 2)
 })
 
-test('a rejected history refresh rejects the promise and shows one error toast', async (context) => {
+test('a rejected history refresh rejects the promise without a toast, leaving the inline error to show it', async (context) => {
   let failing = false
   const fetchHistory = async (_pipelineId: string, query: RunHistoryQuery) => {
     if (failing) {
@@ -126,8 +126,7 @@ test('a rejected history refresh rejects the promise and shows one error toast',
 
   assert.ok(outcome instanceof Error)
   assert.equal(outcome.message, 'History unavailable')
-  assert.equal(shown.mock.callCount(), 1)
-  assert.equal(shown.mock.calls[0]?.arguments[0]?.title, "Couldn't refresh run history")
+  assert.equal(shown.mock.callCount(), 0)
 })
 
 test('a rejected next page keeps the first page and retry requests the failed page', async (context) => {

@@ -1,4 +1,4 @@
-import { Box, Button, Center, Paper, Stack } from '@mantine/core'
+import { Button } from '@mantine/core'
 import { IconArrowLeft, IconChevronLeft } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
@@ -7,8 +7,8 @@ import { DocumentTitle } from '../../../components/common/DocumentTitle'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { isRecord } from '../../../utils/isRecord'
 import { Onboarding } from '../../setup/components/SetupWizard/Onboarding'
-import { ConnectionScreenHeading } from './ConnectionScreenHeading'
 import { ConnectServerForm } from './ConnectServerForm'
+import { EntryScreen } from './EntryScreen'
 
 const TITLE = 'Connect to a server'
 const ALERTS_TITLE = 'Get alerts from a server'
@@ -54,27 +54,18 @@ export function ConnectServerScreen(): ReactNode {
   }
 
   return (
-    <Box component="main" h="100vh" className="safe-area">
-      <DocumentTitle title={title} />
-      <Center h="100%" p={{ base: 'md', sm: 'xl' }}>
-        <Paper p={{ base: 'lg', sm: 'xl' }} w="100%" maw={480} withBorder>
-          <Stack gap="xl">
-            <ConnectionScreenHeading title={title} />
+    <EntryScreen title={title} documentTitle={title}>
+      {form}
 
-            {form}
-
-            <Button
-              variant="subtle"
-              color="gray"
-              leftSection={<IconArrowLeft size={16} aria-hidden />}
-              onClick={goBack}
-              style={{ alignSelf: 'flex-start' }}
-            >
-              Back
-            </Button>
-          </Stack>
-        </Paper>
-      </Center>
-    </Box>
+      <Button
+        variant="subtle"
+        color="gray"
+        leftSection={<IconArrowLeft size={16} aria-hidden />}
+        onClick={goBack}
+        style={{ alignSelf: 'flex-start' }}
+      >
+        Back
+      </Button>
+    </EntryScreen>
   )
 }

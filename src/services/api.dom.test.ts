@@ -98,10 +98,15 @@ test('provider recovery opens a tab synchronously before starting the provider-b
     label: 'GitHub',
     manual: false,
   }
+  const tab: Window = Object.create(window, {
+    opener: { value: window, writable: true },
+    location: { value: { href: '' } },
+  })
+
   context.mock.method(window, 'open', () => {
     events.push('open')
 
-    return null
+    return tab
   })
   context.mock.method(globalThis, 'fetch', async (url: string, init: RequestInit) => {
     events.push(`${init.method} ${url}`)
@@ -115,6 +120,16 @@ test('provider recovery opens a tab synchronously before starting the provider-b
   assert.equal(events[0], 'open')
   assert.deepEqual(await pending, start)
   assert.deepEqual(events, ['open', 'POST /api/v1/providers/7/sign-in'])
+  assert.equal(tab.location.href, start.authorize_url)
+})
+
+test('a blocked sign-in tab fails before the flow starts', async (context) => {
+  const fetched = context.mock.method(globalThis, 'fetch', async () => new Response('{}', { status: 200 }))
+
+  context.mock.method(window, 'open', () => null)
+
+  await assert.rejects(apiService.startProviderSignIn(7), /blocked the sign-in tab/)
+  assert.equal(fetched.mock.callCount(), 0)
 })
 
 test('reconnecting sends only the completed flow and never automatically retries a failed commit', async (context) => {

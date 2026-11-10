@@ -5,7 +5,11 @@ import { service } from '../../../services/service'
 import type { GeneralConfig } from '../../../types/storage'
 import { displayErrorNotification } from '../../../utils/errorDisplay'
 
-export function useUpdateGeneralSettings(): UseMutationResult<void, Error, GeneralConfig, unknown> {
+export function useUpdateGeneralSettings({
+  toastErrors = true,
+}: {
+  toastErrors?: boolean
+} = {}): UseMutationResult<void, Error, GeneralConfig, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -13,7 +17,10 @@ export function useUpdateGeneralSettings(): UseMutationResult<void, Error, Gener
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.storage.config() }),
     onError: (error) => {
       logger.error('GeneralSection', 'Failed to update general settings', error)
-      displayErrorNotification(error, "Couldn't save general settings")
+
+      if (toastErrors) {
+        displayErrorNotification(error, "Couldn't save general settings")
+      }
     },
   })
 }

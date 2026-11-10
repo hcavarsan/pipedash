@@ -19,10 +19,10 @@ export const PushDeviceActions = ({ title, busy, onTest, onRemove }: PushDeviceA
     </Menu.Target>
     <Menu.Dropdown>
       <Menu.Label>{title}</Menu.Label>
-      <Menu.Item leftSection={<IconSend size={18} aria-hidden />} onClick={onTest}>
+      <Menu.Item leftSection={<IconSend size={16} aria-hidden />} onClick={onTest}>
         Send test push
       </Menu.Item>
-      <Menu.Item color="red" leftSection={<IconTrash size={18} aria-hidden />} onClick={onRemove}>
+      <Menu.Item color="red" leftSection={<IconTrash size={16} aria-hidden />} onClick={onRemove}>
         Remove
       </Menu.Item>
       <ActionSheetCancel />

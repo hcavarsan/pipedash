@@ -59,7 +59,7 @@ export function CancelRunTargets({ groups, now, shell, where }: CancelRunTargets
         value={<StatusBadge status={run.status} />}
       />
     ) : (
-      <Group justify="space-between" wrap="nowrap" gap="md" py={4}>
+      <Group justify="space-between" wrap="nowrap" gap="md" py="3xs">
         <Group gap="sm" wrap="nowrap" miw={0}>
           <Text size="sm" fw={500}>
             #{run.run_number}

@@ -12,7 +12,6 @@ import { STATUS_META } from '../../../theme/status'
 import type { Pipeline, PipelineRun, PipelineStatus } from '../../../types/pipelines'
 import type { RunHistoryScanNotice } from '../../../types/run_history'
 import { isDateRange } from '../../../utils/dateRange'
-import { displayErrorNotification } from '../../../utils/errorDisplay'
 import { useTableDefinition } from '../queries/useTableSchemaQueries'
 
 const isPipelineStatus = (value: string): value is PipelineStatus => value in STATUS_META
@@ -116,12 +115,7 @@ export function useRunHistoryPageData(pipeline: Pipeline | null): RunHistoryPage
     error: active.error,
     refetch: () => active.refetch(),
     refresh: async () => {
-      try {
-        await active.refetch({ throwOnError: true })
-      } catch (error) {
-        displayErrorNotification(error, "Couldn't refresh run history")
-        throw error
-      }
+      await active.refetch({ throwOnError: true })
     },
     retryNextPage: () => {
       void infinite.fetchNextPage()

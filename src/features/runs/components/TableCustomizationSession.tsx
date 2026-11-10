@@ -1,10 +1,9 @@
 import { Button, Group, Text } from '@mantine/core'
 import { IconRefresh } from '@tabler/icons-react'
 import type { DataTableColumn } from 'mantine-datatable'
-import { type ReactNode, useActionState, useId, useRef, useState } from 'react'
+import { type ReactNode, useActionState, useId, useState } from 'react'
 import { FormErrorDisplay } from '../../../components/common/FormErrorDisplay'
 import { StandardModal } from '../../../components/common/StandardModal'
-import { useMobileShell } from '../../../hooks/useIsMobile'
 import { TYPOGRAPHY } from '../../../theme/typography'
 import type { PipelineRun } from '../../../types/pipelines'
 
@@ -16,7 +15,6 @@ import {
   resetColumnItems,
 } from '../lib/columnCustomization'
 import { DesktopColumnCustomization } from './DesktopColumnCustomization'
-import { IosColumnCustomization } from './IosColumnCustomization'
 
 export interface TableCustomizationSessionProps {
   opened: boolean
@@ -42,9 +40,7 @@ export function TableCustomizationSession({
   currentOrder,
   currentVisibility,
 }: TableCustomizationSessionProps): ReactNode {
-  const mobileShell = useMobileShell()
   const formId = useId()
-  const formRef = useRef<HTMLFormElement>(null)
   const [items, setItems] = useState(() => buildColumnItems(columns, visibleColumns, currentOrder, currentVisibility))
   const [initialSignature] = useState(() => columnSignature(items))
   const [search, setSearch] = useState('')
@@ -88,44 +84,25 @@ export function TableCustomizationSession({
   const visibleCount = items.filter((item) => item.visible).length
 
   const form = (
-    <form
-      id={formId}
-      ref={formRef}
-      action={formAction}
-      style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
-    >
-      <FormErrorDisplay
-        title="Couldn't save columns"
-        globalError={state.forSignature === signature ? state.error : null}
-      />
-      {mobileShell ? <IosColumnCustomization {...body} /> : <DesktopColumnCustomization {...body} />}
+    <form id={formId} action={formAction} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      <fieldset
+        disabled={isPending}
+        style={{ border: 0, padding: 0, margin: 0, minInlineSize: 0, display: 'contents' }}
+      >
+        <FormErrorDisplay
+          title="Couldn't save columns"
+          globalError={state.forSignature === signature ? state.error : null}
+        />
+        <DesktopColumnCustomization {...body} />
+      </fieldset>
     </form>
   )
-
-  if (mobileShell) {
-    return (
-      <StandardModal
-        opened={opened}
-        onClose={onClose}
-        title="Customize columns"
-        size="md"
-        fullHeight
-        dirty={dirty}
-        primaryAction={{
-          label: 'Apply',
-          loading: isPending,
-          onClick: () => formRef.current?.requestSubmit(),
-        }}
-      >
-        {form}
-      </StandardModal>
-    )
-  }
 
   return (
     <StandardModal
       opened={opened}
       onClose={onClose}
+      loading={isPending}
       title={
         <Group gap="xs">
           <Text fw={TYPOGRAPHY.MODAL_TITLE.weight} size={TYPOGRAPHY.MODAL_TITLE.size}>
@@ -145,11 +122,12 @@ export function TableCustomizationSession({
             size="sm"
             leftSection={<IconRefresh size={16} aria-hidden />}
             onClick={body.onReset}
+            disabled={isPending}
           >
             Reset
           </Button>
           <Group gap="sm" wrap="nowrap">
-            <Button type="button" variant="default" size="sm" onClick={close}>
+            <Button type="button" variant="default" size="sm" disabled={isPending} onClick={close}>
               Cancel
             </Button>
             <Button type="submit" form={formId} size="sm" loading={isPending}>

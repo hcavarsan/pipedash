@@ -225,7 +225,7 @@ test('a partial provider import names what was added, what failed and what was n
 
   assert.equal(shown.mock.callCount(), 1)
   const options = shown.mock.calls[0]?.arguments[0]
-  assert.equal(options?.title, "Some providers weren't imported")
+  assert.equal(options?.title, "Couldn't import all providers")
   assert.equal(options?.color, 'orange')
   assert.equal(
     options?.message,

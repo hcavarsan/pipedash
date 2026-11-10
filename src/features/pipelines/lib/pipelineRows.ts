@@ -88,7 +88,7 @@ export function buildPipelineRows({ page, isOpen, getProvider }: BuildPipelineRo
 
   for (const section of page?.sections ?? []) {
     const flat = section.kind === 'none'
-    const expanded = isOpen(section.id, false)
+    const expanded = isOpen(section.id, true)
 
     if (!flat) {
       const lead = section.pipelines.find((pipeline) => pipeline.id === section.status_pipeline_id)

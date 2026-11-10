@@ -44,7 +44,7 @@ export type SectionMenuTarget = Pick<SectionRow, 'type' | 'id' | 'name' | 'kind'
 export interface PipelineActions {
   onTogglePin: (p: ViewPipeline) => void
   onToggleHidden: (p: ViewPipeline) => void
-  onSetMarks: (mark: PipelineMark, pipelines: ViewPipeline[], value: boolean) => void
+  onSetMarks: (mark: PipelineMark, pipelines: ViewPipeline[], value: boolean, onSuccess?: () => void) => void
   isBusy: (pipelineId: string) => boolean
   onAddToView: (p: ViewPipeline) => void
   onRemoveFromView?: ((p: ViewPipeline) => void) | undefined

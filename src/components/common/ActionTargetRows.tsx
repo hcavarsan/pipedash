@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import type { DisplayField } from '../../types/presentation'
 
 export const ActionTargetRows = ({ rows }: { rows: DisplayField[] }): ReactNode => (
-  <Stack gap={2}>
+  <Stack gap="4xs">
     {rows.map(({ label, value }) => (
       <Text key={label} size="sm" style={{ overflowWrap: 'anywhere' }}>
         <Text span inherit c="dimmed">

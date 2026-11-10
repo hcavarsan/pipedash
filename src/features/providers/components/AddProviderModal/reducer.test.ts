@@ -163,7 +163,7 @@ test('config updates leave the previous config, errors and selection untouched',
   assert.deepEqual(state.configValues, { namespaces: 'a', selected_items: 'x' })
   assert.deepEqual(state.fieldErrors, { namespaces: 'bad', token: 'missing' })
   assert.deepEqual([...state.selectedPipelines], ['x'])
-  assert.deepEqual(next.fieldErrors, { token: 'missing' })
+  assert.deepEqual(next.fieldErrors, { namespaces: 'bad', token: 'missing' })
 
   assert.equal(next.configValues.selected_items, 'x')
   assert.deepEqual([...next.selectedPipelines], ['x'])

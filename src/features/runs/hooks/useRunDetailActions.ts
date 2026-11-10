@@ -16,7 +16,7 @@ interface UseRunDetailActionsOptions {
   forceConfirmation?: string | undefined
 }
 
-interface UseRunDetailActionsResult {
+export interface UseRunDetailActionsResult {
   rerun: (mode: RerunMode) => Promise<void>
   cancel: () => Promise<void>
   forceCancel: () => Promise<void>

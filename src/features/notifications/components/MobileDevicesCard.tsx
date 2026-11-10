@@ -1,11 +1,10 @@
 import { Card, Stack, Text } from '@mantine/core'
 import type { ReactNode } from 'react'
-import { ErrorState } from '../../../components/common/ErrorState'
-import { LoadingState } from '../../../components/common/LoadingState'
+import { QueryBoundary } from '../../../components/common/QueryBoundary'
 import { IosGroup } from '../../../components/ios/IosList'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useNow } from '../../../hooks/useNow'
-import type { MobileDevice } from '../../../types/notifications'
+import type { MobileDevice, MobileDevicesResponse } from '../../../types/notifications'
 import { openConfirm } from '../../../utils/confirm'
 import { formatRelativeTime } from '../../../utils/formatRelativeTime'
 import { useMobileDevices, useRemoveMobileDevice, useTestMobileDevice } from '../queries/usePushQueries'
@@ -19,27 +18,11 @@ function pairingSubtitle(device: MobileDevice, now: number): string {
   return `Paired ${formatRelativeTime(device.created_at, now)} · ${lastPush}`
 }
 
-export function MobileDevicesCard(): ReactNode {
-  const { data, isLoading, error, refetch, isRefetching } = useMobileDevices()
+function DeviceList({ data }: { data: MobileDevicesResponse }): ReactNode {
   const mobileShell = useMobileShell()
   const remove = useRemoveMobileDevice()
   const sendTest = useTestMobileDevice()
   const now = useNow(60_000)
-
-  if (error) {
-    return (
-      <ErrorState
-        title="Couldn't load mobile devices"
-        error={error}
-        onRetry={() => refetch()}
-        retrying={isRefetching}
-      />
-    )
-  }
-
-  if (isLoading || !data) {
-    return <LoadingState message="Loading mobile devices..." />
-  }
 
   if (data.subscriptions.length === 0) {
     return null
@@ -96,5 +79,13 @@ export function MobileDevicesCard(): ReactNode {
         <Stack gap="sm">{rows}</Stack>
       </Stack>
     </Card>
+  )
+}
+
+export function MobileDevicesCard(): ReactNode {
+  return (
+    <QueryBoundary query={useMobileDevices()} loading="Loading mobile devices…" failure="Couldn't load mobile devices">
+      {(data) => <DeviceList data={data} />}
+    </QueryBoundary>
   )
 }

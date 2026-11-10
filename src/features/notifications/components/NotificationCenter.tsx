@@ -20,6 +20,7 @@ import {
 } from '@tabler/icons-react'
 import { lazy, type ReactNode, Suspense, useEffect, useRef, useState } from 'react'
 import { EmptyState } from '../../../components/common/EmptyState'
+import { ErrorState } from '../../../components/common/ErrorState'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import { useNow } from '../../../hooks/useNow'
@@ -100,14 +101,14 @@ export function NotificationHost(): ReactNode {
       <VisuallyHidden role="status">{announcement}</VisuallyHidden>
       {selectionType === 'notification' && (
         <ErrorBoundary scope="feature" name="Notification details">
-          <Suspense fallback={<LoadingState message="Loading dialog..." />}>
+          <Suspense fallback={<LoadingState message="Loading notification details…" />}>
             <NotificationDetailsModal />
           </Suspense>
         </ErrorBoundary>
       )}
       {selectionType === 'provider' && (
         <ErrorBoundary scope="feature" name="Provider status">
-          <Suspense fallback={<LoadingState message="Loading dialog..." />}>
+          <Suspense fallback={<LoadingState message="Loading provider status…" />}>
             <ProviderStatusModal />
           </Suspense>
         </ErrorBoundary>
@@ -131,12 +132,23 @@ export function useAffectedProviders(): Array<{ provider: ProviderSummary; headl
   })
 }
 
+export function NotificationsEmptyState(): ReactNode {
+  return (
+    <EmptyState
+      icon={<IconBellCheck size={24} aria-hidden />}
+      title="You're all caught up"
+      description="Provider outages and pipeline failures show up here."
+    />
+  )
+}
+
 export function NotificationList({ title, onSelect }: NotificationListProps): ReactNode {
-  const items = useNotificationItems()
-  const { open, markAllRead, clear } = useNotificationActions()
+  const { items, status, error, refetch } = useNotificationItems()
+  const { open, markAllRead, clear, pending } = useNotificationActions()
   const now = useNow(30_000)
   const unread = items.filter((item) => !item.read).length
   const affected = useAffectedProviders()
+  const empty = items.length === 0 && affected.length === 0
 
   const select = (selection: Parameters<typeof open>[0]) => {
     onSelect?.()
@@ -153,25 +165,40 @@ export function NotificationList({ title, onSelect }: NotificationListProps): Re
         )}
         <Group gap="3xs">
           {unread > 0 && (
-            <Button size="compact-xs" variant="subtle" color="gray" onClick={markAllRead}>
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              color="gray"
+              loading={pending === 'markAll'}
+              disabled={pending !== null}
+              onClick={markAllRead}
+            >
               Mark all read
             </Button>
           )}
           {items.length > 0 && (
-            <Button size="compact-xs" variant="subtle" color="gray" onClick={clear}>
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              color="gray"
+              loading={pending === 'clear'}
+              disabled={pending !== null}
+              onClick={clear}
+            >
               Clear
             </Button>
           )}
         </Group>
       </Group>
 
-      {items.length === 0 && affected.length === 0 ? (
-        <EmptyState
-          icon={<IconBellCheck size={24} aria-hidden />}
-          title="You're all caught up"
-          description="Provider outages and pipeline failures show up here."
-        />
-      ) : (
+      {status === 'error' && (
+        <Stack px="md" pb="sm">
+          <ErrorState title="Couldn't load notifications" error={error} onRetry={refetch} />
+        </Stack>
+      )}
+      {status === 'pending' && empty && <LoadingState message="Loading notifications…" />}
+      {status === 'success' && empty && <NotificationsEmptyState />}
+      {!empty && (
         <ScrollArea.Autosize mah={title ? 440 : undefined} type="auto">
           <Stack gap="4xs" px="2xs" pb="2xs">
             {affected.length > 0 && <NotificationSectionLabel>Affecting pipelines now</NotificationSectionLabel>}
@@ -195,22 +222,14 @@ interface UnreadNotifications {
 }
 
 export function useUnreadNotifications(): UnreadNotifications {
-  const items = useNotificationItems()
+  const { items } = useNotificationItems()
 
   return { unread: items.filter((item) => !item.read).length, dotColor: unreadDotColor(items) }
 }
 
 export function NotificationCenter(): ReactNode {
   const [opened, setOpened] = useState(false)
-  const { markAllRead } = useNotificationActions()
   const { unread, dotColor } = useUnreadNotifications()
-
-  const toggle = (next: boolean) => {
-    if (!next) {
-      markAllRead()
-    }
-    setOpened(next)
-  }
 
   const { name: severity, Icon: SeverityIcon } = severityFor(dotColor)
   const label = unread > 0 ? `Notifications, ${unread} unread${severity ? `, ${severity}` : ''}` : 'Notifications'
@@ -222,19 +241,19 @@ export function NotificationCenter(): ReactNode {
       size={16}
       offset={4}
       withBorder
-      label={<SeverityIcon size={12} aria-hidden />}
+      label={<SeverityIcon size={14} aria-hidden />}
     >
-      <Popover opened={opened} onChange={toggle} position="bottom-end" width={380} shadow="md" trapFocus returnFocus>
+      <Popover opened={opened} onChange={setOpened} position="bottom-end" width={380} shadow="md" trapFocus returnFocus>
         <Popover.Target>
           <Tooltip label={label} position="bottom" disabled={opened}>
-            <ActionIcon size="lg" aria-label={label} onClick={() => toggle(!opened)}>
+            <ActionIcon size="lg" aria-label={label} onClick={() => setOpened(!opened)}>
               <IconBell size={20} aria-hidden />
             </ActionIcon>
           </Tooltip>
         </Popover.Target>
 
         <Popover.Dropdown p={0} maw="calc(100vw - 16px)">
-          <NotificationList title="Notifications" onSelect={() => toggle(false)} />
+          <NotificationList title="Notifications" onSelect={() => setOpened(false)} />
         </Popover.Dropdown>
       </Popover>
     </Indicator>

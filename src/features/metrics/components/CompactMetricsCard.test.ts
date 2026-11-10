@@ -52,12 +52,12 @@ test('invalid chart timestamps show a fallback outside the expand button and the
     await import('./MetricsChart')
   })
 
-  const retry = await view().findByRole('button', { name: 'Try again' })
+  const retry = await view().findByRole('button', { name: 'Retry' })
   assert.equal(retry.parentElement?.closest('button'), null)
 
   await user.click(retry)
   assert.equal(expanded, 0)
-  assert.ok(view().getByRole('button', { name: 'Try again' }))
+  assert.ok(view().getByRole('button', { name: 'Retry' }))
 
   await user.click(view().getByRole('button', { name: 'Expand Duration' }))
   assert.equal(expanded, 1)

@@ -68,6 +68,35 @@ FILE_LIMIT = {".tsx": 300}
 DEFAULT_FILE_LIMIT = 400
 DEPTH_LIMIT = 7
 INDENT_UNIT = {".rs": 4, ".swift": 4, ".kt": 4, ".ts": 2, ".tsx": 2}
+ICON_SIZES = {14, 16, 20, 24}
+ICON_SIZE = re.compile(r"<Icon[A-Z]\w*[^>]*\bsize=\{(\d+)\}")
+RAW_SPACING = re.compile(r"\b(?:gap|p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr)=\{-?[1-9]\d*\}")
+LOADER_SIZE = re.compile(r"<Loader\b[^>]*\bsize=\{\d+\}")
+RAW_Z_INDEX = re.compile(r"zIndex[=:]\s*\{?\d")
+Z_INDEX_FILE = "src/theme/zIndex.ts"
+ICON_EXEMPT = "WindowControls.tsx"
+
+
+def token_violations(path: str, text: str, suffix: str) -> list[Violation]:
+    def line_of(match: re.Match[str]) -> int:
+        return text.count("\n", 0, match.start()) + 1
+
+    found: list[Violation] = []
+    if suffix == ".tsx":
+        if Path(path).name != ICON_EXEMPT:
+            for match in ICON_SIZE.finditer(text):
+                if int(match.group(1)) not in ICON_SIZES:
+                    found.append(Violation(path, line_of(match), "icon-size", int(match.group(1)), 0))
+        for match in RAW_SPACING.finditer(text):
+            found.append(Violation(path, line_of(match), "raw-spacing", 1, 0))
+        for match in LOADER_SIZE.finditer(text):
+            found.append(Violation(path, line_of(match), "loader-size", 1, 0))
+    if path != Z_INDEX_FILE:
+        for match in RAW_Z_INDEX.finditer(text):
+            found.append(Violation(path, line_of(match), "raw-z-index", 1, 0))
+    return found
+
+
 
 
 def inspect(path: str, text: str, is_test: bool, check_provider: bool) -> list[Violation]:
@@ -91,6 +120,8 @@ def inspect(path: str, text: str, is_test: bool, check_provider: bool) -> list[V
         for number, line in enumerate(lines, start=1):
             if PROVIDER_NAME.search(line.replace(PROJECT_URL, "")):
                 found.append(Violation(path, number, "provider-name", 1, 0))
+    if not is_test and path.startswith("src/") and suffix in (".ts", ".tsx"):
+        found.extend(token_violations(path, text, suffix))
     return found
 
 

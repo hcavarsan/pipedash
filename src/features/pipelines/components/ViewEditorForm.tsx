@@ -2,6 +2,7 @@ import { Button, Group, Select, Stack, Text, TextInput } from '@mantine/core'
 import type { UseQueryResult } from '@tanstack/react-query'
 import { type ChangeEvent, type ReactNode, useActionState, useId, useRef } from 'react'
 import { FormErrorDisplay } from '../../../components/common/FormErrorDisplay'
+import { QueryBoundary } from '../../../components/common/QueryBoundary'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { logger } from '../../../lib/logger'
 import type { PipelineView, ViewEditorOptions, ViewPatch } from '../../../types/views'
@@ -11,7 +12,6 @@ import { useConfirmDeleteView } from '../hooks/useConfirmDeleteView'
 import { NAME_REQUIRED, TOP_LEVEL, type ViewEditorDraftModel } from '../hooks/useViewEditorDraft'
 import { useCreatePipelineView, useUpdatePipelineView } from '../queries/usePipelineViewQueries'
 import type { ViewEditorState } from '../stores/pipelineViewStore'
-import { QueryBoundary } from './QueryBoundary'
 
 interface ParentOption {
   value: string
@@ -24,7 +24,7 @@ interface ViewEditorFormProps {
   draft: ViewEditorDraftModel
   parentOptions: ParentOption[]
   parentQuery: UseQueryResult<ViewEditorOptions, Error>
-  children: ReactNode
+  children: (pending: boolean) => ReactNode
   onClose: () => void
   onSaved: (created: PipelineView | null) => void
 }
@@ -83,12 +83,19 @@ export function ViewEditorForm({
 }: ViewEditorFormProps): ReactNode {
   const formId = useId()
   const formRef = useRef<HTMLFormElement>(null)
-  const { mutateAsync: createView } = useCreatePipelineView()
-  const { mutateAsync: updateView } = useUpdatePipelineView()
+  const { mutateAsync: createView } = useCreatePipelineView({ toastErrors: false })
+  const { mutateAsync: updateView } = useUpdatePipelineView({ toastErrors: false })
   const confirmDelete = useConfirmDeleteView()
   const { creating, sessionKey } = draft
   const fields = draft.draft
   const draftNow = { fields, memberIds: draft.memberIds }
+  const latestDraft = useRef(draftNow)
+  latestDraft.current = draftNow
+  const finish = (created: PipelineView | null): void => {
+    if (sameJson(draftNow, latestDraft.current)) {
+      onSaved(created)
+    }
+  }
 
   const savePipelineView = async (_previous: SaveState, formData: FormData): Promise<SaveState> => {
     const entered = formData.get('name')
@@ -108,7 +115,7 @@ export function ViewEditorForm({
           parent: fields.parent,
         })
 
-        onSaved(created)
+        finish(created)
 
         return settled(sessionKey)
       }
@@ -122,7 +129,7 @@ export function ViewEditorForm({
       if (Object.keys(patch).length > 0) {
         await updateView({ id: view.id, patch })
       }
-      onSaved(null)
+      finish(null)
 
       return settled(sessionKey)
     } catch (err) {
@@ -181,6 +188,44 @@ export function ViewEditorForm({
   const parentSelect = (
     <ParentSelect options={parentOptions} value={draft.draft.parent ?? TOP_LEVEL} onChange={onParentChange} />
   )
+  const fieldsBody = (
+    <Stack gap="lg">
+      <FormErrorDisplay title="Couldn't save view" globalError={saveError} />
+
+      {draft.showName && (
+        <TextInput
+          name="name"
+          label="Name"
+          required
+          maxLength={60}
+          value={fields.name}
+          error={nameError}
+          onBlur={draft.touchName}
+          onChange={onNameChange}
+          data-autofocus
+        />
+      )}
+
+      {draft.showParent && (
+        <QueryBoundary
+          query={parentQuery}
+          loading="Loading parent views…"
+          failure="Couldn't load parent views"
+          variant="compact"
+        >
+          {() => parentSelect}
+        </QueryBoundary>
+      )}
+
+      {creating && editor.initialMembers.length > 0 && (
+        <Text size="sm" c="dimmed">
+          {memberNote}
+        </Text>
+      )}
+
+      {children(isPending)}
+    </Stack>
+  )
 
   return (
     <StandardModal
@@ -188,51 +233,22 @@ export function ViewEditorForm({
       onClose={onClose}
       size="lg"
       dirty={draft.dirty}
+      loading={isPending}
       title={title}
       footer={footer}
       primaryAction={{
-        label: creating ? 'Create' : 'Save',
+        label: creating ? 'Create view' : 'Save',
         onClick: () => formRef.current?.requestSubmit(),
         loading: isPending,
       }}
     >
       <form id={formId} ref={formRef} action={formAction}>
-        <Stack gap="lg">
-          <FormErrorDisplay title="Couldn't save view" globalError={saveError} />
-
-          {draft.showName && (
-            <TextInput
-              name="name"
-              label="Name"
-              required
-              maxLength={60}
-              value={fields.name}
-              error={nameError}
-              onBlur={draft.touchName}
-              onChange={onNameChange}
-              data-autofocus
-            />
-          )}
-
-          {draft.showParent && (
-            <QueryBoundary
-              query={parentQuery}
-              loading="Loading parent views…"
-              failure="Couldn't load parent views"
-              variant="compact"
-            >
-              {() => parentSelect}
-            </QueryBoundary>
-          )}
-
-          {creating && editor.initialMembers.length > 0 && (
-            <Text size="sm" c="dimmed">
-              {memberNote}
-            </Text>
-          )}
-
-          {children}
-        </Stack>
+        <fieldset
+          disabled={isPending}
+          style={{ border: 0, padding: 0, margin: 0, minInlineSize: 0, display: 'contents' }}
+        >
+          {fieldsBody}
+        </fieldset>
       </form>
     </StandardModal>
   )

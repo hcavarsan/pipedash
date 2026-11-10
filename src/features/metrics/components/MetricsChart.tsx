@@ -1,4 +1,4 @@
-import { Badge, Box, Card, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core'
+import { Box, Card, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core'
 import { type ReactNode, type RefObject, useRef } from 'react'
 
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
@@ -203,9 +203,9 @@ export const MetricsChart = ({
             </Text>
           </div>
           {selectedPoint && (
-            <Badge size="lg" color={color} variant="light">
+            <Text size="sm" c="dimmed">
               {selectedPoint.label}
-            </Badge>
+            </Text>
           )}
         </Group>
         {plot}

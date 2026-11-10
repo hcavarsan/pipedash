@@ -32,23 +32,23 @@ interface ProviderSettingsStatusProps {
 
 function ProviderSettingsStatus({ name, failedMessage, pausedUntil }: ProviderSettingsStatusProps): ReactNode {
   return (
-    <Group gap="xs">
-      <Text size="sm">{name}</Text>
+    <Stack gap="3xs">
+      <Group gap="xs">
+        <Text size="sm">{name}</Text>
+        {pausedUntil && (
+          <Tooltip label={PAUSED_NOTE} multiline w={300}>
+            <Text size="xs" c="dimmed">
+              Paused until {formatTime(pausedUntil)}
+            </Text>
+          </Tooltip>
+        )}
+      </Group>
       {failedMessage && (
-        <Tooltip label={failedMessage} multiline w={300}>
-          <Text size="xs" c="red">
-            Error
-          </Text>
-        </Tooltip>
+        <Text size="xs" c="red">
+          Fetch failed: {failedMessage}
+        </Text>
       )}
-      {pausedUntil && (
-        <Tooltip label={PAUSED_NOTE} multiline w={300}>
-          <Text size="xs" c="dimmed">
-            Paused until {formatTime(pausedUntil)}
-          </Text>
-        </Tooltip>
-      )}
-    </Group>
+    </Stack>
   )
 }
 

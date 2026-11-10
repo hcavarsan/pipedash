@@ -54,7 +54,7 @@ export function DesktopNotificationsCard(): ReactNode {
           <ErrorState
             title="Couldn't load or save notification settings"
             error={error}
-            onRetry={() => settings.mutate({})}
+            onRetry={settings.retry}
             retrying={settings.busy}
           />
         )}

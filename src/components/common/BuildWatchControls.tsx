@@ -1,6 +1,5 @@
 import {
   ActionIcon,
-  Alert,
   Button,
   Card,
   Group,
@@ -23,11 +22,12 @@ import { mobileService } from '../../services/mobile'
 import { STATUS_META } from '../../theme/status'
 import type { BuildWatchSnapshot } from '../../types/notifications'
 import type { PipelineStatus } from '../../types/pipelines'
-import { displayErrorNotification, errorMessage } from '../../utils/errorDisplay'
+import { displayErrorNotification } from '../../utils/errorDisplay'
 import { isDesktopTauri } from '../../utils/platform'
 import { StatusIcon } from '../atoms/StatusBadge'
 import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 import { IosGroup } from '../ios/IosList'
+import { ErrorState } from './ErrorState'
 import { IosPipelineRow } from './IosPipelineList'
 import { SectionHeading } from './SectionHeading'
 
@@ -154,7 +154,7 @@ export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps): ReactN
     <Menu position="bottom">
       <Menu.Target>
         <ActionIcon size={44} data-row-menu aria-label="Watched run actions">
-          <IconDots size={22} aria-hidden />
+          <IconDots size={20} aria-hidden />
         </ActionIcon>
       </Menu.Target>
       <Menu.Dropdown>
@@ -211,12 +211,12 @@ export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps): ReactN
       </Card>
     ))
   const recovery = watch.isError && (
-    <Alert color="gray" title="Couldn't refresh Watch">
-      <Text size="sm">{errorMessage(watch.error, 'Try refreshing the current watch.')}</Text>
-      <Button variant="subtle" size="xs" mih={44} loading={watch.isFetching} onClick={() => void watch.refetch()}>
-        Refresh Watch
-      </Button>
-    </Alert>
+    <ErrorState
+      title="Couldn't refresh watch"
+      error={watch.error}
+      onRetry={() => void watch.refetch()}
+      retrying={watch.isFetching}
+    />
   )
 
   const live = (

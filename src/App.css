@@ -121,12 +121,6 @@ body,
   transition-duration: 0ms;
 }
 
-[data-ios] input,
-[data-ios] textarea,
-[data-ios] select {
-  font-size: 16px;
-}
-
 [data-refreshing] {
   pointer-events: none;
 }
@@ -391,7 +385,6 @@ body,
 
 [data-ios] {
   --ios-text-scale: 1;
-  --ios-chrome-scale: min(var(--ios-text-scale), 1.353);
   --ios-fs-large-title: calc(34px * var(--ios-text-scale));
   --ios-lh-large-title: calc(41px * var(--ios-text-scale));
   --ios-fs-title1: calc(28px * var(--ios-text-scale));
@@ -601,21 +594,14 @@ html[data-ios],
 [data-ios] [data-row-menu] {
   position: absolute;
   top: 50%;
-  right: 4px;
+  right: 0;
   z-index: 3;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
   transform: translateY(-50%);
-  background: var(--ios-cell);
-}
-
-[data-ios] [data-row-menu]:not(:focus-visible) {
-  width: 1px;
-  min-width: 0;
-  height: 1px;
-  min-height: 0;
-  padding: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
+  background: transparent;
 }
 
 [data-ios]

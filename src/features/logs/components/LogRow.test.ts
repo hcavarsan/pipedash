@@ -42,6 +42,7 @@ const renderLine = (data: LineState) =>
         onToggle: noop,
         onSelect: noop,
         onFullLine: noop,
+        onRetry: noop,
       })
     )
   )

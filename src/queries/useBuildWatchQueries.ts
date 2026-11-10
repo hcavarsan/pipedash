@@ -131,7 +131,12 @@ export function useBuildWatchLifecycle(): void {
           unlisten()
         }
       })
-      .catch((error: unknown) => logger.warn('BuildWatch', "Couldn't listen for native watch changes", error))
+      .catch((error: unknown) => {
+        logger.warn('BuildWatch', "Couldn't listen for native watch changes", error)
+        if (active && desktop) {
+          refresh()
+        }
+      })
     document.addEventListener('visibilitychange', refresh)
     window.addEventListener('focus', refresh)
 

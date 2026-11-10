@@ -1,4 +1,4 @@
-import { Button, Card, Stack, Switch } from '@mantine/core'
+import { Button, Card, Stack, Switch, Text } from '@mantine/core'
 import { type ReactNode, useState } from 'react'
 import {
   useLocalNotificationSettings,
@@ -28,7 +28,7 @@ import { BackgroundNotificationsCard } from './BackgroundNotificationsCard'
 import { DesktopNotificationsCard } from './DesktopNotificationsCard'
 import { MobileDevicesCard } from './MobileDevicesCard'
 import { NotificationPreferencesSection } from './NotificationPreferencesSection'
-import { NotificationsBlockedRows } from './NotificationsBlockedRows'
+import { blockedHelp, NotificationsBlockedRows } from './NotificationsBlockedRows'
 
 const DESCRIPTION = 'Get a system notification for the alerts you choose below.'
 
@@ -226,6 +226,11 @@ function DeviceNotificationsSection(): ReactNode {
             onChange={(e) => handleToggle(e.currentTarget.checked)}
             disabled={disabled}
           />
+          {blocked && notificationsSupported && (
+            <Text size="xs" c="orange">
+              Notifications blocked. {blockedHelp()}
+            </Text>
+          )}
           {canTest && (
             <Button variant="default" loading={sendTestAlert.isPending} onClick={() => sendTestAlert.mutate()}>
               Send test alert

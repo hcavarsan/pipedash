@@ -108,7 +108,7 @@ for (const surface of ['history', 'details'] as const) {
     const user = userEvent.setup({ document })
     const view = within(document.body)
     renderSurface(surface)
-    const name = surface === 'history' ? 'Force cancel run #7' : 'Force cancel'
+    const name = 'Force cancel run #7'
 
     await user.click(await view.findByRole('button', { name }))
     const confirmation = await view.findByRole('dialog', { name: 'Force cancel run' })
@@ -149,9 +149,7 @@ for (const surface of ['history', 'details'] as const) {
     const user = userEvent.setup({ document })
     const view = within(document.body)
     renderSurface(surface)
-    await user.click(
-      await view.findByRole('button', { name: surface === 'history' ? 'Force cancel run #7' : 'Force cancel' })
-    )
+    await user.click(await view.findByRole('button', { name: 'Force cancel run #7' }))
     const confirmation = await view.findByRole('dialog', { name: 'Force cancel run' })
     await user.click(within(confirmation).getByRole('button', { name: /^Force cancel$/ }))
     await waitFor(() =>
@@ -187,15 +185,11 @@ for (const surface of ['history', 'details'] as const) {
       const user = userEvent.setup({ document })
       const view = within(document.body)
       renderSurface(surface)
-      await user.click(
-        await view.findByRole('button', { name: surface === 'history' ? 'Cancel run #7' : 'Stop workflow' })
-      )
+      await user.click(await view.findByRole('button', { name: 'Cancel run #7' }))
       const confirmation = await view.findByRole('dialog', { name: 'Cancel run' })
       await user.click(within(confirmation).getByRole('button', { name: /^Cancel run$/ }))
       await waitFor(() => assert.ok(!view.queryByRole('dialog', { name: 'Cancel run' })))
-      const button = await view.findByRole('button', {
-        name: surface === 'history' ? 'Force cancel run #7' : 'Force cancel',
-      })
+      const button = await view.findByRole('button', { name: 'Force cancel run #7' })
       await waitFor(() => assert.equal(button.hasAttribute('disabled'), false))
       assert.equal(force.mock.callCount(), 0)
     })
@@ -215,7 +209,7 @@ for (const shell of ['desktop', 'mobile'] as const) {
     const view = within(document.body)
     renderSurface('details', pipeline, pendingRun)
 
-    const stop = await view.findByRole('button', { name: 'Stop workflow' })
+    const stop = await view.findByRole('button', { name: 'Cancel run #7' })
     assert.equal(stop.hasAttribute('disabled'), false)
     await user.click(stop)
     const confirmation = await view.findByRole('dialog', { name: 'Cancel run' })
@@ -225,7 +219,7 @@ for (const shell of ['desktop', 'mobile'] as const) {
     const status = await view.findByText(/Cancellation requested/)
     assert.ok(status.closest('[role="status"]'))
     await waitFor(() =>
-      assert.equal(view.getByRole('button', { name: 'Stop workflow' }).hasAttribute('disabled'), true)
+      assert.equal(view.getByRole('button', { name: 'Cancel run #7' }).hasAttribute('disabled'), true)
     )
     assert.equal(view.queryByText(/can be stopped or rerun once it starts/), null)
   })

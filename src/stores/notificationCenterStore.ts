@@ -13,6 +13,7 @@ interface NotificationCenterState {
   revision: number
   unread: number
   selection: CenterSelection | null
+  pending: 'markAll' | 'clear' | null
   push: (input: NotificationInput) => Promise<void>
   insertMissed: (input: NotificationInput) => Promise<void>
   markAllRead: () => Promise<void>
@@ -38,12 +39,22 @@ export const useNotificationCenterStore = create<NotificationCenterState>()((set
   }
   const reportFailure = (change: NotificationCenterChange, title: string): Promise<void> =>
     update(change).catch((error: unknown) => displayErrorNotification(error, title))
+  const runBulk = (kind: 'markAll' | 'clear', change: NotificationCenterChange, title: string): Promise<void> => {
+    if (get().pending !== null) {
+      return Promise.resolve()
+    }
+
+    set({ pending: kind })
+
+    return reportFailure(change, title).finally(() => set({ pending: null }))
+  }
 
   return {
     items: [],
     revision: 0,
     unread: 0,
     selection: null,
+    pending: null,
 
     push: (input) =>
       update({ type: 'push', notice: { ...input, read: false } }).catch((error: unknown) =>
@@ -55,11 +66,11 @@ export const useNotificationCenterStore = create<NotificationCenterState>()((set
         logger.warn('notificationCenterStore', "Couldn't update the notification center", error)
       ),
 
-    markAllRead: () => reportFailure({ type: 'read', key: null }, "Couldn't mark notifications as read"),
+    markAllRead: () => runBulk('markAll', { type: 'read', key: null }, "Couldn't mark notifications as read"),
 
     markRead: (key) => reportFailure({ type: 'read', key }, "Couldn't mark the notification as read"),
 
-    clear: () => reportFailure({ type: 'clear' }, "Couldn't clear notifications"),
+    clear: () => runBulk('clear', { type: 'clear' }, "Couldn't clear notifications"),
 
     open: (selection) => {
       set({ selection })

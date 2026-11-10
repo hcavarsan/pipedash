@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom'
 
 import { PULL_HOLD } from '../../lib/gestures'
 import { useRefreshAll } from '../../queries/useRefreshQueries'
+import { RouteKeyContext, useMobileNavStore } from '../../stores/mobileNavStore'
 import { MobileLargeTitle } from './MobileLargeTitle'
 import classes from './MobilePage.module.css'
 import { mobileChrome, routeKey } from './mobileChrome'
@@ -41,7 +42,8 @@ export function MobilePage({ children }: { children: ReactNode }): ReactNode {
 
   const motion = useMobilePageMotion(layers)
   const { scrollTop, collapse, measure } = useMobilePageScroll(layers)
-  const arrive = useMobilePageArrival(page, announcement, chrome.title)
+  const title = useMobileNavStore((s) => s.titles[key]) ?? chrome.title
+  const arrive = useMobilePageArrival(page, announcement, title)
 
   useMobileRouteTransition({
     pathname,
@@ -73,8 +75,10 @@ export function MobilePage({ children }: { children: ReactNode }): ReactNode {
         <div className={classes.underlay} ref={underlay} aria-hidden inert />
         <div className={classes.page} ref={page}>
           <div ref={content}>
-            <MobileLargeTitle />
-            {children}
+            <RouteKeyContext value={key}>
+              <MobileLargeTitle />
+              {children}
+            </RouteKeyContext>
           </div>
         </div>
         <div className={classes.dim} aria-hidden />

@@ -29,6 +29,7 @@ interface PipelineActionsResult {
   actions: PipelineActions
   changeDisplay: (display: ViewDisplay) => void
   cancelDialog: ReactNode
+  viewUpdating: boolean
 }
 
 export function usePipelineActions({
@@ -39,7 +40,7 @@ export function usePipelineActions({
 }: PipelineActionsInput): PipelineActionsResult {
   const { mutate: setMarks } = useSetPipelineMarks()
   const { mutate: setMembership } = useSetViewMembership()
-  const { mutate: updateView } = useUpdatePipelineView()
+  const { mutate: updateView, isPending: updatingView } = useUpdatePipelineView()
   const { refresh: refreshProviders, refreshing } = useRefreshProviders()
   const { mutate: enableWorkflow } = useEnableWorkflow()
   const { isBusy, isBusyNow } = useBusyPipelines()
@@ -62,11 +63,11 @@ export function usePipelineActions({
       { replace: true }
     )
 
-  const setMarksOf = (mark: PipelineMark, pipelines: ViewPipeline[], value: boolean) => {
+  const setMarksOf = (mark: PipelineMark, pipelines: ViewPipeline[], value: boolean, onSuccess?: () => void) => {
     const pipelineIds = pipelines.map((p) => p.id).filter((id) => !isBusyNow(id))
 
     if (pipelineIds.length > 0) {
-      setMarks({ mark, pipelineIds, value })
+      setMarks({ mark, pipelineIds, value }, onSuccess ? { onSuccess } : undefined)
     }
   }
   const whenFree = (pipeline: Pipeline, run: () => void) => {
@@ -101,10 +102,10 @@ export function usePipelineActions({
   }
 
   const changeDisplay = (next: ViewDisplay) => {
-    if (view) {
+    if (view && !updatingView) {
       updateView({ id: view.id, patch: { display: next } })
     }
   }
 
-  return { actions, changeDisplay, cancelDialog }
+  return { actions, changeDisplay, cancelDialog, viewUpdating: updatingView }
 }

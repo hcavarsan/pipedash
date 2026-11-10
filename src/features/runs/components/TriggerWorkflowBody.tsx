@@ -42,7 +42,7 @@ export function TriggerWorkflowBody({
   }
 
   if (!ready) {
-    return <LoadingState message="Loading workflow parameters..." />
+    return <LoadingState message="Loading workflow parameters…" />
   }
 
   if (blockedReason || (note && parameterCount === 0)) {

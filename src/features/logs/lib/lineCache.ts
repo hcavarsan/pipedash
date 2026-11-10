@@ -1,19 +1,13 @@
 import { service } from '../../../services/service'
-import { getErrorCode } from '../../../types/errors'
+import { getErrorCode, isTransientError } from '../../../types/errors'
 import { type LogLine, normalizeLine } from '../../../types/logs'
-import type { DocRef, LineState } from './lineCacheTypes'
+import type { DocRef, LineState, LineRequest as Request } from './lineCacheTypes'
 
 export const LOG_LINE_UNITS = 4096
 
 interface Entry {
   line: LogLine
   bytes: number
-}
-
-interface Request {
-  doc: DocRef
-  start: number
-  count: number
 }
 
 interface Need {
@@ -23,7 +17,7 @@ interface Need {
 
 const ALIGN_LINES = 64
 const MAX_REQUEST_LINES = 500
-const RETRY_MS = 5000
+const TRANSIENT_RETRY_MS = 1000
 const NOT_FOUND_CODE = 'NOT_FOUND'
 
 const nodePrefix = (doc: DocRef): string => `${doc.pipelineId}\u0000${doc.runNumber}\u0000${doc.nodeId}#`
@@ -120,6 +114,20 @@ export class LogLineCache {
       cancel()
     }
     this.timers.clear()
+    this.changed()
+    for (const owner of [...this.owners.values()]) {
+      this.plan(owner.doc, owner.lines)
+    }
+  }
+
+  retry(doc: DocRef): void {
+    const prefix = `${nodePrefix(doc)}${doc.revision}#`
+
+    for (const key of this.failed) {
+      if (key.startsWith(prefix)) {
+        this.failed.delete(key)
+      }
+    }
     this.changed()
     for (const owner of [...this.owners.values()]) {
       this.plan(owner.doc, owner.lines)
@@ -308,7 +316,13 @@ export class LogLineCache {
       this.unmark(request)
       this.changed()
     } catch (error) {
-      if (generation === this.generation) {
+      if (generation !== this.generation) {
+        return
+      }
+
+      if (!request.retried && isTransientError(error)) {
+        this.retryLater(request)
+      } else {
         this.fail(request, error)
       }
     }
@@ -343,7 +357,6 @@ export class LogLineCache {
 
   private fail(request: Request, error: unknown): void {
     const { doc, start, count } = request
-    const marked: string[] = []
 
     for (let line = start; line < start + count; line += 1) {
       const key = lineKey(doc, line)
@@ -351,7 +364,6 @@ export class LogLineCache {
       this.pending.delete(key)
       if (!this.entries.has(key)) {
         this.failed.add(key)
-        marked.push(key)
       }
     }
     this.changed()
@@ -361,17 +373,14 @@ export class LogLineCache {
         handler(doc)
       }
     }
+  }
 
+  private retryLater(request: Request): void {
     const timer = setTimeout(() => {
       this.timers.delete(cancel)
-      for (const key of marked) {
-        this.failed.delete(key)
-      }
-      this.changed()
-      for (const owner of [...this.owners.values()]) {
-        this.plan(owner.doc, owner.lines)
-      }
-    }, RETRY_MS)
+      this.queue.push({ ...request, retried: true })
+      this.pump()
+    }, TRANSIENT_RETRY_MS)
     const cancel = () => clearTimeout(timer)
 
     this.timers.add(cancel)

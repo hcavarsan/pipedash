@@ -50,7 +50,7 @@ export function AboutSection(): ReactNode {
             <IosRow
               key={url}
               title={label}
-              accessory={<IconExternalLink size={18} aria-hidden />}
+              accessory={<IconExternalLink size={16} aria-hidden />}
               onClick={() => openLink(label, url)}
             />
           ))}

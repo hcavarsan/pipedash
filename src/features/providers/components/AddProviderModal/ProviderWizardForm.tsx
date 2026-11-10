@@ -14,7 +14,6 @@ import type { ProviderFormModel } from './useProviderFormAction'
 interface ProviderWizardFormProps {
   model: ProviderFormModel
   plugins: PluginMetadata[]
-  pluginsLoading: boolean
   editMode: boolean
   isMobile: boolean
   mobileShell: boolean
@@ -33,7 +32,6 @@ const FORM_STYLE = {
 export function ProviderWizardForm({
   model,
   plugins,
-  pluginsLoading,
   editMode,
   isMobile,
   mobileShell,
@@ -58,12 +56,11 @@ export function ProviderWizardForm({
   const secondaryRow =
     mobileShell && saveOnly && step === 'credentials' ? (
       <IosGroup>
-        <IosRow title={`Next: select ${items}`} chevron onClick={() => submitIntent('continue')} disabled={isPending} />
+        <IosRow title="Continue" chevron onClick={() => submitIntent('continue')} disabled={isPending} />
       </IosGroup>
     ) : undefined
 
   const failureTitle = editMode ? "Couldn't update provider" : "Couldn't add provider"
-  const errorTitle = mobileShell ? "Couldn't save" : failureTitle
 
   const renderStep = (): ReactNode => {
     if (step === 'provider') {
@@ -72,7 +69,6 @@ export function ProviderWizardForm({
           state={state}
           dispatch={dispatch}
           plugins={plugins}
-          pluginsLoading={pluginsLoading}
           editMode={editMode}
           isMobile={isMobile}
           submitting={isPending}
@@ -107,7 +103,6 @@ export function ProviderWizardForm({
         dispatch={dispatch}
         providerConfig={providerConfig}
         terms={selectedPlugin.presentation.terminology}
-        isMobile={isMobile}
       />
     ) : null
   }
@@ -115,7 +110,7 @@ export function ProviderWizardForm({
   return (
     <form ref={formRef} id={formId} action={formAction} noValidate style={FORM_STYLE}>
       <FormErrorDisplay
-        title={errorTitle}
+        title={failureTitle}
         globalError={model.submitError}
         onDismiss={() => dispatch({ type: 'SET_ERROR', error: null })}
       />

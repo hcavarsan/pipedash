@@ -51,12 +51,20 @@ export function useMobilePageScroll({ host, page }: Pick<MobilePageLayers, 'host
     main?.addEventListener('scroll', onScroll, { passive: true })
     window.addEventListener('resize', measure)
 
+    const heading = page.current?.querySelector('[data-large-title]')
+    const observer = new ResizeObserver(measure)
+
+    if (heading) {
+      observer.observe(heading)
+    }
+
     return () => {
       cancelAnimationFrame(frame)
+      observer.disconnect()
       main?.removeEventListener('scroll', onScroll)
       window.removeEventListener('resize', measure)
     }
-  }, [host, measure])
+  }, [host, page, measure])
 
   return { scrollTop, collapse, measure }
 }

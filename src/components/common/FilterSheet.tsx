@@ -2,9 +2,13 @@ import { MultiSelect, Select, Stack } from '@mantine/core'
 import type { ReactNode } from 'react'
 
 import { IosGroup, IosRow } from '../ios/IosList'
+import { FieldRow, RowSelect } from '../ios/mobileParts'
+import fieldClasses from '../ios/mobileParts.module.css'
 
 import type { FilterSheetProps } from './filterTypes'
 import { StandardModal } from './StandardModal'
+
+const FIELD_WIDTH = '9em'
 
 export const FilterSheet = ({
   opened,
@@ -16,11 +20,10 @@ export const FilterSheet = ({
   onClear,
 }: FilterSheetProps): ReactNode => {
   const statusRow = status && (
-    <IosRow
-      title="Status"
-      accessory={
+    <FieldRow title="Status">
+      {(id) => (
         <MultiSelect
-          aria-label="Status"
+          id={id}
           placeholder={status.value.length > 0 ? undefined : 'All'}
           data={statusOptions}
           value={status.value}
@@ -28,34 +31,34 @@ export const FilterSheet = ({
           onRemove={(value) => status.onSelect(value, false)}
           onClear={status.onClear}
           variant="unstyled"
-          w={190}
-          styles={{
-            input: { background: 'transparent', paddingLeft: 0 },
-            pillsList: { justifyContent: 'flex-end' },
-          }}
+          w={FIELD_WIDTH}
+          classNames={{ root: fieldClasses.field, input: fieldClasses.fieldInput }}
+          styles={{ pillsList: { justifyContent: 'flex-end' } }}
         />
-      }
-    />
+      )}
+    </FieldRow>
   )
 
   const selectRows = selects.map(({ key, label, data, value, onChange, searchable }) => (
-    <IosRow
-      key={key}
-      title={label}
-      accessory={
-        <Select
-          aria-label={label}
-          placeholder="All"
-          data={data}
-          value={value}
-          onChange={onChange}
-          searchable={searchable}
-          variant="unstyled"
-          w={190}
-          styles={{ input: { background: 'transparent', textAlign: 'right', paddingLeft: 0 } }}
-        />
+    <FieldRow key={key} title={label}>
+      {(id) =>
+        searchable ? (
+          <Select
+            id={id}
+            placeholder="All"
+            data={data}
+            value={value}
+            onChange={onChange}
+            searchable
+            variant="unstyled"
+            w={FIELD_WIDTH}
+            classNames={{ root: fieldClasses.field, input: `${fieldClasses.fieldInput} ${fieldClasses.fieldSelect}` }}
+          />
+        ) : (
+          <RowSelect id={id} data={data} value={value ?? ''} onChange={onChange} />
+        )
       }
-    />
+    </FieldRow>
   ))
 
   const clearAndClose = (): void => {
@@ -65,7 +68,7 @@ export const FilterSheet = ({
 
   const clearGroup = hasActiveFilters && (
     <IosGroup>
-      <IosRow title="Clear filters" destructive onClick={clearAndClose} />
+      <IosRow title="Clear filters" onClick={clearAndClose} />
     </IosGroup>
   )
 

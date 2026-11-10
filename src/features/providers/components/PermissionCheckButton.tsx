@@ -21,10 +21,10 @@ export const PermissionCheckButton = ({
     return (
       <IosGroup footer="Verify that these credentials grant the access Pipedash needs.">
         <IosRow
-          icon={<IconShieldCheck size={18} />}
+          icon={<IconShieldCheck size={16} />}
           title="Check permissions"
           chevron={!loading}
-          accessory={loading ? <Loader size="sm" aria-label="Checking permissions" /> : undefined}
+          accessory={loading ? <Loader size="xs" aria-label="Checking permissions" /> : undefined}
           onClick={onClick}
           disabled={disabled || loading}
         />

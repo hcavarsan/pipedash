@@ -42,6 +42,5 @@ export const FilterSelect = ({
     miw={130}
     flex={1}
     maw="100%"
-    size="xs"
   />
 )

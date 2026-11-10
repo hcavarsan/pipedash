@@ -91,7 +91,7 @@ const CopyPathRow = ({ label, path, copied, onCopy }: CopyPathRowProps) => (
     subtitle={path}
     onClick={() => onCopy(label, path)}
     accessory={
-      copied ? <IconCheck size={18} color="var(--ios-green)" aria-hidden /> : <IconCopy size={18} aria-hidden />
+      copied ? <IconCheck size={16} color="var(--ios-green)" aria-hidden /> : <IconCopy size={16} aria-hidden />
     }
   />
 )

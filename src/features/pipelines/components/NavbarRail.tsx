@@ -74,40 +74,45 @@ function RailProviders({
 
   if (loading) {
     return (
-      <Center h={44}>
-        <Loader size="sm" />
-      </Center>
-    )
-  }
-
-  if (error) {
-    return (
-      <Tooltip label="Couldn't load providers. Retry" position="right">
-        <ActionIcon
-          size={44}
-          radius="sm"
-          color="red"
-          aria-label="Couldn't load providers. Retry"
-          loading={retrying}
-          onClick={onRetry}
-        >
-          <IconAlertTriangle size={20} aria-hidden />
-        </ActionIcon>
+      <Tooltip label="Loading providers" position="right">
+        <Center h={44} role="status" aria-label="Loading providers">
+          <Loader size="xs" aria-hidden />
+        </Center>
       </Tooltip>
     )
   }
 
-  return providers.map((provider) => (
-    <RailItem
-      key={provider.id}
-      label={`${provider.name} · ${providerStatus(provider).text}`}
-      to={`/pipelines?provider=${provider.id}`}
-      active={providerId === String(provider.id)}
-      icon={<ProviderAvatar provider={provider} size={ICON_TILE.rail} />}
-      menu={providerMenu(provider)}
-      onClick={(event) => openProvider(provider, event)}
-    />
-  ))
+  const retry = error ? (
+    <Tooltip label="Couldn't load providers. Retry" position="right">
+      <ActionIcon
+        size={44}
+        radius="sm"
+        color="red"
+        aria-label="Couldn't load providers. Retry"
+        loading={retrying}
+        onClick={onRetry}
+      >
+        <IconAlertTriangle size={20} aria-hidden />
+      </ActionIcon>
+    </Tooltip>
+  ) : null
+
+  return (
+    <>
+      {retry}
+      {providers.map((provider) => (
+        <RailItem
+          key={provider.id}
+          label={`${provider.name} · ${providerStatus(provider).text}`}
+          to={`/pipelines?provider=${provider.id}`}
+          active={providerId === String(provider.id)}
+          icon={<ProviderAvatar provider={provider} size={ICON_TILE.rail} />}
+          menu={providerMenu(provider)}
+          onClick={(event) => openProvider(provider, event)}
+        />
+      ))}
+    </>
+  )
 }
 
 export const NavbarRail = ({

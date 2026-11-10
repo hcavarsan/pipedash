@@ -198,36 +198,49 @@ export function useSetPin(): UseMutationResult<void, Error, { kind: PinKind; ref
   })
 }
 
-export function useCreatePipelineView(): UseMutationResult<PipelineView, Error, CreateViewInput, unknown> {
+export function useCreatePipelineView({
+  toastErrors = true,
+}: {
+  toastErrors?: boolean
+} = {}): UseMutationResult<PipelineView, Error, CreateViewInput, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: (input: CreateViewInput) => service.createPipelineView(input),
-    onSuccess: (view) => {
-      void invalidateViews(queryClient)
+    onSuccess: async (view) => {
+      await invalidateViews(queryClient)
       displaySuccessNotification(view.name, 'View created')
     },
-    onError: (error: Error) => displayErrorNotification(error, "Couldn't create view"),
+    onError: (error: Error) => {
+      if (toastErrors) {
+        displayErrorNotification(error, "Couldn't create view")
+      }
+    },
   })
 }
 
-export function useUpdatePipelineView(): UseMutationResult<
-  PipelineView,
-  Error,
-  { id: string; patch: ViewPatch },
-  unknown
-> {
+export function useUpdatePipelineView({
+  toastErrors = true,
+}: {
+  toastErrors?: boolean
+} = {}): UseMutationResult<PipelineView, Error, { id: string; patch: ViewPatch }, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: ViewPatch }) => service.updatePipelineView(id, patch),
-    onSuccess: (view, { patch }) => {
+    onSuccess: async (view, { patch }) => {
+      await invalidateViews(queryClient)
+
       if (patch.name !== undefined || patch.rules !== undefined || patch.members !== undefined) {
         displaySuccessNotification(view.name, 'View saved')
       }
     },
-    onError: (error: Error) => displayErrorNotification(error, "Couldn't save view"),
-    onSettled: () => invalidateViews(queryClient),
+    onError: (error: Error) => {
+      if (toastErrors) {
+        displayErrorNotification(error, "Couldn't save view")
+      }
+    },
+    onSettled: (_view, error) => (error ? invalidateViews(queryClient) : undefined),
   })
 }
 
@@ -239,8 +252,8 @@ export function useDeletePipelineView(): UseMutationResult<void, Error, string, 
 
   return useMutation({
     mutationFn: (id: string) => service.deletePipelineView(id),
-    onSuccess: (_data, id) => {
-      void invalidateViews(queryClient)
+    onSuccess: async (_data, id) => {
+      await invalidateViews(queryClient)
       displaySuccessNotification('The view was removed.', 'View deleted')
 
       if (currentView === id) {

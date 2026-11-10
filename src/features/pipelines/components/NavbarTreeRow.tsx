@@ -29,7 +29,7 @@ export type MenuProps = { onContextMenu: (event: MouseEvent) => void; onKeyDown:
 
 export const NavTile = ({ icon: Icon, size }: { icon: typeof IconStack2; size: number }): ReactNode => (
   <ThemeIcon size={size} variant="transparent" color="gray" aria-hidden>
-    <Icon size={size * 0.6} aria-hidden />
+    <Icon size={16} aria-hidden />
   </ThemeIcon>
 )
 
@@ -82,7 +82,7 @@ export const NavbarTreeRow = ({
       gap={0}
       wrap="nowrap"
       className="nav-item interactive-surface stretched"
-      ml={depth * 12}
+      ml={`calc(var(--mantine-spacing-sm) * ${depth})`}
       mod={{ current: active }}
     >
       {expandable ? (

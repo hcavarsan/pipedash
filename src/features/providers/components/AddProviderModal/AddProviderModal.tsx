@@ -1,9 +1,11 @@
 import { Stack } from '@mantine/core'
+import { IconKey, IconList, IconPlug } from '@tabler/icons-react'
 import { type ReactNode, useId, useRef } from 'react'
 import { ErrorState } from '../../../../components/common/ErrorState'
 import { LoadingState } from '../../../../components/common/LoadingState'
 import { StandardModal } from '../../../../components/common/StandardModal'
 import { ErrorBoundary } from '../../../../components/ErrorBoundary/ErrorBoundary'
+import { WizardProgress } from '../../../../components/forms/WizardProgress'
 import { useIsMobile, useMobileShell } from '../../../../hooks/useIsMobile'
 import { usePlugins } from '../../../../queries/usePluginsQueries'
 import type { PluginMetadata } from '../../../../types/plugins'
@@ -13,7 +15,6 @@ import { PermissionCheckModal } from '../PermissionCheckModal'
 
 import { ProviderWizardFooter } from './ProviderWizardFooter'
 import { ProviderWizardForm } from './ProviderWizardForm'
-import { ProviderWizardProgress } from './ProviderWizardProgress'
 import { type AddProviderModalProps, STEP_ORDER, type Step } from './types'
 import { usePermissionCheck } from './usePermissionCheck'
 import { useProviderFormAction } from './useProviderFormAction'
@@ -33,8 +34,17 @@ function ProviderWizardSession(props: WizardSessionProps): ReactNode {
       ? (plugins.find((plugin) => plugin.provider_type === props.existingProvider.provider_type) ?? null)
       : null
   const model = useProviderFormAction({ mode: props, initialPlugin, focusFirstInvalid })
-  const { state, dispatch, dirty, isPending, providerConfig, credentialsIncomplete, selectionNeedsRefresh, saveOnly } =
-    model
+  const {
+    state,
+    dispatch,
+    dirty,
+    isPending,
+    pendingIntent,
+    providerConfig,
+    credentialsIncomplete,
+    selectionNeedsRefresh,
+    saveOnly,
+  } = model
   const { step, selectedPlugin, providerName, selectedPipelines, selectingAll } = state
   const permission = usePermissionCheck({ selectedPlugin, providerConfig })
   const items = selectedPlugin?.presentation.terminology.items ?? 'items'
@@ -52,18 +62,38 @@ function ProviderWizardSession(props: WizardSessionProps): ReactNode {
       />
     ) : undefined
 
+  const progressSteps = [
+    {
+      label: 'Provider',
+      description: selectedPlugin?.name ?? 'Choose the service to monitor',
+      icon: <IconPlug size={16} aria-hidden />,
+    },
+    {
+      label: 'Credentials',
+      description: selectedPlugin?.presentation.wizard.credentials_description ?? 'Enter your API credentials',
+      icon: <IconKey size={16} aria-hidden />,
+    },
+    {
+      label: `Select ${items}`,
+      description: `Choose ${items} to monitor`,
+      icon: <IconList size={16} aria-hidden />,
+    },
+  ]
+
+  const credentialsIntent = saveOnly ? 'save-credentials' : 'continue'
+  const primaryIntent = step === 'credentials' ? credentialsIntent : 'continue'
   const primaryAction =
     step === 'pipelines'
       ? {
-          label: editMode ? 'Update' : 'Add',
+          label: editMode ? 'Update provider' : 'Add provider',
           onClick: () => model.submitIntent('save-selection'),
-          loading: isPending,
+          loading: pendingIntent === 'save-selection',
           disabled: (selectionRequired && selectedPipelines.size === 0) || selectingAll,
         }
       : {
-          label: step === 'credentials' && saveOnly ? 'Save' : 'Next',
+          label: step === 'credentials' && saveOnly ? 'Save' : 'Continue',
           onClick: () => formRef.current?.requestSubmit(),
-          loading: isPending,
+          loading: pendingIntent === primaryIntent,
           disabled: !providerSelected || !providerNameValid,
         }
 
@@ -90,7 +120,6 @@ function ProviderWizardSession(props: WizardSessionProps): ReactNode {
           editMode={editMode}
           saveOnly={saveOnly}
           selectionNeedsRefresh={selectionNeedsRefresh}
-          isMobile={isMobile}
           providerSelected={providerSelected}
           providerNameValid={providerNameValid}
           selectedCount={selectedPipelines.size}
@@ -98,10 +127,10 @@ function ProviderWizardSession(props: WizardSessionProps): ReactNode {
           selectingAll={selectingAll}
           items={items}
           permissionRow={permissionRow}
-          isPending={isPending}
+          busy={isPending}
+          pendingIntent={pendingIntent}
           onBack={() => goTo(previousStep)}
           onCancel={requestClose}
-          onSaveCredentials={() => model.submitIntent('save-credentials')}
           onSaveSelection={() => model.submitIntent('save-selection')}
         />
       )}
@@ -114,19 +143,15 @@ function ProviderWizardSession(props: WizardSessionProps): ReactNode {
     >
       <ErrorBoundary scope="feature" name="Provider wizard">
         <Stack gap={isMobile ? 'xs' : 'md'} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          <ProviderWizardProgress
-            activeStepIndex={activeStepIndex}
-            isMobile={isMobile}
-            mobileShell={mobileShell}
-            selectedPlugin={selectedPlugin}
-            items={items}
+          <WizardProgress
+            steps={progressSteps}
+            active={activeStepIndex}
             onStepSelect={(index) => goTo(STEP_ORDER[index])}
           />
 
           <ProviderWizardForm
             model={model}
             plugins={plugins}
-            pluginsLoading={false}
             editMode={editMode}
             isMobile={isMobile}
             mobileShell={mobileShell}
@@ -170,7 +195,7 @@ export function AddProviderModal(props: AddProviderModalProps): ReactNode {
             retrying={isFetching}
           />
         ) : (
-          <LoadingState variant="section" message="Loading available providers..." />
+          <LoadingState variant="section" message="Loading available providers…" />
         )}
       </StandardModal>
     )

@@ -7,7 +7,7 @@ import { useProviders } from '../../../queries/useProvidersQueries'
 import { useModalStore } from '../../../stores/modalStore'
 import { useNotificationCenterStore } from '../../../stores/notificationCenterStore'
 import type { CenterNotification } from '../../../types/notifications'
-import { openNotificationLink } from '../lib/openNotificationLink'
+import { openLink } from '../../../utils/openExternal'
 import { type MuteItem, useNotifyItems } from './useNotifyItems'
 
 const LINK_LABELS = { incident: 'View incident', status_page: 'Open status page' } as const
@@ -66,7 +66,7 @@ export function useNotificationDetailActions(notification: CenterNotification | 
       label: LINK_LABELS[link.kind],
       icon: (size) => <IconExternalLink size={size} aria-hidden />,
       chevron: true,
-      onClick: () => openNotificationLink(link.url),
+      onClick: () => openLink(link.url),
     })
   }
 

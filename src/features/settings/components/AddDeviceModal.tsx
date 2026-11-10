@@ -114,7 +114,7 @@ export function AddDeviceModal({ opened, onClose }: AddDeviceModalProps): ReactN
     body = (
       <Stack align="center" gap="sm" py="md">
         <ThemeIcon variant="transparent" color="green" size={48} aria-hidden>
-          <IconCircleCheck size={48} />
+          <IconCircleCheck size={24} />
         </ThemeIcon>
         <Text fw={600}>{paired.name} is connected.</Text>
         <Button onClick={close}>Done</Button>

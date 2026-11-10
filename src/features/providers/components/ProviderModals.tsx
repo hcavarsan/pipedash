@@ -78,7 +78,7 @@ export function ProviderModals(): ReactNode {
             retrying={fetchingProviderDetails}
           />
         ) : (
-          <LoadingState variant="section" message="Loading provider..." />
+          <LoadingState variant="section" message="Loading provider…" />
         )}
       </StandardModal>
 

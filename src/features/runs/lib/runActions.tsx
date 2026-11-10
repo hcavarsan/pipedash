@@ -1,6 +1,7 @@
 import { IconCheck, IconEye, IconFileText, IconPlayerPlay, IconSquare, IconX } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import type { SwipeAction } from '../../../components/ios/swipeAction'
+import type { BuildWatchStatus } from '../../../types/notifications'
 import type { Pipeline, PipelineRun, ReviewDecision } from '../../../types/pipelines'
 import type { PluginPresentation } from '../../../types/plugin_presentation'
 import type { PipelineTerminology } from '../../../types/presentation'
@@ -143,6 +144,25 @@ export function buildRunActions(value: RunActionsValue, run: PipelineRun): RunAc
   })
 
   return actions
+}
+
+interface WatchSource {
+  data: BuildWatchStatus | undefined
+  busy: boolean
+  isFetching: boolean
+  isError: boolean
+}
+
+export function watchStateOf(buildWatch: WatchSource): RunActionsValue['watch'] {
+  const watching = buildWatch.data?.watch?.monitoring === 'watching'
+
+  return {
+    supported: !!buildWatch.data?.supported,
+    available: !!buildWatch.data?.available,
+    reason: buildWatch.data?.reason ?? undefined,
+    busy: buildWatch.busy,
+    disabled: buildWatch.busy || buildWatch.isFetching || buildWatch.isError || !buildWatch.data?.available || watching,
+  }
 }
 
 export function swipeActionsOf(actions: RunAction[]): SwipeAction[] {

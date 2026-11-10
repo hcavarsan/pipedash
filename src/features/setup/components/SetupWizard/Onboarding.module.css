@@ -14,15 +14,16 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: calc(var(--safe-top) + 32px) calc(var(--safe-right) + 16px) 24px calc(var(--safe-left) + 16px);
+  padding: calc(var(--safe-top) + var(--mantine-spacing-xl)) calc(var(--safe-right) + var(--mantine-spacing-md))
+    var(--mantine-spacing-lg) calc(var(--safe-left) + var(--mantine-spacing-md));
 }
 
 .hero {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 28px;
+  gap: var(--mantine-spacing-sm);
+  margin-bottom: var(--mantine-spacing-xl);
   text-align: center;
 }
 
@@ -34,34 +35,13 @@
 }
 
 .footer {
-  padding: 12px calc(var(--safe-right) + 16px) calc(12px + var(--safe-bottom)) calc(var(--safe-left) + 16px);
+  padding: var(--mantine-spacing-sm) calc(var(--safe-right) + var(--mantine-spacing-md))
+    calc(var(--mantine-spacing-sm) + var(--safe-bottom)) calc(var(--safe-left) + var(--mantine-spacing-md));
   background: var(--ios-grouped-bg);
 }
 
 .stepHeader {
-  margin-bottom: 20px;
-}
-
-.dots {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-  margin-bottom: 20px;
-}
-
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--ios-fill);
-}
-
-.dot[data-active] {
-  background: var(--mantine-color-blue-filled);
-}
-
-.dot[data-done] {
-  background: var(--mantine-color-blue-light-color);
+  margin-bottom: var(--mantine-spacing-lg);
 }
 
 .stepCount {
@@ -72,7 +52,7 @@
 }
 
 .stepTitle {
-  margin: 2px 0 0;
+  margin: var(--mantine-spacing-4xs) 0 0;
   font-size: var(--ios-fs-title2, 1.375rem);
   font-weight: 600;
   line-height: var(--ios-lh-title2, 1.25);

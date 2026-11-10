@@ -123,7 +123,7 @@ async function disableAndSave(user: UserEvent): Promise<void> {
   await user.click(await view().findByRole('button', { name: 'Disable and delete data' }))
 }
 
-test('a blank custom retention is sent as given and the backend rejection is shown', async () => {
+test('a blank custom retention is rejected before saving and a valid one is sent', async () => {
   const user = userEvent.setup({ document })
 
   renderModal()
@@ -134,35 +134,31 @@ test('a blank custom retention is sent as given and the backend rejection is sho
 
   await user.clear(days)
   await user.click(save)
-  await waitFor(() =>
-    assert.deepEqual(
-      saves.map((call) => call.retentionDays),
-      [0]
-    )
-  )
-  assert.ok((await view().findAllByText(/at least 1/i)).length > 0)
+  assert.ok((await view().findAllByText(/enter a number/i)).length > 0)
+  assert.equal(saves.length, 0)
 
   await user.type(days, '45')
   await user.click(save)
   await waitFor(() =>
     assert.deepEqual(
       saves.map((call) => call.retentionDays),
-      [0, 45]
+      [45]
     )
   )
 })
 
-test('disabling with a blank retention rejects the save and never deletes stored metrics', async () => {
+test('disabling with a blank retention is blocked before saving or deleting', async () => {
   const user = userEvent.setup({ document })
 
   renderModal()
 
   await user.selectOptions(await view().findByRole('combobox', { name: 'Retention period' }), 'custom')
   await user.clear(await view().findByRole('textbox', { name: 'Custom retention (days)' }))
-  await disableAndSave(user)
+  await user.click(await view().findByLabelText('Enable metrics'))
+  await user.click(view().getByRole('button', { name: 'Save' }))
 
-  assert.ok((await view().findAllByText(/at least 1/i)).length > 0)
-  assert.equal(saves.length, 1)
+  assert.ok((await view().findAllByText(/enter a number/i)).length > 0)
+  assert.deepEqual(saves, [])
   assert.deepEqual(flushes, [])
 })
 
@@ -181,7 +177,7 @@ test('a failed save shows the inline error once and never deletes stored metrics
   assert.equal(onClose.mock.callCount(), 0)
 })
 
-test('a failed delete after a saved disable closes the form with a single error toast', async () => {
+test('a failed delete after a saved disable stays open and retries only the delete', async () => {
   const user = userEvent.setup({ document })
   const shown = mock.method(notifications, 'show')
   const onClose = mock.fn()
@@ -191,11 +187,18 @@ test('a failed delete after a saved disable closes the form with a single error 
   renderModal({ onClose, onConfigChange })
   await disableAndSave(user)
 
-  await waitFor(() => assert.equal(onClose.mock.callCount(), 1))
+  assert.ok((await view().findAllByText(/store is offline/i)).length > 0)
+  assert.ok(view().getByText("Couldn't delete metrics"))
+  assert.equal(onClose.mock.callCount(), 0)
   assert.equal(onConfigChange.mock.callCount(), 1)
+  assert.deepEqual(errorToastTitles(shown), [])
+
+  flushFailure = null
+  await user.click(view().getByRole('button', { name: 'Retry' }))
+
+  await waitFor(() => assert.equal(onClose.mock.callCount(), 1))
   assert.equal(saves.length, 1)
-  assert.equal(flushes.length, 1)
-  assert.deepEqual(errorToastTitles(shown), ["Couldn't delete stored metrics"])
+  assert.equal(flushes.length, 2)
 })
 
 test('a rejected save hides its error as soon as the draft changes, without a new submit', async () => {

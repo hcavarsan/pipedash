@@ -95,7 +95,7 @@ export function ProxySettingsForm({ savedProxy, mobileShell, pending, onSave }: 
 
           <IosGroup>
             <IosRow
-              title={<AccentText>{busy ? 'Saving...' : 'Save proxy'}</AccentText>}
+              title={<AccentText>{busy ? 'Saving…' : 'Save proxy'}</AccentText>}
               disabled={!canSave}
               onClick={() => formRef.current?.requestSubmit()}
             />

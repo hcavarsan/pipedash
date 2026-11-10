@@ -106,6 +106,7 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps): ReactNode {
   const storageConfig = useStorageConfig()
   const general = storageConfig.data?.config.general
   const generalMutation = useUpdateGeneralSettings()
+  const proxyMutation = useUpdateGeneralSettings({ toastErrors: false })
   const setStatusPages = (checked: boolean): void => {
     if (general) {
       generalMutation.mutate({ ...general, status_pages_enabled: checked })
@@ -151,8 +152,8 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps): ReactNode {
     <ProxySettingsForm
       savedProxy={general.proxy_url ?? ''}
       mobileShell={mobileShell}
-      pending={generalMutation.isPending}
-      onSave={(proxyUrl) => generalMutation.mutateAsync({ ...general, proxy_url: proxyUrl })}
+      pending={generalMutation.isPending || proxyMutation.isPending}
+      onSave={(proxyUrl) => proxyMutation.mutateAsync({ ...general, proxy_url: proxyUrl })}
     />
   )
 
@@ -209,7 +210,7 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps): ReactNode {
               destructive
               disabled={isResetting}
               onClick={confirmReset}
-              accessory={isResetting ? <Loader size={18} color="red" aria-hidden /> : undefined}
+              accessory={isResetting ? <Loader size="xs" color="red" aria-hidden /> : undefined}
             />
           </IosGroup>
         )}
@@ -238,14 +239,14 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps): ReactNode {
 
           {platformSection}
 
-          {statusPagesControl}
-
           {proxyForm && (
             <>
-              <Divider />
               {proxyForm}
+              <Divider />
             </>
           )}
+
+          {statusPagesControl}
         </Stack>
       </Card>
 

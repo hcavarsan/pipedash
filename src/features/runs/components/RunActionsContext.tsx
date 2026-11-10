@@ -15,7 +15,7 @@ import {
 import { useModalStore } from '../../../stores/modalStore'
 import type { Pipeline, PipelineRun, ReviewDecision } from '../../../types/pipelines'
 import { isRecord } from '../../../utils/isRecord'
-import type { RerunMode, RunActionsValue } from '../lib/runActions'
+import { type RerunMode, type RunActionsValue, watchStateOf } from '../lib/runActions'
 
 const RunActionsContext = createContext<RunActionsValue | null>(null)
 
@@ -110,10 +110,9 @@ export function RunActionsProvider({ pipeline, children }: RunActionsProviderPro
   }
 
   if (!presentation) {
-    return <LoadingState message="Loading..." />
+    return <LoadingState message="Loading run actions…" />
   }
 
-  const watching = buildWatch.data?.watch?.monitoring === 'watching'
   const value: RunActionsValue = {
     pipeline,
     presentation,
@@ -124,14 +123,7 @@ export function RunActionsProvider({ pipeline, children }: RunActionsProviderPro
     reviewingRun: pendingNumber(reviewRun),
     rerunningFailedRun: pendingNumber(rerunFailedJobs),
     rerunningRuns,
-    watch: {
-      supported: !!buildWatch.data?.supported,
-      available: !!buildWatch.data?.available,
-      reason: buildWatch.data?.reason ?? undefined,
-      busy: buildWatch.busy,
-      disabled:
-        buildWatch.busy || buildWatch.isFetching || buildWatch.isError || !buildWatch.data?.available || watching,
-    },
+    watch: watchStateOf(buildWatch),
     startWatch: (runNumber) => buildWatch.start(pipeline.id, runNumber),
     openRun: (run) => openLogsModal(pipeline.id, run.run_number),
     openTrigger: () => {

@@ -1,4 +1,4 @@
-import { Box, Button, Center, Paper, Stack } from '@mantine/core'
+import { Button, ThemeIcon } from '@mantine/core'
 import { IconPlugConnectedX } from '@tabler/icons-react'
 import { type ReactNode, useEffect, useState } from 'react'
 
@@ -9,7 +9,7 @@ import { logger } from '../../../lib/logger'
 import { getConnection, REMOTE_ACCESS_REVOKED_EVENT } from '../../../services/connection'
 import { listenEvent } from '../../../services/events'
 import { useDisconnectServer } from '../queries/useConnectionQueries'
-import { ConnectionScreenHeading } from './ConnectionScreenHeading'
+import { EntryScreen } from './EntryScreen'
 
 const TITLE = 'This device was removed'
 
@@ -60,11 +60,12 @@ export function ServerAccessGate({ children }: { children: ReactNode }): ReactNo
         <DocumentTitle title={TITLE} />
         <StatusScreen
           icon={
-            <Box c="dimmed" lh={0}>
-              <IconPlugConnectedX size={48} aria-hidden />
-            </Box>
+            <ThemeIcon variant="transparent" color="gray" size={48}>
+              <IconPlugConnectedX size={24} aria-hidden />
+            </ThemeIcon>
           }
           title={TITLE}
+          headingOrder={1}
           message={message}
           actions={action}
           minHeight="100dvh"
@@ -74,17 +75,8 @@ export function ServerAccessGate({ children }: { children: ReactNode }): ReactNo
   }
 
   return (
-    <Box component="main" h="100vh" className="safe-area">
-      <DocumentTitle title={TITLE} />
-      <Center h="100%" p={{ base: 'md', sm: 'xl' }}>
-        <Paper p={{ base: 'lg', sm: 'xl' }} w="100%" maw={480} withBorder>
-          <Stack gap="xl">
-            <ConnectionScreenHeading title={TITLE} message={message} />
-
-            {action}
-          </Stack>
-        </Paper>
-      </Center>
-    </Box>
+    <EntryScreen title={TITLE} message={message} documentTitle={TITLE}>
+      {action}
+    </EntryScreen>
   )
 }

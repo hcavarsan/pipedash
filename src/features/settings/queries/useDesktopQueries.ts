@@ -8,7 +8,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query'
 import { listen } from '@tauri-apps/api/event'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { logger } from '../../../lib/logger'
 import { DESKTOP_STATUS_EVENT, desktopService } from '../../../services/desktop'
@@ -68,9 +68,11 @@ export function useDesktopStatus(): UseQueryResult<DesktopStatus, Error> {
 
 export function useUpdateDesktopSettings(): UseMutationResult<DesktopStatus, Error, DesktopSettingsPatch> & {
   busy: boolean
+  retry: () => void
 } {
   const client = useQueryClient()
   const busy = useIsMutating({ mutationKey }) > 0
+  const [failed, setFailed] = useState<DesktopSettingsPatch | null>(null)
   const mutation = useMutation({
     mutationKey,
     mutationFn: async (patch: DesktopSettingsPatch) => {
@@ -79,10 +81,16 @@ export function useUpdateDesktopSettings(): UseMutationResult<DesktopStatus, Err
 
       return Object.keys(patch).length === 0 ? importPreference(status) : status
     },
-    onSuccess: (status) => client.setQueryData(statusKey, newestStatus(client, status)),
+    onSuccess: (status) => {
+      setFailed(null)
+      client.setQueryData(statusKey, newestStatus(client, status))
+    },
+    onError: (_error, patch) => setFailed(patch),
   })
+  const { mutate } = mutation
+  const retry = (): void => mutate(failed ?? {})
 
-  return { ...mutation, busy }
+  return { ...mutation, busy, retry }
 }
 
 export function useDesktopLifecycle(): void {

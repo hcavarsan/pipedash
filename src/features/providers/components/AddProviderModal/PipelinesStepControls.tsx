@@ -80,7 +80,7 @@ export function DesktopPipelineControls({
         )}
         <SearchInput
           aria-label={`Search ${terms.items}`}
-          placeholder={`Search ${terms.items}...`}
+          placeholder={`Search ${terms.items}…`}
           value={search}
           onChange={onSearchChange}
           loading={searching}

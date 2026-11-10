@@ -21,17 +21,17 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
   const mobileShell = useMobileShell()
   const busy = useIsMutating() > 0 || isLoadingStatus
 
-  const isFirstTime = mobileShell ? (vaultStatus?.is_first_time ?? true) : vaultStatus?.is_first_time === true
+  const isFirstTime = vaultStatus?.is_first_time === true
   const requiresPassword = vaultStatus?.requires_password ?? true
   const appLock = vaultStatus?.app_lock
   const biometricEnabled = appLock?.enabled === true
   const plainUnlock = !requiresPassword && !biometricEnabled && appLock?.locked === true
 
-  if (!mobileShell && isLoadingStatus) {
+  if (isLoadingStatus) {
     return <LoadingState message="Loading vault status…" />
   }
 
-  if (!mobileShell && isError) {
+  if (isError && !vaultStatus) {
     return (
       <ErrorState
         title="Couldn't load vault status"

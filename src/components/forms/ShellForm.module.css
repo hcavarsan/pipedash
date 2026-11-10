@@ -2,11 +2,11 @@
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--mantine-spacing-lg);
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 8px 16px 24px;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-md) var(--mantine-spacing-lg);
 }
 
 .step > * {
@@ -16,7 +16,7 @@
 .heading {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--mantine-spacing-4xs);
 }
 
 .headingTitle {
@@ -34,7 +34,7 @@
 }
 
 .sectionTitle {
-  margin: 8px 0 -8px;
+  margin: var(--mantine-spacing-xs) 0 calc(var(--mantine-spacing-xs) * -1);
   font-size: var(--ios-fs-headline, 1.0625rem);
   font-weight: 600;
   line-height: var(--ios-lh-headline, 1.3);
@@ -44,7 +44,7 @@
   display: flex;
   align-items: center;
   min-height: 44px;
-  padding: 0 16px;
+  padding: 0 var(--mantine-spacing-md);
 }
 
 .control > * {
@@ -66,7 +66,7 @@
 }
 
 .note {
-  padding: 0 16px;
+  padding: 0 var(--mantine-spacing-md);
   font-size: var(--ios-fs-footnote, 0.8125rem);
   line-height: var(--ios-lh-footnote, 1.35);
   color: var(--mantine-color-dimmed);
@@ -74,10 +74,10 @@
 
 .search {
   position: sticky;
-  top: -8px;
+  top: calc(var(--mantine-spacing-xs) * -1);
   z-index: 1;
-  margin: -8px 0;
-  padding: 8px 0;
+  margin: calc(var(--mantine-spacing-xs) * -1) 0;
+  padding: var(--mantine-spacing-xs) 0;
   background: var(--ios-sheet);
 }
 
@@ -110,7 +110,7 @@
   height: 22px;
   border: 1.5px solid var(--ios-chevron);
   border-radius: 50%;
-  color: #fff;
+  color: var(--ios-on-tint);
 }
 
 .check[data-checked] {
@@ -133,14 +133,14 @@
 .line.granted {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--mantine-spacing-3xs);
   color: var(--mantine-color-green-filled);
 }
 
 .line.missing {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--mantine-spacing-3xs);
   color: var(--mantine-color-red-filled);
 }
 
@@ -149,5 +149,5 @@
 }
 
 .line + .line {
-  margin-top: 4px;
+  margin-top: var(--mantine-spacing-3xs);
 }

@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import type { SignInStatus } from '../../../../types/providers'
 import { displayErrorNotification, errorMessage } from '../../../../utils/errorDisplay'
-import { openExternal } from '../../../../utils/openExternal'
+import { openLink } from '../../../../utils/openExternal'
 import { SIGN_IN_KEY } from '../../lib/credentials'
 import { useCancelSignIn, useCompleteSignIn, useSignInStatus, useStartSignIn } from '../../queries/useSignInQueries'
 import { SignInPasteControls } from '../SignInPasteControls'
@@ -78,6 +78,7 @@ export function SignInField({
   const waiting = status ? status.state === 'pending' : flow !== null
   const ownedFlowRef = useRef<string | null>(null)
   const unmountedRef = useRef(false)
+  const completingRef = useRef(false)
 
   useEffect(() => {
     unmountedRef.current = false
@@ -140,15 +141,28 @@ export function SignInField({
     onChange(previous)
   }
 
-  const handleComplete = () => {
-    if (reference && pasted.trim()) {
-      complete.mutate({ id: reference, redirectUrl: pasted })
+  const changePasted = (value: string) => {
+    setPasted(value)
+    complete.reset()
+  }
+
+  const handleComplete = async () => {
+    if (!reference || !pasted.trim() || completingRef.current) {
+      return
+    }
+
+    completingRef.current = true
+
+    try {
+      await complete.mutateAsync({ id: reference, redirectUrl: pasted }).catch(() => undefined)
+    } finally {
+      completingRef.current = false
     }
   }
 
   const handleOpenAgain = () => {
     if (flow) {
-      void openExternal(flow.authorize_url)
+      openLink(flow.authorize_url)
     }
   }
 
@@ -185,8 +199,9 @@ export function SignInField({
         value={pasted}
         error={pasteError}
         pending={complete.isPending}
-        onChange={setPasted}
-        onSubmit={handleComplete}
+        fieldId={`${id}-paste`}
+        onChange={changePasted}
+        onSubmit={() => void handleComplete()}
       />
     ),
     pasteError,
@@ -198,7 +213,7 @@ export function SignInField({
     onCancel: handleCancel,
     onOpenAgain: handleOpenAgain,
     onShowPaste: () => setPasteOpen(true),
-    onContinue: handleComplete,
+    onContinue: () => void handleComplete(),
   }
 
   return shell ? <ShellSignIn {...view} /> : <DesktopSignIn {...view} />

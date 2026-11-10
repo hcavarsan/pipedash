@@ -197,3 +197,27 @@ test('a successful cancel resets the field only after the cancellation finishes'
   assert.equal(shown.mock.callCount(), 0)
   await act(async () => field.unmount())
 })
+
+test('Enter completes the pasted address once and editing it clears the completion error', async (context) => {
+  const completion = Promise.withResolvers<SignInStatus>()
+  const completes = context.mock.fn(async (_id: string, _url: string) => completion.promise)
+  context.mock.method(apiService, 'startSignIn', async () => ({ ...started('manual-flow'), manual: true }))
+  context.mock.method(apiService, 'signInStatus', async (): Promise<SignInStatus> => ({ state: 'pending' }))
+  context.mock.method(apiService, 'completeSignIn', completes)
+  context.mock.method(apiService, 'cancelSignIn', async () => undefined)
+  notifyManager.setNotifyFunction((callback) => act(callback))
+
+  const field = await renderField(() => undefined)
+  const user = userEvent.setup({ document })
+  await user.click(view().getByRole('button', { name: 'Sign in with SSO' }))
+  const input = await view().findByLabelText('Address of the page after sign-in')
+  await user.type(input, 'http://localhost/callback?code=1{Enter}{Enter}')
+
+  assert.equal(completes.mock.callCount(), 1)
+  await act(async () => completion.reject(new Error('Code already used')))
+  assert.ok(await view().findByText(/Code already used/))
+
+  await user.type(input, '2')
+  await waitFor(() => assert.equal(view().queryByText(/Code already used/), null))
+  await act(async () => field.unmount())
+})

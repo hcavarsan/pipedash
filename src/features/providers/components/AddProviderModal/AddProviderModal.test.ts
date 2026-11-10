@@ -206,7 +206,7 @@ test('credential fields and navigation stay locked while the save is pending', a
     await gate.promise
   })
 
-  await user.click(await view().findByRole('button', { name: /^Next/ }))
+  await user.click(await view().findByRole('button', { name: /^Continue/ }))
   const note = await view().findByRole('textbox', { name: 'Note' })
   assert.ok(note instanceof HTMLInputElement)
   await waitFor(() => assert.equal(note.disabled, false))
@@ -217,7 +217,12 @@ test('credential fields and navigation stay locked while the save is pending', a
   await waitFor(() => assert.equal(saved.length, 1))
   assert.equal(note.disabled, true)
   assert.equal(view().getByRole('button', { name: 'Back' }).hasAttribute('disabled'), true)
-  assert.equal(view().getByRole('button', { name: /^Next/ }).hasAttribute('disabled'), true)
+  assert.equal(
+    view()
+      .getByRole('button', { name: /^Continue/ })
+      .hasAttribute('disabled'),
+    true
+  )
   assert.equal(closed.value, false)
 
   await act(async () => gate.resolve())
@@ -236,7 +241,7 @@ test('a rejected save keeps the dialog open with the typed values and allows a r
     }
   })
 
-  await user.click(await view().findByRole('button', { name: /^Next/ }))
+  await user.click(await view().findByRole('button', { name: /^Continue/ }))
   const note = await view().findByRole('textbox', { name: 'Note' })
   assert.ok(note instanceof HTMLInputElement)
   await waitFor(() => assert.equal(note.disabled, false))
@@ -260,7 +265,7 @@ test('the save error disappears when the user edits a field', async () => {
     throw new Error('provider rejected the update')
   })
 
-  await user.click(await view().findByRole('button', { name: /^Next/ }))
+  await user.click(await view().findByRole('button', { name: /^Continue/ }))
   const note = await view().findByRole('textbox', { name: 'Note' })
   await waitFor(() => assert.equal(note.hasAttribute('disabled'), false))
   await user.click(view().getByRole('button', { name: 'Save' }))
@@ -301,7 +306,7 @@ test('the provider step checks only its own fields, then a required credential b
   await user.click(view().getByRole('button', { name: 'Advanced settings' }))
   await user.type(view().getByRole('textbox', { name: 'Status page URL' }), 'http://status.example.com')
   await user.click(view().getByRole('button', { name: 'Advanced settings' }))
-  await user.click(view().getByRole('button', { name: /^Next/ }))
+  await user.click(view().getByRole('button', { name: /^Continue/ }))
 
   assert.ok((await view().findAllByText('Must be an https URL')).length > 0)
   assert.equal(view().getByRole('button', { name: 'Advanced settings' }).getAttribute('aria-expanded'), 'true')
@@ -314,12 +319,12 @@ test('the provider step checks only its own fields, then a required credential b
   })
   await user.clear(statusPage)
   await user.type(statusPage, 'https://status.example.com')
-  await user.click(view().getByRole('button', { name: /^Next/ }))
+  await user.click(view().getByRole('button', { name: /^Continue/ }))
 
   await view().findByLabelText(/^Token/)
   assert.equal(view().queryByText('Token is required'), null)
 
-  await user.click(view().getByRole('button', { name: /^Next/ }))
+  await user.click(view().getByRole('button', { name: /^Continue/ }))
   assert.ok((await view().findAllByText('Token is required')).length > 0)
 })
 
@@ -359,12 +364,12 @@ test('an empty provider saves when monitoring is automatic', async () => {
   })
 
   await user.click(await view().findByRole('button', { name: 'Stub' }))
-  await user.click(view().getByRole('button', { name: /^Next/ }))
+  await user.click(view().getByRole('button', { name: /^Continue/ }))
   const token = await view().findByLabelText(/^Token/)
   assert.ok(token instanceof HTMLInputElement)
   await waitFor(() => assert.equal(token.disabled, false))
   await user.type(token, 'secret')
-  await user.click(view().getByRole('button', { name: /^Next/ }))
+  await user.click(view().getByRole('button', { name: /^Continue/ }))
   const add = await view().findByRole('button', { name: 'Add provider' })
 
   await waitFor(() => assert.equal(add.hasAttribute('disabled'), false))
@@ -387,9 +392,9 @@ test('the provider cannot be added while select all is still loading', async () 
     })
 
     await user.click(await view().findByRole('button', { name: 'Stub' }))
-    await user.click(view().getByRole('button', { name: /^Next/ }))
+    await user.click(view().getByRole('button', { name: /^Continue/ }))
     await user.type(await view().findByLabelText(/^Token/), 'secret')
-    await user.click(view().getByRole('button', { name: /^Next/ }))
+    await user.click(view().getByRole('button', { name: /^Continue/ }))
     await user.click(await view().findByRole('checkbox', { name: 'a' }))
     await user.click(view().getByRole('checkbox', { name: 'Select all' }))
     await waitFor(() => assert.ok(secondPage.requests > 0))

@@ -57,7 +57,7 @@ export const SettingsPage = ({ activeSection, onRefresh }: SettingsPageProps): R
       <Box
         p={padding}
         {...(mobileShell ? { pt: 'sm', className: 'settings-pushed' } : {})}
-        {...(isMobile ? {} : { maw: 720 })}
+        {...(isMobile ? {} : { maw: 880 })}
       >
         {!mobileShell && (
           <Box mb="lg">

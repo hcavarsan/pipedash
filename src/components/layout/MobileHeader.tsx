@@ -7,7 +7,7 @@ import { type BarSnapshot, useMobileNavStore } from '../../stores/mobileNavStore
 import { ConnectionStatus } from '../common/ConnectionStatus'
 
 import classes from './MobileHeader.module.css'
-import { mobileChrome } from './mobileChrome'
+import { mobileChrome, routeKey } from './mobileChrome'
 import { type BarLayout, layoutBar } from './navigation'
 import { useGoBack, useMobileBack } from './useMobileBack'
 
@@ -96,7 +96,7 @@ export function MobileHeader(): ReactNode {
   useRefresh()
   const { pathname, search, state } = useLocation()
   const { title, back } = mobileChrome(pathname, search, state)
-  const pushedTitle = useMobileNavStore((s) => s.title)
+  const pushedTitle = useMobileNavStore((s) => s.titles[routeKey(pathname, search, state)])
   const transition = useMobileNavStore((s) => s.transition)
   const backTarget = useMobileBack()
   const barRef = useRef<HTMLDivElement>(null)

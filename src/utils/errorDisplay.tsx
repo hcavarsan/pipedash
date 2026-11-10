@@ -1,3 +1,4 @@
+import { IconAlertCircle, IconAlertTriangle, IconCircleCheck } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
 import { isMobileShell } from '../hooks/useIsMobile'
@@ -59,7 +60,7 @@ export function displayErrorNotification(
   { onRetry, onDetails }: NotificationActions = {}
 ): void {
   const id = `error-${++sequence}`
-  const message = formatErrorMessage(error)
+  const message = errorMessage(error, 'Try again.')
   const duration = isMobileShell() ? NOTIFICATION_DURATIONS.ERROR_MOBILE : NOTIFICATION_DURATIONS.ERROR
 
   const hasActions = Boolean(onRetry || onDetails)
@@ -88,6 +89,7 @@ export function displayErrorNotification(
     id,
     title,
     color: 'red',
+    icon: <IconAlertCircle size={16} aria-hidden />,
     message: body,
     autoClose: hasActions ? false : duration,
   })
@@ -95,10 +97,22 @@ export function displayErrorNotification(
 
 export function displaySuccessNotification(message: string, title: string): void {
   haptic('success')
-  notifications.show({ title, message, color: 'green', autoClose: NOTIFICATION_DURATIONS.SUCCESS })
+  notifications.show({
+    title,
+    message,
+    color: 'green',
+    icon: <IconCircleCheck size={16} aria-hidden />,
+    autoClose: NOTIFICATION_DURATIONS.SUCCESS,
+  })
 }
 
 export function displayWarningNotification(message: string, title: string): void {
   haptic('warning')
-  notifications.show({ title, message, color: 'orange', autoClose: NOTIFICATION_DURATIONS.WARNING })
+  notifications.show({
+    title,
+    message,
+    color: 'orange',
+    icon: <IconAlertTriangle size={16} aria-hidden />,
+    autoClose: NOTIFICATION_DURATIONS.WARNING,
+  })
 }

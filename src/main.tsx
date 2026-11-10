@@ -35,6 +35,14 @@ async function start(container: HTMLElement): Promise<void> {
 }
 
 start(root).catch((error: unknown) => {
-  root.textContent = "Couldn't start Pipedash. Restart the app."
+  const message = document.createElement('p')
+  const reload = document.createElement('button')
+
+  message.setAttribute('role', 'alert')
+  message.textContent = "Couldn't start Pipedash."
+  reload.type = 'button'
+  reload.textContent = 'Reload'
+  reload.addEventListener('click', () => location.reload())
+  root.replaceChildren(message, reload)
   logger.error('main', "Couldn't start Pipedash", error)
 })

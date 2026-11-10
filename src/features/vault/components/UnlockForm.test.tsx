@@ -217,10 +217,20 @@ test('a first-time mismatch is rejected on submit', async () => {
   assert.equal(unlock.calls.length, 0)
 })
 
-test('Enter in the first-time password field moves focus to the confirmation', async () => {
+test('on desktop Enter in the first-time password field does not jump to the confirmation', async () => {
   status.firstTime = true
   const user = userEvent.setup({ document })
   render(ui({ onSuccess: () => undefined }))
+  const password = await passwordField()
+  await user.type(password, 'secret{Enter}')
+
+  assert.notEqual(document.activeElement, await confirmField())
+  assert.equal(unlock.calls.length, 0)
+})
+
+test('on the mobile shell Enter in the first-time password field moves focus to the confirmation', async () => {
+  const user = userEvent.setup({ document })
+  render(phoneUi(true))
   await user.type(await passwordField(), 'secret{Enter}')
 
   assert.equal(document.activeElement, await confirmField())
@@ -276,22 +286,24 @@ test('an unsuccessful response keeps the error visible until the user edits', as
   await waitFor(() => assert.ok(!view().queryByText('Incorrect vault password')))
 })
 
+const phoneUi = (firstTime: boolean) => (
+  <MantineProvider>
+    <QueryClientProvider client={client}>
+      <UnlockPasswordForm
+        firstTime={firstTime}
+        mobileShell
+        disabled={false}
+        biometricEnabled={false}
+        onSuccess={() => undefined}
+      />
+    </QueryClientProvider>
+  </MantineProvider>
+)
+
 test('on the mobile shell an unlock error clears when the user edits the password', async () => {
   unlock.response = { success: false, message: 'Incorrect vault password' }
   const user = userEvent.setup({ document })
-  render(
-    <MantineProvider>
-      <QueryClientProvider client={client}>
-        <UnlockPasswordForm
-          firstTime={false}
-          mobileShell
-          disabled={false}
-          biometricEnabled={false}
-          onSuccess={() => undefined}
-        />
-      </QueryClientProvider>
-    </MantineProvider>
-  )
+  render(phoneUi(false))
   await user.type(await passwordField(), 'wrong')
   await user.click(view().getByRole('button', { name: 'Unlock' }))
 
@@ -299,6 +311,27 @@ test('on the mobile shell an unlock error clears when the user edits the passwor
 
   await user.type(await passwordField(), 'x')
   await waitFor(() => assert.ok(!view().queryByText('Incorrect vault password')))
+})
+
+test('on the mobile shell leaving an empty password field shows the required error', async () => {
+  const user = userEvent.setup({ document })
+  render(phoneUi(false))
+  await user.click(await passwordField())
+  await user.tab()
+
+  assert.ok(await view().findByText('Password is required'))
+  assert.equal(unlock.calls.length, 0)
+})
+
+test('on the mobile shell leaving a mismatched confirmation shows the mismatch error', async () => {
+  const user = userEvent.setup({ document })
+  render(phoneUi(true))
+  await user.type(await passwordField(), 'secret')
+  await user.type(await confirmField(), 'other')
+  await user.tab()
+
+  assert.ok(await view().findByText('Passwords do not match'))
+  assert.equal(unlock.calls.length, 0)
 })
 
 test('a pending unlock disables duplicate submission', async () => {

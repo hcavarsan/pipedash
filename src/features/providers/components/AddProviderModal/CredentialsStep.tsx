@@ -9,7 +9,7 @@ import { SIGN_IN_KEY, TOKEN_KEY } from '../../lib/credentials'
 import { ProviderConfigField } from './ProviderConfigField'
 import { StepHeading } from './ShellForm'
 import { SignInField } from './SignInField'
-import type { FormAction, FormState } from './types'
+import type { FormAction, FormState, ValidateKey } from './types'
 import { useCredentialFields } from './useCredentialFields'
 import { STEP_SECTIONS } from './validation'
 
@@ -25,7 +25,7 @@ interface CredentialsStepProps {
   submitting: boolean
   formRef: RefObject<HTMLFormElement | null>
   formId: string
-  validateKey: (key: string) => Promise<void>
+  validateKey: ValidateKey
   missingLabels: string[]
   permissionRow?: ReactNode | undefined
   secondaryRow?: ReactNode | undefined

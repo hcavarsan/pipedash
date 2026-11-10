@@ -13,6 +13,7 @@ interface TableColumnsResult {
   columns: DataTableColumn<PipelineRun>[]
   allColumns: DataTableColumn<PipelineRun>[]
   loading: boolean
+  hasSchema: boolean
   error: Error | null
   refetch: () => Promise<unknown>
 }
@@ -89,6 +90,7 @@ export function useTableColumns(
     columns: effectiveColumns,
     allColumns: baseColumns,
     loading,
+    hasSchema: Boolean(tableSchema?.columns?.length),
     error,
     refetch,
   }

@@ -59,6 +59,8 @@ interface IosRowContentProps {
   ariaLabel?: string
   invalid?: boolean
   swipeActions?: SwipeAction[]
+  expanded?: boolean
+  controls?: string
 }
 
 type IosRowInteraction =
@@ -82,6 +84,8 @@ export function IosRow(props: IosRowProps): ReactNode {
     ariaLabel,
     invalid,
     swipeActions,
+    expanded,
+    controls,
   } = props
   const location = useLocation()
   const pressRef = useRowMenuLongPress(Boolean(longPressMenu))
@@ -95,6 +99,8 @@ export function IosRow(props: IosRowProps): ReactNode {
     'data-selected': selected ? '' : undefined,
     'aria-label': ariaLabel,
     'aria-invalid': invalid || undefined,
+    'aria-expanded': expanded,
+    'aria-controls': controls,
   }
   const content = (
     <>
@@ -111,7 +117,7 @@ export function IosRow(props: IosRowProps): ReactNode {
       {accessory && <span className={classes.accessory}>{accessory}</span>}
       {chevron && (
         <span className={classes.chevron} aria-hidden>
-          <IconChevronRight size={18} />
+          <IconChevronRight size={16} />
         </span>
       )}
     </>

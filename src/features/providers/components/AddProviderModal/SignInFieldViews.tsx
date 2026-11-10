@@ -28,7 +28,7 @@ export interface SignInViewProps {
   starting: boolean
   cancelling: boolean
   onStart: () => Promise<void>
-  onCancel: () => Promise<void>
+  onCancel?: (() => Promise<void>) | undefined
   onOpenAgain: () => void
   onShowPaste: () => void
   onContinue: () => void
@@ -43,13 +43,15 @@ function ShellBody(props: SignInViewProps): ReactNode {
         <IosRow title={waitingText} accessory={<Loader size="xs" aria-hidden />} />
         {canOpenAgain && <IosRow title="Open the sign-in page again" onClick={props.onOpenAgain} />}
         {pasteLinkVisible && <IosRow title={PASTE_LINK} onClick={props.onShowPaste} />}
-        <IosRow
-          title="Cancel"
-          destructive
-          onClick={props.onCancel}
-          disabled={props.cancelling}
-          accessory={props.cancelling ? <Loader size="xs" aria-hidden /> : undefined}
-        />
+        {props.onCancel && (
+          <IosRow
+            title="Cancel"
+            destructive
+            onClick={props.onCancel}
+            disabled={props.cancelling}
+            accessory={props.cancelling ? <Loader size="xs" aria-hidden /> : undefined}
+          />
+        )}
       </>
     )
   }
@@ -61,7 +63,7 @@ function ShellBody(props: SignInViewProps): ReactNode {
   if (phase === 'signedIn') {
     return (
       <>
-        <IosRow title={signedIn ?? ''} icon={<IconCheck size={18} aria-hidden />} />
+        <IosRow title={signedIn ?? ''} icon={<IconCheck size={16} aria-hidden />} />
         <IosRow title="Sign in again" onClick={props.onStart} disabled={blocked} />
       </>
     )
@@ -70,7 +72,7 @@ function ShellBody(props: SignInViewProps): ReactNode {
   return (
     <IosRow
       title="Sign in with SSO"
-      icon={<IconLogin size={18} aria-hidden />}
+      icon={<IconLogin size={16} aria-hidden />}
       accessory={starting ? <Loader size="xs" aria-hidden /> : undefined}
       onClick={props.onStart}
       disabled={blocked}
@@ -117,9 +119,11 @@ function DesktopBody(props: SignInViewProps): ReactNode {
               Open the sign-in page again
             </Button>
           )}
-          <Button variant="subtle" size="xs" onClick={props.onCancel} loading={props.cancelling}>
-            Cancel
-          </Button>
+          {props.onCancel && (
+            <Button variant="subtle" size="xs" onClick={props.onCancel} loading={props.cancelling}>
+              Cancel
+            </Button>
+          )}
         </Group>
         {pasteLinkVisible && (
           <Anchor component="button" type="button" size="xs" ta="left" onClick={props.onShowPaste}>

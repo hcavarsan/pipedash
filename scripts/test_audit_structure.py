@@ -41,6 +41,37 @@ class DepthTest(unittest.TestCase):
         self.assertEqual(rules("src/a.ts", "\tx\n"), ["tab-indent"])
 
 
+class TokenTest(unittest.TestCase):
+    def test_icon_size_off_scale_fails_across_lines(self):
+        self.assertEqual(rules("src/a.tsx", "<IconX size={18} />\n"), ["icon-size"])
+        self.assertEqual(rules("src/a.tsx", "<IconX\n  stroke={1}\n  size={12}\n/>\n"), ["icon-size"])
+
+    def test_icon_size_scale_and_window_controls_pass(self):
+        self.assertEqual(rules("src/a.tsx", "<IconX size={16} />\n<IconY\n  size={24}\n/>\n"), [])
+        self.assertEqual(rules("src/WindowControls.tsx", "<IconX size={10} />\n"), [])
+
+    def test_raw_spacing_fails(self):
+        self.assertEqual(rules("src/a.tsx", "<Stack gap={6} />\n"), ["raw-spacing"])
+
+    def test_spacing_tokens_and_zero_pass(self):
+        self.assertEqual(rules("src/a.tsx", '<Stack gap="xs" p={0} />\n'), [])
+
+    def test_loader_numeric_size_fails_across_lines(self):
+        self.assertEqual(rules("src/a.tsx", "<Loader\n  color=\"x\"\n  size={16}\n/>\n"), ["loader-size"])
+        self.assertEqual(rules("src/a.tsx", '<Loader size="xs" />\n'), [])
+
+    def test_raw_z_index_fails_outside_theme_file(self):
+        self.assertEqual(rules("src/a.tsx", "<Modal zIndex={300} />\n"), ["raw-z-index"])
+        self.assertEqual(rules("src/a.ts", "const s = { zIndex: 10 }\n"), ["raw-z-index"])
+        self.assertEqual(rules("src/theme/zIndex.ts", "const s = { zIndex: 10 }\n"), [])
+        self.assertEqual(rules("src/a.tsx", "<Modal zIndex={Z.alert} />\n"), [])
+
+    def test_tokens_skip_tests_and_non_src(self):
+        self.assertEqual(rules("src/a.tsx", "<Loader size={16} />\n", is_test=True), [])
+        self.assertEqual(rules("website/a.tsx", "<Loader size={16} />\n"), [])
+
+
+
 class InlineTestsTest(unittest.TestCase):
     def test_inline_test_module_fails(self):
         self.assertEqual(rules("crates/a/src/b.rs", "mod tests {\n}\n"), ["inline-tests"])

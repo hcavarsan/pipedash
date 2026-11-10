@@ -1,10 +1,9 @@
-import { Box, Group, Checkbox as MantineCheckbox, Stack, Text, Tooltip } from '@mantine/core'
+import { Box, Text, Tooltip } from '@mantine/core'
 import type { Dispatch, ReactNode } from 'react'
 import { VirtualList } from '../../../../components/common/VirtualList'
 import { VirtualTable, type VirtualTableColumn } from '../../../../components/common/VirtualTable'
 import shell from '../../../../components/forms/ShellForm.module.css'
 import { IosGroup, IosRow } from '../../../../components/ios/IosList'
-import { TYPOGRAPHY } from '../../../../theme/typography'
 import type { AvailablePipeline } from '../../../../types/pipelines'
 import type { PipelineTerminology } from '../../../../types/presentation'
 import { CheckCircle } from './ShellForm'
@@ -37,53 +36,6 @@ function toggleSelection(
   if (removed.length > 0) {
     dispatch({ type: 'DESELECT_PIPELINES', pipelineIds: removed })
   }
-}
-
-interface MobilePipelineCardProps {
-  pipeline: AvailablePipeline
-  isSelected: boolean
-  onToggle: () => void
-  terms: PipelineTerminology
-}
-
-export function MobilePipelineCard({ pipeline, isSelected, onToggle, terms }: MobilePipelineCardProps): ReactNode {
-  return (
-    <MantineCheckbox.Card checked={isSelected} onClick={onToggle} p="xs" aria-label={pipeline.name}>
-      <Stack gap="3xs">
-        <Group gap="xs" wrap="nowrap">
-          <MantineCheckbox.Indicator />
-          <Text size="sm" fw={500} truncate style={{ flex: 1 }}>
-            {pipeline.name}
-          </Text>
-        </Group>
-
-        <Group gap="xs" wrap="nowrap" align="flex-start">
-          <Box style={{ flex: 1, minWidth: 0 }}>
-            <Text size={TYPOGRAPHY.FIELD_LABEL.size} c="dimmed">
-              {terms.group_title}
-            </Text>
-            <Text size={TYPOGRAPHY.FIELD_VALUE_SMALL.size} truncate>
-              {pipeline.organization || '—'}
-            </Text>
-          </Box>
-          <Box style={{ flex: 1, minWidth: 0 }}>
-            <Text size={TYPOGRAPHY.FIELD_LABEL.size} c="dimmed">
-              {terms.source_title}
-            </Text>
-            <Text size={TYPOGRAPHY.FIELD_VALUE_SMALL.size} truncate>
-              {pipeline.repository || '—'}
-            </Text>
-          </Box>
-        </Group>
-
-        {pipeline.description && (
-          <Text size={TYPOGRAPHY.FIELD_VALUE_SMALL.size} c="dimmed" lineClamp={1}>
-            {pipeline.description}
-          </Text>
-        )}
-      </Stack>
-    </MantineCheckbox.Card>
-  )
 }
 
 const TABLE_FIELDS = ['name', 'organization', 'repository', 'description'] as const

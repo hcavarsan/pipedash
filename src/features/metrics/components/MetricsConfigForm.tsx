@@ -2,8 +2,10 @@ import { Button, Group, Stack, Text } from '@mantine/core'
 import { type ReactNode, useActionState, useId, useRef, useState } from 'react'
 import { FormErrorDisplay } from '../../../components/common/FormErrorDisplay'
 import { StandardModal } from '../../../components/common/StandardModal'
+import { useBlurValidation } from '../../../hooks/useBlurValidation'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { logger } from '../../../lib/logger'
+import { Z } from '../../../theme/zIndex'
 import { openConfirm } from '../../../utils/confirm'
 import { errorMessage } from '../../../utils/errorDisplay'
 import { sameJson } from '../../../utils/sameJson'
@@ -34,7 +36,7 @@ async function confirmDisable(pipeline: boolean, mobileShell: boolean): Promise<
 
   await leaveFormTransition()
   openConfirm({
-    ...(mobileShell ? { zIndex: 400 } : {}),
+    ...(mobileShell ? { zIndex: Z.alert } : {}),
     title: 'Disable metrics',
     children: (
       <Text size="sm">
@@ -60,7 +62,7 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
   const formRef = useRef<HTMLFormElement>(null)
   const updateGlobal = useUpdateGlobalMetricsConfig()
   const updatePipeline = useUpdatePipelineMetricsConfig()
-  const flushMutation = useFlushMetrics()
+  const flushMutation = useFlushMetrics({ toastErrors: false })
 
   const [baseline] = useState(initial)
   const [enabled, setEnabled] = useState(initial.enabled)
@@ -70,8 +72,22 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
   const [retentionDraft, setRetentionDraft] = useState<string | number>(initial.retentionDays)
 
   const draftNow = { enabled, retention: retentionDraft }
+  const validation = useBlurValidation<'retention'>((_key, value) => {
+    if (value.trim() === '') {
+      return 'Enter a number'
+    }
+
+    const days = Number(value)
+
+    return Number.isInteger(days) && days >= 1 ? undefined : 'Must be at least 1'
+  })
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const saveAction = async (): Promise<SaveState> => {
+    if (!validation.validateAll({ retention: String(retentionDraft) })) {
+      return INITIAL_STATE
+    }
+
     const disabling = baseline.enabled && !enabled
 
     if (disabling && !(await confirmDisable(pipelineId !== undefined, mobileShell))) {
@@ -92,15 +108,19 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
       return { error: errorMessage(error, 'Try saving the metrics settings again.'), submitted: draftNow }
     }
 
+    onConfigChange?.()
+
     if (disabling) {
       try {
         await flushMutation.mutateAsync(pipelineId)
       } catch (error) {
         logger.error('MetricsConfigForm', 'Failed to delete stored metrics', error)
+        setDeleteError(errorMessage(error, 'Try deleting the stored metrics again.'))
+
+        return INITIAL_STATE
       }
     }
 
-    onConfigChange?.()
     onClose()
 
     return INITIAL_STATE
@@ -108,9 +128,24 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
 
   const [state, formAction, isPending] = useActionState(saveAction, INITIAL_STATE)
 
+  const changeRetention = (value: string | number): void => {
+    setRetentionDraft(value)
+    validation.onChange('retention', String(value))
+  }
+
+  const retryDelete = async (): Promise<void> => {
+    try {
+      await flushMutation.mutateAsync(pipelineId)
+      setDeleteError(null)
+      onClose()
+    } catch (error) {
+      setDeleteError(errorMessage(error, 'Try deleting the stored metrics again.'))
+    }
+  }
+
   const handleFlush = () => {
     openConfirm({
-      ...(mobileShell ? { zIndex: 400 } : {}),
+      ...(mobileShell ? { zIndex: Z.alert } : {}),
       title: 'Delete metrics',
       children: (
         <Text size="sm">
@@ -125,8 +160,18 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
   }
 
   const isBusy = isPending || flushMutation.isPending
-  const dirty = enabled !== baseline.enabled || Number(retentionDraft) !== baseline.retentionDays
-  const saveDisabled = flushMutation.isPending
+  const dirty =
+    deleteError === null && (enabled !== baseline.enabled || Number(retentionDraft) !== baseline.retentionDays)
+  const saveDisabled = flushMutation.isPending || deleteError !== null
+
+  const deleteFailure = deleteError && (
+    <Stack gap="xs" align="flex-start">
+      <FormErrorDisplay title="Couldn't delete metrics" globalError={deleteError} />
+      <Button size="xs" variant="default" loading={flushMutation.isPending} onClick={() => void retryDelete()}>
+        Retry
+      </Button>
+    </Stack>
+  )
 
   return (
     <StandardModal
@@ -159,15 +204,18 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
             title="Couldn't save metrics settings"
             globalError={sameJson(state.submitted, draftNow) ? state.error : null}
           />
+          {deleteFailure}
           <MetricsCollectionFields
             scope={props}
             enabled={enabled}
             onEnabledChange={setEnabled}
             retentionDraft={retentionDraft}
-            onRetentionChange={setRetentionDraft}
+            onRetentionChange={changeRetention}
             retentionMode={retentionMode}
             onRetentionModeChange={setRetentionMode}
             disabled={isBusy}
+            retentionError={validation.errors.retention}
+            onRetentionBlur={() => validation.onBlur('retention', String(retentionDraft))}
           />
           <MetricsStorageSection
             scope={props}

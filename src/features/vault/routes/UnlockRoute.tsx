@@ -1,18 +1,16 @@
-import { Box, Center, Paper, Stack } from '@mantine/core'
+import { Text } from '@mantine/core'
 import type { ReactNode } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
-import { AppLogo } from '../../../components/atoms/AppLogo'
 import { DocumentTitle } from '../../../components/common/DocumentTitle'
 import { fromOf } from '../../../components/layout/mobileChrome'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useVaultStatus } from '../../../queries/useVaultQueries'
 import { wsClient } from '../../../services/websocket'
 import { isRecord } from '../../../utils/isRecord'
-import { ConnectionScreenHeading } from '../../connection/components/ConnectionScreenHeading'
+import { EntryScreen } from '../../connection/components/EntryScreen'
+import { Onboarding } from '../../setup/components/SetupWizard/Onboarding'
 import { UnlockForm } from '../components/UnlockForm'
-
-import classes from './UnlockRoute.module.css'
 
 function appPath(value: unknown): string | null {
   return typeof value === 'string' && /^\/(?![/\\])/.test(value) ? value : null
@@ -39,34 +37,19 @@ export function UnlockRoute(): ReactNode {
 
   if (mobileShell) {
     return (
-      <div className={classes.screen}>
+      <Onboarding title={title}>
         <DocumentTitle title="Unlock" />
-        <div className={classes.hero}>
-          <AppLogo size={76} alt="Pipedash" />
-          <h1 className={classes.title}>{title}</h1>
-          <p className={classes.subtitle}>
-            {requiresPassword ? 'Enter your password to continue.' : 'Pipedash is locked.'}
-          </p>
-        </div>
-        <div className={classes.form}>
-          <UnlockForm onSuccess={handleSuccess} />
-        </div>
-      </div>
+        <Text size="sm" c="dimmed" ta="center" mb="md">
+          {requiresPassword ? 'Enter your password to continue.' : 'Pipedash is locked.'}
+        </Text>
+        <UnlockForm onSuccess={handleSuccess} />
+      </Onboarding>
     )
   }
 
   return (
-    <Box component="main" h="100vh" className="safe-area">
-      <DocumentTitle title="Unlock" />
-      <Center h="100%" p={{ base: 'md', sm: 'xl' }}>
-        <Paper p={{ base: 'lg', sm: 'xl' }} w="100%" maw={{ base: '100%', xs: 420 }} withBorder>
-          <Stack gap="xl">
-            <ConnectionScreenHeading title={title} />
-
-            <UnlockForm onSuccess={handleSuccess} />
-          </Stack>
-        </Paper>
-      </Center>
-    </Box>
+    <EntryScreen title={title} documentTitle="Unlock">
+      <UnlockForm onSuccess={handleSuccess} />
+    </EntryScreen>
   )
 }

@@ -5,7 +5,6 @@ import { StatusBadge } from '../../../components/atoms/StatusBadge'
 import { PageHeader } from '../../../components/common/PageHeader'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
-import { STATUS_META } from '../../../theme/status'
 import type { Pipeline } from '../../../types/pipelines'
 import { getPipelineStatusLabel } from '../../../utils/pipelinePresentation'
 import { triggerIcon } from '../../../utils/pipelineRowActions'
@@ -58,14 +57,6 @@ function HeaderActions({
   )
 }
 
-function StateTitle({ pipeline }: { pipeline: Pipeline }): ReactNode {
-  return (
-    <Text component="span" fw={600} c={`var(--status-${STATUS_META[pipeline.status].tone})`}>
-      {getPipelineStatusLabel(pipeline) ?? STATUS_META[pipeline.status].label}
-    </Text>
-  )
-}
-
 export function RunHistoryHeader(props: RunHistoryHeaderProps): ReactNode {
   const { pipeline, onBack } = props
   const { presentation } = useRunActions()
@@ -84,7 +75,10 @@ export function RunHistoryHeader(props: RunHistoryHeaderProps): ReactNode {
       />
       {state && mobileShell && (
         <IosGroup>
-          <IosRow title={<StateTitle pipeline={state} />} subtitle={state.resource_state?.message} />
+          <IosRow
+            title={<StatusBadge status={state.status} label={getPipelineStatusLabel(state)} size="md" />}
+            subtitle={state.resource_state?.message}
+          />
         </IosGroup>
       )}
       {state && !mobileShell && (

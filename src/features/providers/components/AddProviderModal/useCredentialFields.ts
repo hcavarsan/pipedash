@@ -7,7 +7,7 @@ import { service } from '../../../../services/service'
 import type { ConfigField, PluginMetadata } from '../../../../types/plugins'
 import { type FieldAttributes, type FieldInputKind, fieldAttributes } from '../../../../utils/formFields'
 
-import type { FormAction } from './types'
+import type { FormAction, ValidateKey } from './types'
 import { type FieldStep, STEP_SECTIONS } from './validation'
 
 const INPUT_KINDS: Partial<Record<ConfigField['field_type'], FieldInputKind>> = {
@@ -29,7 +29,7 @@ interface UseCredentialFieldsParams {
   configValues: Record<string, string>
   fieldErrors: Record<string, string>
   dispatch: Dispatch<FormAction>
-  validateKey: (key: string) => Promise<void>
+  validateKey: ValidateKey
   step: FieldStep
 }
 
@@ -75,6 +75,10 @@ export function useCredentialFields({
 
   const handleConfigChange = (field: ConfigField, value: string): void => {
     dispatch({ type: 'UPDATE_CONFIG', key: field.key, value })
+
+    if (fieldErrors[field.key]) {
+      void validateKey(field.key, { configValues: { ...configValues, [field.key]: value } })
+    }
   }
 
   const handleConfigBlur = (field: ConfigField): void => {
@@ -83,6 +87,10 @@ export function useCredentialFields({
 
   const handleNameChange = (name: string): void => {
     dispatch({ type: 'SET_PROVIDER_NAME', name })
+
+    if (fieldErrors.providerName) {
+      void validateKey('providerName', { providerName: name })
+    }
   }
 
   const handleNameBlur = (): void => {

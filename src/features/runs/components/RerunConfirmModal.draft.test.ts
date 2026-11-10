@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
-import { after, afterEach, test } from 'node:test'
+import { after, afterEach, mock, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement } from 'react'
-import { runPresentationFixture } from '../../../testing/presentation'
-import type { PipelineRun } from '../../../types/pipelines'
+import { pipelineFixture } from '../../../testing/fixtures'
+import { pluginPresentationFixture, runPresentationFixture } from '../../../testing/presentation'
+import type { PipelineRun, TriggerDraft } from '../../../types/pipelines'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
@@ -13,6 +14,7 @@ const { userEvent } = await import('@testing-library/user-event')
 const { MantineProvider } = await import('@mantine/core')
 const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 const { RerunConfirmModal } = await import('./RerunConfirmModal')
+const { apiService } = await import('../../../services/api')
 const view = () => within(document.body)
 
 const run: PipelineRun = {
@@ -31,6 +33,15 @@ const run: PipelineRun = {
   ...runPresentationFixture(),
 }
 
+const draft: TriggerDraft = {
+  parameters: [],
+  values: {},
+  fields: [{ label: 'Run', value: '#7' }],
+  errors: {},
+  availability: { allowed: true, reason: null },
+  copy: { ...pluginPresentationFixture().trigger, label: 'Re-run', compact_label: 'Re-run' },
+}
+
 afterEach(async () => {
   await act(async () => cleanup())
 })
@@ -40,6 +51,7 @@ after(async () => {
 })
 
 test('a rejected rerun hides its error when another mode is picked, without a new submit', async () => {
+  mock.method(apiService, 'preparePipelineTrigger', async () => draft)
   const user = userEvent.setup({ document })
   const modes: string[] = []
 
@@ -52,7 +64,7 @@ test('a rejected rerun hides its error when another mode is picked, without a ne
         { client: new QueryClient() },
         createElement(RerunConfirmModal, {
           run,
-          pipeline: undefined,
+          pipeline: pipelineFixture(),
           onClose: () => undefined,
           onConfirm: async (mode) => {
             modes.push(mode)
@@ -63,6 +75,7 @@ test('a rejected rerun hides its error when another mode is picked, without a ne
     )
   )
 
+  await view().findByText(/Run:/)
   await user.click(await view().findByRole('radio', { name: /Re-run all jobs/ }))
   await user.click(view().getByRole('button', { name: 'Re-run all jobs' }))
   await view().findByText(/provider said no/)

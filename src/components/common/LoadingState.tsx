@@ -15,10 +15,6 @@ export function LoadingState({ message, variant = 'section', action }: LoadingSt
   const mobileShell = useMobileShell()
   const isPage = variant === 'page'
 
-  if (mobileShell) {
-    return <ContentUnavailable role="status" busy fill={isPage} icon={<Loader size="md" />} description={message} />
-  }
-
   if (variant === 'compact') {
     return (
       <Stack gap="xs" role="status">
@@ -31,6 +27,10 @@ export function LoadingState({ message, variant = 'section', action }: LoadingSt
         {action}
       </Stack>
     )
+  }
+
+  if (mobileShell) {
+    return <ContentUnavailable role="status" busy fill={isPage} icon={<Loader size="md" />} description={message} />
   }
 
   return (

@@ -62,8 +62,9 @@ export function useEventBatch(queryClient: QueryClient): EventBatch {
   }, [queryClient])
 
   const scheduleBatch = useCallback(() => {
-    clearTimeout(timeout.current)
-    timeout.current = setTimeout(processBatch, BATCH_WINDOW_MS)
+    if (timeout.current === undefined) {
+      timeout.current = setTimeout(processBatch, BATCH_WINDOW_MS)
+    }
   }, [processBatch])
 
   const scheduleBatchedInvalidation = useCallback(

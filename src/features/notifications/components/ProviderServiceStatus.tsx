@@ -7,8 +7,8 @@ import type { ComponentHealth, Incident, Maintenance } from '../../../types/heal
 import type { ProviderSummary } from '../../../types/providers'
 import { formatDateTime } from '../../../utils/formatDateTime'
 import { formatRelativeTime } from '../../../utils/formatRelativeTime'
+import { openLink } from '../../../utils/openExternal'
 import { connectionNotes, staleNotes } from '../lib/attentionNotes'
-import { openNotificationLink } from '../lib/openNotificationLink'
 
 export const maintenanceWindow = ({ starts_at, ends_at }: Maintenance): string | null => {
   if (starts_at && ends_at) {
@@ -50,7 +50,7 @@ function LinkedName({ name, url, source }: { name: string; url: string | null; s
       c="inherit"
       underline="always"
       aria-label={`View ${name} on ${source}`}
-      onClick={() => openNotificationLink(url)}
+      onClick={() => openLink(url)}
     >
       {name}
     </Anchor>
@@ -132,7 +132,7 @@ export function ServiceStatus({ provider, now }: { provider: ProviderSummary; no
           variant="subtle"
           color="gray"
           leftSection={<IconExternalLink size={14} aria-hidden />}
-          onClick={() => openNotificationLink(page.url)}
+          onClick={() => openLink(page.url)}
         >
           Open status page
         </Button>

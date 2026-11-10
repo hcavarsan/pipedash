@@ -22,8 +22,12 @@ Object.assign(window, {
       if (command === 'get_plugins') {
         return []
       }
-      if (command.startsWith('rerun') && backend.failing) {
-        throw new Error('provider refused')
+      if (command.startsWith('rerun')) {
+        if (backend.failing) {
+          throw new Error('provider refused')
+        }
+
+        return { run_id: null, run_number: null }
       }
 
       return null

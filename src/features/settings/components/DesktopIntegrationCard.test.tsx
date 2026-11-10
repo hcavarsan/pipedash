@@ -80,6 +80,12 @@ Object.assign(window, {
           official_url: 'https://relay.pipedash.app',
         }
       }
+      if (command === 'get_desktop_notifications') {
+        return { revision: 1, items: [] }
+      }
+      if (command === 'get_cached_pipelines') {
+        return []
+      }
       if (command === 'mark_desktop_notifications_read') {
         return { revision: 2, items: [] }
       }
@@ -189,7 +195,7 @@ test('native OS labels ignore appearance overrides and background mode waits for
   await waitFor(() => assert.equal(tray.disabled, false))
   assert.equal(tray.checked, false)
   assert.equal(background.disabled, true)
-  assert.ok(view().getByText(/Your desktop may need a tray extension/))
+  assert.ok(view().getByText(/stays reachable even if your desktop has no tray/))
   const gate = Promise.withResolvers<void>()
   saveGate = gate.promise
   await user.click(tray)
@@ -219,7 +225,8 @@ test('a failed tray save keeps the confirmed settings and exposes retry', async 
   failure = null
   await user.click(view().getByRole('button', { name: /retry|try again/i }))
   await waitFor(() => assert.ok(!view().queryByText('Tray creation failed')))
-  assert.deepEqual(patches, [{ show_tray: true }, {}])
+  assert.equal(tray.checked, true)
+  assert.deepEqual(patches, [{ show_tray: true }, { show_tray: true }])
 })
 
 test('tray errors remain visible and Retry submits an empty patch', async () => {
@@ -322,6 +329,7 @@ for (const [platform, guidance] of [
 }
 
 test('the desktop notifications route renders the shared list and header', async () => {
+  client.setQueryData(desktopNotificationsKey, { revision: 1, items: [] })
   mount('route')
   await view().findByRole('heading', { name: 'Notifications' })
   assert.ok(await view().findByText("You're all caught up"))

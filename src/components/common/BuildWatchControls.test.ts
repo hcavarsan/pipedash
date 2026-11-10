@@ -375,10 +375,10 @@ test('status errors remain visible and can be reconciled with an explicit refres
   failure = new Error('Native status unavailable')
   mount()
   const user = userEvent.setup({ document })
-  await view().findByText("Couldn't refresh Watch")
+  await view().findByText("Couldn't refresh watch")
   assert.equal(view().queryByRole('button', { name: 'Watch run' }), null)
   failure = null
-  await user.click(view().getByRole('button', { name: 'Refresh Watch' }))
+  await user.click(view().getByRole('button', { name: 'Retry' }))
   await view().findByRole('button', { name: 'Watch run' })
 })
 
@@ -498,7 +498,7 @@ test('refresh errors retain the watched run and allow recovery and stopping loca
   assert.deepEqual(opened, [[snapshot.pipelineId, 42]])
   assert.ok(within(section).getByRole('button', { name: 'Watched run actions' }))
   failure = null
-  await user.click(within(section).getByRole('button', { name: 'Refresh Watch' }))
+  await user.click(within(section).getByRole('button', { name: 'Retry' }))
   await waitFor(() => assert.ok(!within(section).queryByRole('alert')))
   await user.click(within(section).getByRole('button', { name: 'Watched run actions' }))
   await user.click(await view().findByRole('menuitem', { name: 'Stop watching' }))

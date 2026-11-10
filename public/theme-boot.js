@@ -16,7 +16,7 @@
     scheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
   }
 
-  var ios = /iPhone|iPod/.test(navigator.userAgent)
+  var ios = /iPhone|iPod|Android.+Mobile/.test(navigator.userAgent)
 
   root.setAttribute('data-mantine-color-scheme', scheme)
 

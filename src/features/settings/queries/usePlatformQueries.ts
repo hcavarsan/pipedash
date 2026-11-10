@@ -1,11 +1,11 @@
 import { type UseMutationResult, useMutation, useQueryClient } from '@tanstack/react-query'
 import { logger } from '../../../lib/logger'
-import { notifications } from '../../../lib/notifications'
 
 import { service } from '../../../services/service'
 import { useLogViewerPrefs } from '../../../stores/logViewerPrefsStore'
 import { useNotificationCenterStore } from '../../../stores/notificationCenterStore'
 import { useNotificationStore } from '../../../stores/notificationStore'
+import { displayErrorNotification, displaySuccessNotification } from '../../../utils/errorDisplay'
 import { formatCount } from '../../../utils/formatCount'
 import { isDesktopTauri } from '../../../utils/platform'
 import { refreshDesktopNotifications } from '../../notifications/queries/useDesktopNotifications'
@@ -47,20 +47,20 @@ export function useFactoryReset(): UseMutationResult<FactoryResetResult, Error, 
         )
       }
 
-      notifications.show({
-        title: 'Factory reset complete',
-        message: `Removed ${formatCount(result.providers_removed, 'provider')} and cleared app preferences. Storage configuration, backups and exports were kept.`,
-        color: 'green',
-      })
+      displaySuccessNotification(
+        `Removed ${formatCount(result.providers_removed, 'provider')} and cleared app preferences. Storage configuration, backups and exports were kept.`,
+        'Factory reset complete'
+      )
     },
 
     onError: (error: Error) => {
       void queryClient.invalidateQueries()
-      notifications.show({
-        title: 'Factory reset incomplete',
-        message: `${error.message || 'Failed to perform factory reset'}. Some data may already be deleted. Fix the error and retry.`,
-        color: 'red',
-      })
+      displayErrorNotification(
+        new Error(
+          `${error.message || 'Failed to perform factory reset'}. Some data may already be deleted. Fix the error and retry.`
+        ),
+        'Factory reset incomplete'
+      )
     },
   })
 }

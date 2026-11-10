@@ -1,12 +1,11 @@
-import { Box, Button, Collapse, Stack, Text, TextInput, type TextInputProps } from '@mantine/core'
+import { Box, Button, Collapse, Stack, TextInput, type TextInputProps } from '@mantine/core'
 import { type ReactNode, useId } from 'react'
 import type { PluginMetadata } from '../../../../types/plugins'
-import { ADVANCED_LABEL, AdvancedChevron, type AdvancedSection, NAME_HINT } from './ProviderStepShared'
+import { ADVANCED_LABEL, AdvancedChevron, type AdvancedSection, NAME_HINT, NoProviderTypes } from './ProviderStepShared'
 import { ProviderTypeCards, SelectedProviderType } from './ProviderTypeCards'
 
 interface DesktopProviderPickerProps {
   plugins: PluginMetadata[]
-  pluginsLoading: boolean
   submitting: boolean
   autoFocus: boolean
   onSelect: (providerType: string | null) => void
@@ -14,20 +13,16 @@ interface DesktopProviderPickerProps {
 
 export function DesktopProviderPicker({
   plugins,
-  pluginsLoading,
   submitting,
   autoFocus,
   onSelect,
 }: DesktopProviderPickerProps): ReactNode {
   return (
     <>
-      {plugins.length > 0 && (
+      {plugins.length > 0 ? (
         <ProviderTypeCards plugins={plugins} disabled={submitting} autoFocus={autoFocus} onSelect={onSelect} />
-      )}
-      {plugins.length === 0 && !pluginsLoading && (
-        <Text size="sm" c="dimmed" ta="center" py="xl">
-          No provider types are available.
-        </Text>
+      ) : (
+        <NoProviderTypes />
       )}
     </>
   )
@@ -75,7 +70,7 @@ export function DesktopProviderDetails({
             variant="subtle"
             color="gray"
             size="compact-sm"
-            px={4}
+            px="3xs"
             leftSection={<AdvancedChevron shown={advanced.shown} />}
             aria-expanded={advanced.shown}
             aria-controls={advancedId}

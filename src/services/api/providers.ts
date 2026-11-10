@@ -25,17 +25,19 @@ export function createProvidersApi(client: HttpClient): ProvidersService {
 
     const tab = window.open('', '_blank')
 
+    if (!tab) {
+      throw new Error('Your browser blocked the sign-in tab. Allow pop-ups for this site, then choose Open again.')
+    }
+
     try {
       const start = await client.post<SignInStart>(path, body)
 
-      if (tab) {
-        tab.opener = null
-        tab.location.href = start.authorize_url
-      }
+      tab.opener = null
+      tab.location.href = start.authorize_url
 
       return start
     } catch (error) {
-      tab?.close()
+      tab.close()
       throw error
     }
   }

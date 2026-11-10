@@ -1,4 +1,4 @@
-import { Button, Group, Menu, Paper, Text } from '@mantine/core'
+import { Button, Group, Loader, Menu, Paper, Text } from '@mantine/core'
 import {
   IconEye,
   IconEyeOff,
@@ -20,7 +20,7 @@ import type { PipelineViewPageModel } from '../hooks/usePipelineViewModel'
 import { useSetViewMembership, useViewEditorOptions } from '../queries/usePipelineViewQueries'
 import { usePipelineViewStore } from '../stores/pipelineViewStore'
 
-type SelectionAction = Extract<ContextMenuItem, { label: string }>
+type SelectionAction = Extract<ContextMenuItem, { label: string }> & { loading?: boolean; pendingLabel?: string }
 
 interface SelectionActionsInput {
   selected: ViewPipeline[]
@@ -28,7 +28,7 @@ interface SelectionActionsInput {
   canAddSubView: boolean
   actions: PipelineActions
   finish: () => void
-  onRemove: ((ids: string[]) => void) | undefined
+  onRemove: ((ids: string[], onSuccess: () => void) => void) | undefined
 }
 
 export function buildSelectionActions({
@@ -42,6 +42,8 @@ export function buildSelectionActions({
   const allPinned = selected.length > 0 && selected.every((p) => p.pinned)
   const allHidden = selected.length > 0 && selected.every((p) => p.hidden)
   const selectedIds = selected.map((p) => p.id)
+  const selectedProviderIds = [...new Set(selected.map((p) => p.provider_id))]
+  const refreshing = actions.isRefreshing(selectedProviderIds)
   const cancel = actions.cancelItem(
     selected.length === 1 ? '1 selected pipeline' : `${selected.length} selected pipelines`,
     selected
@@ -61,23 +63,25 @@ export function buildSelectionActions({
     {
       label: allHidden ? 'Unhide' : 'Hide',
       icon: allHidden ? <IconEye size={14} aria-hidden /> : <IconEyeOff size={14} aria-hidden />,
-      onClick: () => {
+      onClick: () =>
         actions.onSetMarks(
           'hidden',
           selected.filter((p) => p.hidden === allHidden),
-          !allHidden
-        )
-        finish()
-      },
+          !allHidden,
+          finish
+        ),
     },
     {
       label: 'Refresh',
       icon: <IconRefresh size={14} aria-hidden />,
-      onClick: () => actions.onRefreshProviders([...new Set(selected.map((p) => p.provider_id))]),
+      loading: refreshing,
+      pendingLabel: 'Refreshing…',
+      disabled: refreshing,
+      onClick: () => actions.onRefreshProviders(selectedProviderIds),
     },
     ...(cancel ? [cancel] : []),
     {
-      label: 'New view',
+      label: 'New view…',
       icon: <IconFolderPlus size={14} aria-hidden />,
       onClick: () => usePipelineViewStore.getState().openEditor(null, selectedIds, canAddSubView ? view.id : null),
     },
@@ -92,10 +96,7 @@ export function buildSelectionActions({
             label: `Remove from ${view.name}`,
             icon: <IconFolderMinus size={14} aria-hidden />,
             color: 'red' as const,
-            onClick: () => {
-              onRemove(selectedIds)
-              finish()
-            },
+            onClick: () => onRemove(selectedIds, finish),
           },
         ]
       : []),
@@ -120,7 +121,7 @@ function SelectionControls({ model, actions, view }: SelectionControlsProps): Re
     finish: finishSelection,
     onRemove:
       view.kind === 'custom' && view.capabilities.edit_members
-        ? (ids) => setMembership({ id: view.id, pipelineIds: ids, member: false })
+        ? (ids, onSuccess) => setMembership({ id: view.id, pipelineIds: ids, member: false }, { onSuccess })
         : undefined,
   })
   const count = selectedPipelines.length
@@ -130,11 +131,12 @@ function SelectionControls({ model, actions, view }: SelectionControlsProps): Re
     const menuItems = items.map((item) => (
       <Menu.Item
         key={item.label}
-        leftSection={item.icon}
+        leftSection={item.loading ? <Loader size="xs" aria-hidden /> : item.icon}
+        disabled={item.loading || item.disabled || false}
         {...(item.color === undefined ? {} : { color: item.color })}
         onClick={item.onClick}
       >
-        {item.label}
+        {item.loading ? (item.pendingLabel ?? item.label) : item.label}
       </Menu.Item>
     ))
 
@@ -165,7 +167,7 @@ function SelectionControls({ model, actions, view }: SelectionControlsProps): Re
   return (
     <Paper withBorder radius="md" px="sm" py="xs">
       <Group justify="space-between" gap="sm" wrap="nowrap" align="flex-start">
-        <Text size="sm" fw={600} py={4} style={{ whiteSpace: 'nowrap' }} role="status">
+        <Text size="sm" fw={600} py="3xs" style={{ whiteSpace: 'nowrap' }} role="status">
           {status}
         </Text>
         <Group gap="xs" justify="flex-end">
@@ -176,7 +178,8 @@ function SelectionControls({ model, actions, view }: SelectionControlsProps): Re
               variant="light"
               {...(item.color === undefined ? {} : { color: item.color })}
               leftSection={item.icon}
-              disabled={count === 0}
+              loading={item.loading ?? false}
+              disabled={count === 0 || (item.disabled ?? false)}
               onClick={item.onClick}
             >
               {item.label}

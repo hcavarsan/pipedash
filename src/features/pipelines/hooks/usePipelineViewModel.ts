@@ -133,7 +133,7 @@ export function usePipelineViewModel({
     toggle: toggleOpen,
     setAll,
   } = usePipelineExpansion(query.view, expanded, saveExpanded, JSON.stringify(query), filtersActive)
-  const toggleSection = (id: string) => toggleOpen(id, false)
+  const toggleSection = (id: string) => toggleOpen(id, true)
 
   const getProvider = useCallback(
     (providerId: number): ProviderSummary | undefined => providers.find((p) => p.id === providerId),
@@ -153,7 +153,6 @@ export function usePipelineViewModel({
         .sort((a, b) => collator.compare(a.label, b.label)),
     [page, getProvider]
   )
-  const collapsibleIds = page?.sections.filter((section) => section.kind !== 'none').map((section) => section.id) ?? []
 
   const {
     selecting,
@@ -181,6 +180,13 @@ export function usePipelineViewModel({
   const pinned = page?.pinned ?? []
   const pinnedBlocks =
     page?.pinned_blocks.filter((block) => block.kind === 'repository' && block.pipelines.length > 0) ?? []
+  const hasPinnedArea = pinned.length > 0 || pinnedBlocks.length > 0
+  const collapsibleIds = [
+    ...(page?.sections.filter((section) => section.kind !== 'none').map((section) => section.id) ?? []),
+    ...(pinned.length > 0 ? ['__pinned'] : []),
+    ...pinnedBlocks.map((block) => `pin:${block.kind}:${block.ref}`),
+    ...(hasPinnedArea && rows.length > 0 ? ['__sections'] : []),
+  ]
   const sectionsLabel = getSectionsLabel(display?.sections ?? 'none', presentation?.terminology)
   const sectionCount = page?.section_count ?? 0
 
@@ -217,7 +223,7 @@ export function usePipelineViewModel({
     collapsibleIds,
     pinned,
     pinnedBlocks,
-    hasPinnedArea: pinned.length > 0 || pinnedBlocks.length > 0,
+    hasPinnedArea,
     sectionsLabel,
     sectionCount,
     selecting,

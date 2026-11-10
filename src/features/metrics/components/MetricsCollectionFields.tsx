@@ -20,6 +20,8 @@ interface MetricsCollectionFieldsProps {
   retentionMode: RetentionMode
   onRetentionModeChange: (mode: RetentionMode) => void
   disabled: boolean
+  retentionError: string | undefined
+  onRetentionBlur: () => void
 }
 
 export function MetricsCollectionFields({
@@ -31,6 +33,8 @@ export function MetricsCollectionFields({
   retentionMode,
   onRetentionModeChange,
   disabled,
+  retentionError,
+  onRetentionBlur,
 }: MetricsCollectionFieldsProps): ReactNode {
   const mobileShell = useMobileShell()
   const retentionLocked = !enabled || disabled
@@ -53,6 +57,8 @@ export function MetricsCollectionFields({
         classNames={{ root: classes.numberRoot, input: classes.numberInput }}
         value={retentionDraft}
         onChange={onRetentionChange}
+        onBlur={onRetentionBlur}
+        error={retentionError}
         disabled={retentionLocked}
       />
     )
@@ -122,6 +128,8 @@ export function MetricsCollectionFields({
             description="Enter a number of days"
             value={retentionDraft}
             onChange={onRetentionChange}
+            onBlur={onRetentionBlur}
+            error={retentionError}
             disabled={retentionLocked}
           />
         )}

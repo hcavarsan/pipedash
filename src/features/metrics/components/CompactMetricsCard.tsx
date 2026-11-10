@@ -39,7 +39,7 @@ const MetricTileHeading = ({ title, mobile }: { title: string; mobile: boolean }
     return (
       <div className={classes.tileHead}>
         <span className={classes.tileTitle}>{title}</span>
-        <IconChevronRight size={18} className={classes.chevron} aria-hidden />
+        <IconChevronRight size={16} className={classes.chevron} aria-hidden />
       </div>
     )
   }
@@ -67,7 +67,7 @@ export const CompactMetricsCard = ({
 
   const renderSummary = () => {
     if (loading) {
-      return <LoadingState message={`Loading ${METRIC_CONFIG[metricType].label.toLowerCase()}...`} />
+      return <LoadingState message={`Loading ${METRIC_CONFIG[metricType].label.toLowerCase()}…`} />
     }
 
     if (!data || data.data.metrics.length === 0) {

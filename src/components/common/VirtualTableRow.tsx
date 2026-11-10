@@ -1,6 +1,8 @@
 import { Checkbox, Table } from '@mantine/core'
 import type { HTMLAttributes, MouseEvent, ReactNode } from 'react'
 
+import { rowClassName } from './tableStyles'
+
 interface RowColumn<T> {
   id: string
   textAlign?: 'left' | 'center' | 'right' | undefined
@@ -45,7 +47,7 @@ export function VirtualTableRow<T>({
       ref={measureRef}
       data-index={index}
       aria-rowindex={index + 2}
-      className={clickable ? 'interactive-surface row-clickable' : 'interactive-surface'}
+      className={rowClassName(clickable)}
       style={{ height: rowHeight, verticalAlign: 'middle' }}
       onClick={(event) => onClick(event, record)}
       {...attributes}

@@ -72,7 +72,7 @@ export function IosPipelineRow({
         </span>
         {!selecting && (
           <span className={classes.chevron} aria-hidden>
-            <IconChevronRight size={18} />
+            <IconChevronRight size={16} />
           </span>
         )}
       </button>
@@ -153,12 +153,12 @@ function SectionRowView({ row }: { row: SectionTableRow }): ReactNode {
           {row.status && <span className={classes.srOnly}>, {statusMeta(row.status).label}</span>}
         </span>
         {row.hasPendingFetch ? (
-          <Loader size={14} aria-label="Fetching pipelines" />
+          <Loader size="xs" aria-label="Fetching pipelines" />
         ) : (
           <span className={classes.value}>{row.pipelineCount}</span>
         )}
         <span className={classes.chevron} aria-hidden>
-          <IconChevronRight size={18} />
+          <IconChevronRight size={16} />
         </span>
       </Link>
     </div>
@@ -203,13 +203,16 @@ function ListRowView({ row, ...rest }: Omit<WorkflowRowViewProps, 'row'> & { row
 
 export function IosPipelineList({ header, rows, getProvider, actions, selection }: IosPipelineListProps): ReactNode {
   const now = useNow(30_000)
+  const headingId = useId()
   const items = listItems(rows)
 
   return (
-    <section className={groupClasses.section}>
+    <section className={groupClasses.section} aria-labelledby={header ? headingId : undefined}>
       {header && (
         <div className={groupClasses.headerRow}>
-          <h2 className={groupClasses.header}>{header}</h2>
+          <h2 id={headingId} className={groupClasses.header}>
+            {header}
+          </h2>
         </div>
       )}
       <VirtualList

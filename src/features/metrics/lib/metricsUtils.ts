@@ -1,5 +1,5 @@
 import type { AggregationPeriod, AggregationType, MetricRangeOption, MetricType } from '../../../types/metrics'
-import { DATE_RANGE_OPTIONS, type DateRange, getDateRangeLabel } from '../../../utils/dateRange'
+import { DATE_RANGE_OPTIONS, type DateRange } from '../../../utils/dateRange'
 import { formatDuration } from '../../../utils/formatDuration'
 
 export const METRIC_CONFIG: Record<
@@ -48,12 +48,11 @@ export const getDefaultAggregationType = (metricType: MetricType): AggregationTy
 export const buildChartTitle = (
   metricType: MetricType,
   aggregationType: AggregationType,
-  period: AggregationPeriod,
-  range: DateRange
+  period: AggregationPeriod
 ): string => {
   const aggregation = AGGREGATION_TYPE_OPTIONS.find((option) => option.value === aggregationType)?.label
 
-  return `${aggregation} ${METRIC_CONFIG[metricType].subject} per ${PERIOD_UNIT[period]} · ${getDateRangeLabel(range)}`
+  return `${aggregation} ${METRIC_CONFIG[metricType].subject} per ${PERIOD_UNIT[period]}`
 }
 
 interface RangeOption {
@@ -86,7 +85,7 @@ export const formatMetricValue = (value: number | null, metricType: MetricType):
 
   switch (metricType) {
     case 'run_duration':
-      return value > 0 ? formatDuration(value) : '—'
+      return formatDuration(value)
     case 'success_rate':
       return PERCENT_FORMAT.format(value)
     case 'run_frequency':
