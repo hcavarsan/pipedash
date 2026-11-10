@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { pluginFixture } from './pluginFixture'
-import { formReducer, isFormDirty } from './reducer'
+import { fieldRequest, formReducer, isFormDirty } from './reducer'
 import { initialFormState } from './types'
 
 const fluxPlugin = pluginFixture({ name: 'Stub', provider_type: 'stub', config_schema: { fields: [] } })
@@ -181,10 +181,68 @@ test('clearing the selection empties the picked resources and the search', () =>
 
 test('clearing a field error keeps the others and the previous object', () => {
   const state = { ...initialFormState, fieldErrors: { a: '1', b: '2' } }
-  const next = formReducer(state, { type: 'CLEAR_FIELD_ERROR', key: 'a' })
+  const next = formReducer(state, { type: 'CLEAR_FIELD_ERROR', key: 'a', requested: fieldRequest(state, 'a') })
 
   assert.deepEqual(next.fieldErrors, { b: '2' })
   assert.deepEqual(state.fieldErrors, { a: '1', b: '2' })
+})
+
+const validating = {
+  ...initialFormState,
+  selectedPlugin: fluxPlugin,
+  providerName: 'Prod',
+  configValues: { note: 'old' },
+}
+
+test('a validation response for an older value neither sets nor clears the error', () => {
+  const requested = fieldRequest(validating, 'note')
+  const edited = formReducer(validating, { type: 'UPDATE_CONFIG', key: 'note', value: 'new' })
+  const flagged = { ...edited, fieldErrors: { note: 'bad new value' } }
+
+  assert.equal(formReducer(edited, { type: 'SET_FIELD_ERROR', key: 'note', error: 'bad old value', requested }), edited)
+  assert.equal(formReducer(flagged, { type: 'CLEAR_FIELD_ERROR', key: 'note', requested }), flagged)
+})
+
+test('a validation response for the current value still applies', () => {
+  const requested = fieldRequest(validating, 'note')
+  const set = formReducer(validating, { type: 'SET_FIELD_ERROR', key: 'note', error: 'bad', requested })
+
+  assert.deepEqual(set.fieldErrors, { note: 'bad' })
+  assert.deepEqual(formReducer(set, { type: 'CLEAR_FIELD_ERROR', key: 'note', requested }).fieldErrors, {})
+})
+
+test('a provider name response for an older name is ignored', () => {
+  const requested = fieldRequest(validating, 'providerName')
+  const renamed = formReducer(validating, { type: 'SET_PROVIDER_NAME', name: 'Staging' })
+  const flagged = { ...renamed, fieldErrors: { providerName: 'taken' } }
+
+  assert.equal(requested.value, 'Prod')
+  assert.equal(
+    formReducer(renamed, { type: 'SET_FIELD_ERROR', key: 'providerName', error: 'old name bad', requested }),
+    renamed
+  )
+  assert.equal(formReducer(flagged, { type: 'CLEAR_FIELD_ERROR', key: 'providerName', requested }), flagged)
+})
+
+test('a response requested under another provider type is ignored even for the same value', () => {
+  const requested = fieldRequest(validating, 'note')
+  const other = {
+    ...validating,
+    selectedPlugin: pluginFixture({ name: 'Other', provider_type: 'other', config_schema: { fields: [] } }),
+  }
+
+  assert.equal(fieldRequest(other, 'note').value, requested.value)
+  assert.equal(formReducer(other, { type: 'SET_FIELD_ERROR', key: 'note', error: 'bad', requested }), other)
+})
+
+test('a response requested under another auth mode is ignored even for the same value', () => {
+  const requested = fieldRequest(validating, 'note')
+  const switched = formReducer(validating, { type: 'SET_AUTH_MODE', mode: 'sign_in' })
+  const flagged = { ...switched, fieldErrors: { note: 'bad' } }
+
+  assert.equal(fieldRequest(switched, 'note').value, requested.value)
+  assert.equal(formReducer(switched, { type: 'SET_FIELD_ERROR', key: 'note', error: 'old', requested }), switched)
+  assert.equal(formReducer(flagged, { type: 'CLEAR_FIELD_ERROR', key: 'note', requested }), flagged)
 })
 
 test('selecting a provider type applies schema defaults and clears stale selections', () => {

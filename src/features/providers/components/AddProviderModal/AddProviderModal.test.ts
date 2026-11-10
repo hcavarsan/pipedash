@@ -36,6 +36,11 @@ const plugins: PluginMetadata[] = [
 const secondPage: { waiting: (() => void)[]; requests: number } = { waiting: [], requests: 0 }
 const saves: { handler: (draft: ProviderDraft) => Promise<void> } = { handler: async () => undefined }
 const selectionPolicy = { required: true, empty: false }
+const validation: { hold: Promise<void> | null; held: number; delivered: number } = {
+  hold: null,
+  held: 0,
+  delivered: 0,
+}
 
 function validateDraft(draft: ProviderDraft): ProviderDraftResult {
   const errors: Record<string, string> = {}
@@ -94,7 +99,16 @@ Object.assign(window, {
         return [{ id: 'org', name: 'org', description: null }]
       }
       if (command === 'validate_provider_draft') {
-        return validateDraft(draftArg(args))
+        const result = validateDraft(draftArg(args))
+        const hold = validation.hold
+
+        if (hold !== null) {
+          validation.held += 1
+          await hold
+          validation.delivered += 1
+        }
+
+        return result
       }
       if (command === 'save_provider_draft') {
         await saves.handler(draftArg(args))
@@ -139,6 +153,9 @@ let client = new QueryClient()
 beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   selectionPolicy.required = true
+  validation.hold = null
+  validation.held = 0
+  validation.delivered = 0
   selectionPolicy.empty = false
   notifyManager.setNotifyFunction((callback) => act(callback))
 })
@@ -237,6 +254,22 @@ test('a rejected save keeps the dialog open with the typed values and allows a r
   assert.equal(attempts, 2)
 })
 
+test('the save error disappears when the user edits a field', async () => {
+  const user = userEvent.setup({ document })
+  renderEdit(async () => {
+    throw new Error('provider rejected the update')
+  })
+
+  await user.click(await view().findByRole('button', { name: /^Next/ }))
+  const note = await view().findByRole('textbox', { name: 'Note' })
+  await waitFor(() => assert.equal(note.hasAttribute('disabled'), false))
+  await user.click(view().getByRole('button', { name: 'Save' }))
+  await view().findByText(/provider rejected the update/)
+
+  await user.type(note, '!')
+  await waitFor(() => assert.equal(view().queryByText(/provider rejected the update/), null))
+})
+
 function renderAdd(onSave: (draft: ProviderDraft) => Promise<void>): { value: boolean } {
   const closed = { value: false }
   saves.handler = onSave
@@ -288,6 +321,31 @@ test('the provider step checks only its own fields, then a required credential b
 
   await user.click(view().getByRole('button', { name: /^Next/ }))
   assert.ok((await view().findAllByText('Token is required')).length > 0)
+})
+
+test('a validation response for a value the user already replaced does not set an error', async () => {
+  const user = userEvent.setup({ document })
+  renderAdd(async () => undefined)
+
+  await user.click(await view().findByRole('button', { name: 'Stub' }))
+  await user.click(view().getByRole('button', { name: 'Advanced settings' }))
+  const statusPage = await view().findByRole('textbox', { name: 'Status page URL' })
+  await waitFor(() => assert.equal(statusPage.hasAttribute('disabled'), false))
+  await user.type(statusPage, 'http://status.example.com')
+
+  const gate = Promise.withResolvers<void>()
+  validation.hold = gate.promise
+  await user.tab()
+  await waitFor(() => assert.ok(validation.held > 0))
+
+  await user.clear(statusPage)
+  await user.type(statusPage, 'https://status.example.com')
+  validation.hold = null
+  await act(async () => gate.resolve())
+  await waitFor(() => assert.equal(validation.delivered, validation.held))
+  await act(async () => undefined)
+
+  assert.equal(view().queryByText('Must be an https URL'), null)
 })
 
 test('an empty provider saves when monitoring is automatic', async () => {

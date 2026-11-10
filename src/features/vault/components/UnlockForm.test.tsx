@@ -48,6 +48,7 @@ const { userEvent } = await import('@testing-library/user-event')
 const { MantineProvider } = await import('@mantine/core')
 const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 const { UnlockForm } = await import('./UnlockForm')
+const { UnlockPasswordForm } = await import('./UnlockPasswordForm')
 const { service } = await import('../../../services/service')
 
 const view = () => within(document.body)
@@ -270,6 +271,31 @@ test('an unsuccessful response keeps the error visible until the user edits', as
   assert.ok(await view().findByText('Incorrect vault password'))
   assert.equal(successes, 0)
   assert.equal(inputValue(await passwordField()), 'wrong')
+
+  await user.type(await passwordField(), 'x')
+  await waitFor(() => assert.equal(view().queryByText('Incorrect vault password'), null))
+})
+
+test('on the mobile shell an unlock error clears when the user edits the password', async () => {
+  unlock.response = { success: false, message: 'Incorrect vault password' }
+  const user = userEvent.setup({ document })
+  render(
+    <MantineProvider>
+      <QueryClientProvider client={client}>
+        <UnlockPasswordForm
+          firstTime={false}
+          mobileShell
+          disabled={false}
+          biometricEnabled={false}
+          onSuccess={() => undefined}
+        />
+      </QueryClientProvider>
+    </MantineProvider>
+  )
+  await user.type(await passwordField(), 'wrong')
+  await user.click(view().getByRole('button', { name: 'Unlock' }))
+
+  assert.ok(await view().findByText('Incorrect vault password'))
 
   await user.type(await passwordField(), 'x')
   await waitFor(() => assert.equal(view().queryByText('Incorrect vault password'), null))

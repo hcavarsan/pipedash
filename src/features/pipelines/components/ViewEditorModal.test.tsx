@@ -153,3 +153,19 @@ test('a failed view list read shows Retry instead of an editor with empty fields
 
   assert.equal((await nameInput()).value, 'Release')
 })
+
+test('a failed save shows its error until the draft changes', async (context) => {
+  context.mock.method(apiService, 'updatePipelineView', async () => {
+    throw new Error('Name already used')
+  })
+  await openEditor(context, {})
+  const input = await nameInput()
+
+  fireEvent.change(input, { target: { value: 'Renamed' } })
+  await act(async () => fireEvent.click(body().getByRole('button', { name: 'Save' })))
+  await body().findByText('Name already used')
+
+  fireEvent.change(await nameInput(), { target: { value: 'Renamed again' } })
+
+  assert.equal(body().queryByText('Name already used'), null)
+})

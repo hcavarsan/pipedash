@@ -29,6 +29,19 @@ export function usePreparedTrigger(
   })
 }
 
+interface CheckTriggerRequest {
+  pipelineId: string
+  rerunOf: number | null
+  inputs: Record<string, unknown>
+}
+
+export function useCheckTrigger(): UseMutationResult<TriggerDraft, Error, CheckTriggerRequest, unknown> {
+  return useMutation({
+    mutationFn: ({ pipelineId, rerunOf, inputs }: CheckTriggerRequest) =>
+      service.preparePipelineTrigger(pipelineId, rerunOf, inputs),
+  })
+}
+
 interface TriggerRequest {
   params: TriggerParams
   copy: ActionCopy

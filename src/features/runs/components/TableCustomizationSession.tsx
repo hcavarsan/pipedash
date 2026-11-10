@@ -30,6 +30,7 @@ export interface TableCustomizationSessionProps {
 
 interface ApplyState {
   error: string | null
+  forSignature: string | null
 }
 
 export function TableCustomizationSession({
@@ -48,6 +49,8 @@ export function TableCustomizationSession({
   const [initialSignature] = useState(() => columnSignature(items))
   const [search, setSearch] = useState('')
 
+  const signature = columnSignature(items)
+
   const [state, formAction, isPending] = useActionState(
     async (): Promise<ApplyState> => {
       const { order, visibility } = columnPreferencesOf(items)
@@ -55,14 +58,17 @@ export function TableCustomizationSession({
       try {
         await onApply(order, visibility)
       } catch (error) {
-        return { error: error instanceof Error ? error.message : "Couldn't save the column preferences." }
+        return {
+          error: error instanceof Error ? error.message : "Couldn't save the column preferences.",
+          forSignature: signature,
+        }
       }
 
       onClose()
 
-      return { error: null }
+      return { error: null, forSignature: null }
     },
-    { error: null }
+    { error: null, forSignature: null }
   )
 
   const body = {
@@ -78,7 +84,7 @@ export function TableCustomizationSession({
     onReset: () => setItems(resetColumnItems(columns)),
   }
 
-  const dirty = items.length > 0 && columnSignature(items) !== initialSignature
+  const dirty = items.length > 0 && signature !== initialSignature
   const visibleCount = items.filter((item) => item.visible).length
 
   const form = (
@@ -88,7 +94,10 @@ export function TableCustomizationSession({
       action={formAction}
       style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
     >
-      <FormErrorDisplay title="Couldn't save columns" globalError={state.error} />
+      <FormErrorDisplay
+        title="Couldn't save columns"
+        globalError={state.forSignature === signature ? state.error : null}
+      />
       {mobileShell ? <IosColumnCustomization {...body} /> : <DesktopColumnCustomization {...body} />}
     </form>
   )

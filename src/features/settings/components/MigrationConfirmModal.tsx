@@ -8,6 +8,7 @@ import { FieldRow, SwitchRow } from '../../../components/ios/mobileParts'
 import { useFormEnterNavigation } from '../../../hooks/useFormEnterNavigation'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import type { MigrationOptions, MigrationPlan, MigrationStatsPreview } from '../../../types/storage'
+import { sameJson } from '../../../utils/sameJson'
 
 interface MigrationConfirmModalProps {
   onClose: () => void
@@ -18,6 +19,7 @@ interface MigrationConfirmModalProps {
 
 interface MigrationActionState {
   error: string | null
+  submitted: { password: string; migrateData: boolean } | null
 }
 
 const PASSWORD_ATTRIBUTES = {
@@ -80,7 +82,7 @@ export const MigrationConfirmModal = ({
       if (needsPassword && !tokenPassword) {
         setPasswordBlurred(true)
 
-        return { error: null }
+        return { error: null, submitted: null }
       }
 
       try {
@@ -91,13 +93,17 @@ export const MigrationConfirmModal = ({
           dry_run: false,
         })
 
-        return { error: null }
+        return { error: null, submitted: null }
       } catch (error) {
-        return { error: error instanceof Error ? error.message : 'Migration failed' }
+        return {
+          error: error instanceof Error ? error.message : 'Migration failed',
+          submitted: { password: tokenPassword, migrateData },
+        }
       }
     },
-    { error: null }
+    { error: null, submitted: null }
   )
+  const submittedError = sameJson(state.submitted, { password, migrateData }) ? state.error : null
 
   const summaryRows = [
     { label: 'Providers', value: stats?.providers_count },
@@ -232,7 +238,7 @@ export const MigrationConfirmModal = ({
     >
       <form id={formId} noValidate action={formAction} ref={formRef}>
         <Stack gap="md">
-          <FormErrorDisplay title="Couldn't save configuration" globalError={state.error} />
+          <FormErrorDisplay title="Couldn't save configuration" globalError={submittedError} />
           {mobileShell ? shellBody : desktopBody}
         </Stack>
       </form>

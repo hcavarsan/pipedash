@@ -6,8 +6,9 @@ import { StandardModal } from '../../../components/common/StandardModal'
 import { logger } from '../../../lib/logger'
 import type { PipelineView, ViewEditorOptions, ViewPatch } from '../../../types/views'
 import { errorMessage } from '../../../utils/errorDisplay'
+import { sameJson } from '../../../utils/sameJson'
 import { useConfirmDeleteView } from '../hooks/useConfirmDeleteView'
-import { NAME_REQUIRED, sameJson, TOP_LEVEL, type ViewEditorDraftModel } from '../hooks/useViewEditorDraft'
+import { NAME_REQUIRED, TOP_LEVEL, type ViewEditorDraftModel } from '../hooks/useViewEditorDraft'
 import { useCreatePipelineView, useUpdatePipelineView } from '../queries/usePipelineViewQueries'
 import type { ViewEditorState } from '../stores/pipelineViewStore'
 import { QueryBoundary } from './QueryBoundary'
@@ -32,9 +33,10 @@ interface SaveState {
   error: string | null
   fieldErrors: Record<string, string>
   session: number
+  submitted: unknown
 }
 
-const settled = (session: number): SaveState => ({ error: null, fieldErrors: {}, session })
+const settled = (session: number): SaveState => ({ error: null, fieldErrors: {}, session, submitted: null })
 
 function buildViewPatch(view: PipelineView, name: string, model: ViewEditorDraftModel): ViewPatch {
   const { draft, initial, memberIds, membersChanged } = model
@@ -86,13 +88,14 @@ export function ViewEditorForm({
   const confirmDelete = useConfirmDeleteView()
   const { creating, sessionKey } = draft
   const fields = draft.draft
+  const draftNow = { fields, memberIds: draft.memberIds }
 
   const savePipelineView = async (_previous: SaveState, formData: FormData): Promise<SaveState> => {
     const entered = formData.get('name')
     const name = (typeof entered === 'string' ? entered : fields.name).trim()
 
     if (draft.showName && !name) {
-      return { error: null, fieldErrors: { name: NAME_REQUIRED }, session: sessionKey }
+      return { ...settled(sessionKey), fieldErrors: { name: NAME_REQUIRED } }
     }
 
     try {
@@ -125,12 +128,13 @@ export function ViewEditorForm({
     } catch (err) {
       logger.error('ViewEditorForm', 'Failed to save view', err)
 
-      return { error: errorMessage(err, 'Try saving the view again.'), fieldErrors: {}, session: sessionKey }
+      return { ...settled(sessionKey), error: errorMessage(err, 'Try saving the view again.'), submitted: draftNow }
     }
   }
 
   const [state, formAction, isPending] = useActionState(savePipelineView, settled(sessionKey))
   const result = state.session === sessionKey ? state : settled(sessionKey)
+  const saveError = sameJson(result.submitted, draftNow) ? result.error : null
   const nameError = draft.nameError ?? (draft.nameMissing ? result.fieldErrors.name : undefined)
 
   const footer = (requestClose: () => void): ReactNode => (
@@ -194,7 +198,7 @@ export function ViewEditorForm({
     >
       <form id={formId} ref={formRef} action={formAction}>
         <Stack gap="lg">
-          <FormErrorDisplay title="Couldn't save view" globalError={result.error} />
+          <FormErrorDisplay title="Couldn't save view" globalError={saveError} />
 
           {draft.showName && (
             <TextInput

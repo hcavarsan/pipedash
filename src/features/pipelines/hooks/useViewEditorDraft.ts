@@ -1,6 +1,7 @@
 import type { UseQueryResult } from '@tanstack/react-query'
 import { type Dispatch, type SetStateAction, useState } from 'react'
 import type { PipelineView, ViewDisplay, ViewMember, ViewRules } from '../../../types/views'
+import { sameJson } from '../../../utils/sameJson'
 import { useViewMembers } from '../queries/usePipelineViewQueries'
 import type { ViewEditorState } from '../stores/pipelineViewStore'
 
@@ -14,8 +15,6 @@ const DEFAULT_DISPLAY: ViewDisplay = {
   sections: 'repository',
   layout: 'table',
 }
-
-export const sameJson = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b)
 
 export interface ViewDraft {
   name: string

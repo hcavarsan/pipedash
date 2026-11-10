@@ -1,20 +1,20 @@
 import { Button, Checkbox, Group, Stack } from '@mantine/core'
 import { type ReactNode, useActionState, useId, useRef, useState } from 'react'
 import { ActionTargetRows } from '../../../components/common/ActionTargetRows'
+import { FormErrorDisplay } from '../../../components/common/FormErrorDisplay'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { LiveStatus, useErrorAnnouncement } from '../../../components/forms/LiveStatus'
 import { useFormEnterNavigation } from '../../../hooks/useFormEnterNavigation'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
 import { usePlugins } from '../../../queries/usePluginsQueries'
-import { service } from '../../../services/service'
 import { useNotificationStore } from '../../../stores/notificationStore'
 import type { Pipeline, TriggerDraft, TriggerResult, WorkflowParameter } from '../../../types/pipelines'
-import { displayWarningNotification } from '../../../utils/errorDisplay'
+import { displayWarningNotification, errorMessage } from '../../../utils/errorDisplay'
 import { useFocusFirstInvalid } from '../../../utils/formFocus'
 import { getPluginByType } from '../../../utils/pluginHelpers'
 import { changePreference } from '../../notifications/queries/changePreference'
 import { comparable, type ParamValues } from '../lib/triggerParams'
-import { usePreparedTrigger, useTriggerWorkflow } from '../queries/useWorkflowQueries'
+import { useCheckTrigger, usePreparedTrigger, useTriggerWorkflow } from '../queries/useWorkflowQueries'
 import { TriggerWorkflowBody } from './TriggerWorkflowBody'
 import { WorkflowParameterField } from './WorkflowParameterField'
 
@@ -43,6 +43,7 @@ export function TriggerWorkflowForm({ onClose, pipeline, onSuccess, rerunOf }: T
   const [errors, setErrors] = useState<Record<string, string>>({})
   const announcement = useErrorAnnouncement(errors)
   const triggerMutation = useTriggerWorkflow()
+  const checkTrigger = useCheckTrigger()
   const { data: plugins } = usePlugins()
   const asyncTrigger = !!getPluginByType(plugins, pipeline.provider_type)?.capabilities.async_trigger
   const notifyTriggeredRuns = useNotificationStore((state) => state.notifyTriggeredRuns)
@@ -66,7 +67,7 @@ export function TriggerWorkflowForm({ onClose, pipeline, onSuccess, rerunOf }: T
   const paramValues = draft?.values ?? EMPTY_VALUES
   const baseline = draft?.baseline ?? EMPTY_VALUES
 
-  const [, formAction, isPending] = useActionState(async (): Promise<null> => {
+  const [error, formAction, isPending] = useActionState(async (): Promise<string | null> => {
     if (!copy) {
       return null
     }
@@ -75,9 +76,13 @@ export function TriggerWorkflowForm({ onClose, pipeline, onSuccess, rerunOf }: T
     let result: TriggerResult
 
     try {
-      checked = await service.preparePipelineTrigger(pipeline.id, rerunOf ?? null, paramValues)
-    } catch {
-      return null
+      checked = await checkTrigger.mutateAsync({
+        pipelineId: pipeline.id,
+        rerunOf: rerunOf ?? null,
+        inputs: paramValues,
+      })
+    } catch (checkError) {
+      return errorMessage(checkError, "Couldn't check the workflow inputs. Try again.")
     }
 
     setErrors(checked.errors)
@@ -182,6 +187,7 @@ export function TriggerWorkflowForm({ onClose, pipeline, onSuccess, rerunOf }: T
       }}
     >
       <form ref={formRef} id={formId} noValidate action={formAction}>
+        <FormErrorDisplay title="Couldn't start the workflow" globalError={error} />
         <Stack mb="md">
           <ActionTargetRows rows={target} />
         </Stack>

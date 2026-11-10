@@ -2,7 +2,7 @@ import { Alert, Box, Button, Divider, Stack, Text, Title } from '@mantine/core'
 import { IconAlertTriangle, IconCircleCheck, IconQrcode } from '@tabler/icons-react'
 import { useQueryClient } from '@tanstack/react-query'
 import type * as BarcodeScanner from '@tauri-apps/plugin-barcode-scanner'
-import { type ReactNode, startTransition, useActionState, useState } from 'react'
+import { type ReactNode, startTransition, useActionState, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { FormErrorDisplay } from '../../../components/common/FormErrorDisplay'
@@ -12,6 +12,7 @@ import { logger } from '../../../lib/logger'
 import { queryKeys } from '../../../lib/queryKeys'
 import { getErrorCode } from '../../../types/errors'
 import { errorMessage } from '../../../utils/errorDisplay'
+import { useFocusFirstInvalid } from '../../../utils/formFocus'
 import { isMobilePlatform } from '../../../utils/platform'
 import { usePairAlertHost, usePairWithServer } from '../queries/useConnectionQueries'
 import { ConnectServerFields } from './ConnectServerFields'
@@ -22,6 +23,7 @@ interface ConnectActionState {
   globalError: string | null
   errorCode: string | null
   host: string | null
+  address: string | null
 }
 
 const INITIAL_STATE: ConnectActionState = {
@@ -30,6 +32,7 @@ const INITIAL_STATE: ConnectActionState = {
   globalError: null,
   errorCode: null,
   host: null,
+  address: null,
 }
 const CONNECT_FAILED = 'Check the address and the code, then try again.'
 const PRIVATE_HTTP_DISABLED = 'PRIVATE_HTTP_DISABLED'
@@ -59,6 +62,8 @@ export function ConnectServerForm({ mobileShell, link, alerts }: ConnectServerFo
   const pairAlerts = usePairAlertHost()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const formRef = useRef<HTMLFormElement>(null)
+  const focusFirstInvalid = useFocusFirstInvalid(formRef)
 
   const connectAction = async (_previous: ConnectActionState, formData: FormData): Promise<ConnectActionState> => {
     const submittedAddress = fieldValue(formData, 'address').trim()
@@ -68,6 +73,8 @@ export function ConnectServerForm({ mobileShell, link, alerts }: ConnectServerFo
     const codeError = isLink || submittedCode ? null : 'Enter the 8-character code.'
 
     if (addressError || codeError) {
+      focusFirstInvalid()
+
       return { ...INITIAL_STATE, addressError, codeError }
     }
 
@@ -85,13 +92,13 @@ export function ConnectServerForm({ mobileShell, link, alerts }: ConnectServerFo
         setAllowPrivateHttp(false)
       }
 
-      return { ...INITIAL_STATE, globalError: errorMessage(err, CONNECT_FAILED), errorCode }
+      return { ...INITIAL_STATE, globalError: errorMessage(err, CONNECT_FAILED), errorCode, address: submittedAddress }
     }
   }
 
   const [state, formAction, pending] = useActionState(connectAction, INITIAL_STATE)
   const visible = state === dismissed ? INITIAL_STATE : state
-  const needsEncryptionConsent = state.errorCode === PRIVATE_HTTP_DISABLED
+  const needsEncryptionConsent = state.errorCode === PRIVATE_HTTP_DISABLED && state.address === address.trim()
   const isLink = address.trim().startsWith(LINK_SCHEME)
 
   const scanCode = async (): Promise<void> => {
@@ -139,6 +146,7 @@ export function ConnectServerForm({ mobileShell, link, alerts }: ConnectServerFo
       formData.set('address', content)
       formData.set('code', '')
       setAddress(content)
+      setAllowPrivateHttp(false)
       setCode('')
       startTransition(() => formAction(formData))
     } finally {
@@ -154,6 +162,7 @@ export function ConnectServerForm({ mobileShell, link, alerts }: ConnectServerFo
 
   const changeAddress = (value: string): void => {
     setAddress(value)
+    setAllowPrivateHttp(false)
     setDismissed(state)
   }
 
@@ -242,7 +251,7 @@ export function ConnectServerForm({ mobileShell, link, alerts }: ConnectServerFo
     <Stack gap={mobileShell ? 'md' : 'lg'}>
       {scanSection}
 
-      <form noValidate action={formAction}>
+      <form ref={formRef} noValidate action={formAction}>
         <Stack gap={mobileShell ? 'md' : 'lg'}>
           <FormErrorDisplay
             title="Couldn't connect"

@@ -8,15 +8,33 @@ import type { SetupDraftResult } from '../../../../types/setup'
 import { toSetupDraft } from './setupDraft'
 import type { SetupState } from './types'
 
-export function usePreparedSetup(state: SetupState, firstRun: boolean): SetupDraftResult | undefined {
+interface PreparedSetup {
+  prepared: SetupDraftResult | undefined
+  current: boolean
+  error: Error | null
+  isFetching: boolean
+  refetch: () => void
+}
+
+export function usePreparedSetup(state: SetupState, firstRun: boolean): PreparedSetup {
   const settled = useDebounce(state, DEBOUNCE_DELAYS.FILTER)
 
-  return useQuery({
+  const query = useQuery({
     queryKey: ['setupDraft', firstRun, settled],
     queryFn: () => service.prepareSetupDraft(toSetupDraft(settled), firstRun),
     placeholderData: keepPreviousData,
     gcTime: 0,
     staleTime: 0,
     retry: false,
-  }).data
+  })
+
+  return {
+    prepared: query.data,
+    current: !query.isPlaceholderData && settled === state,
+    error: query.error,
+    isFetching: query.isFetching,
+    refetch: () => {
+      void query.refetch()
+    },
+  }
 }

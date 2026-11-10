@@ -197,3 +197,19 @@ test('a failed delete after a saved disable closes the form with a single error 
   assert.equal(flushes.length, 1)
   assert.deepEqual(errorToastTitles(shown), ["Couldn't delete stored metrics"])
 })
+
+test('a rejected save hides its error as soon as the draft changes, without a new submit', async () => {
+  const user = userEvent.setup({ document })
+
+  saveFailure = 'Disk is full'
+  renderModal()
+
+  await user.click(await view().findByRole('button', { name: 'Save' }))
+  assert.ok((await view().findAllByText(/disk is full/i)).length > 0)
+
+  await user.selectOptions(view().getByRole('combobox', { name: 'Retention period' }), 'custom')
+  await user.type(await view().findByRole('textbox', { name: 'Custom retention (days)' }), '5')
+
+  await waitFor(() => assert.equal(view().queryAllByText(/disk is full/i).length, 0))
+  assert.equal(saves.length, 1)
+})

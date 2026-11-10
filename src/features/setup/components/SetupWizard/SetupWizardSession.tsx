@@ -1,16 +1,20 @@
+import { Stack } from '@mantine/core'
 import { IconDatabase, IconListCheck, IconTransfer } from '@tabler/icons-react'
 import { type ReactNode, useId, useRef, useState } from 'react'
+import { ErrorState } from '../../../../components/common/ErrorState'
+import { LoadingState } from '../../../../components/common/LoadingState'
 import type { ModalAction } from '../../../../components/common/standardModalTypes'
 import { useIsMobile, useMobileShell } from '../../../../hooks/useIsMobile'
 import type { StorageConfigResponse } from '../../../../types/storage'
 import { isMobilePlatform } from '../../../../utils/platform'
+import { sameJson } from '../../../../utils/sameJson'
 
 import { ConfirmStep } from './ConfirmStep'
 import { confirmSkipTransfer, DesktopFooter, ShellFooter, type WizardAction } from './SetupWizardActions'
 import { SetupWizardLayout } from './SetupWizardLayout'
 import { StorageStep } from './StorageStep'
 import { SuccessStep } from './SuccessStep'
-import { initialDraft, toFieldErrors } from './setupDraft'
+import { initialDraft, toFieldErrors, toSetupDraft } from './setupDraft'
 import { TransferStep } from './TransferStep'
 import type { VaultPasswordStatus, WizardStep } from './types'
 import { usePreparedSetup } from './usePreparedSetup'
@@ -57,6 +61,7 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
   })
   const { currentConfig, vaultStatus, defaultDataDir } = initial
   const [draft, setDraft] = useState(() => initialDraft(currentConfig, defaultDataDir))
+  const [firstDraft] = useState(() => draft)
   const [step, setStep] = useState<WizardStep>('storage')
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
@@ -65,7 +70,8 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
   const compact = mobileShell && isMobilePlatform()
 
   const vaultPasswordFromEnv = vaultStatus.is_set
-  const prepared = usePreparedSetup(draft, !currentConfig)
+  const preparation = usePreparedSetup(draft, !currentConfig)
+  const { prepared } = preparation
   const needsMigration = prepared?.needs_migration ?? false
   const reconfigured = Boolean(currentConfig)
   const showTransferStep = compact ? needsMigration : reconfigured
@@ -75,7 +81,10 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
   const isSuccessStep = step === 'success'
   const stepperSteps = wizardSteps.flatMap((name) => (name === 'success' ? [] : [STEP_META[name]]))
   const validation = toFieldErrors(prepared?.errors ?? {})
-  const canProceedFromStorage = prepared !== undefined && Object.keys(prepared.errors).length === 0
+  const canProceedFromStorage =
+    preparation.current && prepared !== undefined && Object.keys(prepared.errors).length === 0
+  const setupDraft = toSetupDraft(draft)
+  const dirty = !isSuccessStep && !sameJson(setupDraft, toSetupDraft(firstDraft))
   const saveLabel = saveLabelFor(needsMigration, draft.transferData)
   const skipsTransfer = !draft.transferData && needsMigration
   const transferLabel = compact ? saveLabel : transferLabelFor(skipsTransfer)
@@ -139,7 +148,32 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
   })()
 
   const canGoBack = stepIndex > 0 && !isSuccessStep
-  const error = actionState.errorStep === step ? actionState.error : null
+  const failure = actionState.errorStep === step && sameJson(actionState.submitted, setupDraft) ? actionState : null
+  const error = failure?.error ?? null
+  const preparationStatus = ((): ReactNode => {
+    if (preparation.error) {
+      return (
+        <ErrorState
+          title="Couldn't check the storage settings"
+          error={preparation.error}
+          onRetry={preparation.refetch}
+          retrying={preparation.isFetching}
+        />
+      )
+    }
+
+    return prepared === undefined ? <LoadingState variant="compact" message="Checking storage settings…" /> : null
+  })()
+  const desktopFooter = (requestClose: () => void): ReactNode => (
+    <DesktopFooter
+      primary={primary}
+      formId={formId}
+      isPending={isPending}
+      onCancel={step === 'storage' && onClose ? requestClose : undefined}
+      onBack={canGoBack ? goBack : undefined}
+      fullWidth={isMobile}
+    />
+  )
   const shellPrimary: ModalAction | undefined = primary
     ? {
         label: primary.label,
@@ -176,16 +210,19 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
         )
       default:
         return (
-          <StorageStep
-            state={draft}
-            setState={setDraft}
-            currentConfig={currentConfig}
-            vaultStatus={vaultStatus}
-            error={error}
-            fieldErrors={actionState.errorStep === step ? actionState.fieldErrors : {}}
-            validation={validation}
-            passwordWarnings={prepared?.password_warnings ?? []}
-          />
+          <Stack gap="md">
+            {preparationStatus}
+            <StorageStep
+              state={draft}
+              setState={setDraft}
+              currentConfig={currentConfig}
+              vaultStatus={vaultStatus}
+              error={error}
+              fieldErrors={failure?.fieldErrors ?? {}}
+              validation={validation}
+              passwordWarnings={prepared?.password_warnings ?? []}
+            />
+          </Stack>
         )
     }
   })()
@@ -206,18 +243,8 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
         title: isSuccessStep ? 'Setup complete' : (stepperSteps[stepIndex]?.label ?? ''),
       }}
       form={submits ? { id: formId, ref: formRef, action: formAction } : null}
-      footer={
-        isSuccessStep ? null : (
-          <DesktopFooter
-            primary={primary}
-            formId={formId}
-            isPending={isPending}
-            onCancel={step === 'storage' ? onClose : undefined}
-            onBack={canGoBack ? goBack : undefined}
-            fullWidth={isMobile}
-          />
-        )
-      }
+      dirty={dirty}
+      footer={isSuccessStep ? null : desktopFooter}
       shellFooter={
         primary || canGoBack ? (
           <ShellFooter primary={primary} isPending={isPending} onBack={canGoBack ? goBack : undefined} />
