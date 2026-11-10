@@ -409,6 +409,12 @@ async fn descending_duration_sort_includes_runs_outside_the_newest_prefix() {
     h.pipeline_service.settle().await;
 }
 
+fn run_started_at_minute(pipeline_id: &str, number: i64) -> PipelineRun {
+    let mut run = run_as(pipeline_id, number, PipelineStatus::Success);
+    run.started_at = chrono::DateTime::UNIX_EPOCH + chrono::Duration::minutes(number);
+    run
+}
+
 #[tokio::test]
 async fn query_run_history_should_refresh_bounded_history_even_when_the_cache_fills_the_page() {
     let h = Harness::new().await;
@@ -418,7 +424,7 @@ async fn query_run_history_should_refresh_bounded_history_even_when_the_cache_fi
             StubProvider::new(id).bounded_history().with_runs(
                 (1..=31)
                     .rev()
-                    .map(|number| run_as(&pipeline_id, number, PipelineStatus::Success))
+                    .map(|number| run_started_at_minute(&pipeline_id, number))
                     .collect(),
             )
         })
@@ -430,7 +436,7 @@ async fn query_run_history_should_refresh_bounded_history_even_when_the_cache_fi
         .await
         .unwrap();
     let stale: Vec<_> = (1..=30)
-        .map(|number| run_as(&pipeline.id, number, PipelineStatus::Success))
+        .map(|number| run_started_at_minute(&pipeline.id, number))
         .collect();
     h.repository
         .cache_run_history(&pipeline.id, &stale)
