@@ -127,7 +127,7 @@ test('the pipeline menu is one policy choice that marks the current option and s
   assert.equal(watching.getAttribute('aria-current'), 'true')
 })
 
-test('switching between policies leaves the current one before entering the next', async () => {
+test('switching between policies sends exactly one change', async () => {
   const user = userEvent.setup({ document })
   mount(<PipelineNotifyMenu pipeline={{ ...pipeline, status: 'success' }} />)
 
@@ -141,7 +141,7 @@ test('switching between policies leaves the current one before entering the next
   await user.click(await view().findByRole('menuitem', { name: 'Mute notifications' }))
   await waitFor(() =>
     assert.deepEqual(changes.slice(-2), [
-      { type: 'cancel_next_finish', pipeline_id: pipeline.id },
+      { type: 'watch_next_finish', pipeline_id: pipeline.id },
       { type: 'pipeline_muted', pipeline_id: pipeline.id, muted: true },
     ])
   )
@@ -166,6 +166,30 @@ test('the notifications dialog offers the same choice and closes after it is sav
   await user.click(within(group).getByRole('radio', { name: /Mute notifications/ }))
   await waitFor(() => assert.equal(done.mock.callCount(), 1))
   assert.deepEqual(changes, [{ type: 'pipeline_muted', pipeline_id: pipeline.id, muted: true }])
+})
+
+test('a failed policy change keeps the previous choice and leaves the dialog open for another try', async () => {
+  const user = userEvent.setup({ document })
+  const done = mock.fn()
+  const shown = mock.method(notifications, 'show')
+  useNotificationStore.setState({ pipelineStates: { [pipeline.id]: 'muted' } })
+  respond = async () => {
+    throw new Error('Host unreachable')
+  }
+  mount(<PipelineNotifyPolicy pipeline={{ ...pipeline, status: 'running' }} onDone={done} />)
+
+  await user.click(view().getByRole('radio', { name: /Watch all runs/ }))
+  await waitFor(() => assert.ok(shown.mock.callCount() > 0))
+
+  const muted = view().getByRole('radio', { name: /Mute notifications/ })
+  assert.ok(muted instanceof HTMLInputElement)
+  await waitFor(() => assert.deepEqual([muted.checked, muted.disabled], [true, false]))
+  assert.deepEqual(changes, [{ type: 'pipeline_watched', pipeline_id: pipeline.id, watched: true }])
+  assert.equal(done.mock.callCount(), 0)
+
+  respond = async () => snapshot({ [pipeline.id]: 'watching' })
+  await user.click(view().getByRole('radio', { name: /Watch all runs/ }))
+  await waitFor(() => assert.equal(done.mock.callCount(), 1))
 })
 
 test('settings list watched pipelines and pending requests from the backend states, and each can be undone', async () => {

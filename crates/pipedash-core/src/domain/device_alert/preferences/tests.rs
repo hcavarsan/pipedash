@@ -79,6 +79,20 @@ fn watching_and_muting_a_pipeline_replace_each_other_and_a_pending_request_goes_
 }
 
 #[test]
+fn a_one_time_request_replaces_watching_so_one_change_switches_the_policy() {
+    let mut preferences = NotificationPreferences::default();
+
+    apply(&mut preferences, watched(true));
+    apply(&mut preferences, watch_next());
+
+    assert!(preferences.watched_pipelines.is_empty());
+    assert_eq!(
+        preferences.pipeline_states().get(PIPELINE),
+        Some(&PipelineNotifyState::Pending)
+    );
+}
+
+#[test]
 fn watching_clears_a_pending_one_time_request() {
     let mut preferences = NotificationPreferences::default();
 

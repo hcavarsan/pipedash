@@ -23,7 +23,7 @@ export interface PolicyOption {
   description: string
   icon: ReactNode
   selected: boolean
-  select: () => Promise<void>
+  select: () => Promise<boolean>
 }
 
 export type PolicyTarget = Pick<Pipeline, 'id' | 'name' | 'status'>
@@ -57,7 +57,7 @@ const leave = (state: PipelineNotifyState, id: string): PreferenceChange | null 
   }
 }
 
-const enter = (state: PipelineNotifyState, id: string): PreferenceChange | null => {
+const enter = (state: Exclude<PipelineNotifyState, 'default'>, id: string): PreferenceChange => {
   switch (state) {
     case 'watching':
       return { type: 'pipeline_watched', pipeline_id: id, watched: true }
@@ -65,8 +65,6 @@ const enter = (state: PipelineNotifyState, id: string): PreferenceChange | null 
       return { type: 'watch_next_finish', pipeline_id: id }
     case 'muted':
       return { type: 'pipeline_muted', pipeline_id: id, muted: true }
-    case 'default':
-      return null
   }
 }
 
@@ -89,20 +87,21 @@ export function useNotifyItems(): NotifyItems {
 
   const pipelineState = (id: string): PipelineNotifyState => pipelineStates[id] ?? 'default'
 
-  const setPolicy = async ({ id, name }: PolicyTarget, target: PipelineNotifyState): Promise<void> => {
+  const setPolicy = async ({ id, name }: PolicyTarget, target: PipelineNotifyState): Promise<boolean> => {
     const current = pipelineState(id)
+    const change = target === 'default' ? leave(current, id) : enter(target, id)
 
-    if (current === target) {
-      return
+    if (current === target || !change) {
+      return true
     }
 
-    for (const change of [leave(current, id), enter(target, id)]) {
-      if (change && !(await changePreference(change))) {
-        return
-      }
+    if (!(await changePreference(change))) {
+      return false
     }
 
     displaySuccessNotification(...confirmation(target, name))
+
+    return true
   }
 
   const policyOptions: NotifyItems['policyOptions'] = (pipeline) => {

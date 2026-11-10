@@ -164,6 +164,7 @@ pub fn change_preferences(
         }
         PreferenceChange::WatchNextFinish { pipeline_id } => {
             without(&mut preferences.muted_pipelines, &pipeline_id);
+            without(&mut preferences.watched_pipelines, &pipeline_id);
             without_once(&mut preferences.watch_once, &pipeline_id);
             preferences.watch_once.push(OnceWatch {
                 pipeline_id,

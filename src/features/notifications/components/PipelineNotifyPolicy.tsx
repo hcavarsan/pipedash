@@ -25,8 +25,12 @@ export function PipelineNotifyPolicy({ pipeline, onDone }: PipelineNotifyPolicyP
     }
 
     setSaving(option.value)
-    await option.select()
-    onDone()
+
+    if (await option.select()) {
+      onDone()
+    } else {
+      setSaving(null)
+    }
   }
 
   return (
