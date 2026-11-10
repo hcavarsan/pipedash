@@ -17,15 +17,18 @@ import type { PipelineViewPage, PipelineViewQuery } from '../types/views'
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
 const { act, cleanup, renderHook, waitFor } = await import('@testing-library/react')
-const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
+const { notifyManager, QueryClient, QueryClientProvider, QueryObserver } = await import('@tanstack/react-query')
 const { MemoryRouter } = await import('react-router-dom')
 const { apiService } = await import('../services/api')
 const { tauriService } = await import('../services/tauri')
+const { queryClient } = await import('../lib/queryClient')
+const { notifications } = await import('../lib/notifications')
 const { queryKeys } = await import('../lib/queryKeys')
+const { usePlugins } = await import('./usePluginsQueries')
 const { useMetricsDashboard } = await import('../features/metrics/queries/useMetricsQueries')
 const { useRunHistory } = await import('./useRunHistoryQueries')
 const { useSaveTablePreferences } = await import('../features/runs/queries/useTablePreferences')
-const { useSaveProviderDraft } = await import('./useProvidersQueries')
+const { useImportProviders, useSaveProviderDraft } = await import('./useProvidersQueries')
 const { useRefreshProviders } = await import('./useRefreshQueries')
 const { useFactoryReset } = await import('../features/settings/queries/usePlatformQueries')
 const { useLogViewerPrefs } = await import('../stores/logViewerPrefsStore')
@@ -42,6 +45,7 @@ type Stubbed =
   | 'getMetricsDashboard'
   | 'saveTablePreferences'
   | 'saveProviderDraft'
+  | 'importProviders'
   | 'refreshProvider'
   | 'factoryReset'
 
@@ -173,6 +177,62 @@ test('saving an edited provider draft keeps credentials out of the cached summar
   assert.equal(summary !== undefined && 'token' in summary, false)
 })
 
+test('saving a new provider says pipelines appear after the first fetch, without claiming a refresh', async (context) => {
+  stub(context, 'saveProviderDraft', async () => 7)
+  const shown = context.mock.method(notifications, 'show', () => 'saved')
+  const { result } = renderHook(() => useSaveProviderDraft(), { wrapper })
+
+  await act(async () => {
+    await result.current.mutateAsync(providerDraft(null))
+  })
+
+  assert.equal(shown.mock.callCount(), 1)
+  const options = shown.mock.calls[0]?.arguments[0]
+  assert.equal(options?.title, 'Provider added')
+  assert.equal(options?.message, 'Pipelines appear here when the first fetch finishes.')
+  assert.equal(options?.color, 'green')
+})
+
+test('saving changes to a provider only says the changes were saved', async (context) => {
+  stub(context, 'saveProviderDraft', async () => 1)
+  const shown = context.mock.method(notifications, 'show', () => 'saved')
+  const { result } = renderHook(() => useSaveProviderDraft(), { wrapper })
+
+  await act(async () => {
+    await result.current.mutateAsync(providerDraft(1))
+  })
+
+  assert.equal(shown.mock.callCount(), 1)
+  const options = shown.mock.calls[0]?.arguments[0]
+  assert.equal(options?.title, 'Provider updated')
+  assert.equal(options?.message, 'Changes saved.')
+  assert.equal(options?.color, 'green')
+})
+
+test('a partial provider import names what was added, what failed and what was not tried', async (context) => {
+  stub(context, 'importProviders', async () => ({
+    added: ['Alpha'],
+    skipped: [],
+    failed: [{ name: 'Beta', error: 'Database error: disk full' }],
+    not_attempted: ['Gamma'],
+  }))
+  const shown = context.mock.method(notifications, 'show', () => 'imported')
+  const { result } = renderHook(() => useImportProviders(), { wrapper })
+
+  await act(async () => {
+    await result.current.mutateAsync(new File(['[providers]'], 'providers.toml'))
+  })
+
+  assert.equal(shown.mock.callCount(), 1)
+  const options = shown.mock.calls[0]?.arguments[0]
+  assert.equal(options?.title, "Some providers weren't imported")
+  assert.equal(options?.color, 'orange')
+  assert.equal(
+    options?.message,
+    "Added Alpha. Add each token in the provider's edit dialog. Couldn't add Beta: Database error: disk full. Not attempted: Gamma."
+  )
+})
+
 test('refreshing providers keeps in-flight ids marked when another provider fails', async (context) => {
   const slow = Promise.withResolvers<RefreshResult>()
   stub(context, 'refreshProvider', (id) => (id === 1 ? Promise.reject(new Error('down')) : slow.promise))
@@ -188,6 +248,30 @@ test('refreshing providers keeps in-flight ids marked when another provider fail
   slow.resolve({ provider_id: 2, state: 'ok', kind: null, message: null })
   await act(async () => batch)
   await waitFor(() => assert.equal(result.current.refreshing.size, 0))
+})
+
+test('one fulfilled and two rejected provider refreshes give one summary naming both failures', async (context) => {
+  const shown = context.mock.method(notifications, 'show', () => 'refresh-summary')
+  client.setQueryData(queryKeys.providers.list(), [
+    providerSummaryFixture({ id: 1, name: 'GitHub' }),
+    providerSummaryFixture({ id: 2, name: 'GitLab' }),
+    providerSummaryFixture({ id: 3, name: 'Jenkins' }),
+  ])
+  stub(context, 'refreshProvider', async (id) => {
+    if (id === 1) {
+      return { provider_id: 1, state: 'ok', kind: null, message: null }
+    }
+
+    throw new Error(id === 2 ? 'token rejected by host' : 'host unreachable')
+  })
+  const { result } = renderHook(() => useRefreshProviders(), { wrapper })
+
+  await act(async () => result.current.refresh([1, 2, 3]))
+
+  assert.equal(shown.mock.callCount(), 1)
+  const options = shown.mock.calls[0]?.arguments[0]
+  assert.equal(options?.color, 'orange')
+  assert.equal(options?.message, 'Refreshed 1 of 3 · GitLab: token rejected by host · Jenkins: host unreachable')
 })
 
 test('factory reset also resets log preferences and the notification center', async (context) => {
@@ -217,4 +301,54 @@ test('factory reset also resets log preferences and the notification center', as
 
   assert.deepEqual([useLogViewerPrefs.getState().wrap, useLogViewerPrefs.getState().timestamps], [true, false])
   assert.equal(useNotificationCenterStore.getState().items.length, 0)
+})
+
+async function settle(context: TestContext, error: Error): Promise<{ calls: number; status: string }> {
+  context.mock.timers.enable({ apis: ['setTimeout'] })
+  const production = new QueryClient({ defaultOptions: queryClient.getDefaultOptions() })
+  let calls = 0
+  const observer = new QueryObserver(production, {
+    queryKey: ['retry-policy'],
+    queryFn: async () => {
+      calls += 1
+      throw error
+    },
+  })
+  const unsubscribe = observer.subscribe(() => undefined)
+
+  for (let step = 0; step < 4; step += 1) {
+    const turn = Promise.withResolvers<void>()
+
+    setImmediate(turn.resolve)
+    await turn.promise
+    context.mock.timers.tick(1000)
+  }
+  unsubscribe()
+  production.clear()
+
+  return { calls, status: observer.getCurrentResult().status }
+}
+
+test('a permanent failure reaches the screen after one request', async (context) => {
+  const result = await settle(context, Object.assign(new Error('missing'), { status: 404, code: 'NOT_FOUND' }))
+
+  assert.deepEqual(result, { calls: 1, status: 'error' })
+})
+
+test('a transient failure is retried exactly once before it reaches the screen', async (context) => {
+  const result = await settle(context, Object.assign(new Error('down'), { status: 503, code: 'SERVICE_UNAVAILABLE' }))
+
+  assert.deepEqual(result, { calls: 2, status: 'error' })
+})
+
+test('plugins report a query error for a 503 NOT_INITIALIZED response instead of empty data', async (context) => {
+  const rejection = () =>
+    Promise.reject(Object.assign(new Error('not initialized'), { status: 503, code: 'NOT_INITIALIZED' }))
+
+  context.mock.method(apiService, 'getAvailablePlugins', rejection)
+  context.mock.method(tauriService, 'getAvailablePlugins', rejection)
+  const { result } = renderHook(() => usePlugins(), { wrapper })
+
+  await waitFor(() => assert.equal(result.current.isError, true))
+  assert.equal(result.current.data, undefined)
 })

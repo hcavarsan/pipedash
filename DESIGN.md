@@ -59,6 +59,9 @@ Run status uses its own tokens, `--status-success`, `--status-failed`, `--status
 - Loading: `LoadingState` with a message that names what is loading.
 - Empty: `EmptyState` with the reason it is empty and the next action, as a button when one exists.
 - Error: `ErrorState` with the operation that failed, the error, and a retry.
+- Block the screen with `ErrorState` only when there is nothing to show. When data is already loaded and a later read fails, keep the data and show the error with Retry next to it. Show an empty state only after a successful empty result.
+- A read retries once, after one second, and only for a network failure or a timeout. Every other failure shows at once. Writes never retry.
+- An action shows a pending state until its result is on screen and ignores a second activation while it runs. A success message waits for the real result.
 - Missing data is shown as `—` or "Unavailable". Never show it as `0`. A measured zero duration is `0s`.
 - Failure titles read `Couldn't <verb> <object>`; the message gives the cause or the next step. `errorMessage(error, fallback)` in `src/utils/errorDisplay.tsx` picks the most specific message. Notification helpers always take an explicit title.
 - A mutation hook owns its notifications. Callers do not toast the same outcome again.
@@ -73,6 +76,7 @@ Run status uses its own tokens, `--status-success`, `--status-failed`, `--status
 - Numeric settings keep a draft: a blank field stays blank and shows an error instead of being replaced with a default. They save on blur or Enter and restore the saved value if the save fails.
 - On desktop and web, Enter submits the form. Moving to the next field with Enter happens only on the phone shell.
 - Dialogs with unsaved edits pass `dirty` to `StandardModal`, and footer buttons receive the guarded close through `footer={(close) => …}`, so Cancel, Escape, the close button and the overlay all ask before discarding.
+- A validation or submit error belongs to the draft that produced it. It hides when the draft changes, and a late response never applies to a newer value.
 
 ## Motion
 

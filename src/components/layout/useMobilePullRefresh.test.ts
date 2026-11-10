@@ -85,6 +85,21 @@ test('a pull past the threshold refreshes and reports the result', async () => {
   assert.ok(delays.includes(2000))
 })
 
+test('a refresh that rejects while mounted announces the failure and never says Updated', async () => {
+  const pending = deferred()
+  const { main, spinner, status } = mount(() => pending.promise)
+
+  pullAndRelease(main)
+  assert.equal(status.textContent, 'Refreshing…')
+
+  await act(async () => pending.reject(new Error('History unavailable')))
+
+  assert.equal(status.textContent, "Couldn't refresh")
+  assert.ok(!spinner.hasAttribute('data-spinning'))
+  assert.ok(!main.hasAttribute('aria-busy'))
+  assert.ok(delays.includes(2000))
+})
+
 test('a refresh that finishes after the page unmounted writes no status and starts no timer', async () => {
   const pending = deferred()
   const { main, status, unmount } = mount(() => pending.promise)

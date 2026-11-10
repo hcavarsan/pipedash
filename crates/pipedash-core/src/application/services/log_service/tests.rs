@@ -106,7 +106,7 @@ async fn until(what: &str, mut done: impl FnMut() -> bool) {
 
 fn meta_of(document: RunLogDocument) -> LogDocumentMeta {
     match document {
-        RunLogDocument::Ready(meta) => meta,
+        RunLogDocument::Ready(meta) => *meta,
         other => panic!("expected a ready document, got {other:?}"),
     }
 }
@@ -1123,6 +1123,70 @@ async fn a_failed_live_read_keeps_the_stored_log_and_backs_off() {
     }
     f.ready(2).await;
     assert_eq!(meta_of(f.open("1").await).line_count, 2);
+}
+
+async fn fail_live_refresh(f: &Fixture) -> String {
+    let error = DomainError::NetworkError("down".into());
+    let message = error.to_string();
+    *f.stub.log_failure.lock().unwrap() = Some(error);
+    f.tick(2).await;
+    f.failed(1).await;
+    message
+}
+
+#[tokio::test]
+async fn a_failed_live_refresh_exposes_its_message_without_losing_output() {
+    let f = Fixture::live(&["a\n"], resumable).await;
+    let first = f.ready_meta("1").await;
+    assert_eq!(first.refresh_error, None);
+
+    let message = fail_live_refresh(&f).await;
+
+    let meta = meta_of(f.open("1").await);
+    assert_eq!(meta.refresh_error, Some(message));
+    assert_eq!(meta.revision, first.revision);
+    assert_eq!(f.texts(&meta).await, ["a"]);
+}
+
+#[tokio::test]
+async fn retrying_a_partial_document_bypasses_failure_cooldown() {
+    let f = Fixture::live(&["a\n"], resumable).await;
+    f.ready_meta("1").await;
+    fail_live_refresh(&f).await;
+    let reads = f.stub.log_read_count();
+    *f.stub.log_failure.lock().unwrap() = None;
+    f.stub.append_log("b\n");
+    assert!(meta_of(f.open("1").await).refresh_error.is_some());
+
+    let retried = meta_of(f.open_with("1", true).await);
+
+    assert_eq!(retried.refresh_error, None);
+    until("the retry read", || f.stub.log_read_count() == reads + 1).await;
+    f.ready(2).await;
+    assert_eq!(meta_of(f.open("1").await).line_count, 2);
+}
+
+#[tokio::test]
+async fn retrying_a_partial_document_preserves_provider_quota_pause() {
+    let f = Fixture::live(&["a\n"], resumable).await;
+    f.ready_meta("1").await;
+    fail_live_refresh(&f).await;
+    let reads = f.stub.log_read_count();
+    *f.stub.log_failure.lock().unwrap() = None;
+    f.stub.append_log("b\n");
+    pause(&f).await;
+
+    let retried = meta_of(f.open_with("1", true).await);
+    f.tick(6).await;
+
+    assert_eq!(retried.refresh_error, None);
+    assert_eq!(f.stub.log_read_count(), reads);
+    let lease = f.h.provider_service.acquire(f.id).await.unwrap();
+    f.h.scheduler
+        .set_quota_pause(f.id, lease.generation, None, Instant::now(), Utc::now());
+    f.open_with("1", true).await;
+    f.tick(6).await;
+    until("polling to resume", || f.stub.log_read_count() > reads).await;
 }
 
 #[tokio::test]

@@ -8,6 +8,7 @@ import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
 import type { Pipeline, PipelineRun } from '../../../types/pipelines'
 import type { DisplayField } from '../../../types/presentation'
 import { errorMessage } from '../../../utils/errorDisplay'
+import { sameJson } from '../../../utils/sameJson'
 import type { RerunMode } from '../lib/runActions'
 import { usePreparedTrigger } from '../queries/useWorkflowQueries'
 
@@ -79,6 +80,7 @@ const ModeRadios = ({ modes, mode, pending, onChange }: ModeRadiosProps): ReactN
 
 interface RerunActionState {
   error: string | null
+  submitted: { mode: RerunMode; runId: string } | null
 }
 
 export const RerunConfirmModal = ({ run, pipeline, onClose, onConfirm }: RerunConfirmModalProps): ReactNode => {
@@ -104,15 +106,19 @@ export const RerunConfirmModal = ({ run, pipeline, onClose, onConfirm }: RerunCo
       try {
         await onConfirm(mode)
       } catch (error: unknown) {
-        return { error: errorMessage(error, 'Try the rerun again.') }
+        return {
+          error: errorMessage(error, 'Try the rerun again.'),
+          submitted: { mode, runId: run?.id ?? '' },
+        }
       }
 
       close()
 
-      return { error: null }
+      return { error: null, submitted: null }
     },
-    { error: null }
+    { error: null, submitted: null }
   )
+  const submittedError = sameJson(state.submitted, { mode, runId: run?.id ?? '' }) ? state.error : null
 
   const footer = (requestClose: () => void) => (
     <Group justify="flex-end" gap="sm" grow={isMobile}>
@@ -169,7 +175,7 @@ export const RerunConfirmModal = ({ run, pipeline, onClose, onConfirm }: RerunCo
       <form ref={formRef} id={formId} action={formAction}>
         <Stack gap="md">
           {mobileShell ? shellBody : desktopBody}
-          <FormErrorDisplay title="Couldn't re-run" globalError={state.error} />
+          <FormErrorDisplay title="Couldn't re-run" globalError={submittedError} />
         </Stack>
       </form>
     </StandardModal>

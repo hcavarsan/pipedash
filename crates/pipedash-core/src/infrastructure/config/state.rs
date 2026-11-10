@@ -257,5 +257,7 @@ impl ConfigState {
 mod persistence;
 mod providers;
 
+pub use providers::RemovedProvider;
+
 #[cfg(test)]
 mod tests;

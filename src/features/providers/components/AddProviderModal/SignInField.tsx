@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import type { SignInStatus } from '../../../../types/providers'
-import { errorMessage } from '../../../../utils/errorDisplay'
+import { displayErrorNotification, errorMessage } from '../../../../utils/errorDisplay'
 import { openExternal } from '../../../../utils/openExternal'
 import { SIGN_IN_KEY } from '../../lib/credentials'
 import { useCancelSignIn, useCompleteSignIn, useSignInStatus, useStartSignIn } from '../../queries/useSignInQueries'
@@ -72,7 +72,7 @@ export function SignInField({
   const { data: status, isLoading, error: statusError } = useSignInStatus(reference)
   const start = useStartSignIn()
   const complete = useCompleteSignIn()
-  const { mutate: cancelFlow } = useCancelSignIn()
+  const { mutate: cancelFlow, mutateAsync: cancelOwnedFlow, isPending: cancelling } = useCancelSignIn()
 
   const flow = start.data?.id === reference ? start.data : null
   const waiting = status ? status.state === 'pending' : flow !== null
@@ -119,9 +119,18 @@ export function SignInField({
     onChange(started.id)
   }
 
-  const handleCancel = () => {
-    if (ownedFlowRef.current) {
-      cancelFlow(ownedFlowRef.current)
+  const handleCancel = async () => {
+    const owned = ownedFlowRef.current
+
+    if (owned) {
+      try {
+        await cancelOwnedFlow(owned)
+      } catch (cancelError) {
+        displayErrorNotification(cancelError, "Couldn't cancel sign-in")
+
+        return
+      }
+
       ownedFlowRef.current = null
     }
 
@@ -184,6 +193,7 @@ export function SignInField({
     continueDisabled: !pasted.trim() || complete.isPending,
     blocked,
     starting: start.isPending,
+    cancelling,
     onStart: handleStart,
     onCancel: handleCancel,
     onOpenAgain: handleOpenAgain,

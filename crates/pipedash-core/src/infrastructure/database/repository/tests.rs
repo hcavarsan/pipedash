@@ -5,6 +5,7 @@ use pipedash_plugin_api::RunHistoryOrder;
 use serde_json::json;
 
 use super::Repository;
+use crate::application::test_support::Harness;
 use crate::domain::{
     DomainError,
     DomainResult,
@@ -274,4 +275,67 @@ async fn run_cache_orders_by_the_requested_history_order_on_every_page() {
         .unwrap();
     assert_eq!(kept.metadata["archived"], json!(true));
     assert_eq!(repository.get_cached_run_count(bounded).await.unwrap(), 5);
+}
+
+#[tokio::test]
+async fn a_failed_token_write_leaves_no_new_provider_behind() {
+    let h = Harness::new().await;
+    h.token_store.fail_next_store();
+
+    let error = h
+        .repository
+        .add_provider(&h.config("one", 30))
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, DomainError::DatabaseError(_)), "{error}");
+    assert!(h.repository.list_providers().await.unwrap().is_empty());
+    h.repository
+        .add_provider(&h.config("one", 30))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn a_failed_token_write_on_edit_restores_the_stored_row() {
+    let h = Harness::new().await;
+    let id = h.add_provider("one").await;
+    let before = h.repository.get_provider(id).await.unwrap();
+    let mut edited = before.clone();
+    edited.name = "renamed".to_string();
+    edited.refresh_interval = 90;
+    edited.token = "rotated".to_string();
+    let summary = |config: &ProviderConfig| {
+        (
+            config.name.clone(),
+            config.refresh_interval,
+            config.token.clone(),
+        )
+    };
+
+    h.token_store.fail_next_store();
+    assert!(h
+        .repository
+        .update_provider_with_version(id, &edited, before.version.unwrap_or(1))
+        .await
+        .is_err());
+    let saved = h.repository.get_provider(id).await.unwrap();
+    assert_eq!(summary(&saved), summary(&before));
+
+    h.token_store.fail_next_store();
+    assert!(h.repository.update_provider(id, &edited).await.is_err());
+    assert_eq!(
+        summary(&h.repository.get_provider(id).await.unwrap()),
+        summary(&before)
+    );
+
+    assert!(h
+        .repository
+        .update_provider_with_version(id, &edited, saved.version.unwrap_or(1))
+        .await
+        .unwrap());
+    assert_eq!(
+        summary(&h.repository.get_provider(id).await.unwrap()),
+        summary(&edited)
+    );
 }

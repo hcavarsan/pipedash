@@ -16,6 +16,7 @@ const { userEvent } = await import('@testing-library/user-event')
 const { MantineProvider } = await import('@mantine/core')
 const { ModalsProvider } = await import('@mantine/modals')
 const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
+const { MemoryRouter } = await import('react-router-dom')
 const { notifications } = await import('../../../lib/notifications')
 const { queryKeys } = await import('../../../lib/queryKeys')
 const { apiService } = await import('../../../services/api')
@@ -89,7 +90,11 @@ function renderSurface(surface: 'history' | 'details', target: Pipeline = pipeli
     createElement(
       MantineProvider,
       { env: 'test' },
-      createElement(QueryClientProvider, { client }, createElement(ModalsProvider, null, children))
+      createElement(
+        QueryClientProvider,
+        { client },
+        createElement(ModalsProvider, null, createElement(MemoryRouter, null, children))
+      )
     )
 
   return render(content, { wrapper })
@@ -195,4 +200,33 @@ for (const surface of ['history', 'details'] as const) {
       assert.equal(force.mock.callCount(), 0)
     })
   }
+}
+
+for (const shell of ['desktop', 'mobile'] as const) {
+  test(`a pending run the backend allows to cancel can be stopped on ${shell}`, async () => {
+    if (shell === 'mobile') {
+      mock.getter(navigator, 'userAgent', () => 'iPhone')
+    }
+
+    const pendingRun: PipelineRun = { ...run, status: 'pending', actions: runActionsFixture() }
+    mock.method(apiService, 'getWorkflowRunDetails', async () => pendingRun)
+    const cancel = mock.method(apiService, 'cancelPipelineRun', async () => undefined)
+    const user = userEvent.setup({ document })
+    const view = within(document.body)
+    renderSurface('details', pipeline, pendingRun)
+
+    const stop = await view.findByRole('button', { name: 'Stop workflow' })
+    assert.equal(stop.hasAttribute('disabled'), false)
+    await user.click(stop)
+    const confirmation = await view.findByRole('dialog', { name: 'Cancel run' })
+    await user.click(within(confirmation).getByRole('button', { name: /^Cancel run$/ }))
+
+    await waitFor(() => assert.equal(cancel.mock.callCount(), 1))
+    const status = await view.findByText(/Cancellation requested/)
+    assert.ok(status.closest('[role="status"]'))
+    await waitFor(() =>
+      assert.equal(view.getByRole('button', { name: 'Stop workflow' }).hasAttribute('disabled'), true)
+    )
+    assert.equal(view.queryByText(/can be stopped or rerun once it starts/), null)
+  })
 }

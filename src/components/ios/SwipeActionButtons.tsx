@@ -22,6 +22,7 @@ export function SwipeActionButtons({ actions, primaryRef, onBeforeSelect }: Swip
             type="button"
             className={classes.action}
             data-tone={action.tone}
+            disabled={action.disabled}
             onClick={() => {
               onBeforeSelect()
               action.onSelect()
@@ -37,6 +38,7 @@ export function SwipeActionButtons({ actions, primaryRef, onBeforeSelect }: Swip
           type="button"
           className={classes.primary}
           data-tone={primary.tone}
+          disabled={primary.disabled}
           onClick={() => {
             onBeforeSelect()
             primary.onSelect()

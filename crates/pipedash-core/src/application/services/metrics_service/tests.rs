@@ -4,12 +4,17 @@ use chrono::Utc;
 use serde_json::json;
 
 use super::MetricsService;
+use crate::application::test_support::RecordingBus;
 use crate::domain::{
     MetricEntry,
     MetricType,
     MetricsQuery,
     PipelineRun,
     PipelineStatus,
+};
+use crate::event::{
+    CoreEvent,
+    NoOpEventBus,
 };
 use crate::infrastructure::database::{
     DatabasePool,
@@ -22,9 +27,12 @@ async fn state_snapshots_do_not_count_as_failed_reconciliations() {
     let pool = crate::infrastructure::database::init_database(dir.path().join("metrics.db"))
         .await
         .unwrap();
-    let service = MetricsService::new(Arc::new(MetricsRepository::new_from_pool(
-        DatabasePool::Sqlite(pool.clone()),
-    )));
+    let service = MetricsService::new(
+        Arc::new(MetricsRepository::new_from_pool(DatabasePool::Sqlite(
+            pool.clone(),
+        ))),
+        Arc::new(NoOpEventBus),
+    );
     service.update_global_config(true, 30).await.unwrap();
     let mut run: PipelineRun = serde_json::from_value(json!({
         "id": "snapshot", "pipeline_id": "stub__1__Kustomization__apps__web", "run_number": 1,
@@ -63,9 +71,10 @@ async fn runs_past_retention_are_not_recorded() {
     let pool = crate::infrastructure::database::init_database(dir.path().join("metrics.db"))
         .await
         .unwrap();
-    let service = MetricsService::new(Arc::new(MetricsRepository::new_from_pool(
-        DatabasePool::Sqlite(pool),
-    )));
+    let service = MetricsService::new(
+        Arc::new(MetricsRepository::new_from_pool(DatabasePool::Sqlite(pool))),
+        Arc::new(NoOpEventBus),
+    );
     service.update_global_config(true, 7).await.unwrap();
     let pipeline_id = "stub__1__o__r__1";
     let run = |run_number: i64, days_ago: i64| -> PipelineRun {
@@ -314,9 +323,10 @@ pub(super) async fn sqlite_service(dir: &tempfile::TempDir) -> MetricsService {
     let pool = crate::infrastructure::database::init_database(dir.path().join("metrics.db"))
         .await
         .unwrap();
-    MetricsService::new(Arc::new(MetricsRepository::new_from_pool(
-        DatabasePool::Sqlite(pool),
-    )))
+    MetricsService::new(
+        Arc::new(MetricsRepository::new_from_pool(DatabasePool::Sqlite(pool))),
+        Arc::new(NoOpEventBus),
+    )
 }
 
 pub(super) fn metric_entry(
@@ -400,9 +410,12 @@ async fn postgres_native_history_refreshes_changed_records_atomically() {
     let pool = crate::infrastructure::database::init_postgres_database(&url)
         .await
         .unwrap();
-    let service = MetricsService::new(Arc::new(MetricsRepository::new_from_pool(
-        DatabasePool::Postgres(pool.clone()),
-    )));
+    let service = MetricsService::new(
+        Arc::new(MetricsRepository::new_from_pool(DatabasePool::Postgres(
+            pool.clone(),
+        ))),
+        Arc::new(NoOpEventBus),
+    );
     let suffix = Utc::now().timestamp_nanos_opt().unwrap();
     let refresh_id = format!("stub__postgres__Kustomization__refresh__{suffix}");
     let concurrent_id = format!("stub__postgres__Kustomization__concurrent__{suffix}");
@@ -498,4 +511,56 @@ async fn expired_native_history_does_not_restore_deleted_metrics() {
     let dir = tempfile::tempdir().unwrap();
     let service = sqlite_service(&dir).await;
     assert_native_retention(&service, "stub__1__HelmRelease__apps__retention").await;
+}
+
+async fn recorded_service(dir: &tempfile::TempDir) -> (MetricsService, Arc<RecordingBus>) {
+    let pool = crate::infrastructure::database::init_database(dir.path().join("metrics.db"))
+        .await
+        .unwrap();
+    let bus = Arc::new(RecordingBus::default());
+    let service = MetricsService::new(
+        Arc::new(MetricsRepository::new_from_pool(DatabasePool::Sqlite(pool))),
+        bus.clone(),
+    );
+    (service, bus)
+}
+
+#[tokio::test]
+async fn saving_the_global_config_announces_the_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let (service, bus) = recorded_service(&dir).await;
+
+    service.update_global_config(true, 14).await.unwrap();
+
+    assert_eq!(bus.names(), ["metrics-global-config-changed"]);
+}
+
+#[tokio::test]
+async fn saving_a_pipeline_config_announces_that_pipeline() {
+    let dir = tempfile::tempdir().unwrap();
+    let (service, bus) = recorded_service(&dir).await;
+
+    service
+        .update_pipeline_config("stub__1__web", true, 14)
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        bus.events().as_slice(),
+        [CoreEvent::MetricsConfigChanged { pipeline_id }] if pipeline_id == "stub__1__web"
+    ));
+}
+
+#[tokio::test]
+async fn a_rejected_config_save_announces_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (service, bus) = recorded_service(&dir).await;
+
+    assert!(service.update_global_config(true, 0).await.is_err());
+    assert!(service
+        .update_pipeline_config("stub__1__web", true, 0)
+        .await
+        .is_err());
+
+    assert!(bus.events().is_empty());
 }

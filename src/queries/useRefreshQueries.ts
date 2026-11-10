@@ -6,7 +6,7 @@ import { isTauri } from '../services/isTauri'
 import { service } from '../services/service'
 import type { RefreshResult } from '../types/health'
 import type { ProviderSummary } from '../types/providers'
-import { displayErrorNotification } from '../utils/errorDisplay'
+import { displayErrorNotification, errorMessage } from '../utils/errorDisplay'
 import { summarizeRefresh } from '../utils/refreshSummary'
 
 const REFRESH_TOAST_MS = 5000
@@ -43,22 +43,24 @@ export function useRefreshProviders(): RefreshProvidersResult {
       return
     }
 
-    const settled = await Promise.allSettled(ids.map((id) => refreshProvider(id)))
+    const results = await Promise.all(
+      ids.map((id) =>
+        refreshProvider(id).catch(
+          (error: unknown): RefreshResult => ({
+            provider_id: id,
+            state: 'failed',
+            kind: null,
+            message: errorMessage(error, 'Refresh failed'),
+          })
+        )
+      )
+    )
 
     if (!desktopOffline()) {
-      const results = settled.flatMap((entry) => (entry.status === 'fulfilled' ? [entry.value] : []))
-      const failed = settled.find((entry): entry is PromiseRejectedResult => entry.status === 'rejected')
+      const providers = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list()) ?? []
+      const { message, color } = summarizeRefresh(results, providers)
 
-      if (results.length > 0) {
-        const providers = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list()) ?? []
-        const { message, color } = summarizeRefresh(results, providers)
-
-        notifications.show({ message, color, autoClose: REFRESH_TOAST_MS })
-      }
-
-      if (failed) {
-        displayErrorNotification(failed.reason, "Couldn't refresh")
-      }
+      notifications.show({ message, color, autoClose: REFRESH_TOAST_MS })
     }
 
     await Promise.all([

@@ -123,6 +123,7 @@ impl PipelineService {
             self.event_bus
                 .emit(CoreEvent::RunHistoryCacheInvalidated {
                     pipeline_id: Some(pipeline_id.to_string()),
+                    run_number: None,
                 })
                 .await;
         }

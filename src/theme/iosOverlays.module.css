@@ -348,7 +348,7 @@
 /* ---------- Banners (Notifications) ---------- */
 
 .toastRoot {
-  top: calc(var(--safe-top) + 6px);
+  top: calc(var(--safe-top) + 44px + var(--connection-banner-height, 0px) + var(--mantine-spacing-3xs));
   width: calc(100% - 16px - var(--safe-left) - var(--safe-right));
   max-width: 440px;
   pointer-events: none;

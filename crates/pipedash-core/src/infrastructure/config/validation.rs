@@ -23,6 +23,14 @@ impl ValidationResult {
         self.errors.is_empty()
     }
 
+    pub fn error_summary(&self) -> String {
+        self.errors
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("; ")
+    }
+
     pub fn add_error(&mut self, error: ConfigError) {
         self.errors.push(error);
     }

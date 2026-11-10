@@ -28,6 +28,7 @@ import type { ViewPipeline } from '../types/views'
 export const workflowPin = (pipeline: ViewPipeline, actions: PipelineActions): PinToggle => ({
   pinned: pipeline.pinned,
   label: pipeline.pinned ? 'Unpin' : 'Pin',
+  pending: actions.isBusy(pipeline.id),
   onToggle: () => actions.onTogglePin(pipeline),
 })
 
@@ -111,6 +112,7 @@ export function workflowMenuItems(
     items.push({
       label: 'Enable',
       icon: <IconPower size={16} aria-hidden />,
+      disabled: actions.isBusy(pipeline.id),
       onClick: () => actions.onEnable(pipeline),
     })
   }
@@ -120,6 +122,7 @@ export function workflowMenuItems(
     {
       label: pin.label,
       icon: pin.pinned ? <IconPinFilled size={16} aria-hidden /> : <IconPin size={16} aria-hidden />,
+      disabled: pin.pending,
       onClick: pin.onToggle,
     },
     {
@@ -133,6 +136,7 @@ export function workflowMenuItems(
     items.push({
       label: actions.removeLabel ?? 'Remove from view',
       icon: <IconFolderMinus size={16} aria-hidden />,
+      disabled: actions.isBusy(pipeline.id),
       onClick: () => onRemoveFromView(pipeline),
     })
   }
@@ -140,6 +144,7 @@ export function workflowMenuItems(
   items.push(...actions.notifyItems(pipeline), {
     label: pipeline.hidden ? 'Unhide' : 'Hide',
     icon: pipeline.hidden ? <IconEye size={16} aria-hidden /> : <IconEyeOff size={16} aria-hidden />,
+    disabled: actions.isBusy(pipeline.id),
     onClick: () => actions.onToggleHidden(pipeline),
   })
 
@@ -155,6 +160,7 @@ export function workflowSwipeActions(
     key: 'pin',
     label: pin.pinned ? 'Unpin' : 'Pin',
     tone: 'orange',
+    disabled: pin.pending,
     onSelect: pin.onToggle,
   }
 

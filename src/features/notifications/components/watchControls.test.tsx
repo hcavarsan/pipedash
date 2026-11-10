@@ -6,6 +6,7 @@ import type { ReactElement } from 'react'
 
 import { pipelineFixture, providerSummaryFixture } from '../../../testing/fixtures'
 import type { NotificationPreferenceSnapshot, PreferenceChange } from '../../../types/notification_preferences'
+import type { NotificationPreferences } from '../../../types/notifications'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
@@ -24,11 +25,15 @@ const { queryKeys } = await import('../../../lib/queryKeys')
 const { DEFAULT_NOTIFICATION_PREFERENCES, useNotificationStore } = await import('../../../stores/notificationStore')
 const { NotificationPreferencesSection } = await import('./NotificationPreferencesSection')
 const { PipelineNotifyMenu } = await import('./PipelineNotifyMenu')
+const { notifications } = await import('../../../lib/notifications')
+const { changePreference, refreshPreferenceStates } = await import('../queries/changePreference')
 
 const view = () => within(document.body)
 const pipeline = pipelineFixture({ id: 'stub__1__acme/api__ci.yml', name: 'API CI', repository: 'acme/api' })
 const changes: PreferenceChange[] = []
+const currents: (NotificationPreferences | undefined)[] = []
 let reply: NotificationPreferenceSnapshot
+let respond: (current: NotificationPreferences | undefined) => Promise<NotificationPreferenceSnapshot>
 
 function mount(ui: ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
@@ -48,13 +53,23 @@ const snapshot = (
   pipeline_states: pipelineStates,
 })
 
+function idle(): Promise<void> {
+  const { promise, resolve } = Promise.withResolvers<void>()
+  setTimeout(resolve, 20)
+
+  return promise
+}
+
 beforeEach(() => {
   changes.length = 0
+  currents.length = 0
   reply = snapshot()
-  const change = async (next: PreferenceChange) => {
+  respond = async () => reply
+  const change = async (next: PreferenceChange, current?: NotificationPreferences) => {
     changes.push(next)
+    currents.push(current)
 
-    return reply
+    return respond(current)
   }
 
   mock.method(apiService, 'changeNotificationPreference', change)
@@ -153,4 +168,94 @@ test('a request that already fired is shown as the default state in the menu and
 
   assert.ok(view().getByRole('button', { name: 'Notifications, notification options' }))
   assert.equal(view().queryByText(/Next finish only/), null)
+})
+
+const menuActions = [
+  { item: 'Watch all runs', toast: 'Watching pipeline' },
+  { item: 'Notify when this run finishes', toast: "You'll be notified when API CI finishes" },
+  { item: 'Mute notifications', toast: 'Pipeline muted' },
+] as const
+
+for (const { item, toast } of menuActions) {
+  test(`"${item}" confirms only after the change is saved`, async () => {
+    const shown = mock.method(notifications, 'show')
+    const saved = Promise.withResolvers<NotificationPreferenceSnapshot>()
+    respond = () => saved.promise
+    const user = userEvent.setup({ document })
+    mount(<PipelineNotifyMenu pipeline={{ ...pipeline, status: 'running' }} />)
+
+    await user.click(view().getByRole('button', { name: /notification options/ }))
+    await user.click(await view().findByRole('menuitem', { name: item }))
+    await waitFor(() => assert.equal(changes.length, 1))
+    assert.equal(shown.mock.callCount(), 0)
+
+    saved.resolve(snapshot())
+    await waitFor(() =>
+      assert.deepEqual(
+        shown.mock.calls.map((call) => call.arguments[0]?.title),
+        [toast]
+      )
+    )
+  })
+
+  test(`"${item}" shows the error and no confirmation when the change fails`, async () => {
+    const shown = mock.method(notifications, 'show')
+    respond = async () => {
+      throw new Error('Host unreachable')
+    }
+    const user = userEvent.setup({ document })
+    mount(<PipelineNotifyMenu pipeline={{ ...pipeline, status: 'running' }} />)
+
+    await user.click(view().getByRole('button', { name: /notification options/ }))
+    await user.click(await view().findByRole('menuitem', { name: item }))
+    await waitFor(() => assert.ok(shown.mock.callCount() > 0))
+    await idle()
+
+    assert.deepEqual(
+      shown.mock.calls.map((call) => call.arguments[0]?.title),
+      ["Couldn't update notification settings"]
+    )
+  })
+}
+
+test('two changes are sent one at a time and the second request carries the first result', async () => {
+  const first = Promise.withResolvers<NotificationPreferenceSnapshot>()
+  const saved = { ...DEFAULT_NOTIFICATION_PREFERENCES, failed: false }
+  respond = () => (changes.length === 1 ? first.promise : Promise.resolve(snapshot()))
+
+  const failed = changePreference({ type: 'kind', kind: 'failed', enabled: false })
+  const degraded = changePreference({ type: 'kind', kind: 'degraded', enabled: false })
+  await waitFor(() => assert.equal(changes.length, 1))
+  await idle()
+  assert.equal(changes.length, 1)
+
+  first.resolve({ preferences: saved, pipeline_states: {} })
+
+  assert.deepEqual(await Promise.all([failed, degraded]), [true, true])
+  assert.deepEqual(changes, [
+    { type: 'kind', kind: 'failed', enabled: false },
+    { type: 'kind', kind: 'degraded', enabled: false },
+  ])
+  assert.deepEqual(currents[1], saved)
+})
+
+test('a refresh queued behind a change sends the value that change saved', async () => {
+  const first = Promise.withResolvers<NotificationPreferenceSnapshot>()
+  const saved = { ...DEFAULT_NOTIFICATION_PREFERENCES, failed: false }
+  respond = async (current) =>
+    changes.length === 1
+      ? first.promise
+      : { preferences: current ?? DEFAULT_NOTIFICATION_PREFERENCES, pipeline_states: {} }
+
+  const change = changePreference({ type: 'kind', kind: 'failed', enabled: false })
+  const refresh = refreshPreferenceStates()
+  await waitFor(() => assert.equal(changes.length, 1))
+  await idle()
+  assert.equal(changes.length, 1)
+
+  first.resolve({ preferences: saved, pipeline_states: {} })
+  await Promise.all([change, refresh])
+
+  assert.deepEqual(changes[1], { type: 'kind', kind: 'failed', enabled: false })
+  assert.equal(useNotificationStore.getState().preferences.failed, false)
 })

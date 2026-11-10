@@ -21,13 +21,3 @@ export const DEBOUNCE_DELAYS = {
 
   VALIDATION: 300,
 } as const
-
-export const RETRY_INTERVALS = {
-  INITIAL: 1000,
-
-  STANDARD: 2000,
-
-  LONG: 5000,
-
-  MAX_BACKOFF: 30000,
-} as const

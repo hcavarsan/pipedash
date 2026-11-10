@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom'
 
 import { EmptyState } from '../../../components/common/EmptyState'
+import { ErrorState } from '../../../components/common/ErrorState'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { PageContainer } from '../../../components/common/PageContainer'
 import { PageHeader } from '../../../components/common/PageHeader'
@@ -15,10 +16,20 @@ import { type DetailTab, RunHistoryPage } from '../components/RunHistoryPage'
 interface PipelineDetailRouteProps {
   pipelines: Pipeline[]
   loading: boolean
+  error: unknown
+  retrying: boolean
+  onRetry: () => void
   onBack: () => void
 }
 
-export function PipelineDetailRoute({ pipelines, loading, onBack }: PipelineDetailRouteProps): ReactNode {
+export function PipelineDetailRoute({
+  pipelines,
+  loading,
+  error,
+  retrying,
+  onRetry,
+  onBack,
+}: PipelineDetailRouteProps): ReactNode {
   const { pipelineId } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
   const { state, pathname } = useLocation()
@@ -51,6 +62,15 @@ export function PipelineDetailRoute({ pipelines, loading, onBack }: PipelineDeta
     params.delete('tab')
 
     return <Navigate replace state={state} to={{ pathname, search: params.toString() }} />
+  }
+
+  if (!actualPipeline && error) {
+    return (
+      <PageContainer>
+        <PageHeader title="Pipeline" onBack={onBack} />
+        <ErrorState title="Couldn't load this pipeline" error={error} onRetry={onRetry} retrying={retrying} />
+      </PageContainer>
+    )
   }
 
   if (!loading && !actualPipeline) {

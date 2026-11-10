@@ -27,10 +27,7 @@ use crate::domain::{
     DomainResult,
     Pipeline,
 };
-use crate::event::{
-    CacheInvalidationReason,
-    CoreEvent,
-};
+use crate::event::CoreEvent;
 
 struct Applied {
     pipelines: Vec<Pipeline>,
@@ -243,12 +240,6 @@ impl PipelineService {
                 pipelines: applied.pipelines,
                 provider_id: id,
                 timestamp: Utc::now().timestamp_millis(),
-            })
-            .await;
-        self.event_bus
-            .emit(CoreEvent::PipelineCacheInvalidated {
-                provider_id: Some(id),
-                reason: CacheInvalidationReason::Fetch,
             })
             .await;
         if !applied.changed_ids.is_empty() {

@@ -19,6 +19,7 @@ use pipedash_core::domain::{
     DomainError,
     DomainResult,
 };
+use pipedash_core::event::CoreEvent;
 use pipedash_core::infrastructure::migration::VAULT_PASSWORD_ENV_VAR;
 use pipedash_core::infrastructure::StorageManager;
 use serde::{
@@ -206,6 +207,7 @@ async fn lock_vault(State(state): State<AppState>) -> Json<UnlockVaultResponse> 
     };
     if let Some(old_core) = old_core {
         state.download_tickets.clear();
+        old_core.event_bus.emit(CoreEvent::VaultLocked).await;
         old_core.shutdown().await;
     }
 

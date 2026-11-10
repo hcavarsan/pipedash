@@ -1,4 +1,5 @@
 import type { ContextMenuItem } from '../components/common/ContextMenu'
+import type { PipelineMark } from '../features/pipelines/queries/usePipelineViewQueries'
 import type { StatusKey } from '../theme/status'
 import type { Pipeline, PipelineStatus } from './pipelines'
 import type { PipelineTerminology } from './presentation'
@@ -43,6 +44,8 @@ export type SectionMenuTarget = Pick<SectionRow, 'type' | 'id' | 'name' | 'kind'
 export interface PipelineActions {
   onTogglePin: (p: ViewPipeline) => void
   onToggleHidden: (p: ViewPipeline) => void
+  onSetMarks: (mark: PipelineMark, pipelines: ViewPipeline[], value: boolean) => void
+  isBusy: (pipelineId: string) => boolean
   onAddToView: (p: ViewPipeline) => void
   onRemoveFromView?: ((p: ViewPipeline) => void) | undefined
   removeLabel?: string | undefined
@@ -67,5 +70,6 @@ export interface PipelineSelection {
 export interface PinToggle {
   pinned: boolean
   label: string
+  pending: boolean
   onToggle: () => void
 }

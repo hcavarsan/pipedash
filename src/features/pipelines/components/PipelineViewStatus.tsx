@@ -72,7 +72,7 @@ export function PipelineViewStatus({
   onDisplayChange,
   children,
 }: PipelineViewStatusProps): ReactNode {
-  const { error, loading, providers, page, view, display } = model
+  const { error, loading, retrying, providers, page, view, display } = model
   const openAddProviderModal = useProviderStore((s) => s.openAddProviderModal)
 
   if (getErrorCode(error) === 'NOT_FOUND') {
@@ -93,12 +93,12 @@ export function PipelineViewStatus({
     )
   }
 
-  if (error) {
+  if (error && !page) {
     return (
       <PageContainer>
         <PipelineViewToolbar model={model} onDisplayChange={onDisplayChange} />
         <PipelineBuildWatch model={model} onViewRun={onViewRun} />
-        <ErrorState title="Couldn't load pipelines" error={error} onRetry={onRetry} retrying={loading} />
+        <ErrorState title="Couldn't load pipelines" error={error} onRetry={onRetry} retrying={retrying} />
       </PageContainer>
     )
   }
@@ -133,6 +133,20 @@ export function PipelineViewStatus({
   }
 
   return children
+}
+
+export function PipelineViewReloadError({
+  model,
+  onRetry,
+}: {
+  model: PipelineViewPageModel
+  onRetry: () => void
+}): ReactNode {
+  if (!model.error || !model.page) {
+    return null
+  }
+
+  return <ErrorState title="Couldn't load pipelines" error={model.error} onRetry={onRetry} retrying={model.retrying} />
 }
 
 export function PipelineViewEmptyState({

@@ -8,13 +8,19 @@ import { PipelinePinnedArea } from './PipelinePinnedArea'
 import { PipelineViewFilters } from './PipelineViewFilters'
 import { PipelineViewResults } from './PipelineViewResults'
 import { PipelineViewSelection } from './PipelineViewSelection'
-import { PipelineBuildWatch, PipelineViewEmptyState, PipelineViewStatus } from './PipelineViewStatus'
+import {
+  PipelineBuildWatch,
+  PipelineViewEmptyState,
+  PipelineViewReloadError,
+  PipelineViewStatus,
+} from './PipelineViewStatus'
 import { PipelineViewNav, PipelineViewToolbar } from './PipelineViewToolbar'
 
 interface UnifiedPipelinesViewProps {
   providers: ProviderSummary[]
   loading?: boolean
   error?: unknown
+  retrying?: boolean
   onRetry: () => void
   onViewHistory: (pipeline: Pipeline) => void
   onViewRun: (pipelineId: string, runNumber: number) => void
@@ -26,13 +32,14 @@ export function UnifiedPipelinesView({
   providers,
   loading = false,
   error,
+  retrying = false,
   onRetry,
   onViewHistory,
   onViewRun,
   onTrigger,
   onViewMetrics,
 }: UnifiedPipelinesViewProps): ReactNode {
-  const model = usePipelineViewModel({ providers, loading, error })
+  const model = usePipelineViewModel({ providers, loading, error, retrying })
   const [filtersOpen, setFiltersOpen] = useState(false)
   const { actions, changeDisplay, cancelDialog } = usePipelineActions({
     view: model.view,
@@ -67,6 +74,7 @@ export function UnifiedPipelinesView({
         <PipelineViewToolbar model={model} onDisplayChange={changeDisplay} onOpenFilters={() => setFiltersOpen(true)} />
         {header}
         <PipelineBuildWatch model={model} onViewRun={onViewRun} />
+        <PipelineViewReloadError model={model} onRetry={onRetry} />
         <PipelineViewSelection model={model} actions={actions} />
         {cancelDialog}
         <PipelinePinnedArea model={model} actions={actions} />

@@ -1,12 +1,15 @@
 import { ActionIcon, Button, Group, Stack, Text, Tooltip, UnstyledButton } from '@mantine/core'
-import { IconGripVertical, IconPlus, IconTrash } from '@tabler/icons-react'
+import { IconFolder, IconGripVertical, IconPlus, IconTrash } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
+import { EmptyState } from '../../../components/common/EmptyState'
 import { StandardModal } from '../../../components/common/StandardModal'
 import type { PipelineView } from '../../../types/views'
 import { reorderSlots } from '../../../utils/viewTree'
 import { useConfirmDeleteView } from '../hooks/useConfirmDeleteView'
-import { usePipelineViews, useReorderPipelineViews } from '../queries/usePipelineViewQueries'
+import { usePipelineViews } from '../queries/usePipelineViewQueries'
+import { useReorderPipelineViews, useViewsReordering } from '../queries/useViewReorderQueries'
 import { usePipelineViewStore } from '../stores/pipelineViewStore'
+import { QueryBoundary } from './QueryBoundary'
 import { type SortableDragProps, SortableList } from './SortableList'
 
 interface ManageViewRowProps {
@@ -65,6 +68,7 @@ interface ManageViewListProps {
 function ManageViewList({ views, parentId, movableIds }: ManageViewListProps): ReactNode {
   const openEditor = usePipelineViewStore((s) => s.openEditor)
   const { mutate: reorder } = useReorderPipelineViews()
+  const { reordering } = useViewsReordering()
   const confirmDelete = useConfirmDeleteView()
   const siblings = views.filter((v) => v.parent === parentId && v.capabilities.reorder)
 
@@ -79,6 +83,7 @@ function ManageViewList({ views, parentId, movableIds }: ManageViewListProps): R
         getId={(g) => g.id}
         orientation="vertical"
         handle
+        disabled={reordering}
         onReorder={(order) => reorder(reorderSlots(movableIds, order))}
       >
         {(view, drag) => (
@@ -97,13 +102,40 @@ function ManageViewList({ views, parentId, movableIds }: ManageViewListProps): R
   )
 }
 
+function ManageViewsContent({ views }: { views: PipelineView[] }): ReactNode {
+  const movableIds = views.filter((g) => g.capabilities.reorder).map((g) => g.id)
+  const configViews = views.filter((g) => g.kind === 'config')
+
+  if (views.length === 0) {
+    return (
+      <EmptyState
+        icon={<IconFolder size={24} aria-hidden />}
+        title="No views yet"
+        description="Create a view to organize your pipelines your way."
+      />
+    )
+  }
+
+  return (
+    <Stack gap="lg">
+      <ManageViewList views={views} parentId={null} movableIds={movableIds} />
+
+      {configViews.length > 0 && (
+        <Stack gap="2xs">
+          {configViews.map((view) => (
+            <ConfigViewItem key={view.id} view={view} />
+          ))}
+        </Stack>
+      )}
+    </Stack>
+  )
+}
+
 export function ManageViewsModal(): ReactNode {
   const opened = usePipelineViewStore((s) => s.manageOpen)
   const closeManage = usePipelineViewStore((s) => s.closeManage)
   const openEditor = usePipelineViewStore((s) => s.openEditor)
-  const { data: views = [] } = usePipelineViews(opened)
-  const movableIds = views.filter((g) => g.capabilities.reorder).map((g) => g.id)
-  const configViews = views.filter((g) => g.kind === 'config')
+  const viewsQuery = usePipelineViews(opened)
 
   return (
     <StandardModal
@@ -127,17 +159,9 @@ export function ManageViewsModal(): ReactNode {
         </Group>
       }
     >
-      <Stack gap="lg">
-        <ManageViewList views={views} parentId={null} movableIds={movableIds} />
-
-        {configViews.length > 0 && (
-          <Stack gap="2xs">
-            {configViews.map((view) => (
-              <ConfigViewItem key={view.id} view={view} />
-            ))}
-          </Stack>
-        )}
-      </Stack>
+      <QueryBoundary query={viewsQuery} loading="Loading views…" failure="Couldn't load views">
+        {(views) => <ManageViewsContent views={views} />}
+      </QueryBoundary>
     </StandardModal>
   )
 }

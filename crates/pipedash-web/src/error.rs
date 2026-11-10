@@ -92,7 +92,13 @@ impl From<DomainError> for AppError {
             }
             DomainError::NotSupported(_) => StatusCode::NOT_IMPLEMENTED,
             DomainError::Unprocessable { .. } => StatusCode::UNPROCESSABLE_ENTITY,
-            DomainError::Conflict { .. } => StatusCode::CONFLICT,
+            DomainError::Conflict { .. } | DomainError::ConcurrentModification(_) => {
+                StatusCode::CONFLICT
+            }
+            DomainError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
+            DomainError::ServiceUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            DomainError::Timeout(_) => StatusCode::GATEWAY_TIMEOUT,
+            DomainError::NetworkError(_) | DomainError::Tls(_) => StatusCode::BAD_GATEWAY,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         AppError::new(status, ApiError::new(err.code(), err.to_string()))
@@ -106,3 +112,6 @@ impl From<anyhow::Error> for AppError {
 }
 
 pub type ApiResult<T> = Result<T, AppError>;
+
+#[cfg(test)]
+mod tests;

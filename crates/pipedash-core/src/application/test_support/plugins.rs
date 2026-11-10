@@ -7,6 +7,7 @@ use pipedash_plugin_api::defaults::{
     default_pipelines_table,
     table_schema,
 };
+use pipedash_plugin_api::plugin::defaults::pipeline_actions;
 use pipedash_plugin_api::{
     http,
     AuthMode,
@@ -17,7 +18,11 @@ use pipedash_plugin_api::{
     PaginatedAvailablePipelines,
     PaginatedResponse,
     PaginationParams,
+    PermissionCheck,
+    PermissionStatus,
     Pipeline,
+    PipelineActionState,
+    PipelineFacts,
     PipelineRun,
     PipelineStatus,
     Plugin,
@@ -27,6 +32,7 @@ use pipedash_plugin_api::{
     PluginMetadata,
     PluginRegistry,
     PluginResult,
+    RerunStrategy,
     RunHistoryOrder,
     RunHistoryPolicy,
     SignInClient,
@@ -164,6 +170,14 @@ impl StubPlugin {
         }
     }
 
+    async fn probe_permissions(&self) -> PluginResult<()> {
+        let Some((url, client)) = self.server.as_ref().filter(|_| self.kind == Kind::Http) else {
+            return Ok(());
+        };
+        http::check_response(http::send(url, client.get(url.clone())).await?).await?;
+        Ok(())
+    }
+
     async fn probe(&self) -> PluginResult<()> {
         let Some((url, client)) = &self.server else {
             return Ok(());
@@ -181,6 +195,14 @@ impl Plugin for StubPlugin {
 
     fn selection_required(&self, config: &HashMap<String, String>) -> bool {
         config.get("note").is_none_or(|value| value != "automatic")
+    }
+
+    fn pipeline_actions(&self, pipeline: &PipelineFacts<'_>) -> PipelineActionState {
+        let mut state = pipeline_actions(&self.metadata.capabilities, pipeline);
+        if pipeline.metadata.get("rerun_in_place") == Some(&serde_json::Value::Bool(true)) {
+            state.rerun_strategy = RerunStrategy::InPlace;
+        }
+        state
     }
 
     fn initialize(
@@ -209,6 +231,25 @@ impl Plugin for StubPlugin {
     async fn validate_credentials(&self) -> PluginResult<bool> {
         self.probe().await?;
         Ok(true)
+    }
+
+    async fn check_permissions(&self) -> PluginResult<PermissionStatus> {
+        self.probe_permissions().await?;
+        Ok(PermissionStatus {
+            permissions: self
+                .metadata
+                .required_permissions
+                .iter()
+                .map(|permission| PermissionCheck {
+                    permission: permission.clone(),
+                    granted: true,
+                })
+                .collect(),
+            all_granted: true,
+            checked_at: chrono::Utc::now(),
+            metadata: HashMap::new(),
+            credential_label: None,
+        })
     }
 
     async fn fetch_available_pipelines(

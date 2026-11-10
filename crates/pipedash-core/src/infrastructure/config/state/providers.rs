@@ -22,25 +22,56 @@ use crate::infrastructure::config::sync::SyncResult;
 use crate::infrastructure::config::validation::ConfigValidator;
 use crate::infrastructure::ConfigBackend;
 
+pub struct RemovedProvider {
+    id: String,
+    entry: Option<toml_edit::Item>,
+    remembered: Option<ProviderFileConfig>,
+}
+
 impl ConfigState {
-    pub async fn remove_provider(&self, id: &str) -> DomainResult<()> {
+    pub async fn remove_provider(&self, id: &str) -> DomainResult<RemovedProvider> {
+        let mut entry = None;
         if let Some(content) = read_optional(&self.config_path).await? {
             let mut doc = parse_document(&content)?;
-            if doc
+            entry = doc
                 .get_mut("providers")
                 .and_then(toml_edit::Item::as_table_like_mut)
-                .and_then(|providers| providers.remove(id))
-                .is_some()
-            {
+                .and_then(|providers| providers.remove(id));
+            if entry.is_some() {
                 write_file(&self.config_path, doc.to_string()).await?;
             }
         }
 
         let mut current = self.config.write().await;
-        if current.providers.contains_key(id) {
+        let remembered = current.providers.get(id).cloned();
+        if remembered.is_some() {
             let mut config = (**current).clone();
             config.providers.shift_remove(id);
             *current = Arc::new(config);
+        }
+        Ok(RemovedProvider {
+            id: id.to_string(),
+            entry,
+            remembered,
+        })
+    }
+
+    pub async fn restore_provider(&self, removed: RemovedProvider) -> DomainResult<()> {
+        if let Some(entry) = removed.entry {
+            let content = read_optional(&self.config_path).await?.unwrap_or_default();
+            let mut doc = parse_document(&content)?;
+            let providers = doc.entry("providers").or_insert_with(|| {
+                let mut table = toml_edit::Table::new();
+                table.set_implicit(true);
+                toml_edit::Item::Table(table)
+            });
+            if let Some(providers) = providers.as_table_like_mut() {
+                providers.insert(&removed.id, entry);
+            }
+            write_file(&self.config_path, doc.to_string()).await?;
+        }
+        if let Some(provider) = removed.remembered {
+            self.remember_provider(&removed.id, &provider).await;
         }
         Ok(())
     }
@@ -70,8 +101,8 @@ impl ConfigState {
         let validation = ConfigValidator::validate_with_plugins(&file, &self.plugin_registry);
         if !validation.errors.is_empty() {
             return Err(DomainError::InvalidConfig(format!(
-                "Config validation failed: {:?}",
-                validation.errors
+                "Config validation failed: {}",
+                validation.error_summary()
             )));
         }
 

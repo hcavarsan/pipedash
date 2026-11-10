@@ -80,6 +80,7 @@ export interface LogDocumentMeta {
   updated_at_ms: number
   stable_lines: number
   previous_revision: number | null
+  refresh_error: string | null
 }
 
 export type RunLogDocument =

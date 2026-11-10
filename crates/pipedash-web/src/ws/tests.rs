@@ -763,3 +763,34 @@ async fn the_raw_notification_event_is_never_sent_and_needs_a_core() {
 
     assert_eq!(next_message(&mut stream).await["type"], "providers-changed");
 }
+
+#[tokio::test]
+async fn locking_the_vault_tells_connected_clients() {
+    let host = hosted("ws-vault-lock").await;
+    host.state.set_api_token("vault-password");
+    let mut stream = connect_state(host.state.clone()).await;
+    send_json(
+        &mut stream,
+        json!({ "type": "auth", "token": "vault-password" }),
+    )
+    .await;
+    assert_eq!(next_message(&mut stream).await["type"], "auth-ok");
+
+    let response = tower::ServiceExt::oneshot(
+        crate::routes::api_router().with_state(host.state.clone()),
+        axum::http::Request::post("/vault/lock")
+            .body(axum::body::Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+
+    loop {
+        let message = next_message(&mut stream).await;
+        if message["type"] == "vault-locked" {
+            assert_eq!(message["payload"], json!({}));
+            break;
+        }
+    }
+}

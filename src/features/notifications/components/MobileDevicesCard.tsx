@@ -6,6 +6,7 @@ import { IosGroup } from '../../../components/ios/IosList'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useNow } from '../../../hooks/useNow'
 import type { MobileDevice } from '../../../types/notifications'
+import { openConfirm } from '../../../utils/confirm'
 import { formatRelativeTime } from '../../../utils/formatRelativeTime'
 import { useMobileDevices, useRemoveMobileDevice, useTestMobileDevice } from '../queries/usePushQueries'
 
@@ -44,6 +45,16 @@ export function MobileDevicesCard(): ReactNode {
     return null
   }
 
+  const confirmRemove = (device: MobileDevice): void => {
+    openConfirm({
+      title: `Remove ${device.device_name}?`,
+      children: 'It stops receiving push alerts from this host.',
+      labels: { confirm: 'Remove', cancel: 'Cancel' },
+      confirmProps: { color: 'red' },
+      onConfirm: () => remove.mutate(device),
+    })
+  }
+
   const rows = data.subscriptions.map((device) => (
     <PushDeviceRow
       key={device.id}
@@ -52,9 +63,9 @@ export function MobileDevicesCard(): ReactNode {
       testLabel={`Send a test push to ${device.device_name}`}
       removeLabel={`Remove ${device.device_name}`}
       testing={sendTest.isPending && sendTest.variables === device.id}
-      removing={remove.isPending && remove.variables === device.id}
+      removing={remove.isPending && remove.variables?.id === device.id}
       onTest={() => sendTest.mutate(device.id)}
-      onRemove={() => remove.mutate(device.id)}
+      onRemove={() => confirmRemove(device)}
     />
   ))
 

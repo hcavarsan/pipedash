@@ -5,15 +5,9 @@ import { listenEvent } from '../../../services/events'
 import { isRecord } from '../../../utils/isRecord'
 import { useInvalidatePipelineMetrics } from '../queries/useMetricsQueries'
 
-const METRICS_EVENT_TYPES = [
-  'metrics-generated',
-  'metrics-config-changed',
-  'run-triggered',
-  'run-cancelled',
-  'pipeline-status-changed',
-] as const
+const GATED_EVENT_TYPES = ['metrics-generated', 'run-triggered', 'run-cancelled', 'pipeline-status-changed'] as const
 
-type MetricsEventType = (typeof METRICS_EVENT_TYPES)[number]
+type GatedEventType = (typeof GATED_EVENT_TYPES)[number]
 
 interface UseMetricsEventListenersOptions {
   pipelineId: string
@@ -36,6 +30,42 @@ export function useMetricsEventListeners({
   }, [invalidateMetrics, onConfigChanged])
 
   useEffect(() => {
+    if (!pipelineId) {
+      return
+    }
+
+    let isActive = true
+    let unlisten: (() => void) | undefined
+
+    listenEvent<unknown>('metrics-config-changed', (payload) => {
+      if (!isActive || payload !== pipelineId) {
+        return
+      }
+
+      if (onConfigChangedRef.current) {
+        onConfigChangedRef.current()
+      } else {
+        void invalidateRef.current()
+      }
+    })
+      .then((stop) => {
+        if (isActive) {
+          unlisten = stop
+        } else {
+          stop()
+        }
+      })
+      .catch((error: unknown) => {
+        logger.error('useMetricsEventListeners', 'Failed to listen to metrics-config-changed', error)
+      })
+
+    return () => {
+      isActive = false
+      unlisten?.()
+    }
+  }, [pipelineId])
+
+  useEffect(() => {
     if (!enabled || !pipelineId) {
       return
     }
@@ -43,7 +73,7 @@ export function useMetricsEventListeners({
     let isActive = true
     const unlisteners: Array<() => void> = []
 
-    const handleEvent = (eventType: MetricsEventType, payload: unknown) => {
+    const handleEvent = (eventType: GatedEventType, payload: unknown) => {
       if (!isActive) {
         return
       }
@@ -62,17 +92,13 @@ export function useMetricsEventListeners({
       }
 
       if (payload === pipelineId) {
-        if (eventType === 'metrics-config-changed' && onConfigChangedRef.current) {
-          onConfigChangedRef.current()
-        } else {
-          void invalidateRef.current()
-        }
+        void invalidateRef.current()
       }
     }
 
     const setupListeners = async () => {
       try {
-        for (const eventType of METRICS_EVENT_TYPES) {
+        for (const eventType of GATED_EVENT_TYPES) {
           const unlisten = await listenEvent<unknown>(eventType, (payload) => {
             handleEvent(eventType, payload)
           })

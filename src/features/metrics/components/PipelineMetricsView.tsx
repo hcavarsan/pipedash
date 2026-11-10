@@ -14,6 +14,7 @@ import { useRunHistory } from '../../../queries/useRunHistoryQueries'
 import { service } from '../../../services/service'
 import type { AggregationPeriod, MetricType } from '../../../types/metrics'
 import { type DateRange, isDateRange } from '../../../utils/dateRange'
+import { displayErrorNotification } from '../../../utils/errorDisplay'
 import { formatCount } from '../../../utils/formatCount'
 import { useMetricsEventListeners } from '../hooks/useMetricsEventListeners'
 import {
@@ -83,14 +84,24 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository }: Pi
 
   useRunHistory(pipelineId, runHistoryQuery(1, 50), isMetricsEnabled)
 
-  const handleConfigSaved = async () => {
+  const refreshAfterConfigChange = async () => {
     const { data: freshConfig } = await refetchConfig()
 
-    if (freshConfig?.enabled) {
-      await service.fetchRunHistory(pipelineId, runHistoryQuery(1, 50))
+    if (!freshConfig?.enabled) {
+      return
+    }
 
+    try {
+      await service.fetchRunHistory(pipelineId, runHistoryQuery(1, 50))
+    } catch (error) {
+      displayErrorNotification(error, "Couldn't refresh metrics")
+    } finally {
       void refetchAll()
     }
+  }
+
+  const handleConfigSaved = () => {
+    void refreshAfterConfigChange()
   }
 
   const handleConfigChanged = () => {
@@ -119,16 +130,18 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository }: Pi
     />
   )
 
+  const configError = pipelineConfig.isError ? (
+    <ErrorState
+      title="Couldn't load metrics settings"
+      error={pipelineConfig.error}
+      onRetry={() => refetchConfig()}
+      retrying={pipelineConfig.isFetching}
+    />
+  ) : null
+
   const renderContent = () => {
-    if (pipelineConfig.isError) {
-      return (
-        <ErrorState
-          title="Couldn't load metrics settings"
-          error={pipelineConfig.error}
-          onRetry={() => refetchConfig()}
-          retrying={pipelineConfig.isFetching}
-        />
-      )
+    if (configError && !pipelineConfig.data) {
+      return configError
     }
 
     if (pipelineConfig.isPending) {
@@ -231,8 +244,10 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository }: Pi
 
   return (
     <>
-      {renderContent()}
-
+      <Stack gap="md">
+        {pipelineConfig.data && configError}
+        {renderContent()}
+      </Stack>
       <StandardModal
         opened={showDetailPage}
         onClose={() => setShowDetailPage(false)}

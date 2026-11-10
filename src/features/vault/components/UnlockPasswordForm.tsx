@@ -74,11 +74,6 @@ export function UnlockPasswordForm({
 
   const [state, formAction] = useActionState(unlockAction, INITIAL_STATE)
   const visible = state === dismissed ? INITIAL_STATE : state
-  const dismissErrors = (): void => {
-    if (!mobileShell) {
-      setDismissed(state)
-    }
-  }
   const globalOnPassword = mobileShell && visible.globalError && !confirmation ? visible.globalError : null
   const globalOnConfirmation = mobileShell && visible.globalError && confirmation ? visible.globalError : null
   const blurPasswordError = !mobileShell && blurred.password && !password.trim() ? 'Password is required' : null
@@ -89,12 +84,12 @@ export function UnlockPasswordForm({
 
   const handlePasswordChange = (event: ChangeEvent<HTMLInputElement>): void => {
     setPassword(event.currentTarget.value)
-    dismissErrors()
+    setDismissed(state)
   }
 
   const handleConfirmationChange = (event: ChangeEvent<HTMLInputElement>): void => {
     setConfirmation(event.currentTarget.value)
-    dismissErrors()
+    setDismissed(state)
   }
 
   const handlePasswordKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {

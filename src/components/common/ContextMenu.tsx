@@ -17,7 +17,7 @@ export type ContextMenuItem =
   | { divider: true }
 
 interface ContextMenuState {
-  menu: { x: number; y: number; items: ContextMenuItem[]; trigger: HTMLElement } | null
+  menu: { x: number; y: number; items: ContextMenuItem[]; returnFocus: HTMLElement } | null
   open: (menu: NonNullable<ContextMenuState['menu']>) => void
   close: () => void
 }
@@ -59,9 +59,13 @@ export function useContextMenu(): (items: () => ContextMenuItem[]) => {
         return
       }
 
+      const focused = document.activeElement
+      const returnFocus =
+        focused instanceof HTMLElement && event.currentTarget.contains(focused) ? focused : event.currentTarget
+
       event.preventDefault()
       event.stopPropagation()
-      useContextMenuStore.getState().open({ x, y, items: entries, trigger: event.currentTarget })
+      useContextMenuStore.getState().open({ x, y, items: entries, returnFocus })
     }
 
     return {
@@ -112,8 +116,11 @@ export function ContextMenuHost(): ReactNode {
       onClose={() => {
         const focus = document.activeElement
 
-        if (!focus || focus === document.body || dropdownRef.current?.contains(focus)) {
-          menu?.trigger.focus({ preventScroll: true })
+        if (
+          menu?.returnFocus.isConnected &&
+          (!focus || focus === document.body || dropdownRef.current?.contains(focus))
+        ) {
+          menu.returnFocus.focus({ preventScroll: true })
         }
         close()
       }}

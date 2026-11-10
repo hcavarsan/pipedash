@@ -200,7 +200,6 @@ fn only_pipeline_and_provider_changes_wake_the_tray() {
         "pipeline-views-changed",
         "pipelines-updated",
         "pipeline-status-changed",
-        "pipeline-cache-invalidated",
         "providers-changed",
         "provider-added",
         "provider-updated",

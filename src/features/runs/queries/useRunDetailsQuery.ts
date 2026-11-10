@@ -23,8 +23,14 @@ export function useRunDetails(
   const active = enabled && !!pipelineId && runNumber > 0
   const queryKey = queryKeys.runs.detail(pipelineId, runNumber)
 
-  useRunUpdatedEvent(pipelineId, active, (run) => {
-    if (run.run_number === runNumber) {
+  useRunUpdatedEvent(pipelineId, active, async (run, isCurrent) => {
+    if (run.run_number !== runNumber) {
+      return
+    }
+
+    await queryClient.cancelQueries({ queryKey, exact: true })
+
+    if (isCurrent()) {
       queryClient.setQueryData(queryKey, run)
     }
   })

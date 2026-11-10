@@ -44,7 +44,7 @@ export function ProviderWizardForm({
   const { state, dispatch, formAction, submitIntent, isPending, providerConfig, selectionNeedsRefresh, saveOnly } =
     model
   const missingLabels = model.check?.missing_field_labels ?? []
-  const { step, selectedPlugin, error, fieldErrors } = state
+  const { step, selectedPlugin, fieldErrors } = state
   const items = selectedPlugin?.presentation.terminology.items ?? 'items'
   const announcement = useErrorAnnouncement(fieldErrors)
   const position = `Step ${STEP_ORDER.indexOf(step) + 1} of ${STEP_ORDER.length}`
@@ -116,7 +116,7 @@ export function ProviderWizardForm({
     <form ref={formRef} id={formId} action={formAction} noValidate style={FORM_STYLE}>
       <FormErrorDisplay
         title={errorTitle}
-        globalError={error}
+        globalError={model.submitError}
         onDismiss={() => dispatch({ type: 'SET_ERROR', error: null })}
       />
 

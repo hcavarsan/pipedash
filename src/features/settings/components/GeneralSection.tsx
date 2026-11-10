@@ -13,17 +13,13 @@ import {
   useMantineColorScheme,
 } from '@mantine/core'
 import { IconTrash } from '@tabler/icons-react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ComponentProps, type ReactNode, useState } from 'react'
 
 import { useMobileShell } from '@/hooks/useIsMobile'
-import { logger } from '@/lib/logger'
 import { queryKeys } from '@/lib/queryKeys'
 import { useStorageConfig } from '@/queries/useStorageQueries'
 import { isRemoteClient } from '@/services/connection'
-import { service } from '@/services/service'
-import type { GeneralConfig } from '@/types/storage'
-import { displayErrorNotification } from '@/utils/errorDisplay'
 import { isOneOf } from '@/utils/isOneOf'
 import { getPlatformOverride, isDesktopTauri, isMobilePlatform, platform, setPlatformOverride } from '@/utils/platform'
 
@@ -33,6 +29,7 @@ import { LiveStatus } from '../../../components/forms/LiveStatus'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { FieldRow, RowSelect, SwitchRow } from '../../../components/ios/mobileParts'
 import { useFactoryResetConfirm } from '../hooks/useFactoryResetConfirm'
+import { useUpdateGeneralSettings } from '../queries/useGeneralSettingsQueries'
 
 import { DesktopIntegrationCard } from './DesktopIntegrationCard'
 import { ProxySettingsForm } from './ProxySettingsForm'
@@ -108,14 +105,7 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps): ReactNode {
 
   const storageConfig = useStorageConfig()
   const general = storageConfig.data?.config.general
-  const generalMutation = useMutation({
-    mutationFn: (update: GeneralConfig) => service.updateGeneralSettings(update),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.storage.config() }),
-    onError: (error) => {
-      logger.error('GeneralSection', 'Failed to update general settings', error)
-      displayErrorNotification(error, "Couldn't save general settings")
-    },
-  })
+  const generalMutation = useUpdateGeneralSettings()
   const setStatusPages = (checked: boolean): void => {
     if (general) {
       generalMutation.mutate({ ...general, status_pages_enabled: checked })

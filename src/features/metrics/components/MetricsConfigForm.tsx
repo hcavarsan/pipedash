@@ -6,6 +6,7 @@ import { useMobileShell } from '../../../hooks/useIsMobile'
 import { logger } from '../../../lib/logger'
 import { openConfirm } from '../../../utils/confirm'
 import { errorMessage } from '../../../utils/errorDisplay'
+import { sameJson } from '../../../utils/sameJson'
 import { type ConfigSnapshot, type MetricsConfigModalProps, metricsConfigTitle } from '../lib/metricsConfigScope'
 import { RETENTION_PRESETS } from '../lib/metricsRetention'
 import {
@@ -21,13 +22,17 @@ type MetricsConfigFormProps = MetricsConfigModalProps & { initial: ConfigSnapsho
 
 interface SaveState {
   error: string | null
+  submitted: { enabled: boolean; retention: string | number } | null
 }
 
-const INITIAL_STATE: SaveState = { error: null }
+const INITIAL_STATE: SaveState = { error: null, submitted: null }
 
-function confirmDisable(pipeline: boolean, mobileShell: boolean): Promise<boolean> {
+const leaveFormTransition = (): Promise<void> => Promise.resolve()
+
+async function confirmDisable(pipeline: boolean, mobileShell: boolean): Promise<boolean> {
   const { promise, resolve } = Promise.withResolvers<boolean>()
 
+  await leaveFormTransition()
   openConfirm({
     ...(mobileShell ? { zIndex: 400 } : {}),
     title: 'Disable metrics',
@@ -64,6 +69,8 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
   )
   const [retentionDraft, setRetentionDraft] = useState<string | number>(initial.retentionDays)
 
+  const draftNow = { enabled, retention: retentionDraft }
+
   const saveAction = async (): Promise<SaveState> => {
     const disabling = baseline.enabled && !enabled
 
@@ -72,10 +79,6 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
     }
 
     try {
-      if (disabling) {
-        await flushMutation.mutateAsync(pipelineId)
-      }
-
       const retentionDays = Number(retentionDraft)
 
       if (pipelineId) {
@@ -83,16 +86,24 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
       } else {
         await updateGlobal.mutateAsync({ enabled, retentionDays })
       }
-
-      onConfigChange?.()
-      onClose()
-
-      return INITIAL_STATE
     } catch (error) {
       logger.error('MetricsConfigForm', 'Failed to save metrics configuration', error)
 
-      return { error: errorMessage(error, 'Try saving the metrics settings again.') }
+      return { error: errorMessage(error, 'Try saving the metrics settings again.'), submitted: draftNow }
     }
+
+    if (disabling) {
+      try {
+        await flushMutation.mutateAsync(pipelineId)
+      } catch (error) {
+        logger.error('MetricsConfigForm', 'Failed to delete stored metrics', error)
+      }
+    }
+
+    onConfigChange?.()
+    onClose()
+
+    return INITIAL_STATE
   }
 
   const [state, formAction, isPending] = useActionState(saveAction, INITIAL_STATE)
@@ -144,7 +155,10 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
     >
       <form id={formId} ref={formRef} action={formAction} noValidate>
         <Stack gap={mobileShell ? 'lg' : 'sm'} className={mobileShell ? classes.num : undefined}>
-          <FormErrorDisplay title="Couldn't save metrics settings" globalError={state.error} />
+          <FormErrorDisplay
+            title="Couldn't save metrics settings"
+            globalError={sameJson(state.submitted, draftNow) ? state.error : null}
+          />
           <MetricsCollectionFields
             scope={props}
             enabled={enabled}

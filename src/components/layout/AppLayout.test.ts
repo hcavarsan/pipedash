@@ -66,6 +66,8 @@ afterEach(async () => {
 const stubShell = (context: TestContext, listProviders: () => Promise<ProviderSummary[]>) => {
   context.mock.method(service, 'listProviders', listProviders)
   context.mock.method(service, 'getAvailablePlugins', async () => [])
+  context.mock.method(service, 'listPipelineViews', async () => [])
+  context.mock.method(service, 'listPins', async () => [])
   context.mock.method(service, 'getVaultStatus', async () => ({
     is_unlocked: true,
     password_source: 'none',

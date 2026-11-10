@@ -26,8 +26,9 @@ export interface SignInViewProps {
   continueDisabled: boolean
   blocked: boolean
   starting: boolean
+  cancelling: boolean
   onStart: () => Promise<void>
-  onCancel: () => void
+  onCancel: () => Promise<void>
   onOpenAgain: () => void
   onShowPaste: () => void
   onContinue: () => void
@@ -42,7 +43,13 @@ function ShellBody(props: SignInViewProps): ReactNode {
         <IosRow title={waitingText} accessory={<Loader size="xs" aria-hidden />} />
         {canOpenAgain && <IosRow title="Open the sign-in page again" onClick={props.onOpenAgain} />}
         {pasteLinkVisible && <IosRow title={PASTE_LINK} onClick={props.onShowPaste} />}
-        <IosRow title="Cancel" destructive onClick={props.onCancel} />
+        <IosRow
+          title="Cancel"
+          destructive
+          onClick={props.onCancel}
+          disabled={props.cancelling}
+          accessory={props.cancelling ? <Loader size="xs" aria-hidden /> : undefined}
+        />
       </>
     )
   }
@@ -110,7 +117,7 @@ function DesktopBody(props: SignInViewProps): ReactNode {
               Open the sign-in page again
             </Button>
           )}
-          <Button variant="subtle" size="xs" onClick={props.onCancel}>
+          <Button variant="subtle" size="xs" onClick={props.onCancel} loading={props.cancelling}>
             Cancel
           </Button>
         </Group>

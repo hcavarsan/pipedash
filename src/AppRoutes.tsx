@@ -37,11 +37,17 @@ const NotificationsPage = lazy(() =>
   }))
 )
 
+export interface PrerequisiteState {
+  loading: boolean
+  error: unknown
+  retrying: boolean
+}
+
 interface AppRoutesProps {
   providers: ProviderSummary[]
   pipelines: Pipeline[]
-  loading: boolean
-  error: unknown
+  listPrerequisites: PrerequisiteState
+  detailPrerequisites: PrerequisiteState
   onRetry: () => Promise<void>
   onBack: () => void
   onViewHistory: (pipeline: Pipeline) => void
@@ -53,8 +59,8 @@ interface AppRoutesProps {
 export function AppRoutes({
   providers,
   pipelines,
-  loading,
-  error,
+  listPrerequisites,
+  detailPrerequisites,
   onRetry,
   onViewHistory,
   onViewMetrics,
@@ -67,8 +73,9 @@ export function AppRoutes({
     <LazyRoute>
       <UnifiedPipelinesView
         providers={providers}
-        loading={loading}
-        error={error}
+        loading={listPrerequisites.loading}
+        error={listPrerequisites.error}
+        retrying={listPrerequisites.retrying}
         onRetry={() => {
           void onRetry()
         }}
@@ -92,7 +99,14 @@ export function AppRoutes({
         path="/pipelines/:pipelineId"
         element={
           <LazyRoute>
-            <PipelineDetailRoute pipelines={pipelines} loading={loading} onBack={onBack} />
+            <PipelineDetailRoute
+              pipelines={pipelines}
+              loading={detailPrerequisites.loading}
+              error={detailPrerequisites.error}
+              retrying={detailPrerequisites.retrying}
+              onRetry={() => void onRetry()}
+              onBack={onBack}
+            />
           </LazyRoute>
         }
       />

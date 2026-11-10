@@ -73,6 +73,25 @@ async fn test_reload_replaces_in_memory_config() {
 }
 
 #[tokio::test]
+async fn loading_an_invalid_file_names_the_field_in_plain_text() {
+    let temp_dir = TempDir::new().unwrap();
+    let state = create_test_state(&temp_dir, Arc::new(MemoryTokenStore::new()));
+    std::fs::write(
+        temp_dir.path().join("config.toml"),
+        "[views.team]\nname = \"\"\nname_contains = \"api\"\n",
+    )
+    .unwrap();
+
+    let error = state.load_file().await.unwrap_err().to_string();
+
+    assert!(
+        error.contains("views.team.name: View name is required"),
+        "{error}"
+    );
+    assert!(!error.contains("ConfigError {"), "{error}");
+}
+
+#[tokio::test]
 async fn test_get_config_values() {
     let _env = EnvGuard::set(&[
         ("PIPEDASH_METRICS_ENABLED", None),

@@ -19,6 +19,7 @@ interface ProxySettingsFormProps {
 
 interface ProxyActionState {
   error: string | null
+  forValue: string | null
 }
 
 const proxyDescription = (direct: string[]): string =>
@@ -48,24 +49,24 @@ export function ProxySettingsForm({ savedProxy, mobileShell, pending, onSave }: 
       const next = raw.trim()
 
       if (next === savedProxy) {
-        return { error: null }
+        return { error: null, forValue: raw }
       }
 
       try {
         await onSave(next)
         setDraft((current) => (current === raw ? null : current))
 
-        return { error: null }
+        return { error: null, forValue: raw }
       } catch (error) {
-        return { error: errorMessage(error, "Couldn't save the proxy URL.") }
+        return { error: errorMessage(error, "Couldn't save the proxy URL."), forValue: raw }
       }
     },
-    { error: null }
+    { error: null, forValue: null }
   )
 
   const busy = pending || isPending
   const canSave = !busy && trimmed !== savedProxy
-  const error = state.error ?? undefined
+  const error = state.forValue === value ? (state.error ?? undefined) : undefined
 
   if (mobileShell) {
     const renderInput = (id: string): ReactNode => (

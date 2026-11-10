@@ -7,10 +7,9 @@ import {
 } from '@tanstack/react-query'
 
 import { GC_TIMES, STALE_TIMES } from '../../../lib/cacheConfig'
-import { notifications } from '../../../lib/notifications'
 import { queryKeys } from '../../../lib/queryKeys'
 import { service } from '../../../services/service'
-import { errorMessage } from '../../../utils/errorDisplay'
+import { displayErrorNotification, displaySuccessNotification } from '../../../utils/errorDisplay'
 
 export interface TablePreferences {
   columnOrder?: string[] | undefined
@@ -89,11 +88,7 @@ export function useSaveTablePreferences(): UseMutationResult<
         })
       }
 
-      notifications.show({
-        title: "Couldn't save preferences",
-        message: errorMessage(error, 'Try saving the table preferences again.'),
-        color: 'red',
-      })
+      displayErrorNotification(error, "Couldn't save preferences")
     },
 
     onSuccess: (_data, { providerId, tableId }) => {
@@ -101,12 +96,7 @@ export function useSaveTablePreferences(): UseMutationResult<
         queryKey: queryKeys.tablePreferences.detail(providerId, tableId),
       })
 
-      notifications.show({
-        title: 'Preferences saved',
-        message: 'Table preferences updated successfully',
-        color: 'green',
-        autoClose: 2000,
-      })
+      displaySuccessNotification('Table preferences updated successfully', 'Preferences saved')
     },
   })
 }

@@ -8,6 +8,7 @@ import type { CenterNotification, NotificationCenterChange, NotificationCenterSn
 GlobalRegistrator.register({ width: 1200, height: 800 })
 
 const { apiService } = await import('../services/api')
+const { notifications } = await import('../lib/notifications')
 const { useNotificationCenterStore } = await import('./notificationCenterStore')
 
 const notice = (key: string, read = false): CenterNotification => ({
@@ -25,9 +26,11 @@ const notice = (key: string, read = false): CenterNotification => ({
 
 const calls: { snapshot: NotificationCenterSnapshot; change: NotificationCenterChange }[] = []
 let reply: NotificationCenterSnapshot = { revision: 0, items: [], unread: 0 }
+let failure: Error | null = null
 
 beforeEach(() => {
   calls.length = 0
+  failure = null
   reply = { revision: 1, items: [notice('a')], unread: 1 }
   useNotificationCenterStore.setState({ items: [], revision: 0, unread: 0, selection: null })
   mock.method(
@@ -35,6 +38,10 @@ beforeEach(() => {
     'updateNotificationCenter',
     async (snapshot: NotificationCenterSnapshot, change: NotificationCenterChange) => {
       calls.push({ snapshot, change })
+
+      if (failure) {
+        throw failure
+      }
 
       return reply
     }
@@ -80,4 +87,28 @@ test('opening a provider only selects it and close clears the selection', () => 
 
   close()
   assert.equal(useNotificationCenterStore.getState().selection, null)
+})
+
+test('a rejected clear shows one error and the next action still runs', async () => {
+  const shown = mock.method(notifications, 'show')
+  const { clear, push } = useNotificationCenterStore.getState()
+  failure = new Error('Host unreachable')
+
+  await clear()
+
+  assert.deepEqual(
+    shown.mock.calls.map((call) => call.arguments[0]?.title),
+    ["Couldn't clear notifications"]
+  )
+  assert.equal(shown.mock.calls[0]?.arguments[0]?.message, 'Host unreachable')
+
+  failure = null
+  await push(notice('a'))
+
+  assert.deepEqual(
+    calls.map(({ change }) => change.type),
+    ['clear', 'push']
+  )
+  assert.deepEqual(useNotificationCenterStore.getState().items, reply.items)
+  assert.equal(shown.mock.callCount(), 1)
 })

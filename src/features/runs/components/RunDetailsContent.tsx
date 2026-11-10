@@ -18,7 +18,6 @@ interface RunDetailsContentProps {
   providerId: number | undefined
   run: PipelineRun | undefined
   error: Error | null
-  loading: boolean
   fetching: boolean
   presentation: PluginPresentation | undefined
   isMobile: boolean
@@ -31,25 +30,25 @@ interface RunDetailsContentProps {
 export function RunDetailsContent({
   runNumber,
   error,
-  loading,
   fetching,
   run,
   onRetry,
   ...rest
 }: RunDetailsContentProps): ReactNode {
-  if (error) {
-    return <ErrorState title={`Couldn't load run #${runNumber}`} error={error} onRetry={onRetry} retrying={fetching} />
+  const failure = error ? (
+    <ErrorState title={`Couldn't load run #${runNumber}`} error={error} onRetry={onRetry} retrying={fetching} />
+  ) : null
+
+  if (!run) {
+    return failure ?? <LoadingState message="Loading run details..." />
   }
 
-  if (loading || !run) {
-    return <LoadingState message="Loading run details..." />
-  }
-
-  return <LoadedRunDetails run={run} runNumber={runNumber} {...rest} />
+  return <LoadedRunDetails run={run} runNumber={runNumber} failure={failure} {...rest} />
 }
 
-type LoadedProps = Omit<RunDetailsContentProps, 'error' | 'loading' | 'fetching' | 'run' | 'onRetry'> & {
+type LoadedProps = Omit<RunDetailsContentProps, 'error' | 'fetching' | 'run' | 'onRetry'> & {
   run: PipelineRun
+  failure: ReactNode
 }
 
 function LoadedRunDetails({
@@ -61,6 +60,7 @@ function LoadedRunDetails({
   isMobile,
   mobileShell,
   cancellationRequested,
+  failure,
   children,
 }: LoadedProps): ReactNode {
   const rows = useDetailRows(providerId, run)
@@ -88,7 +88,9 @@ function LoadedRunDetails({
       {isRunning &&
         (mobileShell ? (
           <Alert color="blue" icon={<IconRefresh size={16} aria-hidden />} title={presentation?.progress_title}>
-            <Text size={TYPOGRAPHY.HELPER_TEXT.size}>{progress}</Text>
+            <Text size={TYPOGRAPHY.HELPER_TEXT.size} role="status">
+              {status}
+            </Text>
           </Alert>
         ) : (
           <Alert color="gray" title={<StatusBadge status={run.status} />}>
@@ -104,6 +106,7 @@ function LoadedRunDetails({
 
   return (
     <Stack gap={mobileShell ? 'lg' : compactGap}>
+      {failure}
       {notices}
       <RunDetailFields rows={rows} run={run} mobileShell={mobileShell} isMobile={isMobile} />
       {children}

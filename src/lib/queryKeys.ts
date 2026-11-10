@@ -3,6 +3,8 @@ import type { MetricsDashboardQuery } from '../types/metrics'
 import type { RunHistoryQuery } from '../types/run_history'
 import type { PipelineViewQuery } from '../types/views'
 
+export const ROW_ACTION_KEY = ['pipelineRowAction'] as const
+
 export const queryKeys = {
   providers: {
     all: ['providers'] as const,

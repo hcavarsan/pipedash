@@ -17,6 +17,7 @@ interface ProviderRefreshIntervalFormProps {
 
 interface IntervalState {
   error: string | null
+  submitted: number | string | null
 }
 
 export const ProviderRefreshIntervalForm = ({
@@ -35,15 +36,15 @@ export const ProviderRefreshIntervalForm = ({
         await mutation.mutateAsync({ id: provider.id, refreshInterval: Number(draft) })
         onSaved()
 
-        return { error: null }
+        return { error: null, submitted: draft }
       } catch (error) {
-        return { error: errorMessage(error, 'Try saving the interval again.') }
+        return { error: errorMessage(error, 'Try saving the interval again.'), submitted: draft }
       }
     },
-    { error: null }
+    { error: null, submitted: null }
   )
 
-  const error = state.error
+  const error = state.submitted === draft ? state.error : null
   const label = `Refresh interval in seconds for ${provider.name}`
   const status = error ?? (pending ? 'Saving refresh interval' : '')
 
