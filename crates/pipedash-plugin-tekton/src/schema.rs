@@ -18,7 +18,6 @@ fn create_pipeline_runs_table() -> TableDefinition {
         "pipeline_runs",
         "Pipeline Runs",
         "Tekton PipelineRun executions",
-        ("run_number", "desc"),
         vec![
             ColumnDefinition::new(
                 "run_identifier",
@@ -28,7 +27,8 @@ fn create_pipeline_runs_table() -> TableDefinition {
                 CellRenderer::TruncatedText,
             )
             .described("Run identifier (event ID or PipelineRun name)")
-            .with_width(180),
+            .with_width(180)
+            .history_order(),
             ColumnDefinition::new(
                 "namespace",
                 "Namespace",

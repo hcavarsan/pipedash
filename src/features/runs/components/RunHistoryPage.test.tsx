@@ -64,6 +64,7 @@ function pageOf(query: RunHistoryQuery, runs: PipelineRun[], hasMore = false): R
     can_scan_deeper: false,
     is_complete: true,
     scan_notice: null,
+    sort: { column: 'run_number', direction: 'desc' },
     page: query.page,
     page_size: query.page_size,
     total_pages: hasMore ? 2 : 1,

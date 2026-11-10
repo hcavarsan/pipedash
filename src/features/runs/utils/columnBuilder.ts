@@ -29,7 +29,7 @@ export function buildColumnsFromSchema(
     const column: DataTableColumn<PipelineRun> = {
       accessor: def.id,
       title: def.label,
-      sortable: def.sortable,
+      sortable: def.sort !== 'none',
       ...(def.width == null ? {} : { width: def.width }),
       textAlign: numeric ? 'right' : 'left',
       ...(numeric ? { titleStyle: TABLE_NUMERIC, cellsStyle: () => TABLE_NUMERIC } : {}),

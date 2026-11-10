@@ -2,6 +2,7 @@ use crate::schema::{
     CellRenderer,
     ColumnDataType,
     ColumnDefinition,
+    ColumnSort,
     ColumnVisibility,
     TableDefinition,
 };
@@ -20,7 +21,7 @@ impl ColumnDefinition {
             visibility: ColumnVisibility::Always,
             default_visible: true,
             width: None,
-            sortable: false,
+            sort: ColumnSort::None,
             filterable: false,
         }
     }
@@ -83,7 +84,12 @@ impl ColumnDefinition {
     }
 
     pub fn sortable(mut self) -> Self {
-        self.sortable = true;
+        self.sort = ColumnSort::Value;
+        self
+    }
+
+    pub fn history_order(mut self) -> Self {
+        self.sort = ColumnSort::HistoryOrder;
         self
     }
 
@@ -101,17 +107,12 @@ pub fn trigger_event_column(description: &str) -> ColumnDefinition {
 }
 
 impl TableDefinition {
-    pub fn new(
-        id: &str, name: &str, description: &str, default_sort: (&str, &str),
-        columns: Vec<ColumnDefinition>,
-    ) -> Self {
+    pub fn new(id: &str, name: &str, description: &str, columns: Vec<ColumnDefinition>) -> Self {
         Self {
             id: id.to_string(),
             name: name.to_string(),
             description: Some(description.to_string()),
             columns,
-            default_sort_column: Some(default_sort.0.to_string()),
-            default_sort_direction: Some(default_sort.1.to_string()),
         }
     }
 

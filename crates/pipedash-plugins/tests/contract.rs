@@ -6,6 +6,7 @@ use pipedash_core::infrastructure::config::{
     TokenRefError,
     TokenReference,
 };
+use pipedash_plugin_api::schema::ColumnSort;
 use pipedash_plugin_api::{
     PipelineFacts,
     PipelineStatus,
@@ -188,4 +189,87 @@ fn declared_token_prefixes_are_rejected_as_plain_text() {
             );
         }
     }
+}
+
+fn run_sample() -> serde_json::Value {
+    let run: pipedash_core::domain::PipelineRun = serde_json::from_value(serde_json::json!({
+        "id": "", "pipeline_id": "", "run_number": 1, "status": "success",
+        "started_at": "2026-01-01T00:00:00Z", "logs_url": ""
+    }))
+    .unwrap();
+    serde_json::to_value(run).unwrap()
+}
+
+fn sorts_by_a_run_value(sample: &serde_json::Value, field_path: &str) -> bool {
+    if let Some(key) = field_path.strip_prefix("metadata.") {
+        return !key.is_empty();
+    }
+    field_path
+        .split('.')
+        .try_fold(sample, |current, part| current.as_object()?.get(part))
+        .is_some_and(|leaf| !leaf.is_object() && !leaf.is_array())
+}
+
+#[test]
+fn sort_field_check_rejects_paths_core_cannot_sort() {
+    let sample = run_sample();
+    for path in [
+        "run_number",
+        "concluded_at",
+        "pace.live",
+        "metadata.build_id",
+    ] {
+        assert!(sorts_by_a_run_value(&sample, path), "{path}");
+    }
+    for path in [
+        "duration_second",
+        "branch.typo",
+        "actions",
+        "actions.typo",
+        "display.context",
+        "metadata",
+        "metadata.",
+    ] {
+        assert!(!sorts_by_a_run_value(&sample, path), "{path}");
+    }
+}
+
+#[test]
+fn run_tables_name_one_history_order_and_sort_by_real_fields() {
+    let sample = run_sample();
+    each_plugin(|metadata, _| {
+        let provider = &metadata.provider_type;
+        for table in &metadata.table_schema.tables {
+            let mut ids: Vec<_> = table.columns.iter().map(|column| &column.id).collect();
+            ids.sort_unstable();
+            ids.dedup();
+            assert_eq!(
+                ids.len(),
+                table.columns.len(),
+                "{provider}: {} repeats a column id",
+                table.id
+            );
+            let orders = table
+                .columns
+                .iter()
+                .filter(|column| column.sort == ColumnSort::HistoryOrder)
+                .count();
+            assert_eq!(
+                orders,
+                usize::from(table.id == "pipeline_runs"),
+                "{provider}: history-order columns in {}",
+                table.id
+            );
+        }
+        let runs = metadata.table_schema.get_table("pipeline_runs").unwrap();
+        for column in &runs.columns {
+            assert!(
+                column.sort != ColumnSort::Value
+                    || sorts_by_a_run_value(&sample, &column.field_path),
+                "{provider}: {} sorts by unknown field {}",
+                column.id,
+                column.field_path
+            );
+        }
+    });
 }

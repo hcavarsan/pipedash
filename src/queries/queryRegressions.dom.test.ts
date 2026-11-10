@@ -73,6 +73,7 @@ const historyOfSize = (size: number): RunHistoryPage => ({
   can_scan_deeper: false,
   is_complete: true,
   scan_notice: null,
+  sort: { column: 'run_number', direction: 'desc' },
   page: 1,
   page_size: size,
   total_pages: 1,

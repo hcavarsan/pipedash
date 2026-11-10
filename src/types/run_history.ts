@@ -10,8 +10,7 @@ export interface RunHistoryQuery {
   actor?: string | undefined
   date_range?: DateRangeValue | undefined
   utc_offset_minutes: number
-  sort_column: string
-  direction: SortDirection
+  sort?: { column: string; direction: SortDirection } | undefined
   scan_depth?: number | undefined
 }
 
@@ -28,6 +27,7 @@ export interface RunHistoryPage {
   can_scan_deeper: boolean
   is_complete: boolean
   scan_notice: RunHistoryScanNotice | null
+  sort: { column: string | null; direction: SortDirection }
   page: number
   page_size: number
   total_pages: number

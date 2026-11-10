@@ -25,7 +25,6 @@ fn create_runs_table() -> TableDefinition {
         "pipeline_runs",
         "Reconciliations",
         "Reconciliation history Flux keeps in status.history, plus the current status when it is not covered by that history. Flux does not keep a complete execution log.",
-        ("started_at", "desc"),
         vec![
             column(
                 "run_label",
@@ -98,7 +97,7 @@ fn create_runs_table() -> TableDefinition {
                 ColumnDataType::DateTime,
                 CellRenderer::DateTime,
                 180,
-            ),
+            ).history_order(),
             column(
                 "time_source",
                 "Time source",
@@ -189,7 +188,6 @@ fn create_pipelines_table() -> TableDefinition {
         "pipelines",
         "Flux resources",
         "Flux Kustomizations and HelmReleases",
-        ("name", "asc"),
         vec![
             column(
                 "name",

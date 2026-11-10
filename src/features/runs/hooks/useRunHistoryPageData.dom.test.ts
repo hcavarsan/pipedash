@@ -53,6 +53,7 @@ function history(query: RunHistoryQuery): RunHistoryPage {
     scan_notice: complete
       ? null
       : { title: 'More history needed', message: 'Scan more runs.', action_label: 'Load more history' },
+    sort: query.sort ?? { column: 'build', direction: 'desc' },
     page: query.page,
     page_size: query.page_size,
     total_pages: complete ? 3 : 0,
@@ -97,6 +98,23 @@ test('completed history stays complete across forward and backward page navigati
   assert.equal(result.current.isComplete, true)
   assert.equal(requests.at(-1)?.page, 1)
   assert.equal(requests.at(-1)?.scan_depth, 2)
+})
+
+test('history follows the provider order and shows the sort the backend applied until a column is chosen', async (context) => {
+  const requests: RunHistoryQuery[] = []
+  const fetchHistory = async (_pipelineId: string, query: RunHistoryQuery) => {
+    requests.push(query)
+    return history(query)
+  }
+  context.mock.method(apiService, 'fetchRunHistory', fetchHistory)
+  context.mock.method(tauriService, 'fetchRunHistory', fetchHistory)
+  const { result } = renderHook(() => useRunHistoryPageData(pipeline), { wrapper })
+
+  await waitFor(() => assert.deepEqual(result.current.sortStatus, { columnAccessor: 'build', direction: 'desc' }))
+  assert.equal(requests.at(-1)?.sort, undefined)
+
+  act(() => result.current.setSortOverride({ columnAccessor: 'branch', direction: 'asc' }))
+  await waitFor(() => assert.deepEqual(requests.at(-1)?.sort, { column: 'branch', direction: 'asc' }))
 })
 
 test('a rejected history refresh rejects the promise without a toast, leaving the inline error to show it', async (context) => {

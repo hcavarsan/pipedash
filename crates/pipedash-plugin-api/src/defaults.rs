@@ -22,7 +22,6 @@ pub fn default_pipeline_runs_table() -> TableDefinition {
         "pipeline_runs",
         "Pipeline Runs",
         "Build/run history for pipelines",
-        ("run_number", "desc"),
         vec![
             ColumnDefinition::new(
                 "run_number",
@@ -33,7 +32,7 @@ pub fn default_pipeline_runs_table() -> TableDefinition {
             )
             .described("Run/build number")
             .with_width(100)
-            .sortable(),
+            .history_order(),
             status_column(),
             ColumnDefinition::new(
                 "branch",
@@ -96,7 +95,6 @@ pub fn default_pipelines_table() -> TableDefinition {
         "pipelines",
         "Pipelines",
         "All pipelines/workflows",
-        ("name", "asc"),
         vec![
             ColumnDefinition::new(
                 "name",

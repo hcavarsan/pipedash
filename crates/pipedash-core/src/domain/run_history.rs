@@ -10,6 +10,18 @@ use super::pipeline::{
 };
 use super::pipeline_view::SortDirection;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunSort {
+    pub column: String,
+    pub direction: SortDirection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppliedRunSort {
+    pub column: Option<String>,
+    pub direction: SortDirection,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RunHistoryQuery {
@@ -21,8 +33,7 @@ pub struct RunHistoryQuery {
     pub actor: Option<String>,
     pub date_range: Option<DateRange>,
     pub utc_offset_minutes: i32,
-    pub sort_column: String,
-    pub direction: SortDirection,
+    pub sort: Option<RunSort>,
     pub scan_depth: usize,
 }
 
@@ -37,8 +48,7 @@ impl Default for RunHistoryQuery {
             actor: None,
             date_range: None,
             utc_offset_minutes: 0,
-            sort_column: "run_number".to_string(),
-            direction: SortDirection::Desc,
+            sort: None,
             scan_depth: 1,
         }
     }
@@ -69,6 +79,7 @@ pub struct RunHistoryPage {
     pub can_scan_deeper: bool,
     pub is_complete: bool,
     pub scan_notice: Option<RunHistoryScanNotice>,
+    pub sort: AppliedRunSort,
     pub page: usize,
     pub page_size: usize,
     pub total_pages: usize,

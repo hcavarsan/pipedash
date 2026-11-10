@@ -1,6 +1,8 @@
 use chrono::Utc;
-use pipedash_plugin_api::history::RunHistoryOrder;
-use pipedash_plugin_api::schema::ColumnDefinition;
+use pipedash_plugin_api::schema::{
+    ColumnDefinition,
+    ColumnSort,
+};
 
 use super::filter::{
     facets,
@@ -9,7 +11,11 @@ use super::filter::{
 };
 use crate::application::services::pipeline_service::PipelineService;
 use crate::domain::pipeline_view::SortDirection;
-use crate::domain::run_history::RunHistoryScanNotice;
+use crate::domain::run_history::{
+    AppliedRunSort,
+    RunHistoryScanNotice,
+    RunSort,
+};
 use crate::domain::{
     DomainError,
     DomainResult,
@@ -48,15 +54,11 @@ impl PipelineService {
         let end = start
             .checked_add(query.page_size)
             .ok_or_else(|| DomainError::InvalidConfig("Pagination offset overflow".to_string()))?;
-        let column = self.sort_column(pipeline, &query.sort_column)?;
+        let (value_column, sort) = self.resolve_sort(pipeline, query.sort.as_ref())?;
         let policy = self
             .provider_service
             .run_history_policy(&pipeline.provider_type);
-        let prefix_sort = query.direction == SortDirection::Desc
-            && match policy.order {
-                RunHistoryOrder::RunNumber => column.field_path == "run_number",
-                RunHistoryOrder::StartedAt => column.field_path == "started_at",
-            };
+        let prefix_sort = value_column.is_none() && sort.direction == SortDirection::Desc;
         let criteria = Criteria::new(query, Utc::now());
         let page_target = (end / FETCH_STEP + 1) * FETCH_STEP;
 
@@ -128,14 +130,17 @@ impl PipelineService {
         let sorted = if scan_notice.is_some() {
             Vec::new()
         } else {
-            sort_runs(
-                cached
-                    .into_iter()
-                    .filter(|run| criteria.matches(run))
-                    .collect(),
-                &column,
-                query.direction,
-            )
+            let matching: Vec<_> = cached
+                .into_iter()
+                .filter(|run| criteria.matches(run))
+                .collect();
+            match &value_column {
+                Some(column) => sort_runs(matching, column, sort.direction),
+                None if sort.direction == SortDirection::Asc => {
+                    matching.into_iter().rev().collect()
+                }
+                None => matching,
+            }
         };
         let total_count = sorted.len();
         Ok(RunHistoryPage {
@@ -149,6 +154,7 @@ impl PipelineService {
             can_scan_deeper: capped && !exhausted,
             is_complete: exhausted,
             scan_notice,
+            sort,
             page: query.page,
             page_size: query.page_size,
             total_pages: total_count.div_ceil(query.page_size),
@@ -157,7 +163,9 @@ impl PipelineService {
         })
     }
 
-    fn sort_column(&self, pipeline: &Pipeline, requested: &str) -> DomainResult<ColumnDefinition> {
+    fn resolve_sort(
+        &self, pipeline: &Pipeline, requested: Option<&RunSort>,
+    ) -> DomainResult<(Option<ColumnDefinition>, AppliedRunSort)> {
         let plugin = self
             .provider_service
             .plugin_registry()
@@ -168,15 +176,37 @@ impl PipelineService {
             .table_schema
             .get_table(RUNS_TABLE)
             .ok_or_else(|| DomainError::NotSupported("Run history has no table schema".into()))?;
-        let id = Some(requested)
-            .filter(|id| !id.is_empty())
-            .or(table.default_sort_column.as_deref())
-            .unwrap_or("run_number");
-        table
+        let Some(requested) = requested else {
+            let column = table
+                .columns
+                .iter()
+                .find(|column| column.sort == ColumnSort::HistoryOrder)
+                .map(|column| column.id.clone());
+            return Ok((
+                None,
+                AppliedRunSort {
+                    column,
+                    direction: SortDirection::Desc,
+                },
+            ));
+        };
+        let column = table
             .columns
             .iter()
-            .find(|column| column.sortable && column.id == id)
-            .cloned()
-            .ok_or_else(|| DomainError::InvalidConfig(format!("Cannot sort run history by '{id}'")))
+            .find(|column| column.sort != ColumnSort::None && column.id == requested.column)
+            .ok_or_else(|| {
+                DomainError::InvalidConfig(format!(
+                    "Cannot sort run history by '{}'",
+                    requested.column
+                ))
+            })?;
+        let applied = AppliedRunSort {
+            column: Some(column.id.clone()),
+            direction: requested.direction,
+        };
+        Ok((
+            (column.sort == ColumnSort::Value).then(|| column.clone()),
+            applied,
+        ))
     }
 }

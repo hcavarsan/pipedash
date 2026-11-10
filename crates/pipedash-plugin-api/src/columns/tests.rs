@@ -15,7 +15,7 @@ fn builder_defaults_and_overrides() {
         CellRenderer::Text,
     );
     assert_eq!(column.visibility, ColumnVisibility::Always);
-    assert!(column.default_visible && !column.sortable && !column.filterable);
+    assert!(column.default_visible && column.sort == ColumnSort::None && !column.filterable);
     assert!(column.description.is_none() && column.width.is_none());
 
     let column = column
@@ -27,7 +27,7 @@ fn builder_defaults_and_overrides() {
         .filterable();
     assert_eq!(column.visibility, ColumnVisibility::WhenPresent);
     assert_eq!(column.description.as_deref(), Some("d"));
-    assert!(!column.default_visible && column.sortable && column.filterable);
+    assert!(!column.default_visible && column.sort == ColumnSort::Value && column.filterable);
     assert_eq!(column.width, Some(5));
 }
 
@@ -36,7 +36,7 @@ fn metadata_column_shape() {
     let column = ColumnDefinition::metadata("state", "State", "desc", CellRenderer::Badge, false);
     assert_eq!(column.field_path, "metadata.state");
     assert_eq!(column.width, Some(140));
-    assert!(column.sortable && !column.default_visible);
+    assert!(column.sort == ColumnSort::Value && !column.default_visible);
 }
 
 #[test]
