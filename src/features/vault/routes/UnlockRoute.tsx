@@ -27,7 +27,7 @@ export function UnlockRoute(): ReactNode {
     wsClient.manualReconnect()
 
     const stateReturnTo = isRecord(location.state) ? location.state.returnTo : null
-    const returnTo = appPath(stateReturnTo) ?? appPath(searchParams.get('return')) ?? '/pipelines'
+    const returnTo = appPath(stateReturnTo) ?? appPath(searchParams.get('return')) ?? '/'
     const from = fromOf(location.state)
 
     void navigate(returnTo, { replace: true, state: from ? { from } : undefined })

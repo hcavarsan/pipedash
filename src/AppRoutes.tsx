@@ -69,6 +69,7 @@ export function AppRoutes({
   onBack,
 }: AppRoutesProps): ReactNode {
   const mobileShell = useMobileShell()
+  const home = mobileShell ? '/browse' : '/pipelines'
   const pipelinesPage = (
     <LazyRoute>
       <UnifiedPipelinesView
@@ -89,7 +90,7 @@ export function AppRoutes({
 
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/pipelines" replace />} />
+      <Route path="/" element={<Navigate to={home} replace />} />
 
       <Route path="/pipelines" element={pipelinesPage} />
 
@@ -137,7 +138,7 @@ export function AppRoutes({
         }
       />
 
-      <Route path="/providers" element={<Navigate to={mobileShell ? '/browse' : '/pipelines'} replace />} />
+      <Route path="/providers" element={<Navigate to={home} replace />} />
 
       <Route
         path="/notifications"

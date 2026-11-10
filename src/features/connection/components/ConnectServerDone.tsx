@@ -31,7 +31,7 @@ export function ConnectServerDone({ host, alerts, mobileShell }: ConnectServerDo
         title: `Connected to ${host}`,
         text: `This device now shows the pipelines from ${host}.`,
         label: 'Open dashboard',
-        onClick: () => window.location.replace(withBasePath('/pipelines')),
+        onClick: () => window.location.replace(withBasePath('/')),
       }
 
   return (

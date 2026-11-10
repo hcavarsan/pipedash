@@ -15,18 +15,16 @@ interface Tab {
   label: string
   ariaLabel: string
   to: string
-  root: string
   icon: typeof IconBell
 }
 
 const TABS: Tab[] = [
-  { id: 'pipelines', label: 'Browse', ariaLabel: 'Browse', to: '/pipelines', root: BROWSE_PATH, icon: IconStack2 },
+  { id: 'pipelines', label: 'Browse', ariaLabel: 'Browse', to: BROWSE_PATH, icon: IconStack2 },
   {
     id: 'pinned',
     label: 'Pinned',
     ariaLabel: 'Pinned workflows',
     to: '/pipelines?view=pinned',
-    root: '/pipelines?view=pinned',
     icon: IconPinned,
   },
   {
@@ -34,10 +32,9 @@ const TABS: Tab[] = [
     label: 'Alerts',
     ariaLabel: 'Notifications',
     to: '/notifications',
-    root: '/notifications',
     icon: IconBell,
   },
-  { id: 'settings', label: 'Settings', ariaLabel: 'Settings', to: '/settings', root: '/settings', icon: IconSettings },
+  { id: 'settings', label: 'Settings', ariaLabel: 'Settings', to: '/settings', icon: IconSettings },
 ]
 
 function useMinimizedOnScroll(): boolean {
@@ -87,13 +84,13 @@ export function MobileTabBar(): ReactNode {
   const keyboardOpen = useKeyboardOpen()
   const minimized = useMinimizedOnScroll()
 
-  const handleTabClick = (event: MouseEvent<HTMLAnchorElement>, { id, to, root }: Tab): void => {
+  const handleTabClick = (event: MouseEvent<HTMLAnchorElement>, { id, to }: Tab): void => {
     event.preventDefault()
 
     const action = tabAction(activeTab, id, back !== null)
 
     if (action === 'pop-to-root') {
-      goBack(root)
+      goBack(to)
       return
     }
 

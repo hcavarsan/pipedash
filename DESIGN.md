@@ -146,6 +146,7 @@ Run status uses its own tokens, `--status-success`, `--status-failed`, `--status
 ## iPhone
 
 - The phone shell sets `data-ios` on the root. Desktop and iPad styles never read these tokens.
+- The app opens on Browse, and the Browse tab starts there. All pipelines, views and providers are pushed from it.
 - Safe areas use the larger of WebKit's CSS inset and the native `WKWebView.safeAreaInsets` value. The native bridge updates on layout changes and navigation. The phone header reserves equal side insets to keep its title centered in landscape.
 - Text uses the `--ios-fs-*` and `--ios-lh-*` tokens: large title, title1 to title3, headline, body, callout, subheadline, footnote, caption1 and caption2. The Mantine sizes map to them: `xs` footnote, `sm` subheadline, `md` body, `lg` title3, `xl` title2. Headline is 600, the navigation large title is 700, everything else is 400. Letter spacing stays `normal` because the system font tracks itself.
 - Dynamic Type: when WebKit supports `font: -apple-system-body`, a hidden probe measures the body size and sets `--ios-text-scale` on the root. It updates live. Paddings next to text use `em` and containers use minimum heights, so rows grow with the text. Zoom stays enabled.
