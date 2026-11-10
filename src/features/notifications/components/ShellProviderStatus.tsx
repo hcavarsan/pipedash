@@ -7,8 +7,8 @@ import { HEALTH_META } from '../../../theme/status'
 import type { ComponentHealth, Incident, Maintenance } from '../../../types/health'
 import type { ProviderSummary } from '../../../types/providers'
 import { formatRelativeTime } from '../../../utils/formatRelativeTime'
+import { openLink } from '../../../utils/openExternal'
 import { connectionNotes, staleNotes } from '../lib/attentionNotes'
-import { openNotificationLink } from '../lib/openNotificationLink'
 import { checkedText, connectionState, maintenanceWindow } from './ProviderServiceStatus'
 
 function healthText(component: ComponentHealth) {
@@ -51,7 +51,7 @@ function ShellIncidentRow({ incident, now }: { incident: Incident; now: number }
         </>
       }
       chevron={Boolean(url)}
-      {...(url ? { onClick: () => openNotificationLink(url) } : {})}
+      {...(url ? { onClick: () => openLink(url) } : {})}
     />
   )
 }
@@ -65,7 +65,7 @@ function ShellMaintenanceRow({ item }: { item: Maintenance }) {
       title={item.name}
       subtitle={meta.filter(Boolean).join(' · ')}
       chevron={Boolean(url)}
-      {...(url ? { onClick: () => openNotificationLink(url) } : {})}
+      {...(url ? { onClick: () => openLink(url) } : {})}
     />
   )
 }
@@ -106,10 +106,10 @@ export function ShellProviderStatus(p: { provider: ProviderSummary; now: number;
         >
           <ShellComponentRows components={page.components} />
           <IosRow
-            icon={<IconExternalLink size={18} aria-hidden />}
+            icon={<IconExternalLink size={16} aria-hidden />}
             title="Open status page"
             chevron
-            onClick={() => openNotificationLink(page.url)}
+            onClick={() => openLink(page.url)}
           />
         </IosGroup>
       ) : (

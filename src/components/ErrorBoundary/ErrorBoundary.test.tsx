@@ -52,11 +52,12 @@ test('a failing child shows the fallback while siblings keep rendering, and retr
   const user = userEvent.setup({ document })
   render(<Page resetKey="a" />)
 
-  assert.ok(view().getByRole('heading', { level: 2, name: 'Widget failed to load' }))
+  assert.ok(view().getByRole('alert'))
+  assert.ok(view().getByText("Couldn't load Widget"))
   assert.ok(view().getByText('Sibling content'))
 
   state.broken = false
-  await user.click(view().getByRole('button', { name: 'Try again' }))
+  await user.click(view().getByRole('button', { name: 'Retry' }))
 
   assert.ok(view().getByText('Widget ready'))
 })
@@ -66,7 +67,7 @@ test('unchanged reset keys keep the fallback, changed reset keys render the chil
   state.broken = false
 
   rerender(<Page resetKey="a" />)
-  assert.ok(view().getByText('Widget failed to load'))
+  assert.ok(view().getByText("Couldn't load Widget"))
 
   rerender(<Page resetKey="b" />)
   assert.ok(view().getByText('Widget ready'))

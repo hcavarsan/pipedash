@@ -1,15 +1,14 @@
 import { Combobox, Menu, Modal, MultiSelect, Notification, Select } from '@mantine/core'
 
 import classes from './iosOverlays.module.css'
+import { Z } from './zIndex'
 
 const PRESENT_EASING = 'cubic-bezier(0.32, 0.72, 0, 1)'
-const OVERLAY_Z = 499
-const FLOATING_Z = 500
 const FLOAT_BOTTOM = 'calc(max(8px, var(--safe-bottom)) + var(--keyboard-inset, 0px))'
 const FLOAT_SIDE_LEFT = 'max(calc(8px + var(--safe-left)), calc((100vw - 480px) / 2))'
 const FLOAT_SIDE_RIGHT = 'max(calc(8px + var(--safe-right)), calc((100vw - 480px) / 2))'
 
-const overlayProps = { fixed: true, color: '#000', backgroundOpacity: 0.4, zIndex: OVERLAY_Z } as const
+const overlayProps = { fixed: true, color: 'black', backgroundOpacity: 0.4, zIndex: Z.iosOverlay } as const
 const slideUp = { transition: 'slide-up', duration: 280, timingFunction: PRESENT_EASING } as const
 
 const floatingSheet = (bottom: string) =>
@@ -36,7 +35,7 @@ export const iosOverlayComponents = {
     defaultProps: {
       radius: 0,
       transitionProps: slideUp,
-      overlayProps: { color: '#000', backgroundOpacity: 0.45 },
+      overlayProps: { color: 'black', backgroundOpacity: 0.45 },
       closeButtonProps: { children: 'Done', 'aria-label': 'Close' },
     },
     classNames: {
@@ -62,7 +61,7 @@ export const iosOverlayComponents = {
       withOverlay: true,
       overlayProps,
       transitionProps: slideUp,
-      zIndex: FLOATING_Z,
+      zIndex: Z.iosFloating,
       withinPortal: true,
     },
     classNames: {
@@ -81,7 +80,7 @@ export const iosOverlayComponents = {
       withOverlay: true,
       overlayProps,
       transitionProps: slideUp,
-      zIndex: FLOATING_Z,
+      zIndex: Z.iosFloating,
       withinPortal: true,
     },
   }),

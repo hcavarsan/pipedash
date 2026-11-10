@@ -1,5 +1,6 @@
 import { Button, Group, Stack, TextInput } from '@mantine/core'
 import type { KeyboardEvent, ReactNode } from 'react'
+import { fieldA11y } from '../../../utils/formFields'
 
 export const PASTE_LABEL = 'Address of the page after sign-in'
 export const PASTE_DESCRIPTION =
@@ -10,6 +11,7 @@ interface SignInPasteControlsProps {
   error: string | undefined
   pending: boolean
   shell?: boolean
+  fieldId?: string
   onChange: (value: string) => void
   onSubmit: () => void
 }
@@ -19,6 +21,7 @@ export function SignInPasteControls({
   error,
   pending,
   shell = false,
+  fieldId,
   onChange,
   onSubmit,
 }: SignInPasteControlsProps): ReactNode {
@@ -35,6 +38,7 @@ export function SignInPasteControls({
       label={shell ? undefined : PASTE_LABEL}
       description={shell ? undefined : PASTE_DESCRIPTION}
       aria-label={PASTE_LABEL}
+      {...(shell && fieldId ? fieldA11y(fieldId, { error, description: PASTE_DESCRIPTION }) : {})}
       error={shell ? undefined : error}
       value={value}
       onChange={(event) => onChange(event.currentTarget.value)}

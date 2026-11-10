@@ -24,29 +24,23 @@ interface PipelinesStepProps {
   dispatch: Dispatch<FormAction>
   providerConfig: ProviderConfig
   terms: PipelineTerminology
-  isMobile: boolean
 }
 
 interface ListStatusParams {
   items: string
   selectingAll: boolean
-  searching: boolean
   listed: number | null
 }
 
-function listStatus({ items, selectingAll, searching, listed }: ListStatusParams): string {
+function listStatus({ items, selectingAll, listed }: ListStatusParams): string {
   if (selectingAll) {
     return `Selecting all ${items}`
-  }
-
-  if (searching) {
-    return `Searching ${items}`
   }
 
   return listed === null ? '' : `${listed} ${items} listed`
 }
 
-export function PipelinesStep({ state, dispatch, providerConfig, terms, isMobile }: PipelinesStepProps): ReactNode {
+export function PipelinesStep({ state, dispatch, providerConfig, terms }: PipelinesStepProps): ReactNode {
   const mobileShell = useMobileShell()
   const { selectedPlugin, selectedOrganization, selectedPipelines, repositorySearch, selectingAll } = state
 
@@ -95,7 +89,6 @@ export function PipelinesStep({ state, dispatch, providerConfig, terms, isMobile
   const status = listStatus({
     items: terms.items,
     selectingAll,
-    searching,
     listed: effectiveOrganization && !loadingPipelines ? availablePipelines.length : null,
   })
 
@@ -141,20 +134,18 @@ export function PipelinesStep({ state, dispatch, providerConfig, terms, isMobile
     void (nextPageFailed ? fetchNextPage() : refetchPipelines())
   }
 
-  const renderBody = (): ReactNode => {
-    if (organizationsFailed) {
-      return (
-        <ErrorState
-          title={`Couldn't load ${terms.groups}`}
-          error={organizationsError}
-          onRetry={() => void refetchOrganizations()}
-          retrying={fetchingOrganizations}
-        />
-      )
-    }
+  const organizationsAlert = organizationsFailed && (
+    <ErrorState
+      title={`Couldn't load ${terms.groups}`}
+      error={organizationsError}
+      onRetry={() => void refetchOrganizations()}
+      retrying={fetchingOrganizations}
+    />
+  )
 
+  const renderPipelines = (): ReactNode => {
     if (loadingOrganizations) {
-      return <LoadingState variant="section" message={`Loading ${terms.groups}...`} />
+      return <LoadingState variant="section" message={`Loading ${terms.groups}…`} />
     }
 
     if (availableOrganizations.length === 0) {
@@ -162,11 +153,7 @@ export function PipelinesStep({ state, dispatch, providerConfig, terms, isMobile
         <EmptyState
           icon={<IconBuildingSkyscraper size={24} aria-hidden />}
           title={`No ${terms.groups} found`}
-          description={
-            mobileShell
-              ? `No accessible ${terms.items} were found. Check the cluster, namespace scope and credentials.`
-              : `Go back to Credentials to check the connection scope and access to your ${terms.groups}.`
-          }
+          description={`Go back to Credentials to check the connection scope and access to your ${terms.groups}.`}
         />
       )
     }
@@ -193,7 +180,7 @@ export function PipelinesStep({ state, dispatch, providerConfig, terms, isMobile
     }
 
     if (loadingPipelines) {
-      return <LoadingState variant="section" message={`Loading ${terms.items}...`} />
+      return <LoadingState variant="section" message={`Loading ${terms.items}…`} />
     }
 
     return (
@@ -205,7 +192,6 @@ export function PipelinesStep({ state, dispatch, providerConfig, terms, isMobile
           terms={terms}
           hasMore={hasMore}
           searchActive={repositorySearch.trim() !== ''}
-          isMobile={isMobile}
           onClearSearch={() => handleSearchChange('')}
           onSelectAll={handleSelectAll}
           onEndReached={handleLoadMore}
@@ -230,6 +216,19 @@ export function PipelinesStep({ state, dispatch, providerConfig, terms, isMobile
     )
   }
 
+  const renderBody = (): ReactNode => {
+    if (organizationsFailed && organizationsData === undefined) {
+      return organizationsAlert
+    }
+
+    return (
+      <>
+        {organizationsAlert}
+        {renderPipelines()}
+      </>
+    )
+  }
+
   const controls = {
     terms,
     organizations: availableOrganizations,
@@ -240,7 +239,7 @@ export function PipelinesStep({ state, dispatch, providerConfig, terms, isMobile
   }
 
   if (mobileShell) {
-    const ready = !loadingOrganizations && !organizationsFailed
+    const ready = organizationsData !== undefined
 
     return (
       <div className={shell.step}>
@@ -255,9 +254,7 @@ export function PipelinesStep({ state, dispatch, providerConfig, terms, isMobile
   return (
     <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }} px="lg" pb="lg">
       <Stack gap="xs" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        {!loadingOrganizations && !organizationsFailed && (
-          <DesktopPipelineControls {...controls} searching={searching} />
-        )}
+        {organizationsData !== undefined && <DesktopPipelineControls {...controls} searching={searching} />}
 
         <LiveStatus message={status} />
         {renderBody()}

@@ -5,17 +5,11 @@ import { LoadingState } from '../../../components/common/LoadingState'
 import { useBuildWatch } from '../../../queries/useBuildWatchQueries'
 import { usePluginPresentation } from '../../../queries/usePluginsQueries'
 import { useRefreshProvider } from '../../../queries/useRefreshQueries'
-import {
-  useCancelRun,
-  useForceCancelRun,
-  useRerunFailedJobs,
-  useRerunRun,
-  useReviewRun,
-} from '../../../queries/useRunHistoryQueries'
+import { useCancelRun, useRerunFailedJobs, useRerunRun, useReviewRun } from '../../../queries/useRunHistoryQueries'
 import { useModalStore } from '../../../stores/modalStore'
 import type { Pipeline, PipelineRun, ReviewDecision } from '../../../types/pipelines'
 import { isRecord } from '../../../utils/isRecord'
-import type { RerunMode, RunActionsValue } from '../lib/runActions'
+import { type RerunMode, type RunActionsValue, watchStateOf } from '../lib/runActions'
 
 const RunActionsContext = createContext<RunActionsValue | null>(null)
 
@@ -35,7 +29,6 @@ export function RunActionsProvider({ pipeline, children }: RunActionsProviderPro
   const presentation = usePluginPresentation(pipeline.provider_type)
   const buildWatch = useBuildWatch()
   const cancelRun = useCancelRun()
-  const forceCancelRun = useForceCancelRun()
   const reviewRun = useReviewRun()
   const rerunFailedJobs = useRerunFailedJobs()
   const rerunRun = useRerunRun()
@@ -75,20 +68,6 @@ export function RunActionsProvider({ pipeline, children }: RunActionsProviderPro
 
   const cancel = async (run: PipelineRun): Promise<void> => {
     const cancelled = await cancelRun
-      .mutateAsync({ pipelineId: run.pipeline_id, runNumber: run.run_number, pipeline, run })
-      .catch(() => false)
-
-    if (cancelled) {
-      refreshProvider(pipeline.provider_id)
-    }
-  }
-
-  const forceCancel = async (run: PipelineRun): Promise<void> => {
-    if (!run.actions.force_cancel.allowed) {
-      return
-    }
-
-    const cancelled = await forceCancelRun
       .mutateAsync({
         pipelineId: run.pipeline_id,
         runNumber: run.run_number,
@@ -110,28 +89,19 @@ export function RunActionsProvider({ pipeline, children }: RunActionsProviderPro
   }
 
   if (!presentation) {
-    return <LoadingState message="Loading..." />
+    return <LoadingState message="Loading run actions…" />
   }
 
-  const watching = buildWatch.data?.watch?.monitoring === 'watching'
   const value: RunActionsValue = {
     pipeline,
     presentation,
     labels: presentation.terminology,
     canCancel: pipeline.actions.cancel.allowed,
     cancellingRun: pendingNumber(cancelRun),
-    forceCancellingRun: pendingNumber(forceCancelRun),
     reviewingRun: pendingNumber(reviewRun),
     rerunningFailedRun: pendingNumber(rerunFailedJobs),
     rerunningRuns,
-    watch: {
-      supported: !!buildWatch.data?.supported,
-      available: !!buildWatch.data?.available,
-      reason: buildWatch.data?.reason ?? undefined,
-      busy: buildWatch.busy,
-      disabled:
-        buildWatch.busy || buildWatch.isFetching || buildWatch.isError || !buildWatch.data?.available || watching,
-    },
+    watch: watchStateOf(buildWatch),
     startWatch: (runNumber) => buildWatch.start(pipeline.id, runNumber),
     openRun: (run) => openLogsModal(pipeline.id, run.run_number),
     openTrigger: () => {
@@ -140,7 +110,6 @@ export function RunActionsProvider({ pipeline, children }: RunActionsProviderPro
       }
     },
     cancel,
-    forceCancel,
     review,
     requestRerun: (run) => {
       if (pipeline.actions.rerun_strategy === 'in_place') {

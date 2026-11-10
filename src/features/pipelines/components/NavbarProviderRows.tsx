@@ -1,5 +1,5 @@
 import { ActionIcon, Group, Tooltip } from '@mantine/core'
-import { IconEdit, IconTrash } from '@tabler/icons-react'
+import { IconEdit } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { EmptyState } from '../../../components/common/EmptyState'
 import { ErrorState } from '../../../components/common/ErrorState'
@@ -19,7 +19,18 @@ interface ProviderRowsProps {
   onRetry: () => void
   providerMenu: (provider: ProviderSummary) => MenuProps
   onEditProvider: (id: number) => void
-  onRemoveProvider: (id: number, name: string) => void
+}
+
+function EditProviderAction({ name, onEdit }: { name: string; onEdit: () => void }): ReactNode {
+  return (
+    <Group gap="4xs" wrap="nowrap" className="nav-item-actions">
+      <Tooltip label={`Edit ${name}`}>
+        <ActionIcon size="sm" aria-label={`Edit ${name}`} onClick={onEdit}>
+          <IconEdit size={14} aria-hidden />
+        </ActionIcon>
+      </Tooltip>
+    </Group>
+  )
 }
 
 export const ProviderRows = ({
@@ -32,7 +43,6 @@ export const ProviderRows = ({
   onRetry,
   providerMenu,
   onEditProvider,
-  onRemoveProvider,
 }: ProviderRowsProps): ReactNode => {
   const openProvider = useProviderNavigation()
 
@@ -40,51 +50,37 @@ export const ProviderRows = ({
     return <LoadingState message="Loading providers" />
   }
 
-  if (error) {
-    return (
-      <ErrorState
-        title="Couldn't load providers"
-        error={error}
-        hint="Check your connection and provider credentials."
-        onRetry={onRetry}
-        retrying={retrying}
-      />
-    )
-  }
+  const alert = error ? (
+    <ErrorState
+      title="Couldn't load providers"
+      error={error}
+      hint="Check your connection and provider credentials."
+      onRetry={onRetry}
+      retrying={retrying}
+    />
+  ) : null
 
   if (providers.length === 0) {
-    return <EmptyState title="No providers yet" description="Add a provider to see its pipelines here." />
+    return alert ?? <EmptyState title="No providers yet" description="Add a provider to see its pipelines here." />
   }
 
-  return visibleProviders.map((provider) => (
-    <NavbarTreeRow
-      key={provider.id}
-      depth={1}
-      label={provider.name}
-      icon={<ProviderAvatar provider={provider} size={ICON_TILE.list} />}
-      description={<ProviderStatusLine provider={provider} />}
-      active={providerId === String(provider.id)}
-      menu={providerMenu(provider)}
-      to={`/pipelines?provider=${provider.id}`}
-      onClick={(event) => openProvider(provider, event)}
-      actions={
-        <Group gap="4xs" wrap="nowrap" className="nav-item-actions">
-          <Tooltip label={`Edit ${provider.name}`}>
-            <ActionIcon size="sm" aria-label={`Edit ${provider.name}`} onClick={() => onEditProvider(provider.id)}>
-              <IconEdit size={14} aria-hidden />
-            </ActionIcon>
-          </Tooltip>
-          <Tooltip label={`Remove ${provider.name}`}>
-            <ActionIcon
-              size="sm"
-              aria-label={`Remove ${provider.name}`}
-              onClick={() => onRemoveProvider(provider.id, provider.name)}
-            >
-              <IconTrash size={14} aria-hidden />
-            </ActionIcon>
-          </Tooltip>
-        </Group>
-      }
-    />
-  ))
+  return (
+    <>
+      {alert}
+      {visibleProviders.map((provider) => (
+        <NavbarTreeRow
+          key={provider.id}
+          depth={1}
+          label={provider.name}
+          icon={<ProviderAvatar provider={provider} size={ICON_TILE.list} />}
+          description={<ProviderStatusLine provider={provider} />}
+          active={providerId === String(provider.id)}
+          menu={providerMenu(provider)}
+          to={`/pipelines?provider=${provider.id}`}
+          onClick={(event) => openProvider(provider, event)}
+          actions={<EditProviderAction name={provider.name} onEdit={() => onEditProvider(provider.id)} />}
+        />
+      ))}
+    </>
+  )
 }

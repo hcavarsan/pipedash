@@ -28,7 +28,7 @@ export function MetricShellRow({ row, metricType, selected, onSelect }: MetricSh
       title={formatDateTime(metric.timestamp)}
       subtitle={<span className={classes.num}>{`Count ${formatNumber(metric.count)} · ${range}`}</span>}
       value={<span className={classes.num}>{formatMetricValue(observed ? metric.value : null, metricType)}</span>}
-      accessory={selected ? <IconCheck size={18} color="var(--ios-tint)" aria-hidden /> : undefined}
+      accessory={selected ? <IconCheck size={16} color="var(--ios-tint)" aria-hidden /> : undefined}
       selected={selected}
       onClick={onSelect}
     />

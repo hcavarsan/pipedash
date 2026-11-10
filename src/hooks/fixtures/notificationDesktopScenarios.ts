@@ -58,7 +58,7 @@ function Screen() {
   useDesktopLifecycle()
   useDesktopNotifications()
   const status = useDesktopStatus()
-  const items = useNotificationItems()
+  const { items } = useNotificationItems()
   return createElement(
     'output',
     null,

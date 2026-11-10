@@ -13,6 +13,8 @@ interface ConnectServerFieldsProps {
   allowPrivateHttp: boolean
   onAddressChange: (value: string) => void
   onCodeChange: (value: string) => void
+  onAddressBlur: () => void
+  onCodeBlur: () => void
   onAllowPrivateHttpChange: (value: boolean) => void
 }
 
@@ -27,6 +29,8 @@ export function ConnectServerFields({
   allowPrivateHttp,
   onAddressChange,
   onCodeChange,
+  onAddressBlur,
+  onCodeBlur,
   onAllowPrivateHttpChange,
 }: ConnectServerFieldsProps): ReactNode {
   return (
@@ -40,6 +44,7 @@ export function ConnectServerFields({
           required
           value={address}
           onChange={(event) => onAddressChange(event.currentTarget.value)}
+          onBlur={onAddressBlur}
           error={addressError}
           size="md"
           autoComplete="off"
@@ -57,6 +62,7 @@ export function ConnectServerFields({
             required
             value={code}
             onChange={(event) => onCodeChange(event.currentTarget.value)}
+            onBlur={onCodeBlur}
             error={codeError}
             size="md"
             autoComplete="off"

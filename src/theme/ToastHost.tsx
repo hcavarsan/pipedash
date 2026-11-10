@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import { useBannerSwipe } from '../hooks/useBannerSwipe'
 import { useMobileShell } from '../hooks/useIsMobile'
 import { iosToastClassNames } from './ios'
+import { Z } from './zIndex'
 
 export function ToastHost(): ReactNode {
   const mobileShell = useMobileShell()
@@ -15,7 +16,7 @@ export function ToastHost(): ReactNode {
       <Notifications
         position="top-center"
         limit={3}
-        zIndex={600}
+        zIndex={Z.toast}
         classNames={iosToastClassNames}
         allowDragDismiss={false}
         allowScrollDismiss={false}

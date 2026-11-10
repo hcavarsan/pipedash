@@ -1,4 +1,4 @@
-import { Badge, Box, Center, Group, Loader, Paper, Stack, Text, UnstyledButton } from '@mantine/core'
+import { Badge, Group, Loader, Stack, Text, UnstyledButton } from '@mantine/core'
 import { IconDeviceDesktop, IconServer2 } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -10,7 +10,7 @@ import { withBasePath } from '../../../lib/basePath'
 import { isMobilePlatform } from '../../../utils/platform'
 import { Onboarding } from '../../setup/components/SetupWizard/Onboarding'
 import { useRunOnThisDevice } from '../queries/useConnectionQueries'
-import { ConnectionScreenHeading } from './ConnectionScreenHeading'
+import { EntryScreen } from './EntryScreen'
 
 const TITLE = 'Where should Pipedash run?'
 const FOOTER = 'You can change this later in Settings → Devices.'
@@ -57,7 +57,7 @@ function DesktopChoice({ icon, title, text, recommended, busy, disabled, onClick
             {text}
           </Text>
         </Stack>
-        {busy && <Loader size="sm" />}
+        {busy && <Loader size="xs" />}
       </Group>
     </UnstyledButton>
   )
@@ -86,8 +86,8 @@ export function WelcomeScreen(): ReactNode {
           <IosRow
             title={LOCAL_TITLE}
             subtitle={localText}
-            icon={<IconDeviceDesktop size={18} />}
-            accessory={runLocal.isPending ? <Loader size="sm" /> : undefined}
+            icon={<IconDeviceDesktop size={16} />}
+            accessory={runLocal.isPending ? <Loader size="xs" /> : undefined}
             chevron={!runLocal.isPending}
             disabled={runLocal.isPending}
             onClick={chooseLocal}
@@ -95,7 +95,7 @@ export function WelcomeScreen(): ReactNode {
           <IosRow
             title={SERVER_TITLE}
             subtitle={SERVER_TEXT}
-            icon={<IconServer2 size={18} />}
+            icon={<IconServer2 size={16} />}
             chevron
             disabled={runLocal.isPending}
             onClick={chooseServer}
@@ -127,21 +127,12 @@ export function WelcomeScreen(): ReactNode {
   )
 
   return (
-    <Box component="main" h="100vh" className="safe-area">
-      <DocumentTitle title="Welcome" />
-      <Center h="100%" p={{ base: 'md', sm: 'xl' }}>
-        <Paper p={{ base: 'lg', sm: 'xl' }} w="100%" maw={480} withBorder>
-          <Stack gap="xl">
-            <ConnectionScreenHeading title={TITLE} />
+    <EntryScreen title={TITLE} documentTitle="Welcome">
+      {choices}
 
-            {choices}
-
-            <Text size="sm" c="dimmed" ta="center">
-              {FOOTER}
-            </Text>
-          </Stack>
-        </Paper>
-      </Center>
-    </Box>
+      <Text size="sm" c="dimmed" ta="center">
+        {FOOTER}
+      </Text>
+    </EntryScreen>
   )
 }

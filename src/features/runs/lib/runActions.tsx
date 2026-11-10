@@ -1,6 +1,7 @@
 import { IconCheck, IconEye, IconFileText, IconPlayerPlay, IconSquare, IconX } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import type { SwipeAction } from '../../../components/ios/swipeAction'
+import type { BuildWatchStatus } from '../../../types/notifications'
 import type { Pipeline, PipelineRun, ReviewDecision } from '../../../types/pipelines'
 import type { PluginPresentation } from '../../../types/plugin_presentation'
 import type { PipelineTerminology } from '../../../types/presentation'
@@ -8,7 +9,7 @@ import { isDesktopTauri } from '../../../utils/platform'
 
 export type RerunMode = 'all' | 'failed'
 
-type RunActionId = 'watch' | 'approve' | 'reject' | 'cancel' | 'force-cancel' | 'rerun' | 'details'
+type RunActionId = 'watch' | 'approve' | 'reject' | 'cancel' | 'rerun' | 'details'
 
 export interface RunAction {
   id: RunActionId
@@ -27,7 +28,6 @@ export interface RunActionsValue {
   labels: PipelineTerminology
   canCancel: boolean
   cancellingRun: number | null
-  forceCancellingRun: number | null
   reviewingRun: number | null
   rerunningFailedRun: number | null
   rerunningRuns: ReadonlySet<number>
@@ -36,7 +36,6 @@ export interface RunActionsValue {
   openRun: (run: PipelineRun) => void
   openTrigger: () => void
   cancel: (run: PipelineRun) => Promise<void>
-  forceCancel: (run: PipelineRun) => Promise<void>
   review: (run: PipelineRun, decision: ReviewDecision) => Promise<void>
   requestRerun: (run: PipelineRun) => void
   rerunTarget: PipelineRun | null
@@ -94,7 +93,7 @@ export function buildRunActions(value: RunActionsValue, run: PipelineRun): RunAc
     )
   }
 
-  if (state.cancel.allowed) {
+  if (state.cancel.allowed || state.force_cancel.allowed) {
     const cancelling = value.cancellingRun === number
 
     actions.push({
@@ -121,18 +120,6 @@ export function buildRunActions(value: RunActionsValue, run: PipelineRun): RunAc
     })
   }
 
-  if (state.force_cancel.allowed) {
-    actions.push({
-      id: 'force-cancel',
-      label: `Force cancel run #${number}`,
-      icon: <IconSquare size={16} aria-hidden />,
-      color: 'red',
-      disabled: value.forceCancellingRun === number || value.cancellingRun === number,
-      pending: value.forceCancellingRun === number,
-      execute: () => value.forceCancel(run),
-    })
-  }
-
   actions.push({
     id: 'details',
     label: `View details for ${value.labels.run} #${number}`,
@@ -143,6 +130,25 @@ export function buildRunActions(value: RunActionsValue, run: PipelineRun): RunAc
   })
 
   return actions
+}
+
+interface WatchSource {
+  data: BuildWatchStatus | undefined
+  busy: boolean
+  isFetching: boolean
+  isError: boolean
+}
+
+export function watchStateOf(buildWatch: WatchSource): RunActionsValue['watch'] {
+  const watching = buildWatch.data?.watch?.monitoring === 'watching'
+
+  return {
+    supported: !!buildWatch.data?.supported,
+    available: !!buildWatch.data?.available,
+    reason: buildWatch.data?.reason ?? undefined,
+    busy: buildWatch.busy,
+    disabled: buildWatch.busy || buildWatch.isFetching || buildWatch.isError || !buildWatch.data?.available || watching,
+  }
 }
 
 export function swipeActionsOf(actions: RunAction[]): SwipeAction[] {

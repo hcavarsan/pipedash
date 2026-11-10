@@ -86,7 +86,7 @@ export function App(): ReactNode {
   })
 
   if (checkingSetup) {
-    return <LoadingState variant="page" message="Loading Pipedash" />
+    return <LoadingState variant="page" message="Loading Pipedash…" />
   }
 
   if (setupFailed && isRemoteClient()) {
@@ -121,7 +121,7 @@ export function App(): ReactNode {
   if (needsSetup || setupActive) {
     return (
       <ErrorBoundary name="Setup wizard">
-        <Suspense fallback={<LoadingState variant="page" message="Loading setup..." />}>
+        <Suspense fallback={<LoadingState variant="page" message="Loading setup…" />}>
           <SetupWizard opened onComplete={handleSetupComplete} />
         </Suspense>
       </ErrorBoundary>

@@ -140,6 +140,21 @@ test('a failed retention save does not overwrite a newer draft', async (context)
   assert.equal(backend.config.default_retention_days, 7)
 })
 
+test('a retention below one is rejected without saving', async (context) => {
+  const user = userEvent.setup({ document })
+  const backend = mockBackend(context)
+  await renderMetrics()
+  const days = await openCustomDays(user)
+
+  await user.clear(days)
+  await user.type(days, '0')
+  await user.tab()
+
+  assert.ok((await view().findAllByText(/must be at least 1/i)).length > 0)
+  assert.deepEqual(backend.saves, [])
+  assert.equal(backend.config.default_retention_days, 7)
+})
+
 test('a retention the backend rejects shows its message and is not applied', async (context) => {
   const user = userEvent.setup({ document })
   const backend = mockBackend(context)
@@ -148,10 +163,10 @@ test('a retention the backend rejects shows its message and is not applied', asy
   const days = await openCustomDays(user)
 
   await user.clear(days)
-  await user.type(days, '0')
+  await user.type(days, '30')
   await user.tab()
 
-  await waitFor(() => assert.deepEqual(backend.saves, [{ enabled: true, retentionDays: 0 }]))
+  await waitFor(() => assert.deepEqual(backend.saves, [{ enabled: true, retentionDays: 30 }]))
   assert.ok((await view().findAllByText(/backend unavailable/i)).length > 0)
   assert.equal(backend.config.default_retention_days, 7)
 })

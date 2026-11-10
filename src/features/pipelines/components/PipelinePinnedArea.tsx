@@ -26,7 +26,7 @@ function PinnedRepositoryBlock({
   actions,
   selection,
 }: PinnedRepositoryBlockProps): ReactNode {
-  const unpin = () => actions.pinItem(block.kind, block.ref).onClick()
+  const unpinItem = actions.pinItem(block.kind, block.ref)
 
   return (
     <Stack gap="sm" component="section">
@@ -38,7 +38,12 @@ function PinnedRepositoryBlock({
         onToggle={onToggle}
         actions={
           <Tooltip label={`Unpin ${block.name}`}>
-            <ActionIcon aria-label={`Unpin ${block.name}`} onClick={unpin}>
+            <ActionIcon
+              aria-label={`Unpin ${block.name}`}
+              loading={unpinItem.disabled === true}
+              aria-disabled={unpinItem.disabled === true}
+              onClick={unpinItem.onClick}
+            >
               <IconPinnedOff size={16} aria-hidden />
             </ActionIcon>
           </Tooltip>
@@ -46,6 +51,7 @@ function PinnedRepositoryBlock({
       />
       {expanded && (
         <PipelineCardGrid
+          pinned
           pipelines={block.pipelines}
           getProvider={getProvider}
           actions={actions}
@@ -83,7 +89,13 @@ export function PipelinePinnedArea({
             onToggle={() => toggleOpen('__pinned', true)}
           />
           {isOpen('__pinned', true) && (
-            <PipelineCardGrid pipelines={pinned} getProvider={getProvider} actions={actions} selection={selection} />
+            <PipelineCardGrid
+              pinned
+              pipelines={pinned}
+              getProvider={getProvider}
+              actions={actions}
+              selection={selection}
+            />
           )}
         </Stack>
       )}

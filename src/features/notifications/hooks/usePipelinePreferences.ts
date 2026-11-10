@@ -1,3 +1,4 @@
+import type { UseQueryResult } from '@tanstack/react-query'
 import { usePipelines } from '../../../queries/usePipelinesQueries'
 import { useProviders } from '../../../queries/useProvidersQueries'
 import { useNotificationStore } from '../../../stores/notificationStore'
@@ -16,6 +17,7 @@ export interface PipelinePreference {
 interface PipelinePreferences {
   muted: PipelinePreference[]
   watching: PipelinePreference[]
+  lookup: UseQueryResult<unknown, Error>
 }
 
 const idsIn = (states: Record<string, PipelineNotifyState>, wanted: PipelineNotifyState): string[] =>
@@ -24,17 +26,23 @@ const idsIn = (states: Record<string, PipelineNotifyState>, wanted: PipelineNoti
 export function usePipelinePreferences(): PipelinePreferences {
   const pipelineStates = useNotificationStore((state) => state.pipelineStates)
   const { data: providers = [] } = useProviders()
-  const { data: pipelines = [] } = usePipelines()
+  const pipelinesQuery = usePipelines()
+  const { data: pipelines = [] } = pipelinesQuery
 
   const describe = (id: string): { name: string; detail: string } => {
     const pipeline = pipelines.find((item) => item.id === id)
     const provider = providers.find((item) => item.id === pipeline?.provider_id)
+    let missing = 'Details unavailable'
+
+    if (pipelinesQuery.isSuccess) {
+      missing = 'No longer in Pipedash'
+    }
 
     return {
       name: pipeline?.name ?? id,
       detail: pipeline
         ? [pipeline.repository, provider?.name ?? pipeline.provider_type].filter(Boolean).join(' · ')
-        : 'No longer in Pipedash',
+        : missing,
     }
   }
 
@@ -77,5 +85,5 @@ export function usePipelinePreferences(): PipelinePreferences {
     }
   })
 
-  return { muted, watching: [...watched, ...pending] }
+  return { muted, watching: [...watched, ...pending], lookup: pipelinesQuery }
 }

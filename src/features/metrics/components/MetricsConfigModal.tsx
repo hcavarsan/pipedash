@@ -39,7 +39,7 @@ function ConfigGate({ query, snapshot, ...props }: ConfigGateProps): ReactNode {
             retrying={query.isFetching}
           />
         ) : (
-          <LoadingState message="Loading metrics settings..." />
+          <LoadingState message="Loading metrics settings…" />
         )}
       </StandardModal>
     )

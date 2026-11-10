@@ -1,4 +1,4 @@
-import { Menu } from '@mantine/core'
+import { Loader, Menu } from '@mantine/core'
 import {
   IconArrowDown,
   IconArrowUp,
@@ -7,6 +7,7 @@ import {
   IconChevronUp,
   IconDots,
   IconFilter,
+  IconFilterFilled,
   IconSearch,
 } from '@tabler/icons-react'
 import type { ReactNode, RefObject } from 'react'
@@ -14,7 +15,7 @@ import { PhoneSearchField } from '../../../components/common/PhoneSearchField'
 import { ActionSheetCancel } from '../../../components/ios/ActionSheetCancel'
 import type { LogDocumentMeta } from '../../../types/logs'
 import type { LogSelection } from '../hooks/useLogNavigation'
-import { errorCounter } from '../lib/logActions'
+import { errorCounter, logOptionItems } from '../lib/logActions'
 import type { LogFilter } from '../lib/logRows'
 import classes from './LogViewer.module.css'
 
@@ -112,6 +113,38 @@ export function PhoneLogBar({
         failed
       )
 
+  const matchesOnly = filter === 'matches'
+  const items = logOptionItems({
+    wrap,
+    onWrapChange,
+    timestamps,
+    onTimestampsChange,
+    filter,
+    onFilterChange,
+    errorTotal: meta.error_total,
+    exporting,
+    onExport,
+  })
+  const toggles = items.filter((item) => item.checked !== undefined)
+  const exportItem = items.find((item) => item.id === 'export')
+  const toggleItems = toggles.map((item) => (
+    <Menu.Item
+      key={item.id}
+      role="menuitemcheckbox"
+      aria-checked={item.checked}
+      disabled={item.disabled === true}
+      rightSection={item.checked ? <IconCheck size={14} aria-hidden /> : null}
+      onClick={item.onSelect}
+    >
+      {item.label}
+    </Menu.Item>
+  ))
+  const exportEntry = exportItem && (
+    <Menu.Item disabled={exportItem.disabled === true} onClick={exportItem.onSelect}>
+      {exportItem.label}
+    </Menu.Item>
+  )
+
   return (
     <div className={classes.phoneBar}>
       <div className={classes.phoneBarGroup}>
@@ -122,7 +155,7 @@ export function PhoneLogBar({
           disabled={stepDisabled}
           onClick={searching ? onPrevMatch : onPrevError}
         >
-          <IconChevronUp size="1.2em" aria-hidden />
+          <IconChevronUp size={20} aria-hidden />
         </button>
         <button
           type="button"
@@ -131,7 +164,7 @@ export function PhoneLogBar({
           disabled={stepDisabled}
           onClick={searching ? onNextMatch : onNextError}
         >
-          <IconChevronDown size="1.2em" aria-hidden />
+          <IconChevronDown size={20} aria-hidden />
         </button>
         <span className={classes.phoneErrorCounter} aria-live={searching ? undefined : 'polite'}>
           {counter}
@@ -142,49 +175,30 @@ export function PhoneLogBar({
           <button
             type="button"
             className={classes.phoneButton}
-            aria-label="Matching lines"
-            aria-pressed={filter === 'matches'}
-            disabled={noMatches && filter !== 'matches'}
-            onClick={() => onFilterChange(filter === 'matches' ? 'none' : 'matches')}
+            aria-label={matchesOnly && matchStatus ? `Matching lines, ${matchStatus}` : 'Matching lines'}
+            aria-pressed={matchesOnly}
+            disabled={noMatches && !matchesOnly}
+            onClick={() => onFilterChange(matchesOnly ? 'none' : 'matches')}
           >
-            <IconFilter size="1.2em" aria-hidden />
+            {matchesOnly ? <IconFilterFilled size={20} aria-hidden /> : <IconFilter size={20} aria-hidden />}
           </button>
         )}
         <button type="button" className={classes.phoneButton} aria-label="Search logs" onClick={onSearch}>
-          <IconSearch size="1.2em" aria-hidden />
+          <IconSearch size={20} aria-hidden />
         </button>
         <Menu position="top-end" withinPortal>
           <Menu.Target>
-            <button type="button" className={classes.phoneButton} aria-label="More">
-              <IconDots size="1.2em" aria-hidden />
+            <button
+              type="button"
+              className={classes.phoneButton}
+              aria-label={exporting ? 'More, exporting log…' : 'More'}
+              aria-busy={exporting}
+            >
+              {exporting ? <Loader size="xs" aria-hidden /> : <IconDots size={20} aria-hidden />}
             </button>
           </Menu.Target>
           <Menu.Dropdown>
-            <Menu.Item
-              role="menuitemcheckbox"
-              aria-checked={wrap}
-              rightSection={wrap ? <IconCheck size={14} aria-hidden /> : null}
-              onClick={() => onWrapChange(!wrap)}
-            >
-              Wrap lines
-            </Menu.Item>
-            <Menu.Item
-              role="menuitemcheckbox"
-              aria-checked={timestamps}
-              rightSection={timestamps ? <IconCheck size={14} aria-hidden /> : null}
-              onClick={() => onTimestampsChange(!timestamps)}
-            >
-              Show timestamps
-            </Menu.Item>
-            <Menu.Item
-              role="menuitemcheckbox"
-              aria-checked={filter === 'errors'}
-              disabled={noErrors && filter !== 'errors'}
-              rightSection={filter === 'errors' ? <IconCheck size={14} aria-hidden /> : null}
-              onClick={() => onFilterChange(filter === 'errors' ? 'none' : 'errors')}
-            >
-              Show error lines only
-            </Menu.Item>
+            {toggleItems}
             <Menu.Divider />
             <Menu.Item leftSection={<IconArrowUp size={14} aria-hidden />} onClick={onStart}>
               Go to top
@@ -193,9 +207,7 @@ export function PhoneLogBar({
               Go to bottom
             </Menu.Item>
             <Menu.Divider />
-            <Menu.Item disabled={exporting} onClick={onExport}>
-              Export log
-            </Menu.Item>
+            {exportEntry}
             {onOpenJob && <Menu.Item onClick={onOpenJob}>Open job in {providerName}</Menu.Item>}
             <ActionSheetCancel />
           </Menu.Dropdown>

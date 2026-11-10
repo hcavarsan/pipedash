@@ -12,6 +12,7 @@ import { connectionService, getConnection, hasLocalCore, isRemoteClient } from '
 import { listenEvent } from '@/services/events'
 import { service } from '@/services/service'
 import { WS_EVENTS, wsClient } from '@/services/websocket'
+import { Z } from '@/theme/zIndex'
 
 import classes from './ConnectionStatus.module.css'
 
@@ -31,7 +32,7 @@ const ALERT_POSITION = {
   position: 'fixed',
   top: 'calc(60px + var(--safe-top))',
   right: 'calc(16px + var(--safe-right))',
-  zIndex: 1000,
+  zIndex: Z.connectionBanner,
 } as const
 
 function reconnect(): void {

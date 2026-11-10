@@ -192,7 +192,6 @@ export function useRunLogSearch(
     queryFn: ({ signal }) =>
       service.searchRunLog(pipelineId, runNumber, nodeId, revision ?? 0, sessionId, effective, signal),
     enabled: hasText && revision !== undefined && !!pipelineId && !!nodeId,
-    retry: false,
     staleTime: Infinity,
     gcTime: GC_TIMES.SHORT,
     placeholderData: (previous, previousQuery) =>

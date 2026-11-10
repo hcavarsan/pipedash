@@ -1,5 +1,5 @@
-name: Android
-run-name: Android ${{ inputs.lane || 'beta' }}
+name: Release / Android
+run-name: Release / Android ${{ inputs.lane || 'beta' }}
 on:
   push:
     tags:

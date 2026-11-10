@@ -74,7 +74,7 @@ export function UnlockAlternativeControls({
   }
 
   const size = mobileShell ? 'lg' : 'md'
-  const iconSize = mobileShell ? 22 : 18
+  const iconSize = mobileShell ? 20 : 16
   const Icon = biometry === 'touchId' ? IconFingerprint : IconFaceId
   let biometricVariant: 'filled' | 'light' | 'subtle' = 'filled'
   if (requiresPassword) {

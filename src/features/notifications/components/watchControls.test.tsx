@@ -25,6 +25,7 @@ const { queryKeys } = await import('../../../lib/queryKeys')
 const { DEFAULT_NOTIFICATION_PREFERENCES, useNotificationStore } = await import('../../../stores/notificationStore')
 const { NotificationPreferencesSection } = await import('./NotificationPreferencesSection')
 const { PipelineNotifyMenu } = await import('./PipelineNotifyMenu')
+const { PipelineNotifyPolicy } = await import('./PipelineNotifyPolicy')
 const { notifications } = await import('../../../lib/notifications')
 const { changePreference, refreshPreferenceStates } = await import('../queries/changePreference')
 
@@ -99,13 +100,21 @@ test('the pipeline menu button names the current state', () => {
   }
 })
 
-test('the pipeline menu offers the finish option that fits the run state and sends the chosen change', async () => {
+test('the pipeline menu is one policy choice that marks the current option and sends the chosen change', async () => {
   const user = userEvent.setup({ document })
   mount(<PipelineNotifyMenu pipeline={{ ...pipeline, status: 'running' }} />)
 
   await user.click(view().getByRole('button', { name: /notification options/ }))
-  assert.ok(await view().findByRole('menuitem', { name: 'Notify when this run finishes' }))
-  assert.ok(view().getByRole('menuitem', { name: 'Mute notifications' }))
+  const options = await view().findAllByRole('menuitem')
+  assert.deepEqual(
+    options.map((option) => [option.textContent, option.getAttribute('aria-current')]),
+    [
+      ['Follow notification settings', 'true'],
+      ['Notify when this run finishes', null],
+      ['Watch all runs', null],
+      ['Mute notifications', null],
+    ]
+  )
 
   reply = snapshot({ [pipeline.id]: 'watching' })
   await user.click(view().getByRole('menuitem', { name: 'Watch all runs' }))
@@ -114,11 +123,11 @@ test('the pipeline menu offers the finish option that fits the run state and sen
   )
 
   await user.click(await view().findByRole('button', { name: 'Watching, notification options' }))
-  assert.ok(await view().findByRole('menuitem', { name: 'Stop watching' }))
-  assert.equal(view().queryByRole('menuitem', { name: /finishes$/ }), null)
+  const watching = await view().findByRole('menuitem', { name: 'Watch all runs' })
+  assert.equal(watching.getAttribute('aria-current'), 'true')
 })
 
-test('an idle pipeline offers the next-run option and a pending one can be cancelled', async () => {
+test('switching between policies sends exactly one change', async () => {
   const user = userEvent.setup({ document })
   mount(<PipelineNotifyMenu pipeline={{ ...pipeline, status: 'success' }} />)
 
@@ -127,16 +136,60 @@ test('an idle pipeline offers the next-run option and a pending one can be cance
   await user.click(await view().findByRole('menuitem', { name: 'Notify when the next run finishes' }))
   await waitFor(() => assert.deepEqual(changes.at(-1), { type: 'watch_next_finish', pipeline_id: pipeline.id }))
 
-  reply = snapshot()
+  reply = snapshot({ [pipeline.id]: 'muted' })
   await user.click(await view().findByRole('button', { name: 'Notify on finish, notification options' }))
-  await user.click(await view().findByRole('menuitem', { name: 'Cancel finish notification' }))
-  await waitFor(() => assert.deepEqual(changes.at(-1), { type: 'cancel_next_finish', pipeline_id: pipeline.id }))
-
-  await user.click(await view().findByRole('button', { name: 'Notifications, notification options' }))
   await user.click(await view().findByRole('menuitem', { name: 'Mute notifications' }))
   await waitFor(() =>
-    assert.deepEqual(changes.at(-1), { type: 'pipeline_muted', pipeline_id: pipeline.id, muted: true })
+    assert.deepEqual(changes.slice(-2), [
+      { type: 'watch_next_finish', pipeline_id: pipeline.id },
+      { type: 'pipeline_muted', pipeline_id: pipeline.id, muted: true },
+    ])
   )
+
+  reply = snapshot()
+  await user.click(await view().findByRole('button', { name: 'Muted, notification options' }))
+  await user.click(await view().findByRole('menuitem', { name: 'Follow notification settings' }))
+  await waitFor(() =>
+    assert.deepEqual(changes.at(-1), { type: 'pipeline_muted', pipeline_id: pipeline.id, muted: false })
+  )
+})
+
+test('the notifications dialog offers the same choice and closes after it is saved', async () => {
+  const user = userEvent.setup({ document })
+  const done = mock.fn()
+  mount(<PipelineNotifyPolicy pipeline={{ ...pipeline, status: 'running' }} onDone={done} />)
+
+  const group = view().getByRole('radiogroup')
+  assert.equal(within(group).getAllByRole('radio').length, 4)
+
+  reply = snapshot({ [pipeline.id]: 'muted' })
+  await user.click(within(group).getByRole('radio', { name: /Mute notifications/ }))
+  await waitFor(() => assert.equal(done.mock.callCount(), 1))
+  assert.deepEqual(changes, [{ type: 'pipeline_muted', pipeline_id: pipeline.id, muted: true }])
+})
+
+test('a failed policy change keeps the previous choice and leaves the dialog open for another try', async () => {
+  const user = userEvent.setup({ document })
+  const done = mock.fn()
+  const shown = mock.method(notifications, 'show')
+  useNotificationStore.setState({ pipelineStates: { [pipeline.id]: 'muted' } })
+  respond = async () => {
+    throw new Error('Host unreachable')
+  }
+  mount(<PipelineNotifyPolicy pipeline={{ ...pipeline, status: 'running' }} onDone={done} />)
+
+  await user.click(view().getByRole('radio', { name: /Watch all runs/ }))
+  await waitFor(() => assert.ok(shown.mock.callCount() > 0))
+
+  const muted = view().getByRole('radio', { name: /Mute notifications/ })
+  assert.ok(muted instanceof HTMLInputElement)
+  await waitFor(() => assert.deepEqual([muted.checked, muted.disabled], [true, false]))
+  assert.deepEqual(changes, [{ type: 'pipeline_watched', pipeline_id: pipeline.id, watched: true }])
+  assert.equal(done.mock.callCount(), 0)
+
+  respond = async () => snapshot({ [pipeline.id]: 'watching' })
+  await user.click(view().getByRole('radio', { name: /Watch all runs/ }))
+  await waitFor(() => assert.equal(done.mock.callCount(), 1))
 })
 
 test('settings list watched pipelines and pending requests from the backend states, and each can be undone', async () => {

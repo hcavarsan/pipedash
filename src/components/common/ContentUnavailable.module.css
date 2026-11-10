@@ -17,7 +17,7 @@
   display: flex;
   margin-bottom: 0.25em;
   color: var(--ios-secondary-label);
-  font-size: 3em;
+  font-size: 24px;
   line-height: 1;
 }
 
@@ -33,7 +33,7 @@
 .title {
   margin: 0;
   font-size: var(--ios-fs-title2);
-  font-weight: 700;
+  font-weight: 400;
   line-height: var(--ios-lh-title2);
   color: var(--ios-label);
   overflow-wrap: anywhere;

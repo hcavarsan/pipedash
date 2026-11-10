@@ -1,6 +1,7 @@
-import { Box, Button, CloseButton, Divider, ScrollArea, Stack, Text, TextInput } from '@mantine/core'
+import { Box, Button, CloseButton, Divider, ScrollArea, Stack, TextInput } from '@mantine/core'
 import { IconFolder, IconFolders, IconPlus, IconSearch, IconStack2 } from '@tabler/icons-react'
 import { type ReactNode, useState } from 'react'
+import { EmptyState } from '../../../components/common/EmptyState'
 import { ErrorState } from '../../../components/common/ErrorState'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { useDebounce } from '../../../hooks/useDebounce'
@@ -31,7 +32,6 @@ interface NavbarTreeProps {
   viewMenu: (view: PipelineView | undefined) => MenuProps | undefined
   pinMenu: (pin: PinnedItem) => MenuProps
   onEditProvider: (id: number) => void
-  onRemoveProvider: (id: number, name: string) => void
   onCreateView: () => void
   readFailures: ReadFailure[]
 }
@@ -63,16 +63,17 @@ export const NavbarTree = ({
   viewMenu,
   pinMenu,
   onEditProvider,
-  onRemoveProvider,
   onCreateView,
   readFailures,
 }: NavbarTreeProps): ReactNode => {
   const [query, setQuery] = useState('')
-  const searching = query.trim() !== ''
-  const search = usePipelineNavigation(useDebounce(query.trim()))
-  const navigation = search.data
+  const trimmed = query.trim()
+  const searching = trimmed !== ''
+  const debounced = useDebounce(trimmed)
+  const search = usePipelineNavigation(debounced)
+  const navigation = searching || (debounced === '' && !search.isPlaceholderData) ? search.data : undefined
   const searchFailed = searching && search.isError
-  const searchBusy = searching && (search.isFetching || search.isPlaceholderData)
+  const searchBusy = debounced !== trimmed || (searching && (search.isFetching || search.isPlaceholderData))
   const navViews = navigation?.views ?? views
   const viewNodes = viewNodesOf(navViews)
   const baseNodes = viewNodesOf(views)
@@ -132,7 +133,6 @@ export const NavbarTree = ({
         <ProviderRows
           {...{ providers, visibleProviders, providerId, loading, error, retrying, onRetry, providerMenu }}
           onEditProvider={onEditProvider}
-          onRemoveProvider={onRemoveProvider}
         />
       )}
     </>
@@ -170,31 +170,37 @@ export const NavbarTree = ({
           fullWidth
           onClick={onCreateView}
         >
-          Create view
+          New view…
         </Button>
       )}
       {searching && !showProviders && pinnedNodes.length + otherNodes.length + visiblePins.length === 0 && (
-        <Text size="sm" c="dimmed" ta="center" py="sm">
-          No matches
-        </Text>
+        <EmptyState
+          title="No matches"
+          description="Nothing in the sidebar matches your search."
+          action={
+            <Button size="xs" variant="default" onClick={() => setQuery('')}>
+              Clear search
+            </Button>
+          }
+        />
       )}
     </>
   )
 
-  let results: ReactNode = tree
-
-  if (searchFailed) {
-    results = (
-      <ErrorState
-        title="Couldn't search pipelines"
-        error={search.error}
-        onRetry={() => void search.refetch()}
-        retrying={search.isFetching}
-      />
-    )
-  } else if (searching && !navigation) {
-    results = null
-  }
+  const searchError = searchFailed ? (
+    <ErrorState
+      title="Couldn't search pipelines"
+      error={search.error}
+      onRetry={() => void search.refetch()}
+      retrying={search.isFetching}
+    />
+  ) : null
+  const results = (
+    <>
+      {searchError}
+      {searching && !navigation ? null : tree}
+    </>
+  )
 
   return (
     <>

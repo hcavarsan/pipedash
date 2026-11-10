@@ -65,7 +65,6 @@ function Picker(): ReactNode {
       dispatch,
       providerConfig,
       terms: pluginFixture().presentation.terminology,
-      isMobile: false,
     }),
     createElement('output', { 'aria-label': 'Selected' }, [...state.selectedPipelines].sort().join(','))
   )

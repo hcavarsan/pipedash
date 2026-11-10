@@ -1,4 +1,4 @@
-import { ActionIcon, Group, Loader, type MantineSize, TextInput, Tooltip } from '@mantine/core'
+import { ActionIcon, Group, Loader, TextInput, Tooltip } from '@mantine/core'
 import { IconSearch, IconX } from '@tabler/icons-react'
 import { type CSSProperties, type ReactNode, type Ref, useRef } from 'react'
 
@@ -11,7 +11,6 @@ interface SearchInputProps {
   loadingLabel?: string | undefined
   autoFocus?: boolean | undefined
   inputRef?: Ref<HTMLInputElement> | undefined
-  size?: MantineSize | undefined
   disabled?: boolean | undefined
   style?: CSSProperties | undefined
   className?: string | undefined
@@ -36,7 +35,6 @@ export function SearchInput({
   loadingLabel = 'Searching…',
   autoFocus = false,
   inputRef,
-  size,
   disabled,
   style,
   className,
@@ -73,7 +71,6 @@ export function SearchInput({
       autoFocus={autoFocus}
       leftSection={<IconSearch size={16} aria-hidden />}
       disabled={disabled ?? false}
-      {...(size === undefined ? {} : { size })}
       {...(className === undefined ? {} : { className })}
       {...(style === undefined ? {} : { style })}
       {...(loading && value ? { rightSectionWidth: 64 } : {})}

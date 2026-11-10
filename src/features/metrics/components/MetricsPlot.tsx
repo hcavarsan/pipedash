@@ -29,15 +29,24 @@ const SHELL_AXIS_STYLE = {
   tick: { fill: 'var(--ios-secondary-label)', fontSize: 'var(--ios-fs-footnote)' },
 }
 
-export const SHELL_MARGIN = { top: 8, right: 12, left: 0, bottom: 0 }
+interface ChartMargin {
+  top: number
+  right: number
+  left: number
+  bottom: number
+}
+
+export const SHELL_MARGIN: ChartMargin = { top: SPACING_PX.xs, right: SPACING_PX.sm, left: 0, bottom: 0 }
 export const SHELL_Y_WIDTH = 56
 const SHELL_X_HEIGHT = 28
 
-function getChartMargin(mobileShell: boolean, compact: boolean): typeof SHELL_MARGIN {
+function getChartMargin(mobileShell: boolean, compact: boolean): ChartMargin {
   if (!mobileShell) {
     return { top: SPACING_PX['3xs'], right: SPACING_PX['3xs'], left: SPACING_PX['3xs'], bottom: SPACING_PX['3xs'] }
   }
-  return compact ? { top: 8, right: 8, left: 8, bottom: 4 } : SHELL_MARGIN
+  return compact
+    ? { top: SPACING_PX.xs, right: SPACING_PX.xs, left: SPACING_PX.xs, bottom: SPACING_PX['3xs'] }
+    : SHELL_MARGIN
 }
 
 export function MetricsPlot({

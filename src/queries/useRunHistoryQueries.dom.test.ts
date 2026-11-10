@@ -13,6 +13,7 @@ const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanst
 const { wsClient } = await import('../services/websocket')
 const { apiService } = await import('../services/api')
 const { tauriService } = await import('../services/tauri')
+const { notifications } = await import('../lib/notifications')
 const { useRerunFailedJobs, useRerunRun } = await import('./useRunHistoryQueries')
 const { useRunLogTree } = await import('./useRunLogQueries')
 
@@ -76,8 +77,8 @@ for (const [hookName, method, useRerun] of rerunHooks) {
 
     context.mock.method(apiService, 'getRunLogTree', trees)
     context.mock.method(tauriService, 'getRunLogTree', trees)
-    context.mock.method(apiService, method, async () => undefined)
-    context.mock.method(tauriService, method, async () => undefined)
+    context.mock.method(apiService, method, async () => ({ run_id: null, run_number: null }))
+    context.mock.method(tauriService, method, async () => ({ run_id: null, run_number: null }))
     context.mock.method(wsClient, 'listen', async () => () => undefined)
     notifyManager.setNotifyFunction((callback) => act(callback))
 
@@ -150,7 +151,7 @@ test('a rejected rerun keeps the previous log tree and exposes the error', async
 
 test('a pending rerun reports pending until the provider answers', async (context) => {
   const pipelineId = 'github__1__o/r/pending'
-  const gate = Promise.withResolvers<undefined>()
+  const gate = Promise.withResolvers<{ run_id: null; run_number: null }>()
   const slow = () => gate.promise
   context.mock.method(apiService, 'rerunRun', slow)
   context.mock.method(tauriService, 'rerunRun', slow)
@@ -162,7 +163,7 @@ test('a pending rerun reports pending until the provider answers', async (contex
   })
   await waitFor(() => assert.equal(rerun.result.current.isPending, true))
 
-  gate.resolve(undefined)
+  gate.resolve({ run_id: null, run_number: null })
   await waitFor(() => assert.equal(rerun.result.current.isPending, false))
 })
 
@@ -176,7 +177,7 @@ test('an empty log tree after rerun is shown as empty', async (context) => {
     step_ids_by_node: {},
   }
   const trees = context.mock.fn(async () => current)
-  const done = async () => undefined
+  const done = async () => ({ run_id: null, run_number: null })
   context.mock.method(apiService, 'getRunLogTree', trees)
   context.mock.method(tauriService, 'getRunLogTree', trees)
   context.mock.method(apiService, 'rerunRun', done)
@@ -194,4 +195,27 @@ test('an empty log tree after rerun is shown as empty', async (context) => {
   })
 
   await waitFor(() => assert.equal(tree.result.current.data?.nodes.length, 0))
+})
+
+test('a rerun says Run started only when the provider confirmed a run', async (context) => {
+  const shown = context.mock.method(notifications, 'show', () => 'id')
+  let result: { run_id: string | null; run_number: number | null } = { run_id: null, run_number: null }
+  const answer = async () => result
+  context.mock.method(apiService, 'rerunRun', answer)
+  context.mock.method(tauriService, 'rerunRun', answer)
+  notifyManager.setNotifyFunction((callback) => act(callback))
+  const rerun = renderHook(() => useRerunRun(), { wrapper })
+
+  await act(async () => {
+    await rerun.result.current.mutateAsync({ pipelineId: 'github__1__o/r/title', runNumber: 7 })
+  })
+  result = { run_id: '9', run_number: 8 }
+  await act(async () => {
+    await rerun.result.current.mutateAsync({ pipelineId: 'github__1__o/r/title', runNumber: 7 })
+  })
+
+  assert.deepEqual(
+    shown.mock.calls.map((call) => call.arguments[0]?.title),
+    ['Rerun requested', 'Run started']
+  )
 })

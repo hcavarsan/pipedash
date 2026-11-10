@@ -82,8 +82,8 @@ export function ReadyToolbar({
       selectionCount={selection ? selection.to - selection.from + 1 : 0}
       onCopySelection={logExport.copySelection}
       copied={logExport.copied}
-      onDownload={() => void logExport.exportLog()}
-      downloading={logExport.exporting}
+      onExport={() => void logExport.exportLog()}
+      exporting={logExport.exporting}
       jobUrl={jobUrl}
       providerName={providerName}
       onOpenJob={() => onOpenJob?.()}

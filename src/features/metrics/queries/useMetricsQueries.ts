@@ -162,7 +162,11 @@ export function useUpdatePipelineMetricsConfig(): UseMutationResult<
   })
 }
 
-export function useFlushMetrics(): UseMutationResult<number, Error, string | undefined, unknown> {
+export function useFlushMetrics({
+  toastErrors = true,
+}: {
+  toastErrors?: boolean
+} = {}): UseMutationResult<number, Error, string | undefined, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -196,7 +200,9 @@ export function useFlushMetrics(): UseMutationResult<number, Error, string | und
     },
 
     onError: (error: Error) => {
-      displayErrorNotification(error, "Couldn't delete stored metrics")
+      if (toastErrors) {
+        displayErrorNotification(error, "Couldn't delete stored metrics")
+      }
     },
   })
 }

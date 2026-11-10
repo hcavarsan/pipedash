@@ -5,7 +5,7 @@ import type { CenterSelection } from '../../../stores/notificationCenterStore'
 import type { CenterNotification } from '../../../types/notifications'
 import type { ProviderSummary } from '../../../types/providers'
 import { formatRelativeTime } from '../../../utils/formatRelativeTime'
-import { notificationIcon, notificationLabel } from '../lib/labels'
+import { notificationIcon, notificationLabel, TONE_COLORS } from '../lib/labels'
 
 interface RowProps {
   leading: ReactNode
@@ -82,7 +82,7 @@ export function NotificationCenterItem({ item, now, onSelect }: NotificationCent
 
   return (
     <Row
-      leading={<ItemIcon size={16} aria-hidden />}
+      leading={<ItemIcon size={16} color={TONE_COLORS[item.tone]} aria-hidden />}
       title={item.title}
       subtitle={`${notificationLabel(item)} · ${formatRelativeTime(item.at, now)}`}
       unread={!item.read}

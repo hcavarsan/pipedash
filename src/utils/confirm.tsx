@@ -3,12 +3,11 @@ import { modals } from '@mantine/modals'
 import { isMobileShell } from '../hooks/useIsMobile'
 import { MODAL_TRANSITION } from '../lib/motion'
 import { iosClasses } from '../theme/ios'
+import { Z } from '../theme/zIndex'
 
 import { watchActions } from './alertFit'
 
 type ConfirmOptions = Parameters<typeof modals.openConfirmModal>[0]
-
-const ALERT_Z_INDEX = 400
 
 const fitActions = (anchor: HTMLElement | null) => {
   const group = anchor?.closest(`.${iosClasses.alertBody}`)?.querySelector<HTMLElement>(`.${iosClasses.alertActions}`)
@@ -19,7 +18,7 @@ const fitActions = (anchor: HTMLElement | null) => {
 export function openConfirm(options: ConfirmOptions): string {
   if (!isMobileShell()) {
     return modals.openConfirmModal({
-      zIndex: ALERT_Z_INDEX,
+      zIndex: Z.alert,
       centered: true,
       transitionProps: MODAL_TRANSITION,
       ...options,
@@ -35,7 +34,7 @@ export function openConfirm(options: ConfirmOptions): string {
     [iosClasses.alertButton, preferred ? iosClasses.alertButtonPreferred : '', extra].filter(Boolean).join(' ')
 
   return modals.openConfirmModal({
-    zIndex: ALERT_Z_INDEX,
+    zIndex: Z.alert,
     ...options,
     centered: true,
     withCloseButton: false,
@@ -75,9 +74,7 @@ export function confirmDiscard(): Promise<boolean> {
   openConfirm({
     title: 'Discard changes?',
     children: 'Your changes will be lost.',
-    labels: isMobileShell()
-      ? { confirm: 'Discard Changes', cancel: 'Keep Editing' }
-      : { confirm: 'Discard changes', cancel: 'Keep editing' },
+    labels: { confirm: 'Discard changes', cancel: 'Keep editing' },
     confirmProps: { color: 'red' },
     onConfirm: () => resolve(true),
     onCancel: () => resolve(false),

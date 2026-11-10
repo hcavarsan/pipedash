@@ -2,6 +2,7 @@ import { ActionIcon, Button, Group, Stack, Text, Tooltip, UnstyledButton } from 
 import { IconFolder, IconGripVertical, IconPlus, IconTrash } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { EmptyState } from '../../../components/common/EmptyState'
+import { QueryBoundary } from '../../../components/common/QueryBoundary'
 import { StandardModal } from '../../../components/common/StandardModal'
 import type { PipelineView } from '../../../types/views'
 import { reorderSlots } from '../../../utils/viewTree'
@@ -9,7 +10,6 @@ import { useConfirmDeleteView } from '../hooks/useConfirmDeleteView'
 import { usePipelineViews } from '../queries/usePipelineViewQueries'
 import { useReorderPipelineViews, useViewsReordering } from '../queries/useViewReorderQueries'
 import { usePipelineViewStore } from '../stores/pipelineViewStore'
-import { QueryBoundary } from './QueryBoundary'
 import { type SortableDragProps, SortableList } from './SortableList'
 
 interface ManageViewRowProps {
@@ -151,7 +151,7 @@ export function ManageViewsModal(): ReactNode {
             leftSection={<IconPlus size={16} aria-hidden />}
             onClick={() => openEditor(null)}
           >
-            New view
+            New view…
           </Button>
           <Button size="sm" onClick={closeManage}>
             Done

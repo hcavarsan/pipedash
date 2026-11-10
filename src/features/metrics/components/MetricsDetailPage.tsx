@@ -8,7 +8,7 @@ import { ActionSheetCancel } from '../../../components/ios/ActionSheetCancel'
 import { IosGroup } from '../../../components/ios/IosList'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
 import type { AggregationPeriod, AggregationType, MetricTableSort, MetricType } from '../../../types/metrics'
-import { type DateRange, isDateRange } from '../../../utils/dateRange'
+import { type DateRange, getDateRangeLabel, isDateRange } from '../../../utils/dateRange'
 import { useExportMetrics } from '../hooks/useExportMetrics'
 import {
   AGGREGATION_PERIOD_OPTIONS,
@@ -112,7 +112,7 @@ export const MetricsDetailPage = ({
     }
 
     if (metricsQuery.isPending) {
-      return <LoadingState message={`Loading ${metricLabel} metrics...`} />
+      return <LoadingState message={`Loading ${metricLabel} metrics…`} />
     }
 
     const title = resolved.current
@@ -125,12 +125,11 @@ export const MetricsDetailPage = ({
             data={data}
             selectedIndex={selectedDataPointIndex}
             onDataPointClick={setSelectedDataPointIndex}
-            chartTitle={buildChartTitle(
+            chartTitle={`${buildChartTitle(
               title.metricType,
               title.aggregationType,
-              title.aggregationPeriod,
-              title.dateRange
-            )}
+              title.aggregationPeriod
+            )} · ${getDateRangeLabel(title.dateRange)}`}
             chartRef={chartRef}
           />
           <MetricsDataTable
@@ -182,7 +181,7 @@ export const MetricsDetailPage = ({
       aria-label="Export metrics"
       aria-busy={exporting}
     >
-      {exporting ? <Loader size={18} /> : <IconDownload size={18} aria-hidden />}
+      {exporting ? <Loader size="xs" /> : <IconDownload size={16} aria-hidden />}
       {exporting ? 'Exporting…' : 'Export'}
     </UnstyledButton>
   )
@@ -229,7 +228,7 @@ export const MetricsDetailPage = ({
 
   return (
     <Stack gap={isMobile ? 'xs' : 'md'} pt="xs" pb="md">
-      <Group component="section" aria-label="Metrics filters and export" align="flex-start" gap="sm" wrap="wrap">
+      <Group component="section" aria-label="Metrics filters and export" align="flex-end" gap="sm" wrap="wrap">
         <FilterSelect
           label="Time range"
           clearable={false}

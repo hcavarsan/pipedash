@@ -26,14 +26,14 @@ export function PipelineStatusBadge({
       multiline
       maw={480}
       label={
-        <Stack gap={2}>
+        <Stack gap="4xs">
           <Text size="xs">{activity}</Text>
           {age && <Text size="xs">{age.label}</Text>}
           {age && <Text size="xs">{age.detail}</Text>}
         </Stack>
       }
     >
-      <Group component="span" gap={4} wrap="nowrap" display="inline-flex" data-raised>
+      <Group component="span" gap="3xs" wrap="nowrap" display="inline-flex" data-raised>
         <StatusBadge status={pipelineStatusKey(pipeline)} label={getPipelineStatusLabel(pipeline)} />
         {age && age.tone !== 'fresh' && (
           <>

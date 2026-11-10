@@ -18,7 +18,7 @@ export function LiveMarker({ meta, target, variant }: LiveMarkerProps): ReactNod
 
   if (meta.refresh_error !== null) {
     return (
-      <Alert color="yellow" variant="light" mx="sm" mb="xs">
+      <Alert color="orange" variant="light" mx="sm" mb="xs">
         <Group justify="space-between" wrap="nowrap" gap="sm">
           <span>{retry.error?.message ?? meta.refresh_error}</span>
           <Button size="compact-xs" variant="default" loading={retry.isPending} onClick={() => retry.mutate(target)}>

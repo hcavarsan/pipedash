@@ -41,7 +41,6 @@
   background: transparent;
   color: var(--ios-label);
   font-family: inherit;
-  font-size: var(--ios-fs-body);
   line-height: var(--ios-lh-body);
   outline: none;
   appearance: none;

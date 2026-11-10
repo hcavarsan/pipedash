@@ -108,7 +108,7 @@ function ViewRow({ view }: { view: PipelineView }): ReactNode {
 
   return (
     <IosRow
-      icon={all ? <IconStack2 size={18} /> : <IconFolder size={18} />}
+      icon={all ? <IconStack2 size={16} /> : <IconFolder size={16} />}
       title={all ? 'All pipelines' : view.name}
       value={String(view.count)}
       to={all ? '/pipelines' : `/pipelines?view=${encodeURIComponent(view.id)}`}
@@ -122,10 +122,16 @@ export function BrowsePage(): ReactNode {
   const openAddProviderModal = useProviderStore((s) => s.openAddProviderModal)
   const requestEditProvider = useProviderStore((s) => s.requestEditProvider)
   const confirmRemove = useConfirmRemoveProvider()
-  const { data: views = [], error: viewsError, refetch: refetchViews, isFetching: fetchingViews } = usePipelineViews()
+  const {
+    data: views,
+    isLoading: loadingViews,
+    error: viewsError,
+    refetch: refetchViews,
+    isFetching: fetchingViews,
+  } = usePipelineViews()
 
   if (isLoading) {
-    return <LoadingState message="Loading providers" />
+    return <LoadingState message="Loading providers…" />
   }
 
   if (error && loaded === undefined) {
@@ -140,7 +146,7 @@ export function BrowsePage(): ReactNode {
     )
   }
 
-  const browsableViews = views.filter(browsable)
+  const browsableViews = (views ?? []).filter(browsable)
 
   return (
     <Stack gap="md" pb="md">
@@ -160,7 +166,8 @@ export function BrowsePage(): ReactNode {
           retrying={fetchingViews}
         />
       )}
-      {providers.length > 0 && browsableViews.length > 0 && (
+      {loadingViews && <LoadingState variant="compact" message="Loading views…" />}
+      {browsableViews.length > 0 && (
         <IosGroup header="Views">
           {browsableViews.map((view) => (
             <ViewRow key={view.id} view={view} />
@@ -181,7 +188,7 @@ export function BrowsePage(): ReactNode {
           />
         ))}
         <IosRow
-          icon={<IconPlus size={18} />}
+          icon={<IconPlus size={16} />}
           title={<span className={classes.addTitle}>Add provider</span>}
           onClick={openAddProviderModal}
         />

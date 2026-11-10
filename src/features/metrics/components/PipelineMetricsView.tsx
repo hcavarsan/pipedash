@@ -145,7 +145,7 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository }: Pi
     }
 
     if (pipelineConfig.isPending) {
-      return <LoadingState message="Loading metrics settings..." />
+      return <LoadingState message="Loading metrics settings…" />
     }
 
     if (!isMetricsEnabled) {
@@ -197,7 +197,7 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository }: Pi
           <IosGroup footer={`Metrics are kept for ${formatCount(retentionDays, 'day')}.`}>
             <IosRow
               title="Configure metrics"
-              icon={<IconAdjustments size={18} aria-hidden />}
+              icon={<IconAdjustments size={16} aria-hidden />}
               chevron
               onClick={() => setConfigModalOpened(true)}
             />

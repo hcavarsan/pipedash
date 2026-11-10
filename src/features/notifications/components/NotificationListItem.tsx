@@ -36,7 +36,7 @@ export function NotificationListItem({ item, now, onOpen, onMarkRead }: Notifica
 
   return (
     <IosRow
-      icon={<ItemIcon size={18} color={TONE_COLORS[item.tone]} aria-hidden />}
+      icon={<ItemIcon size={16} color={TONE_COLORS[item.tone]} aria-hidden />}
       title={
         <Text span inherit fw={item.read ? 400 : 600}>
           {item.title}

@@ -76,25 +76,15 @@ export function formReducer(state: FormState, action: FormAction): FormState {
         fieldErrors: {},
       }
 
-    case 'SET_PROVIDER_NAME': {
-      const { providerName: _cleared, ...fieldErrors } = state.fieldErrors
+    case 'SET_PROVIDER_NAME':
+      return { ...state, providerName: action.name }
 
-      return { ...state, providerName: action.name, fieldErrors }
-    }
-
-    case 'UPDATE_CONFIG': {
-      const newFieldErrors = { ...state.fieldErrors }
-
-      delete newFieldErrors[action.key]
-      const configValues = { ...state.configValues, [action.key]: action.value }
-
+    case 'UPDATE_CONFIG':
       return {
         ...state,
-        configValues,
+        configValues: { ...state.configValues, [action.key]: action.value },
         selectedOrganization: '',
-        fieldErrors: newFieldErrors,
       }
-    }
 
     case 'SET_CONFIG_VALUES':
       return { ...state, configValues: action.values }

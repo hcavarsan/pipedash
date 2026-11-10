@@ -2,12 +2,13 @@ import { Divider, PasswordInput, Stack } from '@mantine/core'
 import { type ChangeEvent, type KeyboardEvent, type ReactNode, useActionState, useRef, useState } from 'react'
 import { FormErrorDisplay } from '../../../components/common/FormErrorDisplay'
 import { SubmitButton } from '../../../components/forms/SubmitButton'
+import { useBlurValidation } from '../../../hooks/useBlurValidation'
 import { useUnlockVault } from '../../../queries/useVaultQueries'
 import { errorMessage } from '../../../utils/errorDisplay'
 
+type FieldKey = 'password' | 'confirmation'
+
 interface UnlockActionState {
-  passwordError: string | null
-  confirmationError: string | null
   globalError: string | null
 }
 
@@ -19,8 +20,10 @@ interface UnlockPasswordFormProps {
   onSuccess: () => void
 }
 
-const INITIAL_STATE: UnlockActionState = { passwordError: null, confirmationError: null, globalError: null }
+const INITIAL_STATE: UnlockActionState = { globalError: null }
 const UNLOCK_FAILED = "Couldn't unlock the vault. Check the password and try again."
+const PASSWORD_REQUIRED = 'Password is required'
+const PASSWORDS_MISMATCH = 'Passwords do not match'
 
 function fieldValue(formData: FormData, name: string): string {
   const value = formData.get(name)
@@ -37,38 +40,42 @@ export function UnlockPasswordForm({
 }: UnlockPasswordFormProps): ReactNode {
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
-  const [blurred, setBlurred] = useState({ password: false, confirmation: false })
   const [dismissed, setDismissed] = useState<UnlockActionState | null>(null)
   const confirmRef = useRef<HTMLInputElement>(null)
+  const passwordRef = useRef('')
   const { mutateAsync } = useUnlockVault()
-
-  const unlockAction = async (_previous: UnlockActionState, formData: FormData): Promise<UnlockActionState> => {
-    setBlurred({ password: true, confirmation: true })
-
-    const submitted = fieldValue(formData, 'password')
-
-    if (!submitted.trim()) {
-      return { ...INITIAL_STATE, passwordError: 'Password is required' }
+  const validation = useBlurValidation<FieldKey>((key, value) => {
+    if (key === 'password') {
+      return value.trim() ? undefined : PASSWORD_REQUIRED
     }
 
-    if (firstTime && submitted !== fieldValue(formData, 'confirmation')) {
-      return { ...INITIAL_STATE, confirmationError: 'Passwords do not match' }
+    return firstTime && value !== passwordRef.current ? PASSWORDS_MISMATCH : undefined
+  })
+
+  const unlockAction = async (_previous: UnlockActionState, formData: FormData): Promise<UnlockActionState> => {
+    const submitted = fieldValue(formData, 'password')
+    passwordRef.current = submitted
+
+    if (!validation.validateAll({ password: submitted, confirmation: fieldValue(formData, 'confirmation') })) {
+      return INITIAL_STATE
     }
 
     try {
       const result = await mutateAsync(submitted)
 
       if (!result.success) {
-        return { ...INITIAL_STATE, globalError: result.message || UNLOCK_FAILED }
+        return { globalError: result.message || UNLOCK_FAILED }
       }
 
       setPassword('')
       setConfirmation('')
+      passwordRef.current = ''
+      validation.reset()
       onSuccess()
 
       return INITIAL_STATE
     } catch (err) {
-      return { ...INITIAL_STATE, globalError: errorMessage(err, UNLOCK_FAILED) }
+      return { globalError: errorMessage(err, UNLOCK_FAILED) }
     }
   }
 
@@ -76,24 +83,27 @@ export function UnlockPasswordForm({
   const visible = state === dismissed ? INITIAL_STATE : state
   const globalOnPassword = mobileShell && visible.globalError && !confirmation ? visible.globalError : null
   const globalOnConfirmation = mobileShell && visible.globalError && confirmation ? visible.globalError : null
-  const blurPasswordError = !mobileShell && blurred.password && !password.trim() ? 'Password is required' : null
-  const blurConfirmationError =
-    !mobileShell && blurred.confirmation && password !== confirmation ? 'Passwords do not match' : null
-  const passwordError = blurPasswordError ?? visible.passwordError ?? globalOnPassword
-  const confirmationError = blurConfirmationError ?? visible.confirmationError ?? globalOnConfirmation
+  const passwordError = validation.errors.password ?? globalOnPassword
+  const confirmationError = validation.errors.confirmation ?? globalOnConfirmation
 
   const handlePasswordChange = (event: ChangeEvent<HTMLInputElement>): void => {
-    setPassword(event.currentTarget.value)
+    const next = event.currentTarget.value
+    passwordRef.current = next
+    setPassword(next)
     setDismissed(state)
+    validation.onChange('password', next)
+    validation.onChange('confirmation', confirmation)
   }
 
   const handleConfirmationChange = (event: ChangeEvent<HTMLInputElement>): void => {
-    setConfirmation(event.currentTarget.value)
+    const next = event.currentTarget.value
+    setConfirmation(next)
     setDismissed(state)
+    validation.onChange('confirmation', next)
   }
 
   const handlePasswordKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
-    if (firstTime && event.key === 'Enter' && !event.nativeEvent.isComposing) {
+    if (mobileShell && firstTime && event.key === 'Enter' && !event.nativeEvent.isComposing) {
       event.preventDefault()
       confirmRef.current?.focus()
     }
@@ -125,7 +135,7 @@ export function UnlockPasswordForm({
             required
             value={password}
             onChange={handlePasswordChange}
-            onBlur={() => setBlurred((value) => ({ ...value, password: true }))}
+            onBlur={() => validation.onBlur('password', password)}
             onKeyDown={handlePasswordKeyDown}
             disabled={disabled}
             error={passwordError}
@@ -144,7 +154,7 @@ export function UnlockPasswordForm({
               required
               value={confirmation}
               onChange={handleConfirmationChange}
-              onBlur={() => setBlurred((value) => ({ ...value, confirmation: true }))}
+              onBlur={() => validation.onBlur('confirmation', confirmation)}
               disabled={disabled}
               error={confirmationError}
               size="md"

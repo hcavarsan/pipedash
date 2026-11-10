@@ -3,13 +3,15 @@ import { IconGripVertical, IconX } from '@tabler/icons-react'
 import type { UseQueryResult } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 
+import { EmptyState } from '../../../components/common/EmptyState'
+import { QueryBoundary } from '../../../components/common/QueryBoundary'
 import type { ViewMember } from '../../../types/views'
-import { QueryBoundary } from './QueryBoundary'
 import { type SortableDragProps, SortableList } from './SortableList'
 
 interface ViewMembersFieldsProps {
   query: UseQueryResult<ViewMember[], Error>
   members: ViewMember[]
+  disabled: boolean
   onChange: (ids: string[]) => void
 }
 
@@ -51,20 +53,27 @@ function ViewMemberRow({ member, drag, onRemove }: ViewMemberRowProps): ReactNod
   )
 }
 
-function MemberList({ members, onChange }: Pick<ViewMembersFieldsProps, 'members' | 'onChange'>): ReactNode {
+type MemberListProps = Pick<ViewMembersFieldsProps, 'members' | 'disabled' | 'onChange'>
+
+function MemberList({ members, disabled, onChange }: MemberListProps): ReactNode {
   const ids = members.map((m) => m.pipeline_id)
 
   if (members.length === 0) {
     return (
-      <Text size="sm" c="dimmed">
-        Use Add to view on any pipeline to add it here.
-      </Text>
+      <EmptyState title="No pipelines in this view" description="Use Add to view on any pipeline to add it here." />
     )
   }
 
   return (
     <Stack gap="4xs">
-      <SortableList items={members} getId={(m) => m.pipeline_id} orientation="vertical" handle onReorder={onChange}>
+      <SortableList
+        items={members}
+        getId={(m) => m.pipeline_id}
+        orientation="vertical"
+        handle
+        disabled={disabled}
+        onReorder={onChange}
+      >
         {(member, drag) => (
           <ViewMemberRow member={member} drag={drag} onRemove={(pid) => onChange(ids.filter((id) => id !== pid))} />
         )}
@@ -73,14 +82,14 @@ function MemberList({ members, onChange }: Pick<ViewMembersFieldsProps, 'members
   )
 }
 
-export function ViewMembersFields({ query, members, onChange }: ViewMembersFieldsProps): ReactNode {
+export function ViewMembersFields({ query, members, disabled, onChange }: ViewMembersFieldsProps): ReactNode {
   return (
     <Stack gap="sm">
       <Title order={3} size="sm">
         Members
       </Title>
       <QueryBoundary query={query} loading="Loading members…" failure="Couldn't load view members" variant="compact">
-        {() => <MemberList members={members} onChange={onChange} />}
+        {() => <MemberList members={members} disabled={disabled} onChange={onChange} />}
       </QueryBoundary>
     </Stack>
   )

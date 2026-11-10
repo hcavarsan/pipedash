@@ -69,7 +69,7 @@ export function RunHistoryTable({ data, columns, selection, emptyState }: RunHis
       onPageChange={(next) => data.setFilter('page', next)}
       paginationText={({ from, to }) => {
         if (data.isFetching) {
-          return 'Loading...'
+          return 'Loading run history…'
         }
 
         return data.isComplete

@@ -1,14 +1,17 @@
 import { Anchor, Button, Group, Loader, Stack, Text } from '@mantine/core'
 import { useQueryClient } from '@tanstack/react-query'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 
 import { StandardModal } from '../../../components/common/StandardModal'
+import type { ModalAction, StandardModalProps } from '../../../components/common/standardModalTypes'
+import { useMobileShell } from '../../../hooks/useIsMobile'
 import { type ProviderSignInSession, useProviderStore } from '../../../stores/providerStore'
 import type { SignInStatus } from '../../../types/providers'
 import { errorMessage } from '../../../utils/errorDisplay'
 import { openExternal } from '../../../utils/openExternal'
 import { cancelProviderSignIn, reconnectProviderSignIn, useProviderSignIn } from '../queries/useProviderSignIn'
 import { useCompleteSignIn, useSignInStatus } from '../queries/useSignInQueries'
+import { ShellSignIn, type SignInViewProps } from './AddProviderModal/SignInFieldViews'
 import { SignInPasteControls } from './SignInPasteControls'
 
 interface FailureInput {
@@ -68,6 +71,8 @@ function WaitingActions(p: WaitingActionsProps): ReactNode {
 
 function ProviderSignInContent({ session }: { session: ProviderSignInSession }): ReactNode {
   const queryClient = useQueryClient()
+  const mobileShell = useMobileShell()
+  const fieldId = useId()
   const signIn = useProviderSignIn()
   const { data: status, error: statusError, refetch, isFetching } = useSignInStatus(session.flow?.id ?? null)
   const complete = useCompleteSignIn()
@@ -79,8 +84,9 @@ function ProviderSignInContent({ session }: { session: ProviderSignInSession }):
   const saveFailed = session.phase === 'save_failed'
   const terminal = status?.state === 'failed' || status?.state === 'expired'
   const waiting = session.phase === 'waiting' && !terminal && status?.state !== 'completed'
-  const pasteVisible = waiting && (session.flow?.manual || pasteOpen)
+  const pasteVisible = Boolean(waiting && (session.flow?.manual || pasteOpen))
   const failure = resolveFailure({ sessionError: session.error, status, terminal, statusError, openError })
+  const pasteError = complete.error ? errorMessage(complete.error, "Couldn't finish the sign-in") : undefined
 
   useEffect(() => {
     if (status?.state === 'completed' && session.phase === 'waiting') {
@@ -102,31 +108,38 @@ function ProviderSignInContent({ session }: { session: ProviderSignInSession }):
     }
   }
 
-  const finish = () => {
-    if (session.flow && pasted.trim() && !completing.current) {
-      completing.current = true
-      complete.mutate(
-        { id: session.flow.id, redirectUrl: pasted.trim() },
-        {
-          onSettled: () => {
-            completing.current = false
-          },
-        }
-      )
+  const changePasted = (value: string) => {
+    setPasted(value)
+    complete.reset()
+  }
+
+  const finish = async () => {
+    if (!session.flow || !pasted.trim() || completing.current) {
+      return
     }
+
+    completing.current = true
+
+    try {
+      await complete.mutateAsync({ id: session.flow.id, redirectUrl: pasted.trim() }).catch(() => undefined)
+    } finally {
+      completing.current = false
+    }
+  }
+
+  let phaseText: string | null = null
+
+  if (session.phase === 'starting') {
+    phaseText = 'Opening the sign-in page…'
+  } else if (saving) {
+    phaseText = 'Saving your sign-in and reconnecting the provider…'
+  } else if (waiting) {
+    phaseText = `Waiting for you to sign in with ${session.flow?.label ?? 'SSO'}…`
   }
 
   let phaseLine: ReactNode = null
 
-  if (session.phase === 'starting' || saving || waiting) {
-    let phaseText = `Waiting for you to sign in with ${session.flow?.label ?? 'SSO'}…`
-
-    if (session.phase === 'starting') {
-      phaseText = 'Opening the sign-in page…'
-    } else if (saving) {
-      phaseText = 'Saving your sign-in and reconnecting the provider…'
-    }
-
+  if (phaseText !== null) {
     phaseLine = (
       <Group gap="xs" wrap="nowrap">
         <Loader size="xs" aria-hidden />
@@ -137,51 +150,112 @@ function ProviderSignInContent({ session }: { session: ProviderSignInSession }):
     phaseLine = <Text size="sm">You are signed in. Retry saving to reconnect the provider.</Text>
   }
 
-  let retryButton: ReactNode = null
+  let retryAction: ModalAction | undefined
 
   if (saveFailed) {
-    retryButton = <Button onClick={() => reconnectProviderSignIn(queryClient, session.requestId)}>Retry saving</Button>
+    retryAction = { label: 'Retry saving', onClick: () => reconnectProviderSignIn(queryClient, session.requestId) }
   } else if (session.phase === 'failed' || terminal) {
-    retryButton = <Button onClick={retry}>Sign in again</Button>
+    retryAction = { label: 'Sign in again', onClick: retry }
   }
 
-  return (
-    <StandardModal opened onClose={() => cancelProviderSignIn()} title="Sign in" size="md" closable={!saving}>
+  const pasteControls = (
+    <SignInPasteControls
+      shell={mobileShell}
+      fieldId={`${fieldId}-paste`}
+      value={pasted}
+      error={pasteError}
+      pending={complete.isPending}
+      onChange={changePasted}
+      onSubmit={() => void finish()}
+    />
+  )
+
+  const shellView: SignInViewProps = {
+    id: fieldId,
+    phase: 'waiting',
+    description: '',
+    shownError: failure ?? undefined,
+    invalid: false,
+    signedIn: null,
+    waitingText: phaseText ?? '',
+    canOpenAgain: waiting && session.flow !== null,
+    pasteLinkVisible: waiting && !pasteVisible,
+    pasteVisible,
+    pasteControls,
+    pasteError,
+    continueDisabled: !pasted.trim() || complete.isPending,
+    blocked: false,
+    starting: false,
+    cancelling: false,
+    onStart: () => Promise.resolve(retry()),
+    onOpenAgain: openAgain,
+    onShowPaste: () => setPasteOpen(true),
+    onContinue: () => void finish(),
+  }
+
+  const footer = (
+    <Group justify="flex-end">
+      <Button variant="subtle" onClick={() => cancelProviderSignIn()} disabled={saving}>
+        Cancel
+      </Button>
+      {retryAction && <Button onClick={retryAction.onClick}>{retryAction.label}</Button>}
+    </Group>
+  )
+
+  const shellBody =
+    phaseText === null ? (
       <Stack gap="md">
-        <div role="status" aria-live="polite">
-          {phaseLine}
-        </div>
+        {phaseLine}
         {failure && (
           <Text size="sm" c="red" role="alert">
             {failure}
           </Text>
         )}
-        {waiting && (
-          <WaitingActions
-            showCheck={Boolean(statusError)}
-            checking={isFetching}
-            showPasteLink={!pasteVisible}
-            onOpenAgain={openAgain}
-            onCheck={() => void refetch()}
-            onShowPaste={() => setPasteOpen(true)}
-          />
-        )}
-        {pasteVisible && (
-          <SignInPasteControls
-            value={pasted}
-            error={complete.error ? errorMessage(complete.error, "Couldn't finish the sign-in") : undefined}
-            pending={complete.isPending}
-            onChange={setPasted}
-            onSubmit={finish}
-          />
-        )}
-        <Group justify="flex-end">
-          <Button variant="subtle" onClick={() => cancelProviderSignIn()} disabled={saving}>
-            Cancel
-          </Button>
-          {retryButton}
-        </Group>
       </Stack>
+    ) : (
+      <ShellSignIn {...shellView} />
+    )
+
+  const desktopBody = (
+    <Stack gap="md">
+      <div role="status" aria-live="polite">
+        {phaseLine}
+      </div>
+      {failure && (
+        <Text size="sm" c="red" role="alert">
+          {failure}
+        </Text>
+      )}
+      {waiting && (
+        <WaitingActions
+          showCheck={Boolean(statusError)}
+          checking={isFetching}
+          showPasteLink={!pasteVisible}
+          onOpenAgain={openAgain}
+          onCheck={() => void refetch()}
+          onShowPaste={() => setPasteOpen(true)}
+        />
+      )}
+      {pasteVisible && pasteControls}
+    </Stack>
+  )
+
+  let chrome: Pick<StandardModalProps, 'footer' | 'primaryAction'> = { footer }
+
+  if (mobileShell) {
+    chrome = retryAction ? { primaryAction: retryAction } : {}
+  }
+
+  return (
+    <StandardModal
+      opened
+      onClose={() => cancelProviderSignIn()}
+      title="Sign in"
+      size="md"
+      closable={!saving}
+      {...chrome}
+    >
+      {mobileShell ? shellBody : desktopBody}
     </StandardModal>
   )
 }

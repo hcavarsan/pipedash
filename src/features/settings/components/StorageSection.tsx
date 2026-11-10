@@ -9,7 +9,6 @@ import { LiveStatus } from '../../../components/forms/LiveStatus'
 import { STORAGE_BACKEND_LABELS } from '../../../constants/storageLabels'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { logger } from '../../../lib/logger'
-import { notifications } from '../../../lib/notifications'
 import {
   useConfigContent,
   useStorageConfig,
@@ -18,8 +17,8 @@ import {
 } from '../../../queries/useStorageQueries'
 import { useLockVault, useVaultStatus } from '../../../queries/useVaultQueries'
 import { getConnection, hasLocalCore, isRemoteClient } from '../../../services/connection'
-import { formatErrorMessage } from '../../../types/errors'
 import { lockMeansSomething } from '../../../utils/appLock'
+import { displayErrorNotification } from '../../../utils/errorDisplay'
 import { isMobilePlatform, secureStoreLabel } from '../../../utils/platform'
 import { SetupWizard } from '../../setup/components/SetupWizard/SetupWizard'
 import { AppLockCard } from '../../vault/components/AppLockCard'
@@ -81,11 +80,7 @@ const LocalStorageSection = (): ReactNode => {
       }
     } catch (error) {
       logger.error('StorageSection', 'Failed to load config content', error)
-      notifications.show({
-        title: "Couldn't open config file",
-        message: formatErrorMessage(error),
-        color: 'red',
-      })
+      displayErrorNotification(error, "Couldn't open config file")
     }
   }
 
@@ -104,19 +99,21 @@ const LocalStorageSection = (): ReactNode => {
   const isPostgres = backend === 'postgres'
 
   const renderContent = (): ReactNode => {
-    if (isStorageError) {
-      return (
-        <ErrorState
-          title="Couldn't load storage configuration"
-          error={storageError}
-          onRetry={() => void refetchStorageConfig()}
-          retrying={isRefetchingStorage}
-        />
-      )
+    const storageAlert = isStorageError && (
+      <ErrorState
+        title="Couldn't load storage configuration"
+        error={storageError}
+        onRetry={() => void refetchStorageConfig()}
+        retrying={isRefetchingStorage}
+      />
+    )
+
+    if (!storageConfig && isStorageError) {
+      return storageAlert
     }
 
     if (loadingStorage) {
-      return <LoadingState message="Loading storage configuration..." />
+      return <LoadingState message="Loading storage configuration…" />
     }
 
     if (!storageConfig || !backend) {
@@ -130,22 +127,26 @@ const LocalStorageSection = (): ReactNode => {
       )
     }
 
+    const pathsAlert = storagePathsError && (
+      <ErrorState
+        title="Couldn't load storage paths"
+        error={storagePathsError}
+        onRetry={() => void refetchStoragePaths()}
+        retrying={isRefetchingPaths}
+      />
+    )
     let pathsPanel: ReactNode
-    if (storagePathsError) {
+    if (storagePaths) {
       pathsPanel = (
-        <ErrorState
-          title="Couldn't load storage paths"
-          error={storagePathsError}
-          onRetry={() => void refetchStoragePaths()}
-          retrying={isRefetchingPaths}
-        />
+        <>
+          {pathsAlert}
+          <StoragePathsDisplay paths={storagePaths} config={storageConfig.config} onEditConfig={openConfigEditor} />
+        </>
       )
-    } else if (storagePaths) {
-      pathsPanel = (
-        <StoragePathsDisplay paths={storagePaths} config={storageConfig.config} onEditConfig={openConfigEditor} />
-      )
+    } else if (pathsAlert) {
+      pathsPanel = pathsAlert
     } else {
-      pathsPanel = <LoadingState message="Loading storage paths..." />
+      pathsPanel = <LoadingState message="Loading storage paths…" />
     }
 
     let credentialsLabel = `Encrypted in ${STORAGE_BACKEND_LABELS[backend]}`
@@ -154,25 +155,28 @@ const LocalStorageSection = (): ReactNode => {
     }
 
     return (
-      <StorageOverview
-        mobile={mobileShell}
-        backendLabel={STORAGE_BACKEND_LABELS[backend]}
-        credentialsLabel={credentialsLabel}
-        cacheLabel={isPostgres ? STORAGE_BACKEND_LABELS.postgres : 'Local filesystem'}
-        pathsPanel={pathsPanel}
-        connectionStatus={connectionStatus}
-        connectionMessage={connectionMessage}
-        testingConnection={testingConnection}
-        onTestConnection={testConnection}
-        canLockVault={canLockVault}
-        lockPending={lockVaultMutation.isPending}
-        onLockVault={() => lockVaultMutation.mutate()}
-        showConfigure={!isMobilePlatform()}
-        onConfigure={() => setSetupWizardOpen(true)}
-        showMigrateHint={
-          hasLocalCore() && !isMobilePlatform() && backend === 'sqlite' && !vaultStatus?.requires_password
-        }
-      />
+      <>
+        {storageAlert}
+        <StorageOverview
+          mobile={mobileShell}
+          backendLabel={STORAGE_BACKEND_LABELS[backend]}
+          credentialsLabel={credentialsLabel}
+          cacheLabel={isPostgres ? STORAGE_BACKEND_LABELS.postgres : 'Local filesystem'}
+          pathsPanel={pathsPanel}
+          connectionStatus={connectionStatus}
+          connectionMessage={connectionMessage}
+          testingConnection={testingConnection}
+          onTestConnection={testConnection}
+          canLockVault={canLockVault}
+          lockPending={lockVaultMutation.isPending}
+          onLockVault={() => lockVaultMutation.mutate()}
+          showConfigure={!isMobilePlatform()}
+          onConfigure={() => setSetupWizardOpen(true)}
+          showMigrateHint={
+            hasLocalCore() && !isMobilePlatform() && backend === 'sqlite' && !vaultStatus?.requires_password
+          }
+        />
+      </>
     )
   }
 

@@ -1,6 +1,7 @@
 import { Box, Card, Checkbox, Group, Stack, Text, UnstyledButton } from '@mantine/core'
 import { IconChevronDown, IconChevronRight, IconFolder, IconFolders, IconGitBranch } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
+import { useContextMenu } from '../../../components/common/ContextMenu'
 import { RepositoryFetchIndicator, RowFetchInfo } from '../../../components/common/PipelineFetchInfo'
 import { SectionActions, WorkflowActions } from '../../../components/common/PipelineRowActions'
 import { PipelineStatusBadge } from '../../../components/common/PipelineStatusBadge'
@@ -8,8 +9,9 @@ import { VirtualList } from '../../../components/common/VirtualList'
 import { TYPOGRAPHY } from '../../../theme/typography'
 import type { PipelineActions, PipelineSelection, TableRow } from '../../../types/pipelineRows'
 import type { ProviderSummary } from '../../../types/providers'
-import { historyLabel, rowMenuItems } from '../../../utils/pipelineRowActions'
+import { historyLabel, rowMenuItems, workflowMenuItems } from '../../../utils/pipelineRowActions'
 import { ProviderStatusButton } from '../../notifications/components/ProviderStatusButton'
+import { PipelineCardMeta } from './PipelineCardMeta'
 
 type SectionTableRow = Extract<TableRow, { type: 'section' }>
 type WorkflowTableRow = Extract<TableRow, { type: 'workflow' }>
@@ -82,9 +84,11 @@ function SectionSummary({ row }: { row: SectionTableRow }): ReactNode {
 }
 
 function SectionCard({ row, getProvider, onToggleRepo, actions }: SectionCardProps): ReactNode {
+  const contextMenu = useContextMenu()
+
   return (
-    <Card padding="xs" className="interactive-surface stretched">
-      <Stack gap={4}>
+    <Card padding="xs" className="interactive-surface stretched" {...contextMenu(() => rowMenuItems(row, actions))}>
+      <Stack gap="3xs">
         <Group wrap="nowrap" align="flex-start" gap="xs">
           <UnstyledButton
             className="item-primary"
@@ -118,12 +122,9 @@ interface WorkflowCardProps {
   selection?: PipelineSelection | undefined
 }
 
-function WorkflowSummary({
-  row,
-  getProvider,
-  actions,
-}: Pick<WorkflowCardProps, 'row' | 'getProvider' | 'actions'>): ReactNode {
+function WorkflowSummary({ row, getProvider }: Pick<WorkflowCardProps, 'row' | 'getProvider'>): ReactNode {
   const { pipeline } = row
+  const provider = getProvider(pipeline.provider_id)
 
   return (
     <Stack gap="xs">
@@ -134,13 +135,10 @@ function WorkflowSummary({
             {row.name}
           </Text>
         </Group>
-        <PipelineStatusBadge pipeline={pipeline} provider={getProvider(pipeline.provider_id)} />
+        <PipelineStatusBadge pipeline={pipeline} provider={provider} />
       </Group>
 
-      <Group gap="md" wrap="wrap">
-        <Field label={actions.terminology(pipeline.provider_type)?.group_title ?? ''}>{row.organization}</Field>
-        {pipeline.branch && <Field label="Branch">{pipeline.branch}</Field>}
-      </Group>
+      <PipelineCardMeta pipeline={pipeline} provider={provider} />
     </Stack>
   )
 }
@@ -165,10 +163,16 @@ function SelectBox({
 
 function WorkflowCard({ row, getProvider, actions, selection }: WorkflowCardProps): ReactNode {
   const { pipeline } = row
+  const contextMenu = useContextMenu()
   const indent = row.depth ? `calc(var(--mantine-spacing-xl) * ${row.depth})` : undefined
 
   return (
-    <Card padding="xs" {...(indent === undefined ? {} : { ml: indent })} className="interactive-surface stretched">
+    <Card
+      padding="xs"
+      {...(indent === undefined ? {} : { ml: indent })}
+      className="interactive-surface stretched"
+      {...contextMenu(() => workflowMenuItems(pipeline, actions))}
+    >
       <Stack gap="xs">
         <UnstyledButton
           className="item-primary"
@@ -177,7 +181,7 @@ function WorkflowCard({ row, getProvider, actions, selection }: WorkflowCardProp
           p="xs"
           bdrs="sm"
         >
-          <WorkflowSummary row={row} getProvider={getProvider} actions={actions} />
+          <WorkflowSummary row={row} getProvider={getProvider} />
         </UnstyledButton>
         <Group justify="space-between" wrap="nowrap">
           <Group gap="xs" wrap="nowrap">

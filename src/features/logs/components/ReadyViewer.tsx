@@ -5,7 +5,7 @@ import { type ReactNode, useCallback, useEffect, useImperativeHandle, useRef, us
 import { queryKeys } from '../../../lib/queryKeys'
 import { useLogViewerPrefs } from '../../../stores/logViewerPrefsStore'
 import type { LogDocumentMeta } from '../../../types/logs'
-import { openExternal } from '../../../utils/openExternal'
+import { openLink } from '../../../utils/openExternal'
 import { useLiveTail } from '../hooks/useLiveTail'
 import { useLogExport } from '../hooks/useLogExport'
 import { useLogLines } from '../hooks/useLogLines'
@@ -148,7 +148,7 @@ export function ReadyViewer({ ref, ...props }: ReadyViewerProps): ReactNode {
   const noMatches = search.matches.length === 0
   const emptyLabel = filter === 'matches' ? 'No matching lines' : 'No error lines'
   const webUrl = node.web_url
-  const openJob = webUrl ? () => void openExternal(webUrl) : null
+  const openJob = webUrl ? () => openLink(webUrl) : null
   const linesFailed = visibleLines.some((line) => getLine(line) === 'error')
 
   return (
@@ -197,6 +197,7 @@ export function ReadyViewer({ ref, ...props }: ReadyViewerProps): ReactNode {
           onToggle={rows.onToggle}
           onSelect={navigation.onSelect}
           onFullLine={onFullLine}
+          onRetry={() => logLineCache.retry(doc)}
           rowEvents={rowEvents}
           onKeyDown={onBodyKeyDown}
         />
@@ -249,7 +250,15 @@ export function ReadyViewer({ ref, ...props }: ReadyViewerProps): ReactNode {
       )}
       <VisuallyHidden role="status">{status}</VisuallyHidden>
       <VisuallyHidden role="status">{linesFailed ? "Some log lines couldn't be loaded" : ''}</VisuallyHidden>
-      {fullLine !== null && <FullLineModal doc={doc} line={fullLine} onClose={() => setFullLine(null)} />}
+      {fullLine !== null && (
+        <FullLineModal
+          doc={doc}
+          line={fullLine}
+          pipelineName={pipelineName}
+          nodeName={node.name}
+          onClose={() => setFullLine(null)}
+        />
+      )}
     </div>
   )
 }

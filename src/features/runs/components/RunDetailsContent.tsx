@@ -40,7 +40,7 @@ export function RunDetailsContent({
   ) : null
 
   if (!run) {
-    return failure ?? <LoadingState message="Loading run details..." />
+    return failure ?? <LoadingState message="Loading run details…" />
   }
 
   return <LoadedRunDetails run={run} runNumber={runNumber} failure={failure} {...rest} />

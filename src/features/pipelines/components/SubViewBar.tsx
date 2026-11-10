@@ -24,7 +24,7 @@ function SubViewLabel(p: { name: string; count: number }): ReactNode {
 function NewSubViewLabel(): ReactNode {
   return (
     <Group gap="3xs" wrap="nowrap">
-      <IconPlus size={12} aria-hidden />
+      <IconPlus size={14} aria-hidden />
       <Text size="xs" fw={500} span>
         New sub-view
       </Text>
@@ -47,7 +47,7 @@ export function SubViewBar(): ReactNode {
   const ancestors = viewAncestors(views, current.id)
   const children = childViews(views, current.id)
 
-  if (ancestors.length === 0 && children.length === 0) {
+  if (ancestors.length === 0 && children.length === 0 && !options?.can_add_sub_view) {
     return null
   }
 
@@ -67,7 +67,7 @@ export function SubViewBar(): ReactNode {
     >
       {ancestors.length > 0 && (
         <Breadcrumbs
-          separator={<IconChevronRight size={12} aria-hidden />}
+          separator={<IconChevronRight size={14} aria-hidden />}
           separatorMargin="3xs"
           style={{ flexWrap: 'nowrap', flex: '0 0 auto' }}
         >

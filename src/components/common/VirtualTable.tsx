@@ -2,6 +2,7 @@ import { ScrollArea, Table } from '@mantine/core'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { type HTMLAttributes, type MouseEvent, type ReactNode, useEffect, useEffectEvent, useRef } from 'react'
 import { FillScrollArea } from './FillScrollArea'
+import { TABLE_NUMERIC } from './tableStyles'
 import { VirtualTableHeader } from './VirtualTableHeader'
 import { VirtualTableRow } from './VirtualTableRow'
 
@@ -180,6 +181,7 @@ export function VirtualTable<T>({
         verticalSpacing="xs"
         horizontalSpacing="md"
         fz="sm"
+        style={TABLE_NUMERIC}
         aria-label={label}
         aria-rowcount={records.length + 1}
       >

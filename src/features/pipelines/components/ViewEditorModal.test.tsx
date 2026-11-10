@@ -154,6 +154,14 @@ test('a failed view list read shows Retry instead of an editor with empty fields
   assert.equal((await nameInput()).value, 'Release')
 })
 
+test('a view that no longer exists shows an explanation and no Save', async (context) => {
+  await openEditor(context, { views: async () => [] })
+
+  await body().findByText('This view no longer exists')
+  assert.ok(body().getByRole('button', { name: 'Manage views' }))
+  assert.equal(body().queryByRole('button', { name: 'Save' }), null)
+})
+
 test('a failed save shows its error until the draft changes', async (context) => {
   context.mock.method(apiService, 'updatePipelineView', async () => {
     throw new Error('Name already used')

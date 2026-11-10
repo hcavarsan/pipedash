@@ -202,6 +202,8 @@ test('a heartbeat response that arrives after a terminal update does not bring t
 
   gates[0]?.resolve(run('running'))
   await tick(context, 0)
+  await tick(context, 0)
+  assert.equal(client.getQueryData<PipelineRun>(queryKeys.runs.detail('p1', 3))?.status, 'success')
   assert.equal(result.current.data?.status, 'success')
 })
 

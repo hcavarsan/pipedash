@@ -63,7 +63,7 @@ export function RowActionMenu({ name, items }: { name: string; items: WorkflowMe
     <Menu position="bottom">
       <Menu.Target>
         <ActionIcon data-row-menu aria-label={`Actions for ${name}`}>
-          <IconDots size={22} aria-hidden />
+          <IconDots size={20} aria-hidden />
         </ActionIcon>
       </Menu.Target>
       <Menu.Dropdown>
@@ -122,7 +122,7 @@ export function WorkflowActionMenu({
     <Menu position="bottom">
       <Menu.Target>
         <ActionIcon data-row-menu aria-label={`Actions for ${pipeline.name}`}>
-          <IconDots size={22} aria-hidden />
+          <IconDots size={20} aria-hidden />
         </ActionIcon>
       </Menu.Target>
       <Menu.Dropdown>

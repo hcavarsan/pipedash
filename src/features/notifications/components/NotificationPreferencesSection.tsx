@@ -1,6 +1,9 @@
 import { Card, Stack, Text } from '@mantine/core'
 import type { ReactNode } from 'react'
 
+import { ErrorState } from '../../../components/common/ErrorState'
+import { LoadingState } from '../../../components/common/LoadingState'
+import { QueryBoundary } from '../../../components/common/QueryBoundary'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useProviders } from '../../../queries/useProvidersQueries'
@@ -11,7 +14,7 @@ import { KindSwitch, ProviderSwitch } from './PreferenceSwitches'
 
 const KINDS_NOTE =
   'Applies to notifications and the notification center on this device only. Each phone, computer and browser keeps its own choices.'
-const PROVIDERS_NOTE = 'Turn off a provider to stop all of its notifications.'
+const PROVIDERS_NOTE = 'Turn off a provider to stop all of its notifications, except for pipelines you watch.'
 const MUTED_EMPTY = 'To mute a pipeline, open its menu and choose Mute notifications.'
 const WATCHED_EMPTY =
   'To watch a pipeline, open its menu and choose Watch all runs, or Notify when this run finishes for a single run. Watched pipelines notify you about every finished run, even when its alert type or provider is turned off.'
@@ -48,8 +51,23 @@ function NoneRow(): ReactNode {
 export function NotificationPreferencesSection({ hostNote }: NotificationPreferencesSectionProps): ReactNode {
   const mobileShell = useMobileShell()
   const preferences = useNotificationStore((state) => state.preferences)
-  const { data: providers = [] } = useProviders()
-  const { muted, watching } = usePipelinePreferences()
+  const providersQuery = useProviders()
+  const providers = providersQuery.data ?? []
+  const { muted, watching, lookup } = usePipelinePreferences()
+  const providersState = (
+    <QueryBoundary query={providersQuery} loading="Loading providers…" failure="Couldn't load providers">
+      {() => null}
+    </QueryBoundary>
+  )
+  const lookupFailure = lookup.isError && (
+    <ErrorState
+      title="Couldn't load pipeline details"
+      error={lookup.error}
+      onRetry={() => void lookup.refetch()}
+      retrying={lookup.isFetching}
+    />
+  )
+  const lookupPending = lookup.isPending && lookup.fetchStatus !== 'idle' && muted.length + watching.length > 0
   const kindsNote = hostNote ? `${KINDS_NOTE} ${hostNote}` : KINDS_NOTE
 
   const pipelineRows = (rows: PipelinePreference[]): ReactNode[] =>
@@ -83,22 +101,33 @@ export function NotificationPreferencesSection({ hostNote }: NotificationPrefere
           {kindSwitches}
         </IosGroup>
 
+        {providersState}
         {providers.length > 0 && (
           <IosGroup header="Providers" footer={PROVIDERS_NOTE}>
             {providerSwitches}
           </IosGroup>
         )}
 
-        <IosGroup header="Watched pipelines" footer={watching.length === 0 ? WATCHED_EMPTY : undefined}>
-          {watching.length === 0 ? <NoneRow /> : pipelineRows(watching)}
-        </IosGroup>
+        {lookupFailure}
+        {lookupPending ? (
+          <LoadingState message="Loading watched pipelines…" />
+        ) : (
+          <>
+            <IosGroup header="Watched pipelines" footer={watching.length === 0 ? WATCHED_EMPTY : undefined}>
+              {watching.length === 0 ? <NoneRow /> : pipelineRows(watching)}
+            </IosGroup>
 
-        <IosGroup header="Muted pipelines" footer={muted.length === 0 ? MUTED_EMPTY : undefined}>
-          {muted.length === 0 ? <NoneRow /> : pipelineRows(muted)}
-        </IosGroup>
+            <IosGroup header="Muted pipelines" footer={muted.length === 0 ? MUTED_EMPTY : undefined}>
+              {muted.length === 0 ? <NoneRow /> : pipelineRows(muted)}
+            </IosGroup>
+          </>
+        )}
       </>
     )
   }
+
+  const watchedNote = watching.length === 0 ? WATCHED_EMPTY : 'These pipelines notify you when a run finishes.'
+  const mutedNote = muted.length === 0 ? MUTED_EMPTY : 'These pipelines never notify you.'
 
   return (
     <>
@@ -109,6 +138,7 @@ export function NotificationPreferencesSection({ hostNote }: NotificationPrefere
         </Stack>
       </Card>
 
+      {providersState}
       {providers.length > 0 && (
         <Card padding="md">
           <Stack gap="md">
@@ -118,25 +148,26 @@ export function NotificationPreferencesSection({ hostNote }: NotificationPrefere
         </Card>
       )}
 
-      <Card padding="md">
-        <Stack gap="md">
-          <SectionHeading
-            title="Watched pipelines"
-            description={watching.length === 0 ? WATCHED_EMPTY : 'These pipelines notify you when a run finishes.'}
-          />
-          {pipelineRows(watching)}
-        </Stack>
-      </Card>
+      {lookupFailure}
+      {lookupPending ? (
+        <LoadingState message="Loading watched pipelines…" />
+      ) : (
+        <>
+          <Card padding="md">
+            <Stack gap="md">
+              <SectionHeading title="Watched pipelines" description={watchedNote} />
+              {pipelineRows(watching)}
+            </Stack>
+          </Card>
 
-      <Card padding="md">
-        <Stack gap="md">
-          <SectionHeading
-            title="Muted pipelines"
-            description={muted.length === 0 ? MUTED_EMPTY : 'These pipelines never notify you.'}
-          />
-          {pipelineRows(muted)}
-        </Stack>
-      </Card>
+          <Card padding="md">
+            <Stack gap="md">
+              <SectionHeading title="Muted pipelines" description={mutedNote} />
+              {pipelineRows(muted)}
+            </Stack>
+          </Card>
+        </>
+      )}
     </>
   )
 }

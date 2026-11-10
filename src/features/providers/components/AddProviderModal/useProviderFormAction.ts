@@ -1,4 +1,4 @@
-import { type Dispatch, startTransition, useActionState, useMemo, useReducer } from 'react'
+import { type Dispatch, startTransition, useActionState, useMemo, useReducer, useState } from 'react'
 import { logger } from '../../../../lib/logger'
 import { useSaveProviderDraft } from '../../../../queries/useProvidersQueries'
 import { service } from '../../../../services/service'
@@ -21,6 +21,7 @@ import {
   initialFormState,
   type ProviderFormActionState,
   type ProviderSubmitIntent,
+  type ValidateKey,
 } from './types'
 import { mapProviderFieldErrors, stepOfField, stepWithErrors } from './validation'
 
@@ -37,9 +38,10 @@ export interface ProviderFormModel {
   actionState: ProviderFormActionState
   formAction: (formData: FormData) => void
   submitIntent: (intent: ProviderSubmitIntent) => void
-  validateKey: (key: string) => Promise<void>
+  validateKey: ValidateKey
   submitError: string | null
   isPending: boolean
+  pendingIntent: ProviderSubmitIntent | null
   providerConfig: ProviderConfig
   check: ProviderDraftResult | undefined
   credentialsIncomplete: boolean
@@ -50,6 +52,11 @@ export interface ProviderFormModel {
 const SELECTION_ERROR_KEY = 'selected_items'
 
 const INTENTS: readonly ProviderSubmitIntent[] = ['continue', 'save-credentials', 'save-selection']
+
+interface CredentialsOutcome {
+  failure: ProviderFormActionState | null
+  refreshSelection: boolean
+}
 
 function initialState(mode: AddProviderModalProps, plugin: PluginMetadata | null): FormState {
   return mode.editMode === true && plugin
@@ -67,7 +74,8 @@ export function useProviderFormAction({
   const editMode = mode.editMode === true
   const existingProvider = mode.editMode === true ? mode.existingProvider : undefined
   const providerId = existingProvider?.id ?? null
-  const saveDraft = useSaveProviderDraft()
+  const saveDraft = useSaveProviderDraft({ toastErrors: false })
+  const [pendingIntent, setPendingIntent] = useState<ProviderSubmitIntent | null>(null)
   const liveDraft = useMemo(
     () => buildProviderDraft({ selectedPlugin, providerName, authMode, configValues }, providerId, null),
     [selectedPlugin, providerName, authMode, configValues, providerId]
@@ -95,9 +103,10 @@ export function useProviderFormAction({
     return { error, fieldErrors }
   }
 
-  const validateKey = async (key: string): Promise<void> => {
-    const draft = buildProviderDraft(state, providerId, null)
-    const requested = fieldRequest(state, key)
+  const validateKey: ValidateKey = async (key, patch = {}) => {
+    const next = { ...state, ...patch }
+    const draft = buildProviderDraft(next, providerId, null)
+    const requested = fieldRequest(next, key)
 
     if (!draft) {
       return
@@ -120,7 +129,7 @@ export function useProviderFormAction({
   const validateCredentials = async (
     plugin: PluginMetadata,
     onlyProviderStep: boolean
-  ): Promise<{ failure: ProviderFormActionState | null; refreshSelection: boolean }> => {
+  ): Promise<CredentialsOutcome> => {
     const draft = buildProviderDraft(state, providerId, null)
     const fields = plugin.config_schema.fields
     const result = draft ? await service.validateProviderDraft(draft) : null
@@ -174,15 +183,7 @@ export function useProviderFormAction({
     }
   }
 
-  const run = async (_previous: ProviderFormActionState, formData: FormData): Promise<ProviderFormActionState> => {
-    const requested = INTENTS.find((candidate) => candidate === formData.get('intent'))
-
-    if (step === 'pipelines' && requested === undefined) {
-      return initialActionState
-    }
-
-    const intent = requested ?? (step === 'credentials' && saveOnly ? 'save-credentials' : 'continue')
-
+  const execute = async (intent: ProviderSubmitIntent): Promise<ProviderFormActionState> => {
     if (!selectedPlugin) {
       return fail('Please select a provider type', {})
     }
@@ -191,7 +192,7 @@ export function useProviderFormAction({
       return state.selectingAll ? initialActionState : save(selectedPlugin, true)
     }
 
-    let outcome: Awaited<ReturnType<typeof validateCredentials>>
+    let outcome: CredentialsOutcome
 
     try {
       outcome = await validateCredentials(selectedPlugin, intent === 'continue' && step === 'provider')
@@ -217,6 +218,24 @@ export function useProviderFormAction({
     return initialActionState
   }
 
+  const run = async (_previous: ProviderFormActionState, formData: FormData): Promise<ProviderFormActionState> => {
+    const requested = INTENTS.find((candidate) => candidate === formData.get('intent'))
+
+    if (step === 'pipelines' && requested === undefined) {
+      return initialActionState
+    }
+
+    const intent = requested ?? (step === 'credentials' && saveOnly ? 'save-credentials' : 'continue')
+
+    setPendingIntent(intent)
+
+    try {
+      return await execute(intent)
+    } finally {
+      setPendingIntent(null)
+    }
+  }
+
   const [actionState, formAction, isPending] = useActionState(run, initialActionState)
 
   const submitIntent = (intent: ProviderSubmitIntent): void => {
@@ -236,6 +255,7 @@ export function useProviderFormAction({
     validateKey,
     submitError,
     isPending,
+    pendingIntent: isPending ? pendingIntent : null,
     providerConfig,
     check,
     credentialsIncomplete,

@@ -77,6 +77,8 @@ export type AddProviderModalProps = {
 
 export type ProviderSubmitIntent = 'continue' | 'save-credentials' | 'save-selection'
 
+export type ValidateKey = (key: string, patch?: Partial<FormState>) => Promise<void>
+
 export interface ProviderFormActionState {
   error: string | null
   fieldErrors: Record<string, string>

@@ -21,7 +21,7 @@ function ProviderImportRow({ resetRef, importing, disabled, onChange }: Provider
           title="Import providers"
           disabled={disabled}
           onClick={props.onClick}
-          accessory={importing ? <Loader size={18} aria-hidden /> : <IconUpload size={18} aria-hidden />}
+          accessory={importing ? <Loader size="xs" aria-hidden /> : <IconUpload size={16} aria-hidden />}
         />
       )}
     </FileButton>
@@ -67,7 +67,7 @@ export const ProviderTransferActions = (): ReactNode => {
             title="Export providers"
             disabled={loading || providers.length === 0 || exporting}
             onClick={() => exportMutation.mutate()}
-            accessory={exporting ? <Loader size={18} aria-hidden /> : <IconDownload size={18} aria-hidden />}
+            accessory={exporting ? <Loader size="xs" aria-hidden /> : <IconDownload size={16} aria-hidden />}
           />
         </IosGroup>
       </>

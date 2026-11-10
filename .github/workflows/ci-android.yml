@@ -1,13 +1,27 @@
-name: Android check
+name: CI / Android
+
 on:
   pull_request:
     paths:
       - ".github/actions/setup-android/**"
-      - ".github/workflows/android-check.yml"
+      - ".github/workflows/ci-android.yml"
       - "crates/**"
       - "src/**"
       - "android/**"
-      - "ios/**"
+      - "index.html"
+      - "package.json"
+      - "bun.lock"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/actions/setup-android/**"
+      - ".github/workflows/ci-android.yml"
+      - "crates/**"
+      - "src/**"
+      - "android/**"
       - "index.html"
       - "package.json"
       - "bun.lock"
@@ -25,12 +39,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  play-checks:
-    name: Unsigned AAB and Google Play checks
+  store-checks:
+    name: Build / Unsigned AAB and Google Play checks
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
-      contents: read
+      contents: read # checkout the repository
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -42,14 +56,11 @@ jobs:
         uses: $/.github/actions/setup-android
         with:
           rust-targets: aarch64-linux-android
+          cache: "true"
 
       - name: Test Android release helpers and publishing guards
         working-directory: android
         run: bundle exec ruby -e 'Dir["fastlane/*_test.rb"].sort.each { |file| require_relative file }'
-
-      - name: Test screenshot exporter
-        working-directory: ios/app-store-screenshots
-        run: bun install --frozen-lockfile && bun run test
 
       - name: Build and check
         env:
@@ -59,11 +70,12 @@ jobs:
         run: bundle exec fastlane android check
 
   emulator:
-    name: Launch on Android emulator
+    name: Smoke / Android emulator
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
-      contents: read
+      contents: read # checkout the repository
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -75,6 +87,7 @@ jobs:
         uses: $/.github/actions/setup-android
         with:
           rust-targets: x86_64-linux-android
+          cache: "true"
 
       - name: Enable KVM
         run: |

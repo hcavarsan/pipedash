@@ -337,10 +337,10 @@ test('three view changes inside one window refetch the views once and also expir
   try {
     for (let index = 0; index < 3; index += 1) {
       socket.emit('pipeline-views-changed', {})
-      mock.timers.tick(100)
+      mock.timers.tick(99)
     }
     assert.deepEqual([views.count, selection.count, editor.count], [0, 0, 0])
-    mock.timers.tick(200)
+    mock.timers.tick(3)
   } finally {
     mock.timers.reset()
   }

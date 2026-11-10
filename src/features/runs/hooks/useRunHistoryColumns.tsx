@@ -9,6 +9,7 @@ export interface RunHistoryColumns {
   columns: DataTableColumn<PipelineRun>[]
   allColumns: DataTableColumn<PipelineRun>[]
   loading: boolean
+  hasSchema: boolean
   error: Error | null
   refetch: () => Promise<unknown>
   columnOrder: string[] | undefined

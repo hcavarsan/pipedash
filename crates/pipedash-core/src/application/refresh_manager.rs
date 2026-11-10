@@ -45,6 +45,7 @@ const METRICS_CLEANUP_INTERVAL: Duration = Duration::from_secs(6 * 3600);
 #[serde(rename_all = "lowercase")]
 pub enum RefreshMode {
     Active,
+    Background,
     Idle,
 }
 
@@ -52,6 +53,7 @@ impl RefreshMode {
     pub fn as_str(&self) -> &'static str {
         match self {
             RefreshMode::Active => "active",
+            RefreshMode::Background => "background",
             RefreshMode::Idle => "idle",
         }
     }
@@ -63,6 +65,7 @@ impl std::str::FromStr for RefreshMode {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s.to_lowercase().as_str() {
             "active" => RefreshMode::Active,
+            "background" => RefreshMode::Background,
             _ => RefreshMode::Idle,
         })
     }
@@ -162,7 +165,7 @@ async fn run(
         tokio::select! {
             _ = cancel.cancelled() => break,
             _ = tick.tick() => {
-                if *mode.borrow() == RefreshMode::Active {
+                if *mode.borrow() != RefreshMode::Idle {
                     let Some(due) = claim_due(&pipeline_service, &cancel).await else {
                         break;
                     };

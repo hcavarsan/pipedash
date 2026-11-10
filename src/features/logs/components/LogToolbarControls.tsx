@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 
 import { shortcutLabel } from '../../../lib/shortcuts'
 
-import type { LogFilter } from '../lib/logRows'
+import { type LogOptionsState, logOptionItems } from '../lib/logActions'
 
 interface ToolbarButtonProps {
   label: string
@@ -74,82 +74,50 @@ export function LogSearchOptions({
   )
 }
 
-interface MenuToggle {
-  key: string
-  label: string
-  checked: boolean
-  disabled: boolean
-  onToggle: () => void
-}
-
-interface LogOptionsMenuProps {
-  wrap: boolean
-  onWrapChange: (value: boolean) => void
-  timestamps: boolean
-  onTimestampsChange: (value: boolean) => void
-  filter: LogFilter
-  onFilterChange: (filter: LogFilter) => void
-  errorTotal: number
-  downloading: boolean
-  onDownload: () => void
+interface LogOptionsMenuProps extends LogOptionsState {
   jobUrl: string | null
   providerName: string
   onOpenJob: () => void
 }
 
 export function LogOptionsMenu(props: LogOptionsMenuProps): ReactNode {
-  const { wrap, timestamps, filter, errorTotal } = props
-  const errorsOnly = filter === 'errors'
-  const toggles: MenuToggle[] = [
-    { key: 'wrap', label: 'Wrap lines', checked: wrap, disabled: false, onToggle: () => props.onWrapChange(!wrap) },
-    {
-      key: 'timestamps',
-      label: 'Show timestamps',
-      checked: timestamps,
-      disabled: false,
-      onToggle: () => props.onTimestampsChange(!timestamps),
-    },
-    {
-      key: 'errors',
-      label: 'Show error lines only',
-      checked: errorsOnly,
-      disabled: errorTotal === 0 && !errorsOnly,
-      onToggle: () => props.onFilterChange(errorsOnly ? 'none' : 'errors'),
-    },
-  ]
-  const toggleItems = toggles.map((toggle) => (
-    <Menu.Item
-      key={toggle.key}
-      role="menuitemcheckbox"
-      aria-checked={toggle.checked}
-      disabled={toggle.disabled}
-      closeMenuOnClick={false}
-      rightSection={toggle.checked ? <IconCheck size={14} aria-hidden /> : null}
-      onClick={toggle.onToggle}
-    >
-      {toggle.label}
-    </Menu.Item>
-  ))
+  const items = logOptionItems(props)
+  const toggles = items.filter((item) => item.checked !== undefined)
+  const exportItem = items.find((item) => item.id === 'export')
 
   return (
     <Menu position="bottom-end" withinPortal>
       <Menu.Target>
         <Tooltip label="Log options">
-          <ActionIcon aria-label="Log options">
+          <ActionIcon aria-label="Log options" loading={props.exporting}>
             <IconDots size={16} aria-hidden />
           </ActionIcon>
         </Tooltip>
       </Menu.Target>
       <Menu.Dropdown>
-        {toggleItems}
+        {toggles.map((item) => (
+          <Menu.Item
+            key={item.id}
+            role="menuitemcheckbox"
+            aria-checked={item.checked}
+            disabled={item.disabled === true}
+            closeMenuOnClick={false}
+            rightSection={item.checked ? <IconCheck size={14} aria-hidden /> : null}
+            onClick={item.onSelect}
+          >
+            {item.label}
+          </Menu.Item>
+        ))}
         <Menu.Divider />
-        <Menu.Item
-          leftSection={<IconDownload size={14} aria-hidden />}
-          disabled={props.downloading}
-          onClick={props.onDownload}
-        >
-          Download log
-        </Menu.Item>
+        {exportItem && (
+          <Menu.Item
+            leftSection={<IconDownload size={14} aria-hidden />}
+            disabled={exportItem.disabled === true}
+            onClick={exportItem.onSelect}
+          >
+            {exportItem.label}
+          </Menu.Item>
+        )}
         {props.jobUrl && (
           <Menu.Item leftSection={<IconExternalLink size={14} aria-hidden />} onClick={props.onOpenJob}>
             Open job in {props.providerName}

@@ -30,7 +30,9 @@ export function ProviderRecoveryActions({ providerId, recovery, onNavigate }: Pr
           leftSection={<IconRefresh size={14} aria-hidden />}
           loading={refresh.isPending}
           onClick={() =>
-            refresh.mutate(providerId, { onError: (error) => displayErrorNotification(error, "Couldn't refresh") })
+            refresh.mutate(providerId, {
+              onError: (error) => displayErrorNotification(error, "Couldn't refresh provider"),
+            })
           }
         >
           Retry now

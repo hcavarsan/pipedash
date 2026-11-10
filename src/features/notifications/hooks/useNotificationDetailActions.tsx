@@ -7,7 +7,8 @@ import { useProviders } from '../../../queries/useProvidersQueries'
 import { useModalStore } from '../../../stores/modalStore'
 import { useNotificationCenterStore } from '../../../stores/notificationCenterStore'
 import type { CenterNotification } from '../../../types/notifications'
-import { openNotificationLink } from '../lib/openNotificationLink'
+import { openLink } from '../../../utils/openExternal'
+import { usePipelineNotifyItem } from '../components/PipelineNotifyPolicy'
 import { type MuteItem, useNotifyItems } from './useNotifyItems'
 
 const LINK_LABELS = { incident: 'View incident', status_page: 'Open status page' } as const
@@ -39,7 +40,8 @@ export function useNotificationDetailActions(notification: CenterNotification | 
   const { data: pipelines } = usePipelines()
   const navigate = useNavigate()
   const location = useLocation()
-  const { pipelineItem, providerItem, watchItem } = useNotifyItems()
+  const { providerItem } = useNotifyItems()
+  const notifyItem = usePipelineNotifyItem()
 
   if (!notification) {
     return []
@@ -66,13 +68,12 @@ export function useNotificationDetailActions(notification: CenterNotification | 
       label: LINK_LABELS[link.kind],
       icon: (size) => <IconExternalLink size={size} aria-hidden />,
       chevron: true,
-      onClick: () => openNotificationLink(link.url),
+      onClick: () => openLink(link.url),
     })
   }
 
   if (pipelineId) {
-    const name = pipelines?.find((pipeline) => pipeline.id === pipelineId)?.name ?? 'this pipeline'
-    const watch = watchItem({ id: pipelineId, name })
+    const target = pipelines?.find((pipeline) => pipeline.id === pipelineId)
 
     actions.push({
       key: 'history',
@@ -81,8 +82,18 @@ export function useNotificationDetailActions(notification: CenterNotification | 
       chevron: true,
       onClick: () => openHistory(pipelineId),
     })
-    actions.push({ key: 'watch', label: watch.label, icon: () => watch.icon, chevron: false, onClick: watch.onClick })
-    actions.push(muteAction(pipelineItem({ id: pipelineId, name }), 'pipeline'))
+
+    if (target) {
+      const notify = notifyItem(target)
+
+      actions.push({
+        key: 'notify',
+        label: notify.label,
+        icon: (size) => <IconBell size={size} aria-hidden />,
+        chevron: true,
+        onClick: notify.onClick,
+      })
+    }
   } else if (onlyProvider && related.length === 1) {
     actions.push(muteAction(providerItem(onlyProvider), 'provider'))
   }

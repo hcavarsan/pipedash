@@ -52,7 +52,6 @@ function tree(viewId: string) {
             viewMenu={menu}
             pinMenu={menu}
             onEditProvider={noop}
-            onRemoveProvider={noop}
             onCreateView={noop}
             readFailures={[]}
           />

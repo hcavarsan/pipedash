@@ -37,20 +37,23 @@ export const ProvidersSection = (): ReactNode => {
   let list: ReactNode
 
   if (loading) {
-    list = <LoadingState message="Loading providers..." />
+    list = <LoadingState message="Loading providers…" />
   } else if (providersError && loaded === undefined) {
     list = retry
   } else if (providers.length === 0) {
     list = (
-      <EmptyState
-        title="No providers configured"
-        description="Add a CI/CD provider to start monitoring pipelines."
-        action={
-          <Button size="sm" onClick={openAddProviderModal}>
-            Add provider
-          </Button>
-        }
-      />
+      <Stack gap="md">
+        {retry}
+        <EmptyState
+          title="No providers configured"
+          description="Add a CI/CD provider to start monitoring pipelines."
+          action={
+            <Button size="sm" onClick={openAddProviderModal}>
+              Add provider
+            </Button>
+          }
+        />
+      </Stack>
     )
   } else {
     list = (

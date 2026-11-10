@@ -2,7 +2,6 @@ import { Box, Image, Text, ThemeIcon } from '@mantine/core'
 import { IconInfoCircleFilled } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
-import { useMobileShell } from '../../hooks/useIsMobile'
 import { withBasePath } from '../../lib/basePath'
 
 interface ProviderIconProps {
@@ -35,7 +34,6 @@ const fontSizeFor = (size: number): 'xs' | 'sm' | 'md' | 'lg' | 'xl' => {
 }
 
 export const ProviderIcon = ({ name, icon, size, badge }: ProviderIconProps): ReactNode => {
-  const mobileShell = useMobileShell()
   const fontSize = fontSizeFor(size)
 
   return (
@@ -50,7 +48,7 @@ export const ProviderIcon = ({ name, icon, size, badge }: ProviderIconProps): Re
         {icon ? (
           <Image src={withBasePath(icon)} alt="" w={size * 0.65} h={size * 0.65} fit="contain" />
         ) : (
-          <Text fz={mobileShell ? size * 0.4 : fontSize} fw={700} lh={1}>
+          <Text fz={fontSize} fw={700} lh={1}>
             {initials(name)}
           </Text>
         )}

@@ -11,3 +11,10 @@ export interface DocRef {
 }
 
 export type LineState = LogLine | 'loading' | 'error' | undefined
+
+export interface LineRequest {
+  doc: DocRef
+  start: number
+  count: number
+  retried?: boolean
+}

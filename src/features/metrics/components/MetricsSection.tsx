@@ -1,11 +1,11 @@
-import { Alert, Box, Card, Divider, Select, Stack, Switch, Text } from '@mantine/core'
-import { type ReactNode, startTransition, useActionState, useId, useOptimistic, useRef, useState } from 'react'
-import { ErrorState } from '../../../components/common/ErrorState'
-import { LoadingState } from '../../../components/common/LoadingState'
+import { Alert, Card, Divider, Select, Stack, Switch, Text } from '@mantine/core'
+import { type ReactNode, startTransition, useOptimistic, useState } from 'react'
+import { QueryBoundary } from '../../../components/common/QueryBoundary'
 import { LiveStatus } from '../../../components/forms/LiveStatus'
 import { IosGroup } from '../../../components/ios/IosList'
 import { FieldRow, RowSelect, SwitchRow } from '../../../components/ios/mobileParts'
 import { useMobileShell } from '../../../hooks/useIsMobile'
+import { useNumberDraft } from '../../../hooks/useNumberDraft'
 import type { GlobalMetricsConfig } from '../../../types/metrics'
 import { errorMessage } from '../../../utils/errorDisplay'
 import { RETENTION_PRESETS } from '../lib/metricsRetention'
@@ -18,53 +18,24 @@ const RETENTION_DAYS = RETENTION_PRESETS.filter((option) => option.value !== 'cu
 
 type RetentionMode = 'preset' | 'custom'
 
-interface RetentionActionState {
-  error: string | null
-  forDraft: string | null
-}
-
-const IDLE_STATE: RetentionActionState = { error: null, forDraft: null }
-
 const MetricsForm = ({ config }: { config: GlobalMetricsConfig }): ReactNode => {
   const update = useUpdateGlobalMetricsConfig()
   const mobileShell = useMobileShell()
-  const formId = useId()
-  const formRef = useRef<HTMLFormElement>(null)
   const confirmed = config.default_retention_days
   const [optimisticEnabled, setOptimisticEnabled] = useOptimistic(config.enabled)
   const [mode, setMode] = useState<RetentionMode>(() => (RETENTION_DAYS.includes(confirmed) ? 'preset' : 'custom'))
-  const [draft, setDraft] = useState<string | number | null>(null)
   const [commandError, setCommandError] = useState<string | null>(null)
-
-  const draftValue = draft ?? confirmed
-
-  const [retentionState, retentionAction, savingRetention] = useActionState(async (): Promise<RetentionActionState> => {
-    const submitted = draftValue
-    const submittedKey = String(submitted)
-
-    const days = Number(submitted)
-
-    if (days === confirmed) {
-      return IDLE_STATE
-    }
-
-    try {
+  const retention = useNumberDraft({
+    saved: confirmed,
+    min: 1,
+    save: async (days) => {
       await update.mutateAsync({ enabled: config.enabled, retentionDays: days })
       setCommandError(null)
-      setDraft((current) => (current !== null && String(current) === submittedKey ? null : current))
+    },
+  })
 
-      return IDLE_STATE
-    } catch (error) {
-      return {
-        error: errorMessage(error, 'Try saving the retention period again.'),
-        forDraft: submittedKey,
-      }
-    }
-  }, IDLE_STATE)
-
-  const isSaving = update.isPending || savingRetention
-  const actionError = retentionState.forDraft === String(draftValue) ? retentionState.error : null
-  const retentionError = actionError ?? commandError
+  const isSaving = update.isPending || retention.pending
+  const retentionError = retention.error ?? commandError
   const customMode = mode === 'custom'
 
   const handleEnabledChange = (checked: boolean): void => {
@@ -85,6 +56,8 @@ const MetricsForm = ({ config }: { config: GlobalMetricsConfig }): ReactNode => 
   }
 
   const handleRetentionChange = (value: string | null): void => {
+    setCommandError(null)
+
     if (value === 'custom') {
       setMode('custom')
 
@@ -102,7 +75,6 @@ const MetricsForm = ({ config }: { config: GlobalMetricsConfig }): ReactNode => 
     startTransition(async () => {
       try {
         await update.mutateAsync({ enabled: config.enabled, retentionDays: retention })
-        setDraft(null)
         setCommandError(null)
       } catch (error) {
         setCommandError(errorMessage(error, 'Try saving the retention period again.'))
@@ -110,10 +82,9 @@ const MetricsForm = ({ config }: { config: GlobalMetricsConfig }): ReactNode => 
     })
   }
 
-  const submitRetention = (): void => {
-    if (!isSaving) {
-      formRef.current?.requestSubmit()
-    }
+  const changeCustomDays = (value: string | number): void => {
+    retention.onChange(value)
+    setCommandError(null)
   }
 
   const retentionValue = mode === 'preset' ? confirmed.toString() : 'custom'
@@ -146,12 +117,11 @@ const MetricsForm = ({ config }: { config: GlobalMetricsConfig }): ReactNode => 
           <RetentionDaysInput
             row
             id={id}
-            form={formId}
             name="retention_days"
-            value={draftValue}
-            onChange={setDraft}
-            onBlur={submitRetention}
-            onEnter={submitRetention}
+            value={retention.value}
+            onChange={changeCustomDays}
+            onBlur={retention.commit}
+            onEnter={retention.commit}
             error={retentionError ?? undefined}
             required
             disabled={isSaving}
@@ -163,7 +133,6 @@ const MetricsForm = ({ config }: { config: GlobalMetricsConfig }): ReactNode => 
     return (
       <Stack gap="lg" pb="md">
         <LiveStatus message={retentionError ?? ''} />
-        <form id={formId} ref={formRef} action={retentionAction} noValidate hidden />
 
         <IosGroup>
           <SwitchRow
@@ -204,18 +173,16 @@ const MetricsForm = ({ config }: { config: GlobalMetricsConfig }): ReactNode => 
         />
 
         {customMode && (
-          <form id={formId} ref={formRef} action={retentionAction} noValidate>
-            <RetentionDaysInput
-              name="retention_days"
-              label="Custom days"
-              value={draftValue}
-              onChange={setDraft}
-              onBlur={submitRetention}
-              onEnter={submitRetention}
-              error={retentionError ?? undefined}
-              required
-            />
-          </form>
+          <RetentionDaysInput
+            name="retention_days"
+            label="Custom days"
+            value={retention.value}
+            onChange={changeCustomDays}
+            onBlur={retention.commit}
+            onEnter={retention.commit}
+            error={retentionError ?? undefined}
+            required
+          />
         )}
         {retentionError && !customMode && (
           <Alert color="red" role="alert">
@@ -227,24 +194,12 @@ const MetricsForm = ({ config }: { config: GlobalMetricsConfig }): ReactNode => 
   )
 }
 
-export const MetricsSection = (): ReactNode => {
-  const { data: config, isLoading, error, refetch, isRefetching } = useGlobalMetricsConfig()
-
-  let content: ReactNode
-  if (isLoading) {
-    content = <LoadingState message="Loading metrics settings..." />
-  } else if (config) {
-    content = <MetricsForm config={config} />
-  } else {
-    content = (
-      <ErrorState
-        title="Couldn't load metrics settings"
-        error={error}
-        onRetry={() => refetch()}
-        retrying={isRefetching}
-      />
-    )
-  }
-
-  return <Box>{content}</Box>
-}
+export const MetricsSection = (): ReactNode => (
+  <QueryBoundary
+    query={useGlobalMetricsConfig()}
+    loading="Loading metrics settings…"
+    failure="Couldn't load metrics settings"
+  >
+    {(config) => <MetricsForm config={config} />}
+  </QueryBoundary>
+)

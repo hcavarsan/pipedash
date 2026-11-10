@@ -1,6 +1,7 @@
 import { Text } from '@mantine/core'
 import type { ReactNode } from 'react'
 import { StatusIcon } from '../../../components/atoms/StatusBadge'
+import { EmptyState } from '../../../components/common/EmptyState'
 import { VirtualList } from '../../../components/common/VirtualList'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import type { RunLogNode } from '../../../types/logs'
@@ -29,7 +30,7 @@ export function MobileRunJobs({ groups, onSelect }: MobileRunJobsProps): ReactNo
   const items = flattenJobs(groups)
 
   if (items.length === 0) {
-    return null
+    return <EmptyState title="This run has no jobs yet" description="Jobs appear here once the provider starts them." />
   }
 
   return (

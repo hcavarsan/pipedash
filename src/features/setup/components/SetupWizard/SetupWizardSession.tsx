@@ -4,14 +4,15 @@ import { type ReactNode, useId, useRef, useState } from 'react'
 import { ErrorState } from '../../../../components/common/ErrorState'
 import { LoadingState } from '../../../../components/common/LoadingState'
 import type { ModalAction } from '../../../../components/common/standardModalTypes'
+import { DesktopFooter, ShellFooter, type WizardAction } from '../../../../components/forms/WizardFooter'
 import { useIsMobile, useMobileShell } from '../../../../hooks/useIsMobile'
 import type { StorageConfigResponse } from '../../../../types/storage'
 import { isMobilePlatform } from '../../../../utils/platform'
 import { sameJson } from '../../../../utils/sameJson'
 
 import { ConfirmStep } from './ConfirmStep'
-import { confirmSkipTransfer, DesktopFooter, ShellFooter, type WizardAction } from './SetupWizardActions'
-import { SetupWizardLayout } from './SetupWizardLayout'
+import { confirmSkipTransfer } from './SetupWizardActions'
+import { SetupWizardLayout, type WizardForm } from './SetupWizardLayout'
 import { StorageStep } from './StorageStep'
 import { SuccessStep } from './SuccessStep'
 import { initialDraft, toFieldErrors, toSetupDraft } from './setupDraft'
@@ -115,6 +116,20 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
   const goNext = (): void => setStep(wizardSteps[stepIndex + 1] ?? 'success')
   const goBack = (): void => setStep(wizardSteps[Math.max(stepIndex - 1, 0)] ?? 'storage')
 
+  const advanceFromStorage = (): void => {
+    if (canProceedFromStorage) {
+      goNext()
+    }
+  }
+
+  let wizardForm: WizardForm | null = null
+
+  if (submits) {
+    wizardForm = { id: formId, ref: formRef, action: formAction }
+  } else if (step === 'storage') {
+    wizardForm = { id: formId, ref: formRef, action: advanceFromStorage }
+  }
+
   const afterTransfer = (): void => {
     if (compact) {
       formRef.current?.requestSubmit()
@@ -137,7 +152,7 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
         return currentConfig ? undefined : { label: 'Get started', submit: true, disabled: !canProceedFromStorage }
       }
 
-      return { label: 'Continue', onClick: goNext, disabled: !canProceedFromStorage }
+      return { label: 'Continue', submit: true, disabled: !canProceedFromStorage }
     }
 
     if (step === 'transfer') {
@@ -146,6 +161,7 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
 
     return step === 'confirm' ? { label: saveLabel, submit: true } : undefined
   })()
+  const busyPrimary = primary && { ...primary, loading: isPending }
 
   const canGoBack = stepIndex > 0 && !isSuccessStep
   const failure = actionState.errorStep === step && sameJson(actionState.submitted, setupDraft) ? actionState : null
@@ -166,9 +182,9 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
   })()
   const desktopFooter = (requestClose: () => void): ReactNode => (
     <DesktopFooter
-      primary={primary}
+      primary={busyPrimary}
       formId={formId}
-      isPending={isPending}
+      busy={isPending}
       onCancel={step === 'storage' && onClose ? requestClose : undefined}
       onBack={canGoBack ? goBack : undefined}
       fullWidth={isMobile}
@@ -242,12 +258,12 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
         position: isSuccessStep ? 'Finished' : `Step ${stepIndex + 1} of ${stepperSteps.length}`,
         title: isSuccessStep ? 'Setup complete' : (stepperSteps[stepIndex]?.label ?? ''),
       }}
-      form={submits ? { id: formId, ref: formRef, action: formAction } : null}
+      form={wizardForm}
       dirty={dirty}
       footer={isSuccessStep ? null : desktopFooter}
       shellFooter={
         primary || canGoBack ? (
-          <ShellFooter primary={primary} isPending={isPending} onBack={canGoBack ? goBack : undefined} />
+          <ShellFooter primary={busyPrimary} busy={isPending} onBack={canGoBack ? goBack : undefined} />
         ) : null
       }
       primaryAction={shellPrimary}

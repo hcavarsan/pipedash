@@ -41,8 +41,8 @@ export interface LogToolbarProps {
   selectionCount: number
   onCopySelection: () => void
   copied: boolean
-  onDownload: () => void
-  downloading: boolean
+  onExport: () => void
+  exporting: boolean
   jobUrl: string | null
   providerName: string
   onOpenJob: () => void
@@ -163,8 +163,8 @@ export function LogToolbar(props: LogToolbarProps): ReactNode {
           filter={filter}
           onFilterChange={props.onFilterChange}
           errorTotal={props.errorTotal}
-          downloading={props.downloading}
-          onDownload={props.onDownload}
+          exporting={props.exporting}
+          onExport={props.onExport}
           jobUrl={props.jobUrl}
           providerName={props.providerName}
           onOpenJob={props.onOpenJob}

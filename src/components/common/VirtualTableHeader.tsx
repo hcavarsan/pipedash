@@ -1,18 +1,7 @@
 import { Checkbox, Group, Table, UnstyledButton } from '@mantine/core'
 import { IconArrowDown, IconArrowUp, IconSelector } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
-
-const HEADER_STYLE = {
-  fontSize: 'var(--mantine-font-size-sm)',
-  fontWeight: 600,
-  paddingTop: 'var(--mantine-spacing-sm)',
-  paddingBottom: 'var(--mantine-spacing-sm)',
-  paddingLeft: 'var(--mantine-spacing-md)',
-  paddingRight: 'var(--mantine-spacing-md)',
-  whiteSpace: 'nowrap',
-  verticalAlign: 'middle',
-  borderBottom: '1px solid var(--mantine-color-default-border)',
-} as const
+import { TABLE_HEADER_STYLE } from './tableStyles'
 
 interface HeaderColumn {
   id: string
@@ -77,7 +66,7 @@ function ColumnHeaderCell({ column, sort, onSortChange }: ColumnHeaderCellProps)
   if (column.sortable && onSortChange) {
     content = (
       <UnstyledButton onClick={() => onSortChange(nextSort(sort, column.id))} fz="sm" fw={600}>
-        <Group gap={4} wrap="nowrap">
+        <Group gap="3xs" wrap="nowrap">
           {column.title}
           <SortIcon active={sort?.columnId === column.id} direction={sort?.direction ?? 'asc'} />
         </Group>
@@ -88,7 +77,7 @@ function ColumnHeaderCell({ column, sort, onSortChange }: ColumnHeaderCellProps)
   return (
     <Table.Th
       aria-sort={column.sortable ? ariaSort(sort, column.id) : undefined}
-      style={{ ...HEADER_STYLE, width: column.width, textAlign: column.textAlign }}
+      style={{ ...TABLE_HEADER_STYLE, width: column.width, textAlign: column.textAlign }}
     >
       {content}
     </Table.Th>
@@ -99,7 +88,7 @@ export function VirtualTableHeader({ columns, sort, onSortChange, selectAll }: V
   return (
     <Table.Tr aria-rowindex={1}>
       {selectAll && (
-        <Table.Th style={{ ...HEADER_STYLE, width: 40 }}>
+        <Table.Th style={{ ...TABLE_HEADER_STYLE, width: 40 }}>
           <Checkbox
             aria-label="Select all"
             checked={selectAll.checked}

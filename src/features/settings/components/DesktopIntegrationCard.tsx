@@ -55,7 +55,7 @@ export function DesktopIntegrationCard(): ReactNode {
           aria-label="Keep running when the window closes"
           description={
             os === 'linux'
-              ? 'Closing minimizes the window so it stays accessible even without a tray host.'
+              ? 'Closing minimizes the window, so Pipedash stays reachable even if your desktop has no tray.'
               : 'Closing hides the window. Use Quit Pipedash to stop monitoring.'
           }
           checked={current?.settings.keep_running_on_close ?? false}
@@ -70,16 +70,11 @@ export function DesktopIntegrationCard(): ReactNode {
         <Text size="xs" c="dimmed">
           {`The icon shows a status dot: red when a pinned pipeline fails, blue while a watched run or pinned pipeline runs, amber for unread notifications.${os === 'macos' ? ' The menu bar also shows the unread count.' : ''}`}
         </Text>
-        {os === 'linux' && (
-          <Text size="xs" c="dimmed">
-            Your desktop may need a tray extension. Closing minimizes Pipedash so you can still reopen it.
-          </Text>
-        )}
         {error && (
           <ErrorState
             title="Desktop integration needs attention"
             error={error}
-            onRetry={() => settings.mutate({})}
+            onRetry={settings.retry}
             retrying={busy}
           />
         )}

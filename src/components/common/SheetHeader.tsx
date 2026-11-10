@@ -38,7 +38,7 @@ const HeaderButton = ({
     onClick={onClick}
   >
     <span className={iosClasses.sheetActionLabel}>{children}</span>
-    {loading && <Loader size={16} className={iosClasses.sheetActionSpinner} aria-hidden />}
+    {loading && <Loader size="xs" className={iosClasses.sheetActionSpinner} aria-hidden />}
   </UnstyledButton>
 )
 
@@ -65,7 +65,7 @@ export const SheetHeader = ({
         disabled={busy}
         ariaLabel={backAction.minimal ? backAction.label : undefined}
       >
-        <IconChevronLeft size={22} aria-hidden className={iosClasses.sheetBackIcon} />
+        <IconChevronLeft size={20} aria-hidden className={iosClasses.sheetBackIcon} />
         {!backAction.minimal && backAction.label}
       </HeaderButton>
     )

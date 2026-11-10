@@ -6,10 +6,10 @@ import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { STATUS_META } from '../../../theme/status'
 import { TYPOGRAPHY } from '../../../theme/typography'
 import type { PipelineRun, PipelineStatus } from '../../../types/pipelines'
-import type { CellRenderer } from '../../../types/plugins'
+import type { CellRenderer, ColumnDefinition } from '../../../types/plugins'
 import { getRunStatusLabel } from '../../../utils/pipelinePresentation'
 import { useTableDefinition } from '../queries/useTableSchemaQueries'
-import { filterVisibleColumns } from '../utils/columnBuilder'
+import { filterVisibleColumns, isNumericColumn } from '../utils/columnBuilder'
 import { isCellValue, renderCellValue } from '../utils/dynamicRenderers'
 import { getValueByPath } from '../utils/objectPath'
 import classes from './WorkflowLogsModal.module.css'
@@ -19,6 +19,7 @@ interface DetailField {
   label: string
   field_path: string
   renderer: CellRenderer
+  data_type?: ColumnDefinition['data_type']
 }
 
 interface DetailRow {
@@ -30,7 +31,13 @@ const FALLBACK_FIELDS: DetailField[] = [
   { id: 'run_number', label: 'Run number', field_path: 'run_number', renderer: 'Text' },
   { id: 'status', label: 'Status', field_path: 'status', renderer: 'StatusBadge' },
   { id: 'branch', label: 'Branch', field_path: 'branch', renderer: 'Text' },
-  { id: 'duration_seconds', label: 'Duration', field_path: 'duration_seconds', renderer: 'Duration' },
+  {
+    id: 'duration_seconds',
+    label: 'Duration',
+    field_path: 'duration_seconds',
+    renderer: 'Duration',
+    data_type: 'Duration',
+  },
   { id: 'started_at', label: 'Started at', field_path: 'started_at', renderer: 'DateTime' },
   { id: 'concluded_at', label: 'Concluded at', field_path: 'concluded_at', renderer: 'DateTime' },
   { id: 'actor', label: 'Actor', field_path: 'actor', renderer: 'Avatar' },
@@ -129,15 +136,15 @@ function IosDetailRow({ field, value, run }: DetailRowProps): ReactNode {
 }
 
 function DesktopDetailRow({ field, value, run, isMobile }: DetailRowProps & { isMobile: boolean }): ReactNode {
+  const numeric = isNumericColumn(field.data_type)
+
   return (
     <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xl">
-      <Text size={TYPOGRAPHY.FIELD_VALUE.size} c="dimmed" miw={isMobile ? 90 : 130}>
+      <Text size={TYPOGRAPHY.FIELD_VALUE.size} c="dimmed" w={isMobile ? 110 : 160} style={{ flex: 'none' }}>
         {field.label}
       </Text>
-      <Box flex={1} miw={0}>
-        <Group justify="flex-end" ta="right">
-          <RunDetailValue field={field} value={value} run={run} />
-        </Group>
+      <Box flex={1} miw={0} ta={numeric ? 'right' : 'left'}>
+        <RunDetailValue field={field} value={value} run={run} />
       </Box>
     </Group>
   )

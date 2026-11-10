@@ -15,6 +15,7 @@ interface WorkflowParameterFieldProps {
   mobileShell: boolean
   pending: boolean
   onChange: (value: unknown) => void
+  onBlur: () => void
 }
 
 const rightAligned = {
@@ -29,7 +30,7 @@ const rightAligned = {
 const choiceOptions = (param: WorkflowParameter): string[] =>
   param.type === 'choice' ? [...new Set(param.options)] : []
 
-function ShellField({ param, value, error, formId, last, pending, onChange }: WorkflowParameterFieldProps) {
+function ShellField({ param, value, error, formId, last, pending, onChange, onBlur }: WorkflowParameterFieldProps) {
   const label = param.label || param.name
   const id = `${formId}-${param.name}`
   const a11y = fieldA11y(id, { required: param.required, error, description: param.description })
@@ -87,6 +88,7 @@ function ShellField({ param, value, error, formId, last, pending, onChange }: Wo
           aria-label={label}
           {...a11y}
           disabled={pending}
+          onBlur={onBlur}
           variant="unstyled"
           data={[{ value: '', label: param.required ? 'Select' : 'None' }, ...choiceOptions(param)]}
           value={typeof value === 'string' ? value : ''}
@@ -105,6 +107,7 @@ function ShellField({ param, value, error, formId, last, pending, onChange }: Wo
           {...a11y}
           {...withoutType(attributes)}
           disabled={pending}
+          onBlur={onBlur}
           value={typeof value === 'number' || typeof value === 'string' ? value : ''}
           onChange={onChange}
           variant="unstyled"
@@ -123,6 +126,7 @@ function ShellField({ param, value, error, formId, last, pending, onChange }: Wo
           {...a11y}
           {...attributes}
           disabled={pending}
+          onBlur={onBlur}
           value={comparable(value)}
           onChange={(event) => onChange(event.currentTarget.value)}
           variant="unstyled"
@@ -136,7 +140,7 @@ function ShellField({ param, value, error, formId, last, pending, onChange }: Wo
   return <IosRow title={title} subtitle={subtitle} accessory={accessory} />
 }
 
-function DesktopField({ param, value, error, last, pending, onChange }: WorkflowParameterFieldProps) {
+function DesktopField({ param, value, error, last, pending, onChange, onBlur }: WorkflowParameterFieldProps) {
   const label = param.label || param.name
   const description = param.description || undefined
   const attributes = fieldAttributes({
@@ -176,6 +180,7 @@ function DesktopField({ param, value, error, last, pending, onChange }: Workflow
           clearable={!param.required}
           error={error}
           required={param.required}
+          onBlur={onBlur}
         />
       )
     }
@@ -192,6 +197,7 @@ function DesktopField({ param, value, error, last, pending, onChange }: Workflow
           placeholder="Enter a number"
           error={error}
           required={param.required}
+          onBlur={onBlur}
         />
       )
 
@@ -207,6 +213,7 @@ function DesktopField({ param, value, error, last, pending, onChange }: Workflow
           placeholder={`Enter ${label.toLowerCase()}`}
           error={error}
           required={param.required}
+          onBlur={onBlur}
         />
       )
   }

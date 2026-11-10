@@ -10,7 +10,7 @@ const MetricsChart = lazy(() => import('./MetricsChart').then((m) => ({ default:
 export function LazyMetricsChart(props: MetricsChartProps): ReactNode {
   return (
     <ErrorBoundary scope="feature" name="Chart" resetKeys={[props.data]}>
-      <Suspense fallback={<LoadingState message="Loading chart..." />}>
+      <Suspense fallback={<LoadingState message="Loading chart…" />}>
         <MetricsChart {...props} />
       </Suspense>
     </ErrorBoundary>

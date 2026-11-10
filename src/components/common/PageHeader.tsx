@@ -55,7 +55,7 @@ export const PageHeader = ({ title, subtitle, onBack, backLabel = 'Back', action
 
   return (
     <Box mih={isMobile ? 32 : 40}>
-      <Group gap="xs" align="center" h={isMobile ? 32 : 40} justify="space-between" wrap="nowrap">
+      <Group gap="xs" align="center" mih={isMobile ? 32 : 40} justify="space-between" wrap="nowrap">
         <Group gap="xs" align="center" flex={1} miw={0}>
           {onBack && <PageHeaderBackButton label={backLabel} mobile={isMobile} onClick={onBack} />}
           <Stack gap="4xs" flex={1} miw={0}>

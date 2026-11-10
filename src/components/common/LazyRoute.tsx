@@ -10,7 +10,7 @@ export function LazyRoute({ children }: { children: ReactNode }): ReactNode {
 
   return (
     <ErrorBoundary scope="route" resetKeys={[location.pathname, location.search]}>
-      <Suspense fallback={<LoadingState variant="page" message="Loading page..." />}>{children}</Suspense>
+      <Suspense fallback={<LoadingState variant="page" message="Loading page…" />}>{children}</Suspense>
     </ErrorBoundary>
   )
 }

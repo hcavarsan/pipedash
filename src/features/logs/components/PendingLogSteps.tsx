@@ -1,6 +1,6 @@
-import { Group, Loader, Text } from '@mantine/core'
+import { Group, Text } from '@mantine/core'
 import type { ReactNode } from 'react'
-import { StatusIcon } from '../../../components/atoms/StatusBadge'
+import { StatusGlyph } from '../../../components/atoms/StatusBadge'
 import { VirtualList } from '../../../components/common/VirtualList'
 import type { RunLogNode } from '../../../types/logs'
 import { NodeDuration } from './NodeDuration'
@@ -21,14 +21,13 @@ function PendingLogStep({ step }: PendingLogStepProps): ReactNode {
       gap="xs"
       wrap="nowrap"
       justify="space-between"
-      py={4}
+      py="3xs"
       px="xs"
       bdrs="sm"
       aria-current={running ? 'step' : undefined}
-      style={running ? { backgroundColor: 'var(--mantine-color-blue-light)' } : undefined}
     >
       <Group gap="xs" wrap="nowrap">
-        {running ? <Loader size={14} aria-label="Running" /> : <StatusIcon status={step.status} />}
+        <StatusGlyph status={step.status} />
         <Text size="sm" fw={running ? 600 : 400}>
           {step.name}
         </Text>

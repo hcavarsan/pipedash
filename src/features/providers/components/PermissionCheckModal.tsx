@@ -1,4 +1,4 @@
-import { Alert, Badge, Button, Group, Stack, Text } from '@mantine/core'
+import { Alert, Button, Group, Stack, Text } from '@mantine/core'
 import { IconAlertCircle, IconRefresh } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { ErrorState } from '../../../components/common/ErrorState'
@@ -13,15 +13,7 @@ import { PermissionCard } from './PermissionCard'
 import { ShellPermissions } from './ShellPermissions'
 
 function permissionStatusMessage(loading: boolean, error: string | null, status: PermissionStatus | null): string {
-  if (loading) {
-    return 'Checking permissions'
-  }
-
-  if (error) {
-    return 'Permission check failed'
-  }
-
-  if (!status) {
+  if (loading || error || !status) {
     return ''
   }
 
@@ -75,16 +67,16 @@ export const PermissionCheckModal = ({
     <Group justify="space-between" w="100%">
       <Text fw={600}>{shellTitle}</Text>
       {status?.credential_label && (
-        <Badge size="md" variant="light" color="gray">
+        <Text size="sm" c="dimmed">
           {status.credential_label}
-        </Badge>
+        </Text>
       )}
     </Group>
   )
 
   const renderBody = (): ReactNode => {
     if (loading) {
-      return <LoadingState variant="section" message="Checking permissions..." />
+      return <LoadingState variant="section" message="Checking permissions…" />
     }
 
     if (error) {

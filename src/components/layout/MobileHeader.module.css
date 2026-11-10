@@ -15,8 +15,8 @@
   box-shadow: inset 0 -1px 0 var(--ios-material-edge);
   opacity: var(--scroll-edge, 0);
   pointer-events: none;
-  -webkit-mask-image: linear-gradient(#000 calc(100% - 12px), transparent);
-  mask-image: linear-gradient(#000 calc(100% - 12px), transparent);
+  -webkit-mask-image: linear-gradient(var(--ios-label) calc(100% - 12px), transparent);
+  mask-image: linear-gradient(var(--ios-label) calc(100% - 12px), transparent);
 }
 
 :global(html[data-increase-contrast]) .edge {
@@ -59,8 +59,8 @@
   background: none;
   color: var(--ios-tint);
   font: inherit;
-  font-size: calc(17px * var(--ios-chrome-scale, 1));
-  line-height: calc(22px * var(--ios-chrome-scale, 1));
+  font-size: var(--ios-fs-body);
+  line-height: var(--ios-lh-body);
   text-decoration: none;
   cursor: pointer;
 }
@@ -71,8 +71,8 @@
 
 .chevron {
   flex: none;
-  width: calc(26px * var(--ios-chrome-scale, 1));
-  height: calc(26px * var(--ios-chrome-scale, 1));
+  width: calc(26px * var(--ios-text-scale));
+  height: calc(26px * var(--ios-text-scale));
 }
 
 .backLabel {
@@ -104,10 +104,13 @@
   margin: 0;
   overflow: hidden;
   color: var(--ios-label);
-  font-size: calc(17px * var(--ios-chrome-scale, 1));
+  font-size: var(--ios-fs-headline);
   font-weight: 600;
   letter-spacing: normal;
-  line-height: 44px;
+  box-sizing: border-box;
+  height: 44px;
+  padding-block: max(0px, calc((44px - var(--ios-lh-headline)) / 2));
+  line-height: var(--ios-lh-headline);
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;

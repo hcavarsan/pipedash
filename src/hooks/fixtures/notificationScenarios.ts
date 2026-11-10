@@ -287,7 +287,7 @@ test('a failed enable reports the error and never turns notifications on', async
 test('shared notification hooks keep mobile history and read actions local', async () => {
   await mount()
   await publish('notification', failedNotification)
-  const { result } = renderHook(() => ({ items: useNotificationItems(), ...useNotificationActions() }), {
+  const { result } = renderHook(() => ({ items: useNotificationItems().items, ...useNotificationActions() }), {
     wrapper: ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children),
   })
   const first = result.current.items[0]

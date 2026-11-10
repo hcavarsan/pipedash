@@ -163,7 +163,7 @@ export function useRunHistoryFilters(): {
   selectStatus: (status: string, selected: boolean) => void
   clearFilters: () => void
 } {
-  const { searchParams, update, clearFilters, selectStatus } = useFilterParams(RUN_FILTER_KEYS)
+  const { searchParams, update, clearFilters } = useFilterParams(RUN_FILTER_KEYS)
 
   const filters = useMemo(
     (): RunHistoryFilters => ({
@@ -179,11 +179,25 @@ export function useRunHistoryFilters(): {
 
   const setFilter = useCallback(
     <K extends keyof RunHistoryFilters>(key: K, value: RunHistoryFilters[K]) =>
-      update((params) => setParam(params, key, key === 'page' && value === 1 ? null : value)),
+      update((params) => {
+        setParam(params, key, key === 'page' && value === 1 ? null : value)
+
+        if (key !== 'page') {
+          params.delete('page')
+        }
+      }),
+    [update]
+  )
+  const selectRunStatus = useCallback(
+    (status: string, selected: boolean) =>
+      update((params) => {
+        selectStatusIn(params, status, selected)
+        params.delete('page')
+      }),
     [update]
   )
 
-  return { filters, setFilter, selectStatus, clearFilters }
+  return { filters, setFilter, selectStatus: selectRunStatus, clearFilters }
 }
 
 export interface MetricsFilters {

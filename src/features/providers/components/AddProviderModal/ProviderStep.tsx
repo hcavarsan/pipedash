@@ -8,27 +8,25 @@ import type { ConfigField, PluginMetadata } from '../../../../types/plugins'
 import { ProviderConfigField } from './ProviderConfigField'
 import { DesktopProviderDetails, DesktopProviderPicker } from './ProviderStepDesktop'
 import { ShellProviderDetails, ShellProviderPicker } from './ProviderStepShell'
-import type { FormAction, FormState } from './types'
+import type { FormAction, FormState, ValidateKey } from './types'
 import { useCredentialFields } from './useCredentialFields'
 
 interface ProviderStepProps {
   state: FormState
   dispatch: Dispatch<FormAction>
   plugins: PluginMetadata[]
-  pluginsLoading: boolean
   editMode: boolean
   isMobile: boolean
   submitting: boolean
   formRef: RefObject<HTMLFormElement | null>
   formId: string
-  validateKey: (key: string) => Promise<void>
+  validateKey: ValidateKey
 }
 
 export function ProviderStep({
   state,
   dispatch,
   plugins,
-  pluginsLoading,
   editMode,
   isMobile,
   submitting,
@@ -117,12 +115,7 @@ export function ProviderStep({
             onClearPlugin={() => handlePluginSelect(null)}
           />
         ) : (
-          <ShellProviderPicker
-            plugins={plugins}
-            pluginsLoading={pluginsLoading}
-            submitting={submitting}
-            onSelect={handlePluginSelect}
-          />
+          <ShellProviderPicker plugins={plugins} submitting={submitting} onSelect={handlePluginSelect} />
         )}
       </div>
     )
@@ -146,7 +139,6 @@ export function ProviderStep({
           ) : (
             <DesktopProviderPicker
               plugins={plugins}
-              pluginsLoading={pluginsLoading}
               submitting={submitting}
               autoFocus={pickedProvider.current}
               onSelect={handlePluginSelect}

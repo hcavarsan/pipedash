@@ -1,11 +1,22 @@
-import { ActionIcon, Box, Button, Checkbox, Group, Stack, TextInput, Tooltip } from '@mantine/core'
+import { ActionIcon, Box, Button, Group, Stack, TextInput, Tooltip } from '@mantine/core'
 import { IconSearch, IconX } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { EmptyState } from '../../../components/common/EmptyState'
 import { FillScrollArea } from '../../../components/common/FillScrollArea'
+import type { ColumnItem } from '../lib/columnCustomization'
 import { ColumnBulkActions } from './ColumnBulkActions'
 import { DesktopColumnRow } from './DesktopColumnRow'
-import type { ColumnCustomizationBodyProps } from './IosColumnCustomization'
+
+export interface ColumnCustomizationBodyProps {
+  items: ColumnItem[]
+  search: string
+  onSearchChange: (value: string) => void
+  onToggle: (id: string) => void
+  onMove: (id: string, direction: -1 | 1) => void
+  onShowAll: () => void
+  onHideOptional: () => void
+  onReset: () => void
+}
 
 export function DesktopColumnCustomization({
   items,
@@ -17,8 +28,6 @@ export function DesktopColumnCustomization({
   onHideOptional,
 }: ColumnCustomizationBodyProps): ReactNode {
   const filtered = items.filter((item) => item.title.toLowerCase().includes(search.toLowerCase()))
-  const allVisible = items.every((item) => item.visible || item.locked)
-  const someVisible = items.some((item) => item.visible && !item.locked)
   const isEmpty = items.length === 0
   const emptyTitle = isEmpty ? 'No columns available' : 'No columns match your search'
   const emptyDescription = isEmpty
@@ -42,7 +51,7 @@ export function DesktopColumnCustomization({
       <Box px="lg" py="md">
         <TextInput
           aria-label="Search columns"
-          placeholder="Search columns..."
+          placeholder="Search columns…"
           leftSection={<IconSearch size={16} aria-hidden />}
           rightSection={clearSearchButton}
           value={search}
@@ -63,14 +72,7 @@ export function DesktopColumnCustomization({
           borderBottom: '1px solid var(--mantine-color-default-border)',
         }}
       >
-        <Group justify="space-between">
-          <Checkbox
-            label={allVisible ? 'Deselect all' : 'Select all'}
-            checked={allVisible}
-            indeterminate={!allVisible && someVisible}
-            onChange={() => (allVisible ? onHideOptional() : onShowAll())}
-            size="xs"
-          />
+        <Group justify="flex-end">
           <ColumnBulkActions onShowAll={onShowAll} onHideOptional={onHideOptional} />
         </Group>
       </Box>

@@ -47,7 +47,9 @@ export function SuccessStep({
     return (
       <Stack gap="xl" style={{ flex: 1 }}>
         <Stack align="center" gap="xs" pt="xl">
-          <IconCircleCheckFilled size={80} color="var(--ios-green)" aria-hidden />
+          <ThemeIcon size={48} variant="transparent">
+            <IconCircleCheckFilled size={24} color="var(--ios-green)" aria-hidden />
+          </ThemeIcon>
           <Title order={2} ta="center" tabIndex={-1} data-step-heading>
             Setup complete
           </Title>
@@ -91,8 +93,8 @@ export function SuccessStep({
 
   return (
     <Stack gap="md" align="center" py="xl">
-      <ThemeIcon size={56} variant="transparent" color="green">
-        <IconCheck size={28} aria-hidden />
+      <ThemeIcon size={48} variant="transparent" color="green">
+        <IconCheck size={24} aria-hidden />
       </ThemeIcon>
 
       <Text size="lg" fw={600}>

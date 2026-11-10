@@ -2,11 +2,11 @@ import { Button, Checkbox, Group, Loader, Stack } from '@mantine/core'
 import { IconFolder, IconPlus } from '@tabler/icons-react'
 import { type ReactNode, useState } from 'react'
 import { EmptyState } from '../../../components/common/EmptyState'
+import { QueryBoundary } from '../../../components/common/QueryBoundary'
 import { StandardModal } from '../../../components/common/StandardModal'
 import type { ViewSelectionEntry } from '../../../types/views'
 import { useSetViewMembership, useViewSelection } from '../queries/usePipelineViewQueries'
 import { usePipelineViewStore } from '../stores/pipelineViewStore'
-import { QueryBoundary } from './QueryBoundary'
 
 interface AddToViewSessionProps {
   ids: string[]
@@ -35,7 +35,7 @@ function ViewChoice({
   onToggle: (member: boolean) => void
 }): ReactNode {
   return (
-    <Group gap="xs" wrap="nowrap" ml={(entry.depth - 1) * 24}>
+    <Group gap="xs" wrap="nowrap" ml={`calc(var(--mantine-spacing-lg) * ${entry.depth - 1})`}>
       <Checkbox
         label={entry.view.name}
         description={selectionNote(entry.included_by_rule, entry.included_by_sub_view)}
@@ -66,7 +66,7 @@ function ViewChoices({ entries, ids, onNewView }: ViewChoicesProps): ReactNode {
         description="Create a view to organize your pipelines your way."
         action={
           <Button size="sm" leftSection={<IconPlus size={16} aria-hidden />} onClick={onNewView}>
-            New view
+            New view…
           </Button>
         }
       />

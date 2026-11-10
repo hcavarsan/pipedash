@@ -1,12 +1,12 @@
 .bar {
   position: fixed;
   z-index: 150;
-  left: calc(var(--safe-left) + 16px);
-  right: calc(var(--safe-right) + 16px);
-  bottom: calc(var(--safe-bottom) + 6px);
+  left: calc(var(--safe-left) + var(--mantine-spacing-md));
+  right: calc(var(--safe-right) + var(--mantine-spacing-md));
+  bottom: calc(var(--safe-bottom) + var(--mantine-spacing-2xs));
   display: flex;
-  gap: 2px;
-  padding: 5px;
+  gap: var(--mantine-spacing-4xs);
+  padding: var(--mantine-spacing-3xs);
   margin-inline: auto;
   max-width: 400px;
   border-radius: 32px;
@@ -42,7 +42,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: var(--mantine-spacing-4xs);
   border-radius: 26px;
   color: var(--ios-secondary-label);
   text-decoration: none;
@@ -66,10 +66,10 @@
   max-width: 100%;
   max-height: 2em;
   overflow: hidden;
-  font-size: calc(10px * var(--ios-chrome-scale, 1));
-  font-weight: 500;
+  font-size: var(--ios-fs-caption2);
+  font-weight: 400;
   letter-spacing: normal;
-  line-height: calc(12px * var(--ios-chrome-scale, 1));
+  line-height: var(--ios-lh-caption2);
   text-overflow: ellipsis;
   white-space: nowrap;
   transition:
@@ -99,11 +99,13 @@
   min-height: 1.6em;
   padding: 0 0.45em;
   border-radius: 1em;
-  color: #fff;
-  font-size: calc(11px * var(--ios-chrome-scale, 1));
-  font-weight: 600;
-  line-height: 1.6;
-  text-align: center;
+  color: var(--ios-on-tint);
+  font-size: var(--ios-fs-caption2);
+  font-weight: 400;
+  line-height: var(--ios-lh-caption2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 :global(html[data-increase-contrast]) .bar {

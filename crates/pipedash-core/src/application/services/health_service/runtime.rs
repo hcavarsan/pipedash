@@ -49,7 +49,7 @@ async fn run(
     mut mode: watch::Receiver<RefreshMode>, cancel: CancellationToken,
 ) {
     actor.enabled = actor.config.get_bool(ConfigKey::StatusPagesEnabled).await;
-    actor.active = *mode.borrow_and_update() == RefreshMode::Active;
+    actor.active = *mode.borrow_and_update() != RefreshMode::Idle;
     let mut mode_open = true;
     tracing::info!(enabled = actor.enabled, "ProviderHealthService started");
 
@@ -63,7 +63,7 @@ async fn run(
             },
             changed = mode.changed(), if mode_open => match changed {
                 Ok(()) => {
-                    let active = *mode.borrow_and_update() == RefreshMode::Active;
+                    let active = *mode.borrow_and_update() != RefreshMode::Idle;
                     actor.set_active(active).await;
                 }
                 Err(_) => mode_open = false,

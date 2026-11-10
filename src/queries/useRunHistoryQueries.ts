@@ -8,7 +8,8 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
-import { confirmBody } from '../components/common/ActionTargetRows'
+import { createElement } from 'react'
+import { CancelRunConfirm } from '../features/runs/components/CancelRunConfirm'
 import { cancelTargetRows } from '../features/runs/lib/cancelTargetRows'
 import { invalidateRunHistory } from '../features/runs/lib/runHistoryCache'
 import {
@@ -17,17 +18,12 @@ import {
   type RunHistoryPageParam,
 } from '../features/runs/lib/runHistoryPaging'
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
-import { notifications } from '../lib/notifications'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services/service'
 import type { Pipeline, PipelineRun, ReviewDecision, TriggerResult } from '../types/pipelines'
 import type { RunHistoryPage, RunHistoryQuery } from '../types/run_history'
 import { openConfirm } from '../utils/confirm'
-import { errorMessage } from '../utils/errorDisplay'
-
-function notifyCancellationRequested(message: string) {
-  notifications.show({ title: 'Cancellation requested', message, color: 'gray' })
-}
+import { displayErrorNotification, displaySuccessNotification } from '../utils/errorDisplay'
 
 export function useRunHistory(
   pipelineId: string,
@@ -65,58 +61,72 @@ interface CancelRunVariables {
   pipelineId: string
   runNumber: number
   pipeline?: Pipeline | undefined
-  run?: Pick<PipelineRun, 'branch'> | undefined
+  run?: Pick<PipelineRun, 'branch' | 'actions'> | undefined
   forceConfirmation?: string | undefined
+  preferForce?: boolean | undefined
+}
+
+interface CancelRunRequest {
+  pipelineId: string
+  runNumber: number
+  force: boolean
 }
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
 
-type UseCancelRunResult = DistributiveOmit<
-  UseMutationResult<void, Error, { pipelineId: string; runNumber: number }, unknown>,
-  'mutateAsync'
-> & { mutateAsync: (variables: CancelRunVariables) => Promise<boolean> }
+type UseCancelRunResult = DistributiveOmit<UseMutationResult<void, Error, CancelRunRequest, unknown>, 'mutateAsync'> & {
+  mutateAsync: (variables: CancelRunVariables) => Promise<boolean>
+}
 
-function useRunCancellation(force: boolean): UseCancelRunResult {
+export function useCancelRun(): UseCancelRunResult {
   const queryClient = useQueryClient()
 
   const mutation = useMutation({
-    mutationFn: ({ pipelineId, runNumber }: { pipelineId: string; runNumber: number }) =>
+    mutationFn: ({ pipelineId, runNumber, force }: CancelRunRequest) =>
       force ? service.forceCancelPipelineRun(pipelineId, runNumber) : service.cancelPipelineRun(pipelineId, runNumber),
 
-    onSuccess: (_data, { pipelineId, runNumber }) => {
-      invalidateRunHistory(queryClient, pipelineId, runNumber)
+    onSuccess: async (_data, { pipelineId, runNumber, force }) => {
+      const invalidations = [invalidateRunHistory(queryClient, pipelineId, runNumber)]
 
       if (force) {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
-        void queryClient.invalidateQueries({ queryKey: queryKeys.runs.active(pipelineId) })
-        void queryClient.invalidateQueries({ queryKey: queryKeys.runLogs.tree(pipelineId, runNumber) })
+        invalidations.push(
+          queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.runs.active(pipelineId) }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.runLogs.tree(pipelineId, runNumber) })
+        )
       }
 
-      notifyCancellationRequested(`Run #${runNumber} ${force ? 'force cancellation' : 'cancellation'} requested`)
+      await Promise.all(invalidations)
+
+      displaySuccessNotification(
+        `Run #${runNumber} ${force ? 'force cancellation' : 'cancellation'} requested`,
+        'Cancellation requested'
+      )
     },
 
-    onError: (error: Error) => {
-      notifications.show({
-        title: force ? "Couldn't force cancel run" : "Couldn't cancel run",
-        message: errorMessage(error, 'Check the run in your provider before trying again.'),
-        color: 'red',
-      })
+    onError: (error: Error, { force }) => {
+      displayErrorNotification(error, force ? "Couldn't force cancel run" : "Couldn't cancel run")
     },
   })
 
   const cancel = async (variables: CancelRunVariables) => {
     const { promise, resolve } = Promise.withResolvers<boolean>()
     const targets = variables.pipeline ? cancelTargetRows(variables.pipeline, variables.run ? [variables.run] : []) : []
+    const forceAllowed = variables.run?.actions.force_cancel.allowed === true
+    const forceOnly = forceAllowed && variables.run?.actions.cancel.allowed === false
+    let force = forceOnly || (forceAllowed && variables.preferForce === true)
 
     openConfirm({
-      title: force ? 'Force cancel run' : 'Cancel run',
-      children: confirmBody(
-        force
-          ? `Force cancel run #${variables.runNumber}. ${variables.forceConfirmation ?? ''}`.trim()
-          : `This cancels run #${variables.runNumber}. You can't undo this.`,
-        targets
-      ),
-      labels: { confirm: force ? 'Force cancel' : 'Cancel run', cancel: 'Keep running' },
+      title: 'Cancel run',
+      children: createElement(CancelRunConfirm, {
+        message: `This cancels run #${variables.runNumber}. You can't undo this.`,
+        targets,
+        force: forceAllowed ? { initial: force, locked: forceOnly, help: variables.forceConfirmation } : null,
+        onForceChange: (next) => {
+          force = next
+        },
+      }),
+      labels: { confirm: 'Cancel run', cancel: 'Keep running' },
       confirmProps: { color: 'red' },
       onConfirm: () => resolve(true),
       onCancel: () => resolve(false),
@@ -128,20 +138,12 @@ function useRunCancellation(force: boolean): UseCancelRunResult {
       return false
     }
 
-    await mutation.mutateAsync({ pipelineId: variables.pipelineId, runNumber: variables.runNumber })
+    await mutation.mutateAsync({ pipelineId: variables.pipelineId, runNumber: variables.runNumber, force })
 
     return true
   }
 
   return { ...mutation, mutateAsync: cancel }
-}
-
-export function useCancelRun(): UseCancelRunResult {
-  return useRunCancellation(false)
-}
-
-export function useForceCancelRun(): UseCancelRunResult {
-  return useRunCancellation(true)
 }
 
 export function useReviewRun(): UseMutationResult<
@@ -163,22 +165,17 @@ export function useReviewRun(): UseMutationResult<
       decision: ReviewDecision
     }) => service.reviewPipelineRun(pipelineId, runNumber, decision),
 
-    onSuccess: (_data, { pipelineId, runNumber, decision }) => {
-      invalidateRunHistory(queryClient, pipelineId, runNumber)
+    onSuccess: async (_data, { pipelineId, runNumber, decision }) => {
+      await invalidateRunHistory(queryClient, pipelineId, runNumber)
 
-      notifications.show({
-        title: decision === 'approve' ? 'Run approved' : 'Run rejected',
-        message: `Deployment review for run #${runNumber} sent`,
-        color: decision === 'approve' ? 'green' : 'gray',
-      })
+      displaySuccessNotification(
+        `Deployment review for run #${runNumber} sent`,
+        decision === 'approve' ? 'Run approved' : 'Run rejected'
+      )
     },
 
     onError: (error: Error, { decision }) => {
-      notifications.show({
-        title: decision === 'approve' ? "Couldn't approve run" : "Couldn't reject run",
-        message: errorMessage(error, 'Check the deployment review in your provider and try again.'),
-        color: 'red',
-      })
+      displayErrorNotification(error, decision === 'approve' ? "Couldn't approve run" : "Couldn't reject run")
     },
   })
 }
@@ -195,23 +192,17 @@ export function useRerunFailedJobs(): UseMutationResult<
     mutationFn: ({ pipelineId, runNumber }: { pipelineId: string; runNumber: number }) =>
       service.rerunFailedJobs(pipelineId, runNumber),
 
-    onSuccess: (_data, { pipelineId, runNumber }) => {
-      invalidateRunHistory(queryClient, pipelineId, runNumber)
-      void queryClient.invalidateQueries({ queryKey: queryKeys.runLogs.tree(pipelineId, runNumber) })
+    onSuccess: async (_data, { pipelineId, runNumber }) => {
+      await Promise.all([
+        invalidateRunHistory(queryClient, pipelineId, runNumber),
+        queryClient.invalidateQueries({ queryKey: queryKeys.runLogs.tree(pipelineId, runNumber) }),
+      ])
 
-      notifications.show({
-        title: 'Re-running failed jobs',
-        message: `Run #${runNumber} is re-running its failed jobs`,
-        color: 'gray',
-      })
+      displaySuccessNotification(`Run #${runNumber} is re-running its failed jobs`, 'Re-running failed jobs')
     },
 
     onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't re-run failed jobs",
-        message: errorMessage(error, 'Check the run in your provider and try rerunning failed jobs again.'),
-        color: 'red',
-      })
+      displayErrorNotification(error, "Couldn't re-run failed jobs")
     },
   })
 }
@@ -229,23 +220,21 @@ export function useRerunRun(): UseMutationResult<
     mutationFn: ({ pipelineId, runNumber }: { pipelineId: string; runNumber: number }) =>
       service.rerunRun(pipelineId, runNumber),
 
-    onSuccess: (_data, { pipelineId, runNumber }) => {
-      invalidateRunHistory(queryClient, pipelineId, runNumber)
-      void queryClient.invalidateQueries({ queryKey: queryKeys.runLogs.tree(pipelineId, runNumber) })
+    onSuccess: async (result, { pipelineId, runNumber }) => {
+      await Promise.all([
+        invalidateRunHistory(queryClient, pipelineId, runNumber),
+        queryClient.invalidateQueries({ queryKey: queryKeys.runLogs.tree(pipelineId, runNumber) }),
+      ])
 
-      notifications.show({
-        title: 'Rerun started',
-        message: `Run #${runNumber} is running again`,
-        color: 'gray',
-      })
+      if (result.run_number === null) {
+        displaySuccessNotification(`Rerun of run #${runNumber} requested`, 'Rerun requested')
+      } else {
+        displaySuccessNotification(`Run #${result.run_number} started from run #${runNumber}`, 'Run started')
+      }
     },
 
     onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't rerun workflow",
-        message: errorMessage(error, 'Check the run in your provider and try rerunning it again.'),
-        color: 'red',
-      })
+      displayErrorNotification(error, "Couldn't re-run workflow")
     },
   })
 }

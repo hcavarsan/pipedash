@@ -5,7 +5,7 @@ import { StatusIcon } from '../../../components/atoms/StatusBadge'
 import type { AnsiColor, LogSection, LogStyle } from '../../../types/logs'
 import { formatDuration } from '../../../utils/formatDuration'
 import { isOneOf } from '../../../utils/isOneOf'
-import { openExternal } from '../../../utils/openExternal'
+import { openLink } from '../../../utils/openExternal'
 import { typedKeys } from '../../../utils/typedKeys'
 import type { LineState } from '../lib/lineCacheTypes'
 import { type Highlight, segmentsFor } from '../lib/segments'
@@ -39,6 +39,7 @@ export type LogRowProps = LogRowCommonProps &
         current: MatchTriple | null
         onSelect: (line: number, extend: boolean) => void
         onFullLine: (line: number) => void
+        onRetry: () => void
       }
   )
 
@@ -174,7 +175,7 @@ function LineText({
           className={className || undefined}
           onClick={(event) => {
             event.preventDefault()
-            void openExternal(href)
+            openLink(href)
           }}
         >
           {segment.text}
@@ -197,7 +198,8 @@ export const LogRow = memo(function LogRow(props: LogRowProps): ReactNode {
     return <StepHeader section={props.section} open={props.open} onToggle={props.onToggle} />
   }
 
-  const { line, data, section, open, selected, fresh, gutterCh, timestamps, onToggle, onSelect, onFullLine } = props
+  const { line, data, section, open, selected, fresh, gutterCh, timestamps, onToggle, onSelect, onFullLine, onRetry } =
+    props
   const loaded = typeof data === 'object' ? data : null
   const lineKind = loaded?.kind
   const Glyph = lineKind === 'error' || lineKind === 'warning' ? GLYPH_BY_KIND[lineKind] : null
@@ -244,8 +246,15 @@ export const LogRow = memo(function LogRow(props: LogRowProps): ReactNode {
             {open ? <IconChevronDown size={14} aria-hidden /> : <IconChevronRight size={14} aria-hidden />}
           </button>
         )}
-        {data === 'loading' && <span className={classes.dim}>Loading…</span>}
-        {data === 'error' && <span className={classes.fgRed}>Couldn't load this line</span>}
+        {data === 'loading' && <span className={classes.dim}>Loading line…</span>}
+        {data === 'error' && (
+          <>
+            <span className={classes.fgRed}>Couldn't load this line </span>
+            <button type="button" className={classes.omitted} onClick={onRetry}>
+              Retry
+            </button>
+          </>
+        )}
         {loaded && (
           <LineText
             text={loaded.text}

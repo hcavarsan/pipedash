@@ -21,6 +21,8 @@ interface AppLayoutProps {
   onOpenSettings?: () => void
 }
 
+const MAIN_CONTENT_ID = 'main-content'
+
 const MOBILE_HEADER_STYLE = {
   background: 'transparent',
   paddingInline: 'max(var(--safe-left), var(--safe-right))',
@@ -157,15 +159,13 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps): ReactNo
 
   return (
     <>
-      {!mobileShell && (
-        <button
-          type="button"
-          className={classes.skipLink}
-          onClick={() => mainRef.current?.focus({ preventScroll: true })}
-        >
-          Skip to content
-        </button>
-      )}
+      <button
+        type="button"
+        className={classes.skipLink}
+        onClick={() => mainRef.current?.focus({ preventScroll: true })}
+      >
+        Skip to content
+      </button>
       <AppShell
         header={{ height: headerHeight }}
         {...navbarProps}
@@ -191,11 +191,7 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps): ReactNo
           </AppShell.Navbar>
         )}
 
-        <AppShell.Main
-          ref={mainRef}
-          id={mobileShell ? undefined : 'main-content'}
-          tabIndex={mobileShell ? undefined : -1}
-        >
+        <AppShell.Main ref={mainRef} id={MAIN_CONTENT_ID} tabIndex={-1}>
           {mobileShell ? <MobilePage>{children}</MobilePage> : children}
         </AppShell.Main>
 

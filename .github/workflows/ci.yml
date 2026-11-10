@@ -1,8 +1,7 @@
-name: PR
+name: CI
 
 on:
   workflow_dispatch:
-
   pull_request:
     branches:
       - main
@@ -14,22 +13,135 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
+permissions: {}
 
 env:
   K8S_OPENAPI_ENABLED_VERSION: "1.32"
   CARGO_TERM_COLOR: always
   CARGO_PROFILE_DEV_DEBUG: 0
   RUST_BACKTRACE: 1
+  MISE_TASK_RUN_AUTO_INSTALL: "false"
 
 jobs:
-  biome:
-    name: Biome
-    runs-on: ubuntu-22.04
+  lint-workflows:
+    name: Lint / Workflows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read # checkout the repository
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install zizmor
+        uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
+        with:
+          install_args: zizmor
+          cache_key_prefix: mise-zizmor-v1
+          cache_restore_retry_budget: 60s
+
+      - name: Lint workflows
+        run: mise run lint:actions
+
+  lint-structure:
+    name: Lint / Structure
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read # checkout the repository
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up frontend
+        uses: $/.github/actions/setup-frontend
+
+      - name: Check source structure
+        run: mise run lint:structure
+
+      - name: Check duplication
+        run: mise run lint:dup
+
+  lint-frontend:
+    name: Lint / Frontend
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
-      contents: read
+      contents: read # checkout the repository
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up frontend
+        uses: $/.github/actions/setup-frontend
+
+      - name: Lint and format check
+        run: mise run lint:front
+
+  lint-rustfmt:
+    name: Lint / Rustfmt
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read # checkout the repository
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
+        with:
+          install_args: rust
+          cache_key_prefix: mise-rust-v1
+          cache_restore_retry_budget: 60s
+
+      - name: Check formatting
+        run: mise run fmt:back:check
+
+  lint-clippy:
+    name: Lint / Clippy (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-24.04
+          - name: macos
+            os: macos-latest
+          - name: windows
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read # checkout the repository
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: $/.github/actions/setup-rust
+        with:
+          cache-key: clippy
+
+      - name: Run Clippy
+        run: mise run lint:back
+
+  test-frontend:
+    name: Test / Frontend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read # checkout the repository
       id-token: write # Codecov OIDC upload, no long-lived CODECOV_TOKEN
     steps:
       - name: Checkout repository
@@ -37,28 +149,20 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install mise
-        uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
-        with:
-          install: false
-          cache: true
-
-      - name: Install mise tools
-        run: mise install
-
-      - name: Install dependencies
-        run: mise run install
+      - name: Set up frontend
+        uses: $/.github/actions/setup-frontend
 
       - name: Test icon generation
         run: python3 scripts/test_icons.py
 
-      - name: Lint and format check
-        run: mise run lint:front
+      - name: Test screenshot exporter
+        working-directory: ios/app-store-screenshots
+        run: bun install --frozen-lockfile && bun run test
 
       - name: Test frontend
         run: bun run test --coverage --coverage-reporter=lcov --reporter=junit --reporter-outfile=junit.xml ./scripts/coverage-baseline.ts
 
-      - name: Upload frontend coverage
+      - name: Upload coverage
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           use_oidc: ${{ !github.event.pull_request.head.repo.fork }}
@@ -66,7 +170,7 @@ jobs:
           flags: frontend
           slug: hcavarsan/pipedash
 
-      - name: Upload frontend test results
+      - name: Upload test results
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         if: ${{ !cancelled() }}
         with:
@@ -76,197 +180,12 @@ jobs:
           slug: hcavarsan/pipedash
           report_type: test_results
 
-      - name: Build frontend with bundle analysis
-        env:
-          CODECOV_BUNDLE_ANALYSIS: "true"
-          CODECOV_OIDC: ${{ !github.event.pull_request.head.repo.fork }}
-        run: bun run build
-
-  zizmor:
-    name: zizmor
-    runs-on: ubuntu-22.04
-    timeout-minutes: 10
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Install mise
-        uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
-        with:
-          install: false
-          cache: true
-
-      - name: Install mise tools
-        run: mise install
-
-      - name: Lint workflows
-        run: mise run lint:actions
-
-  structure:
-    name: Structure
-    runs-on: ubuntu-22.04
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Install mise
-        uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
-        with:
-          install: false
-          cache: true
-
-      - name: Install mise tools
-        run: mise install
-
-      - name: Install dependencies
-        run: mise run install
-
-      - name: Check source structure
-        run: mise run lint:structure
-
-      - name: Check duplication
-        run: mise run lint:dup
-
-  rust-format:
-    name: rustfmt
-    runs-on: ubuntu-22.04
-    timeout-minutes: 10
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt install -y \
-              build-essential \
-              curl \
-              wget \
-              file \
-              libxdo-dev \
-              libssl-dev \
-              libayatana-appindicator3-dev \
-              librsvg2-dev \
-              libwebkit2gtk-4.1-dev \
-              patchelf \
-              xdg-utils
-
-      - name: Install mise
-        uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
-        with:
-          install: false
-          cache: true
-
-      - name: Install mise tools
-        run: mise install
-
-      - name: Run rustfmt
-        run: mise run fmt:back:check
-
-  rust-lint:
-    name: Clippy
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            os_name: linux
-            rust_target: x86_64-unknown-linux-gnu
-          - os: macos-latest
-            os_name: macos
-            rust_target: aarch64-apple-darwin
-          - os: windows-latest
-            os_name: windows
-            rust_target: x86_64-pc-windows-msvc
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      id-token: write # Codecov OIDC upload, no long-lived CODECOV_TOKEN
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Install dependencies
-        if: matrix.os_name == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt install -y \
-              build-essential \
-              curl \
-              wget \
-              file \
-              libxdo-dev \
-              libssl-dev \
-              libayatana-appindicator3-dev \
-              librsvg2-dev \
-              libwebkit2gtk-4.1-dev \
-              patchelf \
-              xdg-utils
-
-      - name: Install mise
-        uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
-        with:
-          install: false
-          cache: true
-
-      - name: Install mise tools
-        run: mise install
-
-      - name: Configure Rust targets
-        env:
-          RUST_TARGET: ${{ matrix.rust_target }}
-        run: rustup target add "$RUST_TARGET"
-        shell: bash
-
-      - name: Run Clippy
-        run: mise run lint:back
-
-      - name: Install cargo-llvm-cov and nextest
-        if: matrix.os_name != 'linux'
-        uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2.89.0
-        with:
-          tool: cargo-llvm-cov,cargo-nextest
-
-      - name: Run tests
-        if: matrix.os_name != 'linux'
-        run: cargo llvm-cov nextest --workspace --all-features --profile ci --lcov --output-path lcov.info
-
-      - name: Upload coverage
-        if: matrix.os_name != 'linux'
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        with:
-          use_oidc: ${{ !github.event.pull_request.head.repo.fork }}
-          files: lcov.info
-          flags: backend
-          slug: hcavarsan/pipedash
-
-      - name: Upload test results
-        if: ${{ matrix.os_name != 'linux' && !cancelled() }}
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        with:
-          use_oidc: ${{ !github.event.pull_request.head.repo.fork }}
-          files: target/nextest/ci/junit.xml
-          flags: backend
-          slug: hcavarsan/pipedash
-          report_type: test_results
-
-  rust-test:
-    name: Tests
-    runs-on: ubuntu-22.04
+  test-rust:
+    name: Test / Rust (linux)
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
-      contents: read
+      contents: read # checkout the repository
       id-token: write # Codecov OIDC upload, no long-lived CODECOV_TOKEN
     services:
       postgres:
@@ -286,35 +205,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt install -y \
-              build-essential \
-              curl \
-              wget \
-              file \
-              libxdo-dev \
-              libssl-dev \
-              libayatana-appindicator3-dev \
-              librsvg2-dev \
-              libwebkit2gtk-4.1-dev \
-              patchelf \
-              xdg-utils
-
-      - name: Install mise
-        uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
+      - name: Set up Rust
+        uses: $/.github/actions/setup-rust
         with:
-          install: false
-          cache: true
-
-      - name: Install mise tools
-        run: mise install
-
-      - name: Install cargo-llvm-cov and nextest
-        uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2.89.0
-        with:
-          tool: cargo-llvm-cov,cargo-nextest
+          cache-key: test-coverage
+          tools: cargo-llvm-cov,cargo-nextest
 
       - name: Run tests
         run: cargo llvm-cov nextest --no-report --workspace --all-features --profile ci
@@ -343,11 +238,79 @@ jobs:
           slug: hcavarsan/pipedash
           report_type: test_results
 
+  test-rust-desktop:
+    name: Test / Rust (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos
+            os: macos-latest
+          - name: windows
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read # checkout the repository
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: $/.github/actions/setup-rust
+        with:
+          cache-key: test
+          tools: cargo-nextest
+
+      - name: Run tests
+        run: cargo nextest run --workspace --all-features --profile ci
+
+  build-frontend:
+    name: Build / Frontend bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read # checkout the repository
+      id-token: write # Codecov OIDC upload, no long-lived CODECOV_TOKEN
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up frontend
+        uses: $/.github/actions/setup-frontend
+
+      - name: Build with bundle analysis
+        env:
+          CODECOV_BUNDLE_ANALYSIS: "true"
+          CODECOV_OIDC: ${{ !github.event.pull_request.head.repo.fork }}
+        run: bun run build
+
+  build-crates:
+    name: Build / Plugin crate packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read # checkout the repository
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: $/.github/actions/setup-rust
+        with:
+          cache-key: package
+
       - name: Verify plugin packages
         run: |
           crates="pipedash-plugin-api pipedash-plugin-actions pipedash-plugins $(grep -l 'register_plugin!' crates/pipedash-plugin-*/src/lib.rs | cut -d/ -f2)"
           args=()
           for crate in $crates; do
-            args+=(-p "$crate" --config "patch.crates-io.$crate.path=\"crates/$crate\"")
+            args+=(-p "$crate")
           done
           cargo package "${args[@]}"

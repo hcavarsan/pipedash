@@ -53,7 +53,7 @@ export function useSetupSubmission({
   compact,
   onComplete,
 }: SetupSubmissionInput): [SetupActionState, () => void, boolean] {
-  const apply = useApplySetupDraft()
+  const apply = useApplySetupDraft({ toastErrors: false })
 
   const submit = async (previous: SetupActionState): Promise<SetupActionState> => {
     if (!submits) {

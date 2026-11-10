@@ -102,7 +102,8 @@ export function PairedDevicesCard({ sharing }: PairedDevicesCardProps): ReactNod
   const mobileShell = useMobileShell()
   const now = useNow(60_000)
   const [adding, setAdding] = useState(false)
-  const { data, error, isLoading, isRefetching, refetch } = usePairedDevices({ enabled: true })
+  const query = usePairedDevices({ enabled: true })
+  const { data } = query
   const remove = useRemovePairedDevice()
   const sharingStatus = useSharingStatus({ enabled: sharing })
   const blocked = sharing && sharingStatus.data?.running !== true
@@ -139,25 +140,27 @@ export function PairedDevicesCard({ sharing }: PairedDevicesCardProps): ReactNod
 
   const modal = <AddDeviceModal opened={adding} onClose={() => setAdding(false)} />
 
+  const alert = query.isError && (
+    <ErrorState
+      title="Couldn't load paired devices"
+      error={query.error}
+      onRetry={() => void query.refetch()}
+      retrying={query.isFetching}
+    />
+  )
   let state: ReactNode = null
-  if (error) {
-    state = (
-      <ErrorState
-        title="Couldn't load paired devices"
-        error={error}
-        onRetry={() => refetch()}
-        retrying={isRefetching}
-      />
-    )
-  } else if (isLoading || !data) {
-    state = <LoadingState message="Loading paired devices" />
+  if (!data) {
+    state = alert || <LoadingState message="Loading paired devices…" />
   } else if (data.length === 0) {
     state = (
-      <EmptyState
-        title="No paired devices"
-        description="Add a phone or computer to show these pipelines on it."
-        action={<AddDeviceButton blocked={blocked} onClick={openAdd} variant="default" />}
-      />
+      <>
+        {alert}
+        <EmptyState
+          title="No paired devices"
+          description="Add a phone or computer to show these pipelines on it."
+          action={<AddDeviceButton blocked={blocked} onClick={openAdd} variant="default" />}
+        />
+      </>
     )
   }
 
@@ -178,6 +181,7 @@ export function PairedDevicesCard({ sharing }: PairedDevicesCardProps): ReactNod
   if (mobileShell) {
     return (
       <>
+        {data && data.length > 0 && alert}
         {state ?? (
           <IosGroup
             header="Paired devices"
@@ -207,6 +211,7 @@ export function PairedDevicesCard({ sharing }: PairedDevicesCardProps): ReactNod
           {data && data.length > 0 && <AddDeviceButton blocked={blocked} onClick={openAdd} variant="default" />}
         </Group>
 
+        {data && data.length > 0 && alert}
         {state ?? <Stack gap="sm">{desktopRows}</Stack>}
       </Stack>
       {modal}

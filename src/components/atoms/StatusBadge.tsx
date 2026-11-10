@@ -19,15 +19,20 @@ export const StatusBadge = ({ status, label: customLabel, size = 'sm' }: StatusB
   )
 }
 
-export const StatusIcon = ({ status, label: customLabel }: Omit<StatusBadgeProps, 'size'>): ReactNode => {
+export const StatusIcon = ({
+  status,
+  label: customLabel,
+  focusable = false,
+}: Omit<StatusBadgeProps, 'size'> & { focusable?: boolean }): ReactNode => {
   const { label, tone, icon: Icon } = statusMeta(status)
-
+  const focus = focusable ? { tabIndex: 0 } : {}
   return (
     <Tooltip label={customLabel ?? label}>
       <Box
         component="span"
         role="img"
         aria-label={customLabel ?? label}
+        {...focus}
         display="inline-flex"
         c={`var(--status-${tone})`}
       >

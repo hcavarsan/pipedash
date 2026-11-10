@@ -7,7 +7,6 @@ import {
   useQueryClient,
 } from '@tanstack/react-query'
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
-import { notifications } from '../lib/notifications'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services/service'
 import { useAuthStore } from '../stores/authStore'
@@ -22,7 +21,7 @@ import type {
   StorageConfigResponse,
   StoragePathsResponse,
 } from '../types/storage'
-import { errorMessage } from '../utils/errorDisplay'
+import { displayErrorNotification, displaySuccessNotification } from '../utils/errorDisplay'
 import { formatCount } from '../utils/formatCount'
 
 export function useStorageConfig(options?: { enabled?: boolean }): UseQueryResult<StorageConfigResponse | null, Error> {
@@ -81,41 +80,14 @@ export function useTestStorageConnection(): UseMutationResult<
 > {
   return useMutation({
     mutationFn: (config: PipedashConfig) => service.testStorageConnection(config),
-
-    onSuccess: (result) => {
-      if (!result.success) {
-        notifications.show({
-          title: "Couldn't connect to storage",
-          message: result.message || 'Check the storage connection settings and try again.',
-          color: 'red',
-        })
-
-        return
-      }
-
-      notifications.show({
-        title: 'Connection successful',
-        message: 'Storage connection test passed',
-        color: 'green',
-      })
-    },
-
-    onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't connect to storage",
-        message: errorMessage(error, 'Check the storage connection settings and try again.'),
-        color: 'red',
-      })
-    },
   })
 }
 
-export function useApplySetupDraft(): UseMutationResult<
-  SetupApplied,
-  Error,
-  { draft: SetupDraft; firstRun: boolean },
-  unknown
-> {
+export function useApplySetupDraft({
+  toastErrors = true,
+}: {
+  toastErrors?: boolean
+} = {}): UseMutationResult<SetupApplied, Error, { draft: SetupDraft; firstRun: boolean }, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -134,44 +106,49 @@ export function useApplySetupDraft(): UseMutationResult<
     },
 
     onSuccess: async (applied, { firstRun }) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.storage.all })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.vault.all })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.storage.all }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.vault.all }),
+      ])
 
       if (firstRun) {
         await queryClient.refetchQueries({ queryKey: queryKeys.setup.status() })
       }
       if (applied.migration_stats) {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.providers.all })
-        void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.providers.all }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all }),
+        ])
       }
 
-      void queryClient.refetchQueries({ queryKey: queryKeys.storage.config() })
-      void queryClient.refetchQueries({ queryKey: queryKeys.storage.paths() })
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: queryKeys.storage.config() }),
+        queryClient.refetchQueries({ queryKey: queryKeys.storage.paths() }),
+      ])
 
-      notifications.show({
-        title: applied.migration_stats ? 'Migration complete' : 'Configuration saved',
-        message: applied.migration_stats
+      displaySuccessNotification(
+        applied.migration_stats
           ? `Migrated ${formatCount(applied.migration_stats.providers_migrated, 'provider')}, ${formatCount(applied.migration_stats.tokens_migrated, 'token')} and ${formatCount(applied.migration_stats.metrics_migrated, 'metric entry', 'metric entries')}`
           : 'Storage configuration updated successfully',
-        color: 'green',
-      })
+        applied.migration_stats ? 'Migration complete' : 'Configuration saved'
+      )
     },
 
     onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't save configuration",
-        message: errorMessage(error, 'Check the storage configuration and try again.'),
-        color: 'red',
-      })
+      if (toastErrors) {
+        displayErrorNotification(error, "Couldn't save configuration")
+      }
     },
   })
 }
 
-function invalidateAfterConfigWrite(queryClient: QueryClient): void {
-  void queryClient.invalidateQueries({ queryKey: queryKeys.storage.all })
-  void queryClient.invalidateQueries({ queryKey: queryKeys.vault.all })
-  void queryClient.invalidateQueries({ queryKey: queryKeys.providers.all })
-  void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
+function invalidateAfterConfigWrite(queryClient: QueryClient): Promise<unknown> {
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: queryKeys.storage.all }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.vault.all }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.providers.all }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all }),
+  ])
 }
 
 export function useSaveConfigContent(): UseMutationResult<void, Error, string, unknown> {
@@ -179,11 +156,18 @@ export function useSaveConfigContent(): UseMutationResult<void, Error, string, u
 
   return useMutation({
     mutationFn: (content: string) => service.saveConfigContent(content),
-    onSuccess: () => invalidateAfterConfigWrite(queryClient),
+    onSuccess: async () => {
+      await invalidateAfterConfigWrite(queryClient)
+      displaySuccessNotification('Your changes to config.toml were saved.', 'Configuration saved')
+    },
   })
 }
 
-export function useMigrateAndSaveConfig(): UseMutationResult<
+export function useMigrateAndSaveConfig({
+  toastErrors = true,
+}: {
+  toastErrors?: boolean
+} = {}): UseMutationResult<
   MigrationResult,
   Error,
   { plan: MigrationPlan; options: MigrationOptions; content: string },
@@ -203,6 +187,17 @@ export function useMigrateAndSaveConfig(): UseMutationResult<
 
       return result
     },
-    onSuccess: () => invalidateAfterConfigWrite(queryClient),
+    onSuccess: async (result) => {
+      await invalidateAfterConfigWrite(queryClient)
+      displaySuccessNotification(
+        `Migrated ${formatCount(result.stats.providers_migrated, 'provider')}`,
+        'Migration complete'
+      )
+    },
+    onError: (error: Error) => {
+      if (toastErrors) {
+        displayErrorNotification(error, "Couldn't save configuration")
+      }
+    },
   })
 }

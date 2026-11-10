@@ -1,5 +1,6 @@
 import { Box, Card, Checkbox, Group, Stack, Text, UnstyledButton } from '@mantine/core'
 import { type ReactNode, type RefObject, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { StatusIcon } from '../../../components/atoms/StatusBadge'
 import { useContextMenu } from '../../../components/common/ContextMenu'
 import { FetchInfo } from '../../../components/common/PipelineFetchInfo'
 import { WorkflowActions } from '../../../components/common/PipelineRowActions'
@@ -9,8 +10,9 @@ import { SPACING_PX } from '../../../theme/theme'
 import type { PipelineActions, PipelineSelection } from '../../../types/pipelineRows'
 import type { ProviderSummary } from '../../../types/providers'
 import type { ViewPipeline } from '../../../types/views'
-import { formatDateTime } from '../../../utils/formatDateTime'
+import { getPipelineStatusLabel, pipelineStatusKey } from '../../../utils/pipelinePresentation'
 import { historyLabel, workflowMenuItems } from '../../../utils/pipelineRowActions'
+import { PipelineCardMeta } from './PipelineCardMeta'
 
 const CARD_ROW_ESTIMATE = 130
 const CARD_MIN_WIDTH = 280
@@ -26,6 +28,7 @@ interface PipelineCardGridProps {
   getProvider: (providerId: number) => ProviderSummary | undefined
   actions: PipelineActions
   selection?: PipelineSelection | undefined
+  pinned?: boolean | undefined
 }
 
 function useColumnCount(containerRef: RefObject<HTMLDivElement | null>): number {
@@ -71,10 +74,12 @@ interface PipelineItemProps {
   getProvider: (providerId: number) => ProviderSummary | undefined
   actions: PipelineActions
   selection?: PipelineSelection | undefined
+  pinned?: boolean | undefined
 }
 
-function PipelineCard({ pipeline, getProvider, actions, selection }: PipelineItemProps): ReactNode {
+function PipelineCard({ pipeline, getProvider, actions, selection, pinned }: PipelineItemProps): ReactNode {
   const contextMenu = useContextMenu()
+  const provider = getProvider(pipeline.provider_id)
 
   return (
     <Card
@@ -86,7 +91,7 @@ function PipelineCard({ pipeline, getProvider, actions, selection }: PipelineIte
         <Group justify="space-between" align="flex-start" wrap="nowrap" gap="sm">
           {selection && (
             <Checkbox
-              mt={2}
+              mt="4xs"
               aria-label={`Select ${pipeline.name}`}
               checked={selection.selected.has(pipeline.id)}
               onChange={() => selection.onToggle(pipeline)}
@@ -102,21 +107,19 @@ function PipelineCard({ pipeline, getProvider, actions, selection }: PipelineIte
             <Text size="sm" fw={600} truncate>
               {pipeline.name}
             </Text>
-            <Text size="xs" c="dimmed" truncate>
-              {pipeline.repository}
-            </Text>
+            <PipelineCardMeta pipeline={pipeline} provider={provider} />
           </UnstyledButton>
           <Group gap="xs" wrap="nowrap" style={{ flexShrink: 0 }}>
-            <PipelineStatusBadge pipeline={pipeline} provider={getProvider(pipeline.provider_id)} />
-            <FetchInfo providers={[getProvider(pipeline.provider_id)].flatMap((provider) => provider ?? [])} />
+            {pinned ? (
+              <StatusIcon focusable status={pipelineStatusKey(pipeline)} label={getPipelineStatusLabel(pipeline)} />
+            ) : (
+              <PipelineStatusBadge pipeline={pipeline} provider={provider} />
+            )}
+            <FetchInfo providers={provider ? [provider] : []} />
           </Group>
         </Group>
 
-        <Group justify="space-between" wrap="nowrap" gap="sm">
-          <Text size="xs" c="dimmed" truncate>
-            {getProvider(pipeline.provider_id)?.name ?? 'Unknown'} ·{' '}
-            {pipeline.last_run ? formatDateTime(pipeline.last_run) : 'Never run'}
-          </Text>
+        <Group justify="flex-end" wrap="nowrap" gap="sm">
           <WorkflowActions pipeline={pipeline} actions={actions} />
         </Group>
       </Stack>
@@ -128,7 +131,13 @@ function GridCards({ row, ...rest }: { row: GridRow } & Omit<PipelineCardGridPro
   return row.pipelines.map((pipeline) => <PipelineCard key={pipeline.id} pipeline={pipeline} {...rest} />)
 }
 
-export function PipelineCardGrid({ pipelines, getProvider, actions, selection }: PipelineCardGridProps): ReactNode {
+export function PipelineCardGrid({
+  pipelines,
+  getProvider,
+  actions,
+  selection,
+  pinned,
+}: PipelineCardGridProps): ReactNode {
   const containerRef = useRef<HTMLDivElement>(null)
   const columns = useColumnCount(containerRef)
   const rows = useMemo(() => chunkPipelines(pipelines, columns), [pipelines, columns])
@@ -148,7 +157,7 @@ export function PipelineCardGrid({ pipelines, getProvider, actions, selection }:
               gap: 'var(--mantine-spacing-sm)',
             }}
           >
-            <GridCards row={row} getProvider={getProvider} actions={actions} selection={selection} />
+            <GridCards row={row} getProvider={getProvider} actions={actions} selection={selection} pinned={pinned} />
           </Box>
         )}
       />

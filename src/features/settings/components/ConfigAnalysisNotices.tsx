@@ -1,4 +1,4 @@
-import { Alert, Badge, Box, Group, Loader, Text } from '@mantine/core'
+import { Alert, Box, Loader, Text } from '@mantine/core'
 import { IconAlertCircle, IconCheck, IconX } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { FormErrorDisplay } from '../../../components/common/FormErrorDisplay'
@@ -41,7 +41,7 @@ export function ConfigAnalysisNotices({
       {mobileShell && <LiveStatus message={analyzing ? ANALYZING_MESSAGE : ''} />}
       {analyzing &&
         (mobileShell ? (
-          <Alert icon={<Loader size={16} />} color="gray" mx="lg" mt="md" role="presentation" aria-hidden>
+          <Alert icon={<Loader size="xs" />} color="gray" mx="lg" mt="md" role="presentation" aria-hidden>
             <Text size="sm">{ANALYZING_MESSAGE}</Text>
           </Alert>
         ) : (
@@ -68,17 +68,10 @@ export function ConfigAnalysisNotices({
           <Text size="sm" fw={500}>
             These changes require migrating {migrationPlan.steps.length} components to the new storage backend.
           </Text>
-          {stats && mobileShell && (
-            <Text size="xs" c="dimmed" mt="xs">
+          {stats && (
+            <Text size="sm" c="dimmed" mt="xs">
               {statsText}
             </Text>
-          )}
-          {stats && !mobileShell && (
-            <Group gap="xs" mt="xs">
-              <Badge size="sm">{formatCount(stats.providers_count, 'provider')}</Badge>
-              <Badge size="sm">{formatCount(stats.tokens_count, 'token')}</Badge>
-              <Badge size="sm">{formatCount(stats.cache_entries_count, 'cache entry', 'cache entries')}</Badge>
-            </Group>
           )}
         </Alert>
       )}
@@ -93,7 +86,7 @@ export function ConfigAnalysisNotices({
           mt="md"
         >
           <Text size="sm">{error.message}</Text>
-          <Text size="xs" c="dimmed" mt={4}>
+          <Text size="xs" c="dimmed" mt="3xs">
             Error code: {error.code}
           </Text>
         </Alert>
@@ -122,7 +115,7 @@ export function ConfigAnalysisNotices({
         >
           <Text size="sm">{postgres.message}</Text>
           {postgres.latency_ms && (
-            <Text size="xs" c="dimmed" mt={4}>
+            <Text size="xs" c="dimmed" mt="3xs">
               Connection latency: {postgres.latency_ms}ms
             </Text>
           )}

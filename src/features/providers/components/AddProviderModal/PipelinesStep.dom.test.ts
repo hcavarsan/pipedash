@@ -66,7 +66,6 @@ function Picker(): ReactNode {
         dispatch,
         providerConfig,
         terms: pluginFixture().presentation.terminology,
-        isMobile: false,
       }),
     createElement(
       'button',

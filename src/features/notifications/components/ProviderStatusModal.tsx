@@ -1,4 +1,4 @@
-import { Group, Modal, Stack, Text } from '@mantine/core'
+import { Group, Stack, Text } from '@mantine/core'
 import type { ReactNode } from 'react'
 import { ProviderIcon } from '../../../components/atoms/ProviderIcon'
 import { StandardModal } from '../../../components/common/StandardModal'
@@ -32,51 +32,37 @@ export function ProviderStatusModal(): ReactNode {
     selection?.type === 'provider' ? providers?.find((item) => item.id === selection.providerId) : undefined
   const attention = provider?.attention ?? null
   const headline = attention?.headline ?? 'No problems affecting your pipelines'
-
-  if (mobileShell) {
-    return (
-      <Modal
-        opened={Boolean(provider)}
-        onClose={close}
-        title={
-          provider && (
-            <Group gap="sm" wrap="nowrap">
-              <ProviderIcon name={provider.name} icon={provider.icon} size={28} />
-              {provider.name}
-            </Group>
-          )
-        }
-      >
-        {provider && (
-          <Stack gap={24}>
-            <LiveStatus message={statusSummary(provider, attention?.headline)} />
-            <Text size="sm" c="dimmed">
-              {headline}
-            </Text>
-            <ShellProviderStatus provider={provider} now={now} onNavigate={close} />
-          </Stack>
-        )}
-      </Modal>
-    )
-  }
-
-  const title = provider && (
-    <Group gap="sm" wrap="nowrap">
-      <ProviderIcon name={provider.name} icon={provider.icon} size={28} />
-      <Stack gap={0}>
-        <Text fw={600}>{provider.name}</Text>
-        <Text size="xs" c="dimmed">
-          {headline}
-        </Text>
-      </Stack>
-    </Group>
-  )
   const statusPage = provider?.health.status_page
   const serviceTitle = statusPage ? `${statusPage.name} status` : 'Service status'
 
+  const title = provider && (
+    <Group gap="sm" wrap="nowrap">
+      <ProviderIcon name={provider.name} icon={provider.icon} size={24} />
+      {mobileShell ? (
+        provider.name
+      ) : (
+        <Stack gap={0}>
+          <Text fw={600}>{provider.name}</Text>
+          <Text size="xs" c="dimmed">
+            {headline}
+          </Text>
+        </Stack>
+      )}
+    </Group>
+  )
+
   return (
     <StandardModal opened={Boolean(provider)} onClose={close} size="lg" title={title}>
-      {provider && (
+      {provider && mobileShell && (
+        <Stack gap="lg">
+          <LiveStatus message={statusSummary(provider, attention?.headline)} />
+          <Text size="sm" c="dimmed">
+            {headline}
+          </Text>
+          <ShellProviderStatus provider={provider} now={now} onNavigate={close} />
+        </Stack>
+      )}
+      {provider && !mobileShell && (
         <Stack gap="md">
           <LiveStatus message={statusSummary(provider, attention?.headline)} />
           <Connection provider={provider} now={now} onNavigate={close} />

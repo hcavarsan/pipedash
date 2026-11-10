@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { logger } from '../lib/logger'
 import { hasLocalCore } from '../services/connection'
 import { tauriService } from '../services/tauri'
-import { isAndroidPlatform } from '../utils/platform'
+import { isAndroidPlatform, isDesktopTauri } from '../utils/platform'
 
 export const useRefresh = (): void => {
   useEffect(() => {
@@ -17,8 +17,9 @@ export const useRefresh = (): void => {
     let unlisten: (() => void) | undefined
     const appWindow = getCurrentWindow()
 
+    const unfocused = isDesktopTauri() ? 'background' : 'idle'
     const apply = (focused: boolean) => {
-      tauriService.setRefreshMode(focused ? 'active' : 'idle').catch((err) => {
+      tauriService.setRefreshMode(focused ? 'active' : unfocused).catch((err) => {
         logger.error('useRefresh', 'Failed to update refresh mode', err)
       })
     }

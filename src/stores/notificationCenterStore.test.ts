@@ -32,7 +32,7 @@ beforeEach(() => {
   calls.length = 0
   failure = null
   reply = { revision: 1, items: [notice('a')], unread: 1 }
-  useNotificationCenterStore.setState({ items: [], revision: 0, unread: 0, selection: null })
+  useNotificationCenterStore.setState({ items: [], revision: 0, unread: 0, selection: null, pending: null })
   mock.method(
     apiService,
     'updateNotificationCenter',
@@ -111,4 +111,21 @@ test('a rejected clear shows one error and the next action still runs', async ()
   )
   assert.deepEqual(useNotificationCenterStore.getState().items, reply.items)
   assert.equal(shown.mock.callCount(), 1)
+})
+
+test('repeat mark all read and clear are ignored while one is pending', async () => {
+  const { markAllRead, clear } = useNotificationCenterStore.getState()
+
+  const first = markAllRead()
+  const repeat = markAllRead()
+  const other = clear()
+
+  assert.equal(useNotificationCenterStore.getState().pending, 'markAll')
+  await Promise.all([first, repeat, other])
+
+  assert.deepEqual(
+    calls.map(({ change }) => change.type),
+    ['read']
+  )
+  assert.equal(useNotificationCenterStore.getState().pending, null)
 })

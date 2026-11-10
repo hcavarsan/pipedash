@@ -68,7 +68,7 @@ export function useViewEditorDraft({ editor, view, mobileShell }: UseViewEditorD
   const creating = editor.viewId === null
   const caps = view?.capabilities
   const showName = creating || Boolean(caps?.rename)
-  const showRules = !creating && Boolean(caps?.edit_rules)
+  const showRules = creating || Boolean(caps?.edit_rules)
   const showLayout = !mobileShell && (creating || Boolean(caps?.edit_display))
   const showMembers = !creating && Boolean(caps?.edit_members)
   const showParent = creating || view?.kind === 'custom'

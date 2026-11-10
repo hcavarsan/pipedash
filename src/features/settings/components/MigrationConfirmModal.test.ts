@@ -60,13 +60,13 @@ test('a rejected migration shows its error until the password or the migrate cho
 
   const password = await view().findByLabelText(/Vault password/)
   await user.type(password, 'secret')
-  await user.click(view().getByRole('button', { name: 'Proceed with migration' }))
+  await user.click(view().getByRole('button', { name: 'Migrate' }))
   await view().findByText(/wrong vault password/)
 
   await user.type(password, '1')
   await waitFor(() => assert.equal(view().queryAllByText(/wrong vault password/).length, 0))
 
-  await user.click(view().getByRole('button', { name: 'Proceed with migration' }))
+  await user.click(view().getByRole('button', { name: 'Migrate' }))
   await view().findByText(/wrong vault password/)
 
   await user.click(view().getByRole('checkbox', { name: /Migrate existing data/ }))

@@ -54,14 +54,14 @@ const MobileStorageOverview = (p: StorageOverviewProps): ReactNode => {
           title="Test connection"
           onClick={p.onTestConnection}
           disabled={p.testingConnection}
-          accessory={p.testingConnection ? <Loader size={18} aria-hidden /> : undefined}
+          accessory={p.testingConnection ? <Loader size="xs" aria-hidden /> : undefined}
         />
         {p.canLockVault && (
           <IosRow
             title="Lock vault"
             onClick={p.onLockVault}
             disabled={p.lockPending}
-            accessory={p.lockPending ? <Loader size={18} aria-hidden /> : undefined}
+            accessory={p.lockPending ? <Loader size="xs" aria-hidden /> : undefined}
           />
         )}
       </IosGroup>

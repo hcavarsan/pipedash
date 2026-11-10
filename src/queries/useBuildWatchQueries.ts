@@ -7,6 +7,7 @@ import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
 import { hasLocalCore } from '../services/connection'
 import { mobileService } from '../services/mobile'
+import { useBuildWatchListenerStore } from '../stores/buildWatchListenerStore'
 import type { BuildWatchStatus } from '../types/notifications'
 import { displayErrorNotification } from '../utils/errorDisplay'
 import { isDesktopTauri } from '../utils/platform'
@@ -22,6 +23,8 @@ type UseBuildWatchResult = UseQueryResult<BuildWatchStatus, Error> & {
   busy: boolean
   start: (pipelineId: string, runNumber: number) => void
   stop: () => void
+  listenerError: Error | null
+  retryListener: () => void
 }
 
 export function useBuildWatch(): UseBuildWatchResult {
@@ -39,6 +42,8 @@ export function useBuildWatch(): UseBuildWatchResult {
     refetchOnWindowFocus: !desktop,
   })
   const busy = useIsMutating({ mutationKey }) > 0
+  const listenerError = useBuildWatchListenerStore((state) => state.error)
+  const retryListener = useBuildWatchListenerStore((state) => state.retry)
   const mutation = useMutation({
     mutationKey,
     mutationFn: (run: { pipelineId: string; runNumber: number } | null) =>
@@ -72,15 +77,19 @@ export function useBuildWatch(): UseBuildWatchResult {
     mutation.mutate(null)
   }
 
-  return { ...query, enabled, busy, start, stop }
+  return { ...query, enabled, busy, start, stop, listenerError, retryListener }
 }
 
 export function useBuildWatchLifecycle(): void {
   const queryClient = useQueryClient()
+  const attempt = useBuildWatchListenerStore((state) => state.attempt)
 
   useEffect(() => {
     if (!isBuildWatchPlatform()) {
       return
+    }
+    if (attempt > 0) {
+      logger.info('BuildWatch', 'Retrying the native watch listener', { attempt })
     }
     const desktop = isDesktopTauri()
     let active = true
@@ -124,6 +133,7 @@ export function useBuildWatchLifecycle(): void {
       .then((unlisten) => {
         if (active) {
           remove = unlisten
+          useBuildWatchListenerStore.setState({ error: null })
           if (desktop) {
             refresh()
           }
@@ -131,7 +141,15 @@ export function useBuildWatchLifecycle(): void {
           unlisten()
         }
       })
-      .catch((error: unknown) => logger.warn('BuildWatch', "Couldn't listen for native watch changes", error))
+      .catch((error: unknown) => {
+        logger.warn('BuildWatch', "Couldn't listen for native watch changes", error)
+        if (active) {
+          useBuildWatchListenerStore.setState({ error: error instanceof Error ? error : new Error(String(error)) })
+        }
+        if (active && desktop) {
+          refresh()
+        }
+      })
     document.addEventListener('visibilitychange', refresh)
     window.addEventListener('focus', refresh)
 
@@ -141,5 +159,5 @@ export function useBuildWatchLifecycle(): void {
       document.removeEventListener('visibilitychange', refresh)
       window.removeEventListener('focus', refresh)
     }
-  }, [queryClient])
+  }, [queryClient, attempt])
 }

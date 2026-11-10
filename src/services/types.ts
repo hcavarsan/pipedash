@@ -273,6 +273,6 @@ export interface PushService {
 }
 
 export interface NativeOnlyService {
-  setRefreshMode(mode: 'active' | 'idle'): Promise<void>
+  setRefreshMode(mode: 'active' | 'background' | 'idle'): Promise<void>
   showSystemNotification(title: string, body: string, target: NotificationTarget): Promise<void>
 }

@@ -6,7 +6,7 @@
   min-height: 44px;
   display: flex;
   gap: 0;
-  padding: 2px;
+  padding: var(--mantine-spacing-4xs);
   border-radius: var(--ios-radius-grouped);
   background: var(--ios-fill);
 }
@@ -26,7 +26,7 @@
   border-radius: calc(var(--ios-radius-grouped) - 2px);
   font-size: var(--ios-fs-footnote);
   line-height: var(--ios-lh-footnote);
-  font-weight: 500;
+  font-weight: 400;
   color: inherit;
   transition:
     background-color 160ms ease,
@@ -41,7 +41,6 @@
 
 .tab[data-active] {
   background: var(--ios-segment-active);
-  font-weight: 600;
   box-shadow:
     0 3px 8px rgb(0 0 0 / 0.12),
     0 3px 1px rgb(0 0 0 / 0.04);
@@ -52,11 +51,11 @@
 }
 
 .tabPanel {
-  padding-top: 12px;
+  padding-top: var(--mantine-spacing-sm);
 }
 
 .segmentRoot {
-  padding: 2px;
+  padding: var(--mantine-spacing-4xs);
   border-radius: var(--ios-radius-grouped);
   min-height: 44px;
   align-items: center;
@@ -84,7 +83,7 @@
   padding: 0 0.75em;
   font-size: var(--ios-fs-footnote);
   line-height: var(--ios-lh-footnote);
-  font-weight: 500;
+  font-weight: 400;
   color: inherit;
   overflow: visible;
 }
@@ -97,7 +96,6 @@
 
 .segmentLabel[data-active] {
   color: inherit;
-  font-weight: 600;
 }
 
 .segmentLabel::before {
@@ -162,7 +160,7 @@ input:disabled + .switchTrack {
 
 .switchThumb {
   border: 0;
-  background: #fff;
+  background: var(--ios-on-tint);
   box-shadow:
     0 3px 8px rgb(0 0 0 / 0.15),
     0 3px 1px rgb(0 0 0 / 0.06);
@@ -208,7 +206,7 @@ input:disabled + .switchTrack {
   line-height: var(--ios-lh-footnote);
   font-weight: 400;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: normal;
   color: var(--mantine-color-dimmed);
 }
 
@@ -267,8 +265,8 @@ input:disabled + .switchTrack {
 
 .stepperSteps {
   justify-content: center;
-  gap: 6px;
-  margin-bottom: 16px;
+  gap: var(--mantine-spacing-2xs);
+  margin-bottom: var(--mantine-spacing-md);
 }
 
 .stepperStep {

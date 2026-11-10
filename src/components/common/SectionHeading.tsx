@@ -1,4 +1,4 @@
-import { Group, Text, UnstyledButton } from '@mantine/core'
+import { Box, Group, Text, UnstyledButton } from '@mantine/core'
 import { IconChevronDown, IconChevronRight } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
@@ -32,7 +32,7 @@ export function SectionHeading({
           <IconChevronRight size={16} style={{ flexShrink: 0 }} aria-hidden />
         ))}
       {icon}
-      <Text id={id} size="sm" fw={600} truncate>
+      <Text component={onToggle ? 'span' : 'h2'} id={id} size="sm" fw={600} m={0} truncate>
         {label}
       </Text>
       <Text size="sm" c="dimmed">
@@ -42,17 +42,19 @@ export function SectionHeading({
   )
 
   const heading = onToggle ? (
-    <UnstyledButton
-      className="item-primary"
-      px="2xs"
-      py="3xs"
-      miw={0}
-      maw="100%"
-      onClick={onToggle}
-      aria-expanded={expanded}
-    >
-      {content}
-    </UnstyledButton>
+    <Box component="h2" m={0} miw={0} maw="100%" style={{ font: 'inherit' }}>
+      <UnstyledButton
+        className="item-primary"
+        px="2xs"
+        py="3xs"
+        miw={0}
+        maw="100%"
+        onClick={onToggle}
+        aria-expanded={expanded}
+      >
+        {content}
+      </UnstyledButton>
+    </Box>
   ) : (
     content
   )

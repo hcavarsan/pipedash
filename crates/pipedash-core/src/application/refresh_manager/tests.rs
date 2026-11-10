@@ -63,6 +63,35 @@ async fn idle_mode_keeps_scheduled_fetches_from_starting() {
 }
 
 #[tokio::test]
+async fn background_mode_keeps_refreshing_but_no_sooner_than_its_floor() {
+    let h = Harness::new().await;
+    let (id, stub) = h.add_stub(StubProvider::new).await;
+    h.provider_service.load_all_providers().await.unwrap();
+    h.refresh_manager.set_mode(RefreshMode::Background);
+
+    h.start().await;
+    h.bus
+        .wait_for("the background fetch", |events| {
+            events
+                .iter()
+                .any(|event| matches!(event, CoreEvent::PipelinesUpdated { .. }))
+        })
+        .await;
+    assert_eq!(stub.fetch_count(), 1);
+
+    let floor = h.scheduler.policy().background_floor;
+    let soon = Instant::now() + floor - Duration::from_secs(1);
+    assert!(h.pipeline_service.claim_due(soon).await.is_empty());
+    let due = h
+        .pipeline_service
+        .claim_due(soon + Duration::from_secs(2))
+        .await;
+    assert_eq!(due.iter().map(FetchClaim::id).collect::<Vec<_>>(), vec![id]);
+
+    h.refresh_manager.set_mode(RefreshMode::Active);
+}
+
+#[tokio::test]
 async fn stopping_cancels_running_attempts_and_their_waiters() {
     let h = Harness::new().await;
     h.start().await;

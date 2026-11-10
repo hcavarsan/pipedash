@@ -7,6 +7,7 @@ import { registerSheet, type SheetHandle, useSheetStack } from '../../hooks/useS
 import { PRESENT_EASING } from '../../lib/motion'
 import { iosClasses } from '../../theme/ios'
 import { TYPOGRAPHY } from '../../theme/typography'
+import { Z } from '../../theme/zIndex'
 import { confirmDiscard } from '../../utils/confirm'
 import { ErrorBoundary } from '../ErrorBoundary/ErrorBoundary'
 import { FillScrollArea } from './FillScrollArea'
@@ -48,12 +49,11 @@ export const StandardModal = ({
   const [instant, setInstant] = useState(false)
   const exited = useRef<((closed: boolean) => void) | null>(null)
   const closeTimer = useRef<number | null>(null)
-  const latest = useRef({ dirty, onClose })
-
-  latest.current = { dirty, onClose }
-
   const busy = loading || Boolean(primaryAction?.loading)
   const locked = busy || !closable
+  const latest = useRef({ dirty, onClose, busy })
+
+  latest.current = { dirty, onClose, busy }
   let padding = '0px'
 
   if (contentPadding) {
@@ -64,6 +64,10 @@ export const StandardModal = ({
   const bottomInset = mobileShell && !hasFooter ? `calc(${padding} + var(--sheet-pb, 0px))` : undefined
 
   const requestClose = useCallback(async () => {
+    if (latest.current.busy) {
+      return false
+    }
+
     if (latest.current.dirty && !(await confirmDiscard())) {
       return false
     }
@@ -103,7 +107,7 @@ export const StandardModal = ({
 
   const handle = useMemo<SheetHandle>(() => ({ requestClose, closeNow }), [requestClose, closeNow])
 
-  useEffect(() => registerSheet(id, handle), [id, handle])
+  useEffect(() => (opened ? registerSheet(id, handle) : undefined), [opened, id, handle])
 
   useEffect(() => () => settlePending(false), [settlePending])
 
@@ -120,7 +124,7 @@ export const StandardModal = ({
     closeOnEscape: !locked,
     withCloseButton: !locked,
     closeButtonProps: { 'aria-label': 'Close dialog' },
-    zIndex: 300,
+    zIndex: Z.sheetBase,
   }
 
   const sharedStyles = {
@@ -228,11 +232,11 @@ export const StandardModal = ({
           },
         }}
         styles={{
-          body: { ...sharedStyles.body, paddingTop: contentPadding ? 0 : 16 },
+          body: { ...sharedStyles.body, paddingTop: contentPadding ? 0 : 'var(--mantine-spacing-md)' },
           content: columnStyle,
         }}
       >
-        <Modal.Overlay color="#000" backgroundOpacity={0.45} />
+        <Modal.Overlay color="black" backgroundOpacity={0.45} />
         <Modal.Content>
           <SheetHeader
             title={title}

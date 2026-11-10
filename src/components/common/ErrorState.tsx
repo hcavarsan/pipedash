@@ -3,7 +3,7 @@ import { IconAlertCircle, IconRefresh } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
-import { formatErrorMessage } from '../../types/errors'
+import { errorMessage } from '../../utils/errorDisplay'
 
 import { ContentUnavailable } from './ContentUnavailable'
 
@@ -27,7 +27,7 @@ function RetryButton({ onRetry, retrying, compact }: RetryButtonProps): ReactNod
     <Button
       {...(compact ? { size: 'xs' } : {})}
       variant="default"
-      leftSection={<IconRefresh size={compact ? 14 : 18} aria-hidden />}
+      leftSection={<IconRefresh size={compact ? 14 : 16} aria-hidden />}
       loading={retrying}
       onClick={onRetry}
     >
@@ -44,9 +44,9 @@ export function ErrorState({ title, error, hint, actions, onRetry, retrying = fa
       <ContentUnavailable
         role="alert"
         tone="error"
-        icon={<IconAlertCircle />}
+        icon={<IconAlertCircle size={24} aria-hidden />}
         title={title}
-        description={formatErrorMessage(error)}
+        description={errorMessage(error, 'Try again.')}
         hint={hint}
         actions={
           (onRetry || actions) && (
@@ -63,7 +63,7 @@ export function ErrorState({ title, error, hint, actions, onRetry, retrying = fa
   return (
     <Alert color="red" variant="light" icon={<IconAlertCircle size={16} aria-hidden />} title={title}>
       <Stack gap="sm" align="flex-start">
-        <Text size="sm">{formatErrorMessage(error)}</Text>
+        <Text size="sm">{errorMessage(error, 'Try again.')}</Text>
         {hint && (
           <Text size="sm" c="dimmed">
             {hint}

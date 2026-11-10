@@ -5,10 +5,10 @@ import { StandardModal } from '../../../../components/common/StandardModal'
 import type { ModalAction, StandardModalProps } from '../../../../components/common/standardModalTypes'
 import { ErrorBoundary } from '../../../../components/ErrorBoundary/ErrorBoundary'
 import { StepRegion } from '../../../../components/forms/StepRegion'
+import { WizardProgress } from '../../../../components/forms/WizardProgress'
 import { useMobileShell } from '../../../../hooks/useIsMobile'
 
 import { Onboarding, StepHeader } from './Onboarding'
-import { SetupProgress } from './SetupProgress'
 
 export interface WizardStepper {
   steps: { label: string; icon: ReactNode }[]
@@ -135,7 +135,7 @@ export function SetupWizardLayout({
       disableScrollArea
     >
       <Stack gap={0} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        {stepper && <SetupProgress steps={stepper.steps} active={stepper.active} />}
+        {stepper && <WizardProgress steps={stepper.steps} active={stepper.active} />}
 
         <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           <FillScrollArea type="auto">

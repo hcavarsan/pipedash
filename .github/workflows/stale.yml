@@ -1,4 +1,4 @@
-name: "Mark or close stale issues and PRs"
+name: Stale
 on:
   schedule:
     # Run the stalebot every day at 11pm UTC

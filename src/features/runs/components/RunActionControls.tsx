@@ -54,7 +54,7 @@ export function RunActionMenu({ run }: RunActionControlProps): ReactNode {
           data-row-menu
           aria-label={`Actions for ${labels.run} #${run.run_number}`}
         >
-          <IconDots size={22} aria-hidden />
+          <IconDots size={20} aria-hidden />
         </ActionIcon>
       </Menu.Target>
       <Menu.Dropdown>

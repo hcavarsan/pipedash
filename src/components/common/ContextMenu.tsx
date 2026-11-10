@@ -4,6 +4,7 @@ import { useLocation } from 'react-router-dom'
 import { create } from 'zustand'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
+import { Z } from '../../theme/zIndex'
 
 export type ContextMenuItem =
   | {
@@ -128,7 +129,7 @@ export function ContextMenuHost(): ReactNode {
       position="bottom-start"
       offset={0}
       floatingStrategy="fixed"
-      zIndex={500}
+      zIndex={Z.contextMenu}
       withInitialFocusPlaceholder={false}
     >
       <Menu.Target>

@@ -1,5 +1,5 @@
 import { ActionIcon, Box, Button, Center, Divider, Stack, Tooltip } from '@mantine/core'
-import { IconPlus } from '@tabler/icons-react'
+import { IconPlus, IconTrash } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { useContextMenu } from '../../../components/common/ContextMenu'
@@ -75,7 +75,16 @@ export const Navbar = ({ compact = false }: NavbarProps): ReactNode => {
   const { providerItems, dialog } = useProviderCancelItems(providers)
   const { providerItem } = useNotifyItems()
   const providerMenu = (provider: ProviderSummary) =>
-    contextMenu(() => [...providerItems(provider), providerItem(provider)])
+    contextMenu(() => [
+      ...providerItems(provider),
+      providerItem(provider),
+      {
+        label: 'Remove provider',
+        icon: <IconTrash size={16} aria-hidden />,
+        color: 'red',
+        onClick: () => confirmRemove(provider.id, provider.name),
+      },
+    ])
   const menuItems = useViewMenuItems(views ?? [], 'vertical')
   const viewMenu = (view: PipelineView | undefined) => (view ? contextMenu(() => menuItems(view)) : undefined)
   const pinMenu = (pin: { kind: PinKind; ref: string; name: string }) => contextMenu(() => [pinItem(pin.kind, pin.ref)])
@@ -118,7 +127,6 @@ export const Navbar = ({ compact = false }: NavbarProps): ReactNode => {
       viewMenu={viewMenu}
       pinMenu={pinMenu}
       onEditProvider={requestEditProvider}
-      onRemoveProvider={confirmRemove}
       onCreateView={() => openEditor(null)}
       readFailures={failures}
     />

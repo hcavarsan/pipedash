@@ -21,12 +21,28 @@ interface AuthStoreActions {
 
 type AuthStore = AuthStoreState & AuthStoreActions
 
-const getInitialToken = (): string | null => {
-  return localStorage.getItem(STORAGE_KEY) || import.meta.env.VITE_API_TOKEN || null
+const readStoredToken = (): string | null => {
+  try {
+    return localStorage.getItem(STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+const writeStoredToken = (token: string | null): void => {
+  try {
+    if (token === null) {
+      localStorage.removeItem(STORAGE_KEY)
+    } else {
+      localStorage.setItem(STORAGE_KEY, token)
+    }
+  } catch {
+    return
+  }
 }
 
 const initialState: AuthStoreState = {
-  token: getInitialToken(),
+  token: readStoredToken() || import.meta.env.VITE_API_TOKEN || null,
   consecutiveFailures: 0,
   lastNotificationTime: null,
 }
@@ -37,7 +53,7 @@ export const useAuthStore = create<AuthStore>()(
       ...initialState,
 
       setToken: (token) => {
-        localStorage.setItem(STORAGE_KEY, token)
+        writeStoredToken(token)
         set({
           token,
           consecutiveFailures: 0,
@@ -45,7 +61,7 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       clearToken: () => {
-        localStorage.removeItem(STORAGE_KEY)
+        writeStoredToken(null)
         set({
           token: null,
           consecutiveFailures: 0,

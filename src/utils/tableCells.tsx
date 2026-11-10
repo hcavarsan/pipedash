@@ -2,6 +2,7 @@ import { Code, Group, Text } from '@mantine/core'
 
 import { CopyButton } from '../components/atoms/CopyButton'
 import { TruncatedText } from '../components/atoms/TruncatedText'
+import { TABLE_NUMERIC } from '../components/common/tableStyles'
 
 export const TABLE_CELL_STYLES = {
   text: {
@@ -27,7 +28,7 @@ export const TABLE_CELL_STYLES = {
 
 export const TableCells = {
   text: (value: string | number) => (
-    <Text size={TABLE_CELL_STYLES.text.size} fw={TABLE_CELL_STYLES.text.weight.normal}>
+    <Text size={TABLE_CELL_STYLES.text.size} fw={TABLE_CELL_STYLES.text.weight.normal} style={TABLE_NUMERIC}>
       {value}
     </Text>
   ),

@@ -107,7 +107,6 @@ export const FilterBar = ({ filters, onClearAll, sheet }: FilterBarProps): React
           placeholder={filters.search.placeholder || 'Search'}
           value={searchValue}
           onChange={filters.search.onChange}
-          size="xs"
         />
       </Box>
     )
@@ -159,8 +158,8 @@ export const FilterBar = ({ filters, onClearAll, sheet }: FilterBarProps): React
           status={status}
           statusOptions={statusOptions}
           selects={selects}
-          hasActiveFilters={hasActiveFilters}
-          onClear={clearAllFilters}
+          hasActiveFilters={activeLabels.length > 0}
+          onClear={clearSheetFilters}
         />
       </>
     )
@@ -186,7 +185,6 @@ export const FilterBar = ({ filters, onClearAll, sheet }: FilterBarProps): React
             miw={130}
             flex={1}
             maw="100%"
-            size="xs"
           />
         )}
 
