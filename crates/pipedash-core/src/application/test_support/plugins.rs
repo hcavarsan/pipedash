@@ -7,6 +7,7 @@ use pipedash_plugin_api::defaults::{
     default_pipelines_table,
     table_schema,
 };
+use pipedash_plugin_api::plugin::defaults::pipeline_actions;
 use pipedash_plugin_api::{
     http,
     AuthMode,
@@ -18,6 +19,8 @@ use pipedash_plugin_api::{
     PaginatedResponse,
     PaginationParams,
     Pipeline,
+    PipelineActionState,
+    PipelineFacts,
     PipelineRun,
     PipelineStatus,
     Plugin,
@@ -27,6 +30,7 @@ use pipedash_plugin_api::{
     PluginMetadata,
     PluginRegistry,
     PluginResult,
+    RerunStrategy,
     RunHistoryOrder,
     RunHistoryPolicy,
     SignInClient,
@@ -181,6 +185,14 @@ impl Plugin for StubPlugin {
 
     fn selection_required(&self, config: &HashMap<String, String>) -> bool {
         config.get("note").is_none_or(|value| value != "automatic")
+    }
+
+    fn pipeline_actions(&self, pipeline: &PipelineFacts<'_>) -> PipelineActionState {
+        let mut state = pipeline_actions(&self.metadata.capabilities, pipeline);
+        if pipeline.metadata.get("rerun_in_place") == Some(&serde_json::Value::Bool(true)) {
+            state.rerun_strategy = RerunStrategy::InPlace;
+        }
+        state
     }
 
     fn initialize(

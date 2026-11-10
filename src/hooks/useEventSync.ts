@@ -1,71 +1,20 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 
 import { logger } from '../lib/logger'
 import { applyProviderStatus } from '../lib/providerStatusSync'
 import { queryKeys } from '../lib/queryKeys'
-import { invalidateProviderPipelines, setProviderPipelines } from '../queries/usePipelinesQueries'
+import { setProviderPipelines } from '../queries/usePipelinesQueries'
 import { listenEvent } from '../services/events'
 import { WS_EVENTS } from '../services/websocket'
 import { useAuthStore } from '../stores/authStore'
 import type { EventPayloadMap } from '../types/events'
-
-const BATCH_WINDOW_MS = 300
-
-interface BatchedInvalidation {
-  providerIds: Set<number>
-  invalidateAll: boolean
-  timestamp: number
-}
+import { useEventBatch } from './useEventBatch'
 
 export function useEventSync(): void {
   const queryClient = useQueryClient()
-
-  const batchedInvalidations = useRef<BatchedInvalidation>({
-    providerIds: new Set(),
-    invalidateAll: false,
-    timestamp: Date.now(),
-  })
-  const batchTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-
-  const processBatch = useCallback(() => {
-    const batch = batchedInvalidations.current
-
-    if (batch.invalidateAll) {
-      logger.debug('EventSync', 'Processing batched invalidation: ALL providers')
-      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
-    } else if (batch.providerIds.size > 0) {
-      logger.debug('EventSync', 'Processing batched invalidation', {
-        providerIds: Array.from(batch.providerIds),
-      })
-
-      for (const providerId of batch.providerIds) {
-        void invalidateProviderPipelines(queryClient, providerId)
-      }
-    }
-
-    batchedInvalidations.current = {
-      providerIds: new Set(),
-      invalidateAll: false,
-      timestamp: Date.now(),
-    }
-    batchTimeout.current = undefined
-  }, [queryClient])
-
-  const scheduleBatchedInvalidation = useCallback(
-    (providerId?: number) => {
-      if (providerId === undefined) {
-        batchedInvalidations.current.invalidateAll = true
-      } else {
-        batchedInvalidations.current.providerIds.add(providerId)
-      }
-
-      clearTimeout(batchTimeout.current)
-
-      batchTimeout.current = setTimeout(processBatch, BATCH_WINDOW_MS)
-    },
-    [processBatch]
-  )
+  const { scheduleBatchedInvalidation, scheduleRunHistoryInvalidation, scheduleViewsInvalidation, cancel } =
+    useEventBatch(queryClient)
 
   useEffect(() => {
     let mounted = true
@@ -152,11 +101,24 @@ export function useEventSync(): void {
 
     void register<EventPayloadMap['pipeline-views-changed']>('pipeline-views-changed', () => {
       logger.debug('EventSync', 'pipeline-views-changed')
-      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pages() })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.views() })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pins() })
-      void queryClient.invalidateQueries({ queryKey: [...queryKeys.pipelines.all, 'viewMembers'] })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.navigations() })
+      scheduleViewsInvalidation()
+    })
+
+    void register<EventPayloadMap['pipeline-status-changed']>('pipeline-status-changed', (payload) => {
+      if (payload?.pipeline_ids?.length) {
+        scheduleRunHistoryInvalidation(payload.pipeline_ids)
+      }
+    })
+
+    void register<EventPayloadMap['run-updated']>('run-updated', (payload) => {
+      if (payload?.pipelineId && payload.run) {
+        scheduleRunHistoryInvalidation([payload.pipelineId])
+      }
+    })
+
+    void register<EventPayloadMap['metrics-global-config-changed']>('metrics-global-config-changed', () => {
+      logger.debug('EventSync', 'metrics-global-config-changed')
+      void queryClient.invalidateQueries({ queryKey: queryKeys.metrics.all })
     })
 
     void register<EventPayloadMap['pipelines-updated']>('pipelines-updated', async (payload) => {
@@ -190,32 +152,17 @@ export function useEventSync(): void {
       })
     })
 
-    void register<EventPayloadMap['pipeline-cache-invalidated']>('pipeline-cache-invalidated', (payload) => {
-      if (!payload) {
-        logger.warn('EventSync', 'cache-invalidated: Invalid payload, invalidating all')
-        void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
-
-        return
-      }
-
-      const normalizedProviderId = payload.providerId ?? undefined
-
-      logger.debug('EventSync', 'cache-invalidated', {
-        reason: payload.reason || 'unknown',
-        providerId: normalizedProviderId,
-      })
-
-      if (normalizedProviderId !== undefined) {
-        void invalidateProviderPipelines(queryClient, normalizedProviderId)
-      } else {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
-      }
-    })
-
     void register<EventPayloadMap['run-history-cache-invalidated']>('run-history-cache-invalidated', (payload) => {
+      const { pipeline_id: pipelineId, run_number: runNumber } = payload
+
       void queryClient.invalidateQueries({
-        queryKey: payload.pipeline_id ? queryKeys.runs.list(payload.pipeline_id) : [...queryKeys.runs.all, 'list'],
+        queryKey: pipelineId ? queryKeys.runs.list(pipelineId) : [...queryKeys.runs.all, 'list'],
       })
+
+      if (pipelineId !== undefined && runNumber !== undefined) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.runs.detail(pipelineId, runNumber) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.runLogs.tree(pipelineId, runNumber) })
+      }
     })
 
     void register<unknown>('storage-updated', () => {
@@ -326,9 +273,7 @@ export function useEventSync(): void {
       mounted = false
       logger.debug('EventSync', 'Cleaning up listeners')
 
-      clearTimeout(batchTimeout.current)
-      batchTimeout.current = undefined
-      batchedInvalidations.current = { providerIds: new Set(), invalidateAll: false, timestamp: Date.now() }
+      cancel()
 
       for (const fn of cleanupFns) {
         try {
@@ -339,7 +284,7 @@ export function useEventSync(): void {
       }
       cleanupFns.length = 0
     }
-  }, [queryClient, scheduleBatchedInvalidation])
+  }, [queryClient, scheduleBatchedInvalidation, scheduleRunHistoryInvalidation, scheduleViewsInvalidation, cancel])
 
   useEffect(() => {
     let mounted = true

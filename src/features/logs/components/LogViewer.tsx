@@ -9,6 +9,7 @@ import { useRetryRunLog, useRunLogDocument } from '../../../queries/useRunLogQue
 import { formatBytes } from '../../../utils/formatBytes'
 import { openExternal } from '../../../utils/openExternal'
 import type { LogViewerProps } from '../lib/logViewerTypes'
+import { LiveMarker } from './LiveMarker'
 import { PendingLogSteps } from './PendingLogSteps'
 import { ReadyViewer } from './ReadyViewer'
 
@@ -85,7 +86,7 @@ function LogSession({ ref, ...props }: LogViewerProps): ReactNode {
     return (
       <ErrorState
         title="Couldn't load the job log"
-        error={data.message}
+        error={retry.error ?? data.message}
         actions={open}
         retrying={retry.isPending}
         onRetry={() => retry.mutate({ pipelineId, runNumber, nodeId: node.id })}
@@ -94,10 +95,17 @@ function LogSession({ ref, ...props }: LogViewerProps): ReactNode {
   }
 
   if (data.line_count === 0) {
-    return data.complete ? (
-      <EmptyState title="This job didn't write any output" description="The provider returned an empty log." />
-    ) : (
-      <LoadingState message="Waiting for output…" />
+    if (data.complete) {
+      return <EmptyState title="This job didn't write any output" description="The provider returned an empty log." />
+    }
+
+    return (
+      <Stack gap={0}>
+        {data.refresh_error !== null && (
+          <LiveMarker meta={data} target={{ pipelineId, runNumber, nodeId: node.id }} variant={props.variant} />
+        )}
+        <LoadingState message="Waiting for output…" />
+      </Stack>
     )
   }
 

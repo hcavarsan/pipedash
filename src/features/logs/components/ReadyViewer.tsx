@@ -18,13 +18,14 @@ import type { DocRef } from '../lib/lineCacheTypes'
 import type { LogFilter } from '../lib/logRows'
 import type { LogViewerProps } from '../lib/logViewerTypes'
 import type { LogBodyHandle } from '../lib/logWindowTypes'
+import { searchCounter } from '../lib/searchCounter'
 import { FullLineModal } from './FullLineModal'
 import { LiveMarker } from './LiveMarker'
 import { LogBody } from './LogBody'
 import { LogOverviewRuler, type LogRulerHandle } from './LogOverviewRuler'
-import { LogToolbar } from './LogToolbar'
 import classes from './LogViewer.module.css'
-import { PhoneLogBar, PhoneLogSearch } from './PhoneLogControls'
+import { PhoneLogBar } from './PhoneLogControls'
+import { ReadyToolbar } from './ReadyToolbar'
 
 const NO_GROUPS = new Map()
 
@@ -69,12 +70,8 @@ export function ReadyViewer({ ref, ...props }: ReadyViewerProps): ReactNode {
   })
   const { selection, currentIdx, nextMatch, prevMatch, stepError, goToLine, onViewport: navigateViewport } = navigation
   const { behind, freshFrom, onViewport: trackViewport } = useLiveTail(meta.revision, meta.line_count, rows.model.count)
-  const { copyRange, copySelection, exportLog, exporting, copied } = useLogExport({
-    doc,
-    pipelineName,
-    nodeName: node.name,
-    selection,
-  })
+  const logExport = useLogExport({ doc, pipelineName, nodeName: node.name, selection })
+  const { copyRange, copySelection, exportLog, exporting } = logExport
 
   const onFullLine = useCallback((line: number) => setFullLine(line), [])
   const onSeek = useCallback((line: number) => goToLine(line, 'start'), [goToLine])
@@ -146,17 +143,9 @@ export function ReadyViewer({ ref, ...props }: ReadyViewerProps): ReactNode {
     actions.current.initialFocus()
   }, [])
 
-  const { result, matches } = search
-  let counter: string | null = null
-
-  if (result) {
-    const position = currentIdx === null ? 0 : currentIdx + 1
-
-    counter = matches.length === 0 ? 'No results' : `${position} of ${result.total}${result.capped ? '+' : ''}`
-  }
-
+  const counter = searchCounter(search, currentIdx)
   const status = search.failure ?? counter ?? ''
-  const noMatches = matches.length === 0
+  const noMatches = search.matches.length === 0
   const emptyLabel = filter === 'matches' ? 'No matching lines' : 'No error lines'
   const webUrl = node.web_url
   const openJob = webUrl ? () => void openExternal(webUrl) : null
@@ -164,49 +153,21 @@ export function ReadyViewer({ ref, ...props }: ReadyViewerProps): ReactNode {
 
   return (
     <div className={classes.viewer}>
-      {phone ? (
-        <PhoneLogSearch
-          queryText={search.queryText}
-          onQueryChange={navigation.changeText}
-          onNextMatch={nextMatch}
-          inputRef={searchRef}
-          filtered={filter !== 'none'}
-        />
-      ) : (
-        <LogToolbar
-          variant={variant}
-          searchRef={searchRef}
-          query={search.queryText}
-          onQueryChange={navigation.changeText}
-          regex={search.regex}
-          onRegexChange={navigation.changeRegex}
-          caseSensitive={search.caseSensitive}
-          onCaseSensitiveChange={navigation.changeCaseSensitive}
-          counter={counter}
-          searchError={search.failure}
-          matchTotal={matches.length}
-          onNextMatch={nextMatch}
-          onPrevMatch={prevMatch}
-          filter={filter}
-          onFilterChange={setFilter}
-          errorTotal={meta.error_total}
-          onNextError={() => stepError(1)}
-          onPrevError={() => stepError(-1)}
-          wrap={wrap}
-          onWrapChange={setWrap}
-          timestamps={timestamps}
-          onTimestampsChange={setTimestamps}
-          selectionCount={selection ? selection.to - selection.from + 1 : 0}
-          onCopySelection={copySelection}
-          copied={copied}
-          onDownload={() => void exportLog()}
-          downloading={exporting}
-          jobUrl={node.web_url}
-          providerName={providerName}
-          onOpenJob={() => openJob?.()}
-        />
-      )}
-      {!meta.complete && !meta.truncated && <LiveMarker updatedAtMs={meta.updated_at_ms} variant={variant} />}
+      <ReadyToolbar
+        variant={variant}
+        searchRef={searchRef}
+        search={search}
+        navigation={navigation}
+        counter={counter}
+        filter={filter}
+        onFilterChange={setFilter}
+        errorTotal={meta.error_total}
+        logExport={logExport}
+        jobUrl={node.web_url}
+        providerName={providerName}
+        onOpenJob={openJob}
+      />
+      {!meta.complete && !meta.truncated && <LiveMarker meta={meta} target={doc} variant={variant} />}
       {meta.truncated && (
         <Alert color="gray" variant="light" mx="sm" mb="xs">
           Showing the first 1 GB of this log. Open the job in {providerName} for the rest.
@@ -229,7 +190,7 @@ export function ReadyViewer({ ref, ...props }: ReadyViewerProps): ReactNode {
           selection={selection}
           freshFrom={freshFrom}
           matchIndex={search.matchIndex}
-          currentMatch={currentIdx === null ? null : (matches[currentIdx] ?? null)}
+          currentMatch={currentIdx === null ? null : (search.matches[currentIdx] ?? null)}
           emptyLabel={emptyLabel}
           onVisibleLines={setVisibleLines}
           onViewport={onViewport}

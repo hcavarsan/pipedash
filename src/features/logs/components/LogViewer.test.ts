@@ -4,7 +4,14 @@ import { after, afterEach, beforeEach, type TestContext, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import type { RefObject } from 'react'
 
-import type { LogDocumentMeta, LogLinesPage, LogSearchQuery, LogSearchResult, RunLogNode } from '../../../types/logs'
+import type {
+  LogDocumentMeta,
+  LogLinesPage,
+  LogSearchQuery,
+  LogSearchResult,
+  RunLogDocument,
+  RunLogNode,
+} from '../../../types/logs'
 import type { LogViewerHandle } from '../lib/logViewerTypes'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
@@ -60,6 +67,7 @@ const meta: LogDocumentMeta = {
   updated_at_ms: 0,
   stable_lines: 0,
   previous_revision: null,
+  refresh_error: null,
 }
 
 const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -131,8 +139,11 @@ after(async () => {
 
 type Search = (text: string) => LogSearchResult
 
-function stubService(context: TestContext, search: Search) {
-  const open = async () => ({ state: 'ready' as const, ...meta })
+type Open = (pipelineId: string, runNumber: number, nodeId: string, retry?: boolean) => Promise<RunLogDocument>
+
+const readyDoc = async (): Promise<RunLogDocument> => ({ state: 'ready', ...meta })
+
+function stubService(context: TestContext, search: Search, open: Open = readyDoc) {
   const read = async (
     _p: string,
     _r: number,
@@ -256,4 +267,69 @@ test('a search changed during the debounce jumps to the new result, not the old 
   await user.click(await view().findByText('Show error lines only'))
 
   await waitFor(() => assert.ok(lineButton(180)), { timeout: 3000 })
+})
+
+const failedRefresh = async (): Promise<RunLogDocument> => ({
+  state: 'ready',
+  ...meta,
+  complete: false,
+  updated_at_ms: Date.now(),
+  refresh_error: 'GitHub is unavailable',
+})
+
+test('a refresh failure keeps the lines and offers Retry instead of Live', async (context) => {
+  stubService(context, () => matches(), failedRefresh)
+  mount(createRef<LogViewerHandle>())
+
+  await view().findByText('GitHub is unavailable')
+  await waitFor(() => assert.ok(lineButton(199)))
+  assert.ok(view().getByRole('button', { name: 'Retry' }))
+  assert.equal(view().queryByText('Live'), null)
+})
+
+test('Retry asks the backend once and shows loading while it is pending', async (context) => {
+  const calls: boolean[] = []
+  const gate = Promise.withResolvers<RunLogDocument>()
+  const open: Open = async (_p, _r, _n, retry) => {
+    if (!retry) {
+      return failedRefresh()
+    }
+    calls.push(retry)
+
+    return gate.promise
+  }
+
+  stubService(context, () => matches(), open)
+  const user = userEvent.setup({ document })
+
+  mount(createRef<LogViewerHandle>())
+  await waitFor(() => assert.ok(lineButton(199)))
+  await user.click(view().getByRole('button', { name: 'Retry' }))
+
+  await waitFor(() => assert.equal(calls.length, 1))
+  assert.ok(view().getByRole('button', { name: 'Retry' }).hasAttribute('data-loading'))
+
+  await act(async () => gate.resolve({ state: 'ready', ...meta, complete: false, refresh_error: null }))
+  await waitFor(() => assert.ok(view().getByText('Live')))
+  assert.equal(calls.length, 1)
+})
+
+test('a rejected retry of an unavailable document shows the new error', async (context) => {
+  const open: Open = async (_p, _r, _n, retry) => {
+    if (retry) {
+      throw new Error('Still down')
+    }
+
+    return { state: 'unavailable', message: 'Original failure' }
+  }
+
+  stubService(context, () => matches(), open)
+  const user = userEvent.setup({ document })
+
+  mount(createRef<LogViewerHandle>())
+  await view().findByText(/Original failure/)
+  await user.click(view().getByRole('button', { name: 'Retry' }))
+
+  await view().findByText(/Still down/)
+  assert.equal(view().queryByText(/Original failure/), null)
 })

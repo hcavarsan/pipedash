@@ -588,6 +588,125 @@ async fn run_actions_are_checked_against_fresh_run_details_not_the_cache() {
     }));
 }
 
+async fn mutable_run(h: &Harness, provider_type: &str) -> (String, Arc<StubProvider>) {
+    let (provider_id, stub) = h.add_stub(StubProvider::new).await;
+    let mut target = pipeline(provider_id, "build", PipelineStatus::Failed);
+    target.provider_type = provider_type.to_string();
+    target.id = format!("{provider_type}__{provider_id}__build");
+    target
+        .metadata
+        .insert("rerun_in_place".to_string(), json!(true));
+    let pipeline_id = target.id.clone();
+    h.repository
+        .update_pipelines_cache(provider_id, &[target])
+        .await
+        .unwrap();
+    let mut failed = run(7, "failed", 5, Some(1));
+    failed.pipeline_id.clone_from(&pipeline_id);
+    failed
+        .metadata
+        .insert("awaiting_review".to_string(), json!(true));
+    failed
+        .metadata
+        .insert("can_rerun_failed_jobs".to_string(), json!(true));
+    h.repository
+        .cache_run_history(&pipeline_id, std::slice::from_ref(&failed))
+        .await
+        .unwrap();
+    *stub.run_response.lock().unwrap() = Some(Ok(failed));
+    (pipeline_id, stub)
+}
+
+async fn mutate_run(h: &Harness, pipeline_id: &str) -> [DomainResult<()>; 3] {
+    let service = &h.pipeline_service;
+    [
+        service
+            .review_run(pipeline_id, 7, pipedash_plugin_api::ReviewDecision::Approve)
+            .await,
+        service.rerun_failed_jobs(pipeline_id, 7).await,
+        service.rerun_run(pipeline_id, 7).await.map(|_| ()),
+    ]
+}
+
+fn announced_runs(h: &Harness) -> Vec<(Option<String>, Option<i64>)> {
+    h.bus
+        .events()
+        .into_iter()
+        .filter_map(|event| match event {
+            CoreEvent::RunHistoryCacheInvalidated {
+                pipeline_id,
+                run_number,
+            } => Some((pipeline_id, run_number)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn accepted_run_mutations_announce_the_affected_run() {
+    let h = Harness::new().await;
+    let (pipeline_id, stub) = mutable_run(&h, STUB).await;
+    *stub.run_action_result.lock().unwrap() = Ok(());
+
+    for result in mutate_run(&h, &pipeline_id).await {
+        result.unwrap();
+    }
+
+    assert_eq!(
+        announced_runs(&h),
+        vec![(Some(pipeline_id.clone()), Some(7)); 3]
+    );
+    assert_eq!(
+        h.repository
+            .get_cached_run_count(&pipeline_id)
+            .await
+            .unwrap(),
+        0
+    );
+}
+
+#[tokio::test]
+async fn rejected_run_mutations_do_not_announce_or_clear_history() {
+    let h = Harness::new().await;
+    let (pipeline_id, _) = mutable_run(&h, STUB).await;
+
+    for result in mutate_run(&h, &pipeline_id).await {
+        assert!(matches!(result, Err(DomainError::NotSupported(_))));
+    }
+
+    assert!(announced_runs(&h).is_empty());
+    assert_eq!(
+        h.repository
+            .get_cached_run_count(&pipeline_id)
+            .await
+            .unwrap(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn retained_history_does_not_suppress_run_mutation_announcements() {
+    let h = Harness::new().await;
+    let (pipeline_id, stub) = mutable_run(&h, STUB_RETAINING).await;
+    *stub.run_action_result.lock().unwrap() = Ok(());
+
+    for result in mutate_run(&h, &pipeline_id).await {
+        result.unwrap();
+    }
+
+    assert_eq!(
+        announced_runs(&h),
+        vec![(Some(pipeline_id.clone()), Some(7)); 3]
+    );
+    assert_eq!(
+        h.repository
+            .get_cached_run_count(&pipeline_id)
+            .await
+            .unwrap(),
+        1
+    );
+}
+
 #[tokio::test]
 async fn force_cancellation_requires_provider_support_and_a_known_pipeline() {
     let h = Harness::new().await;
@@ -931,7 +1050,11 @@ async fn a_fetch_publishes_its_provider_and_only_reports_real_changes() {
         .collect();
 
     assert_eq!(updated, vec![id; 4]);
-    assert_eq!(h.bus.count("pipeline-cache-invalidated"), 4);
+    assert!(h
+        .bus
+        .names()
+        .iter()
+        .all(|name| !name.contains("cache-invalidated")));
     assert_eq!(
         changed,
         vec![vec![web.clone()], vec![api.clone(), web.clone()], vec![api]]

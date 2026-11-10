@@ -11,6 +11,10 @@ use crate::domain::{
     MetricsQuery,
     MetricsStats,
 };
+use crate::event::{
+    CoreEvent,
+    EventBus,
+};
 use crate::infrastructure::database::MetricsRepository;
 
 mod dashboard;
@@ -20,11 +24,15 @@ mod tests;
 
 pub struct MetricsService {
     repository: Arc<MetricsRepository>,
+    event_bus: Arc<dyn EventBus>,
 }
 
 impl MetricsService {
-    pub fn new(repository: Arc<MetricsRepository>) -> Self {
-        Self { repository }
+    pub fn new(repository: Arc<MetricsRepository>, event_bus: Arc<dyn EventBus>) -> Self {
+        Self {
+            repository,
+            event_bus,
+        }
     }
 
     pub fn repository(&self) -> Arc<MetricsRepository> {
@@ -49,6 +57,9 @@ impl MetricsService {
         self.repository
             .update_global_config(enabled, default_retention_days)
             .await?;
+        self.event_bus
+            .emit(CoreEvent::MetricsGlobalConfigChanged)
+            .await;
 
         if enabled && !previous_config.enabled {
             tracing::info!("Global metrics re-enabled - resetting all processing states");
@@ -89,6 +100,11 @@ impl MetricsService {
         self.repository
             .upsert_pipeline_config(pipeline_id, enabled, retention_days)
             .await?;
+        self.event_bus
+            .emit(CoreEvent::MetricsConfigChanged {
+                pipeline_id: pipeline_id.to_string(),
+            })
+            .await;
 
         if enabled && !previous_config.enabled {
             tracing::info!(

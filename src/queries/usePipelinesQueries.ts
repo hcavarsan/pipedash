@@ -15,6 +15,7 @@ export function invalidateProviderPipelines(queryClient: QueryClient, providerId
 function invalidateViewPages(queryClient: QueryClient) {
   void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pages() })
   void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.views() })
+  void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.navigations() })
 }
 
 export function setProviderPipelines(queryClient: QueryClient, providerId: number, pipelines: Pipeline[]): void {

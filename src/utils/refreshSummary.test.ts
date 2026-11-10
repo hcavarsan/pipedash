@@ -42,6 +42,13 @@ test('names failures and counts providers that are still running', () => {
   })
 })
 
+test('a failed provider with a message shows the message instead of the label', () => {
+  assert.deepEqual(
+    summarizeRefresh([result(1, { state: 'failed', kind: null, message: 'boom' })], [provider(1, 'GitLab')]),
+    { message: 'Refreshed 0 of 1 · GitLab: boom', color: 'orange' }
+  )
+})
+
 test('a skipped provider whose last check failed counts as failed, not refreshed', () => {
   const skipped = result(2, { state: 'recent', kind: 'rate_limited' })
 

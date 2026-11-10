@@ -83,9 +83,13 @@ impl CoreContext {
             token_store.clone(),
         ));
         let http_client_manager = http_client_manager(&config.general.proxy_url)?;
+        let (event_bus, alert_events) = application::recording_bus(event_bus);
         let metrics_service = config.general.metrics_enabled.then(|| {
             let metrics_repository = Arc::new(MetricsRepository::new_from_pool(cache_pool));
-            Arc::new(application::MetricsService::new(metrics_repository))
+            Arc::new(application::MetricsService::new(
+                metrics_repository,
+                Arc::clone(&event_bus),
+            ))
         });
 
         let log_store = infrastructure::run_logs::LogStore::open(
@@ -93,7 +97,6 @@ impl CoreContext {
             infrastructure::run_logs::CACHE_BUDGET_BYTES,
         )
         .await?;
-        let (event_bus, alert_events) = application::recording_bus(event_bus);
         let services = application::Services::new(
             repository,
             Arc::clone(&http_client_manager),

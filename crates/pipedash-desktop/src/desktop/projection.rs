@@ -240,7 +240,6 @@ pub(super) fn waking(name: &str) -> bool {
         "pipeline-views-changed"
             | "pipelines-updated"
             | "pipeline-status-changed"
-            | "pipeline-cache-invalidated"
             | "providers-changed"
             | "provider-added"
             | "provider-updated"

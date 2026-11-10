@@ -183,6 +183,7 @@ pub(crate) struct StubProvider {
     pub(crate) run_response: Mutex<Option<DomainResult<PipelineRun>>>,
     pub(crate) force_cancel_rejected: AtomicBool,
     pub(crate) cancelled: Mutex<Option<Vec<i64>>>,
+    pub(crate) run_action_result: Mutex<DomainResult<()>>,
     pub(crate) parameters: Mutex<DomainResult<Vec<WorkflowParameter>>>,
     pub(crate) rate_limit: Mutex<Option<RateLimit>>,
     pub(crate) rate_limit_gate: Option<Arc<Gate>>,
@@ -229,6 +230,7 @@ impl StubProvider {
             run_response: Mutex::new(None),
             force_cancel_rejected: AtomicBool::new(false),
             cancelled: Mutex::new(None),
+            run_action_result: Mutex::new(Err(DomainError::NotSupported("stub".to_string()))),
             parameters: Mutex::new(Ok(vec![parameter("branch")])),
             rate_limit: Mutex::new(None),
             rate_limit_gate: None,
@@ -485,15 +487,15 @@ impl Provider for StubProvider {
     async fn review_run(
         &self, _pipeline_id: &str, _run_number: i64, _decision: pipedash_plugin_api::ReviewDecision,
     ) -> DomainResult<()> {
-        Err(DomainError::NotSupported("stub".to_string()))
+        self.run_action_result.lock().unwrap().clone()
     }
 
     async fn rerun_failed_jobs(&self, _pipeline_id: &str, _run_number: i64) -> DomainResult<()> {
-        Err(DomainError::NotSupported("stub".to_string()))
+        self.run_action_result.lock().unwrap().clone()
     }
 
     async fn rerun_run(&self, _pipeline_id: &str, _run_number: i64) -> DomainResult<()> {
-        Err(DomainError::NotSupported("stub".to_string()))
+        self.run_action_result.lock().unwrap().clone()
     }
 
     async fn enable_pipeline(&self, _pipeline_id: &str) -> DomainResult<()> {
@@ -812,12 +814,15 @@ impl Harness {
             DatabasePool::Sqlite(pool.clone()),
             token_store.clone(),
         ));
-        let metrics = metrics.then(|| {
-            Arc::new(MetricsService::new(Arc::new(
-                MetricsRepository::new_from_pool(DatabasePool::Sqlite(pool.clone())),
-            )))
-        });
         let bus = Arc::new(RecordingBus::default());
+        let metrics = metrics.then(|| {
+            Arc::new(MetricsService::new(
+                Arc::new(MetricsRepository::new_from_pool(DatabasePool::Sqlite(
+                    pool.clone(),
+                ))),
+                bus.clone(),
+            ))
+        });
         let scheduler = Arc::new(FetchScheduler::default());
         let (health, receivers) = HealthHandle::channel();
         let (dispatcher, commands) = RefreshDispatcher::channel();

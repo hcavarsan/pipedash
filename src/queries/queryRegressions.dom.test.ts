@@ -22,6 +22,7 @@ const { MemoryRouter } = await import('react-router-dom')
 const { apiService } = await import('../services/api')
 const { tauriService } = await import('../services/tauri')
 const { queryClient } = await import('../lib/queryClient')
+const { notifications } = await import('../lib/notifications')
 const { queryKeys } = await import('../lib/queryKeys')
 const { usePlugins } = await import('./usePluginsQueries')
 const { useMetricsDashboard } = await import('../features/metrics/queries/useMetricsQueries')
@@ -190,6 +191,30 @@ test('refreshing providers keeps in-flight ids marked when another provider fail
   slow.resolve({ provider_id: 2, state: 'ok', kind: null, message: null })
   await act(async () => batch)
   await waitFor(() => assert.equal(result.current.refreshing.size, 0))
+})
+
+test('one fulfilled and two rejected provider refreshes give one summary naming both failures', async (context) => {
+  const shown = context.mock.method(notifications, 'show', () => 'refresh-summary')
+  client.setQueryData(queryKeys.providers.list(), [
+    providerSummaryFixture({ id: 1, name: 'GitHub' }),
+    providerSummaryFixture({ id: 2, name: 'GitLab' }),
+    providerSummaryFixture({ id: 3, name: 'Jenkins' }),
+  ])
+  stub(context, 'refreshProvider', async (id) => {
+    if (id === 1) {
+      return { provider_id: 1, state: 'ok', kind: null, message: null }
+    }
+
+    throw new Error(id === 2 ? 'token rejected by host' : 'host unreachable')
+  })
+  const { result } = renderHook(() => useRefreshProviders(), { wrapper })
+
+  await act(async () => result.current.refresh([1, 2, 3]))
+
+  assert.equal(shown.mock.callCount(), 1)
+  const options = shown.mock.calls[0]?.arguments[0]
+  assert.equal(options?.color, 'orange')
+  assert.equal(options?.message, 'Refreshed 1 of 3 · GitLab: token rejected by host · Jenkins: host unreachable')
 })
 
 test('factory reset also resets log preferences and the notification center', async (context) => {

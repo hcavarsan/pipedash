@@ -159,6 +159,7 @@ impl StoredDocMeta {
             updated_at_ms: self.updated_at_ms,
             stable_lines: self.stable_lines,
             previous_revision: self.previous_revision,
+            refresh_error: None,
         }
     }
 }

@@ -119,8 +119,7 @@ export function useUpdateGlobalMetricsConfig(): UseMutationResult<
       queryClient.setQueryData<GlobalMetricsConfig>(queryKeys.metrics.globalConfig(), (config) =>
         config ? { ...config, enabled, default_retention_days: retentionDays } : config
       )
-      void queryClient.invalidateQueries({ queryKey: queryKeys.metrics.globalConfig() })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.metrics.stats() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.metrics.all })
 
       notifications.show({
         title: 'Global metrics settings saved',

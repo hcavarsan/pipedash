@@ -33,7 +33,7 @@ import { errorMessage } from '../../../utils/errorDisplay'
 const LEGACY_PINNED_KEY = 'pipedash-pinned-pipelines'
 const LEGACY_HIDDEN_KEY = 'pipedash-hidden-pipelines'
 
-function invalidateViews(queryClient: QueryClient) {
+export function invalidateViews(queryClient: QueryClient): void {
   void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pages() })
   void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.views() })
   void queryClient.invalidateQueries({ queryKey: [...queryKeys.pipelines.all, 'viewMembers'] })

@@ -134,7 +134,7 @@ impl PipelineService {
             .review_run(pipeline_id, run_number, decision)
             .await?;
 
-        self.invalidate_run_cache(pipeline_id).await;
+        self.invalidate_changed_run(pipeline_id, run_number).await;
 
         Ok(())
     }
@@ -144,7 +144,7 @@ impl PipelineService {
         require(&run.actions.rerun_failed, "Rerun failed jobs")?;
         provider.rerun_failed_jobs(pipeline_id, run_number).await?;
 
-        self.invalidate_run_cache(pipeline_id).await;
+        self.invalidate_changed_run(pipeline_id, run_number).await;
 
         Ok(())
     }
@@ -158,7 +158,7 @@ impl PipelineService {
         let inputs = match pipeline.actions.rerun_strategy {
             RerunStrategy::InPlace => {
                 provider.rerun_run(pipeline_id, run_number).await?;
-                self.invalidate_run_cache(pipeline_id).await;
+                self.invalidate_changed_run(pipeline_id, run_number).await;
                 return Ok(TriggerResult::default());
             }
             RerunStrategy::ReplayInputs => {
