@@ -39,6 +39,34 @@ Pipedash shows the pipelines of all your CI/CD providers in one table, so you st
 
 It runs as a desktop app, as a self-hosted web server in Docker or as an iOS and Android app. All of them share one Rust core.
 
+### Supported providers
+
+<div align="center">
+<table>
+  <tr>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/github-actions"><img src="./crates/pipedash-plugin-github/assets/icon.svg" width="40" height="40" alt="" /><br><b>GitHub&nbsp;Actions</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/gitlab-ci"><img src="./crates/pipedash-plugin-gitlab/assets/icon.svg" width="40" height="40" alt="" /><br><b>GitLab&nbsp;CI</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/gitea-actions"><img src="./crates/pipedash-plugin-gitea/assets/icon.svg" width="40" height="40" alt="" /><br><b>Gitea&nbsp;Actions</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/bitbucket-pipelines"><img src="./crates/pipedash-plugin-bitbucket/assets/icon.svg" width="40" height="40" alt="" /><br><b>Bitbucket&nbsp;Pipelines</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/azure-devops"><img src="./crates/pipedash-plugin-azure-devops/assets/icon.svg" width="40" height="40" alt="" /><br><b>Azure&nbsp;DevOps</b></a></td>
+  </tr>
+  <tr>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/circleci"><img src="./crates/pipedash-plugin-circleci/assets/icon.svg" width="40" height="40" alt="" /><br><b>CircleCI</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/buildkite"><img src="./crates/pipedash-plugin-buildkite/assets/icon.svg" width="40" height="40" alt="" /><br><b>Buildkite</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/jenkins"><img src="./crates/pipedash-plugin-jenkins/assets/icon.svg" width="40" height="40" alt="" /><br><b>Jenkins</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/woodpecker"><img src="./crates/pipedash-plugin-woodpecker/assets/icon.svg" width="40" height="40" alt="" /><br><b>Woodpecker&nbsp;CI</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/tekton"><img src="./crates/pipedash-plugin-tekton/assets/icon.svg" width="40" height="40" alt="" /><br><b>Tekton&nbsp;CD</b></a></td>
+  </tr>
+  <tr>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/argocd"><img src="./crates/pipedash-plugin-argocd/assets/icon.svg" width="40" height="40" alt="" /><br><b>ArgoCD</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/fluxcd"><img src="./crates/pipedash-plugin-fluxcd/assets/icon.svg" width="40" height="40" alt="" /><br><b>FluxCD</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/prow"><img src="./crates/pipedash-plugin-prow/assets/icon.svg" width="40" height="40" alt="" /><br><b>Prow</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/komodo"><img src="./crates/pipedash-plugin-komodo/assets/icon.svg" width="40" height="40" alt="" /><br><b>Komodo</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/coolify"><img src="./crates/pipedash-plugin-coolify/assets/icon.svg" width="40" height="40" alt="" /><br><b>Coolify</b></a></td>
+  </tr>
+</table>
+</div>
+
 ## Features
 
 <div align="center">
@@ -109,34 +137,6 @@ It runs as a desktop app, as a self-hosted web server in Docker or as an iOS and
 </table>
 
 </details>
-
-## Supported providers
-
-<div align="center">
-<table>
-  <tr>
-    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/github-actions"><img src="./crates/pipedash-plugin-github/assets/icon.svg" width="40" height="40" alt="" /><br><b>GitHub&nbsp;Actions</b></a></td>
-    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/gitlab-ci"><img src="./crates/pipedash-plugin-gitlab/assets/icon.svg" width="40" height="40" alt="" /><br><b>GitLab&nbsp;CI</b></a></td>
-    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/gitea-actions"><img src="./crates/pipedash-plugin-gitea/assets/icon.svg" width="40" height="40" alt="" /><br><b>Gitea&nbsp;Actions</b></a></td>
-    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/bitbucket-pipelines"><img src="./crates/pipedash-plugin-bitbucket/assets/icon.svg" width="40" height="40" alt="" /><br><b>Bitbucket&nbsp;Pipelines</b></a></td>
-    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/azure-devops"><img src="./crates/pipedash-plugin-azure-devops/assets/icon.svg" width="40" height="40" alt="" /><br><b>Azure&nbsp;DevOps</b></a></td>
-  </tr>
-  <tr>
-    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/circleci"><img src="./crates/pipedash-plugin-circleci/assets/icon.svg" width="40" height="40" alt="" /><br><b>CircleCI</b></a></td>
-    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/buildkite"><img src="./crates/pipedash-plugin-buildkite/assets/icon.svg" width="40" height="40" alt="" /><br><b>Buildkite</b></a></td>
-    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/jenkins"><img src="./crates/pipedash-plugin-jenkins/assets/icon.svg" width="40" height="40" alt="" /><br><b>Jenkins</b></a></td>
-    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/woodpecker"><img src="./crates/pipedash-plugin-woodpecker/assets/icon.svg" width="40" height="40" alt="" /><br><b>Woodpecker&nbsp;CI</b></a></td>
-    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/tekton"><img src="./crates/pipedash-plugin-tekton/assets/icon.svg" width="40" height="40" alt="" /><br><b>Tekton&nbsp;CD</b></a></td>
-  </tr>
-  <tr>
-    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/argocd"><img src="./crates/pipedash-plugin-argocd/assets/icon.svg" width="40" height="40" alt="" /><br><b>ArgoCD</b></a></td>
-    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/fluxcd"><img src="./crates/pipedash-plugin-fluxcd/assets/icon.svg" width="40" height="40" alt="" /><br><b>FluxCD</b></a></td>
-    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/prow"><img src="./crates/pipedash-plugin-prow/assets/icon.svg" width="40" height="40" alt="" /><br><b>Prow</b></a></td>
-    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/komodo"><img src="./crates/pipedash-plugin-komodo/assets/icon.svg" width="40" height="40" alt="" /><br><b>Komodo</b></a></td>
-    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/coolify"><img src="./crates/pipedash-plugin-coolify/assets/icon.svg" width="40" height="40" alt="" /><br><b>Coolify</b></a></td>
-  </tr>
-</table>
-</div>
 
 ## Get started
 
