@@ -311,6 +311,6 @@ jobs:
           crates="pipedash-plugin-api pipedash-plugin-actions pipedash-plugins $(grep -l 'register_plugin!' crates/pipedash-plugin-*/src/lib.rs | cut -d/ -f2)"
           args=()
           for crate in $crates; do
-            args+=(-p "$crate" --config "patch.crates-io.$crate.path=\"crates/$crate\"")
+            args+=(-p "$crate")
           done
           cargo package "${args[@]}"
