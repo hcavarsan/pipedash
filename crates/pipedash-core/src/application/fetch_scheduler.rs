@@ -48,6 +48,7 @@ pub struct BackoffPolicy {
     pub max_backoff: Duration,
     pub max_rate_limit: Duration,
     pub outage_floor: Duration,
+    pub background_floor: Duration,
     pub forced_min_gap: Duration,
 }
 
@@ -57,6 +58,7 @@ impl Default for BackoffPolicy {
             max_backoff: Duration::from_secs(10 * 60),
             max_rate_limit: Duration::from_secs(60 * 60),
             outage_floor: Duration::from_secs(2 * 60),
+            background_floor: Duration::from_secs(5 * 60),
             forced_min_gap: Duration::from_secs(10),
         }
     }
@@ -169,6 +171,10 @@ impl FetchScheduler {
 
     pub fn remove(&self, id: i64) {
         self.entries().remove(&id);
+    }
+
+    pub fn ids(&self) -> Vec<i64> {
+        self.entries().keys().copied().collect()
     }
 
     pub fn claim_due(

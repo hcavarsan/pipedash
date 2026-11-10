@@ -39,7 +39,14 @@ struct Applied {
 impl PipelineService {
     pub(crate) async fn claim_due(&self, now: Instant) -> Vec<FetchClaim> {
         self.provider_service.load_missing_providers().await;
-        let floors = self.health.floors(self.scheduler.policy().outage_floor);
+        let policy = self.scheduler.policy();
+        let mut floors = self.health.floors(policy.outage_floor);
+        if *self.mode.borrow() == RefreshMode::Background {
+            for id in self.scheduler.ids() {
+                let floor = floors.entry(id).or_insert(policy.background_floor);
+                *floor = (*floor).max(policy.background_floor);
+            }
+        }
 
         self.scheduler.claim_due(now, &floors)
     }
