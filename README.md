@@ -180,5 +180,5 @@ Pipedash is licensed under [GPL-3.0](LICENSE).
 ## Contributors
 
 <a href="https://github.com/hcavarsan/pipedash/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=hcavarsan/pipedash" alt="Pipedash contributors" />
+  <img src="https://contrib.rocks/image?repo=hcavarsan/pipedash&max=100" alt="Pipedash contributors" />
 </a>
