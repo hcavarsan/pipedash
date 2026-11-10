@@ -28,7 +28,7 @@ const { usePlugins } = await import('./usePluginsQueries')
 const { useMetricsDashboard } = await import('../features/metrics/queries/useMetricsQueries')
 const { useRunHistory } = await import('./useRunHistoryQueries')
 const { useSaveTablePreferences } = await import('../features/runs/queries/useTablePreferences')
-const { useSaveProviderDraft } = await import('./useProvidersQueries')
+const { useImportProviders, useSaveProviderDraft } = await import('./useProvidersQueries')
 const { useRefreshProviders } = await import('./useRefreshQueries')
 const { useFactoryReset } = await import('../features/settings/queries/usePlatformQueries')
 const { useLogViewerPrefs } = await import('../stores/logViewerPrefsStore')
@@ -45,6 +45,7 @@ type Stubbed =
   | 'getMetricsDashboard'
   | 'saveTablePreferences'
   | 'saveProviderDraft'
+  | 'importProviders'
   | 'refreshProvider'
   | 'factoryReset'
 
@@ -206,6 +207,30 @@ test('saving changes to a provider only says the changes were saved', async (con
   assert.equal(options?.title, 'Provider updated')
   assert.equal(options?.message, 'Changes saved.')
   assert.equal(options?.color, 'green')
+})
+
+test('a partial provider import names what was added, what failed and what was not tried', async (context) => {
+  stub(context, 'importProviders', async () => ({
+    added: ['Alpha'],
+    skipped: [],
+    failed: [{ name: 'Beta', error: 'Database error: disk full' }],
+    not_attempted: ['Gamma'],
+  }))
+  const shown = context.mock.method(notifications, 'show', () => 'imported')
+  const { result } = renderHook(() => useImportProviders(), { wrapper })
+
+  await act(async () => {
+    await result.current.mutateAsync(new File(['[providers]'], 'providers.toml'))
+  })
+
+  assert.equal(shown.mock.callCount(), 1)
+  const options = shown.mock.calls[0]?.arguments[0]
+  assert.equal(options?.title, "Some providers weren't imported")
+  assert.equal(options?.color, 'orange')
+  assert.equal(
+    options?.message,
+    "Added Alpha. Add each token in the provider's edit dialog. Couldn't add Beta: Database error: disk full. Not attempted: Gamma."
+  )
 })
 
 test('refreshing providers keeps in-flight ids marked when another provider fails', async (context) => {

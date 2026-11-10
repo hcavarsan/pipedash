@@ -294,6 +294,8 @@ async fn test_import_providers_toml_adds_missing_providers_without_tokens() {
         ProviderImportResult {
             added: vec!["Stub Display".to_string()],
             skipped: vec!["stub-main".to_string()],
+            failed: Vec::new(),
+            not_attempted: Vec::new(),
         }
     );
     let unchanged = target.repository.get_provider(kept_id).await.unwrap();
@@ -338,6 +340,52 @@ type = "unknown"
     assert!(matches!(err, DomainError::InvalidProviderType(_)), "{err}");
     assert!(h.repository.list_providers().await.unwrap().is_empty());
     assert_eq!(h.bus.count("providers-changed"), 0);
+}
+
+#[tokio::test]
+async fn test_import_providers_toml_reports_what_happened_when_a_write_fails() {
+    let h = Harness::new().await;
+    execute(
+        &h,
+        "CREATE TRIGGER fail_ci_b BEFORE INSERT ON providers WHEN NEW.name = 'ci-b' \
+             BEGIN SELECT RAISE(ABORT, 'write failed'); END",
+    )
+    .await;
+    let content = r#"
+[providers.ci-a]
+type = "stub"
+
+[providers.ci-b]
+name = "CI B"
+type = "stub"
+
+[providers.ci-c]
+name = "CI C"
+type = "stub"
+"#;
+
+    let result = h
+        .provider_service
+        .import_providers_toml(content)
+        .await
+        .unwrap();
+
+    assert_eq!(result.added, ["ci-a"]);
+    assert!(result.skipped.is_empty());
+    assert_eq!(result.failed.len(), 1);
+    assert_eq!(result.failed[0].name, "CI B");
+    assert!(result.failed[0].error.contains("write failed"));
+    assert_eq!(result.not_attempted, ["CI C"]);
+    let stored: Vec<String> = h
+        .repository
+        .list_providers()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|provider| provider.name)
+        .collect();
+    assert_eq!(stored, ["ci-a"]);
+    assert_eq!(h.bus.count("providers-changed"), 1);
 }
 
 #[test]
@@ -1147,6 +1195,42 @@ async fn removal_awaits_token_cleanup_before_deleting_the_provider() {
 }
 
 #[tokio::test]
+async fn removing_a_provider_without_a_token_entry_works() {
+    let h = Harness::new().await;
+    let id = h
+        .repository
+        .config_backend()
+        .create_provider(&h.config("tokenless", 30))
+        .await
+        .unwrap();
+
+    h.provider_service.remove_provider(id).await.unwrap();
+
+    assert!(h.repository.get_provider(id).await.is_err());
+}
+
+#[tokio::test]
+async fn a_failed_final_deletion_keeps_the_token_and_a_retry_removes_it() {
+    let h = Harness::new().await;
+    let id = h.add_provider("final-delete").await;
+    execute(
+        &h,
+        "CREATE TRIGGER block_delete BEFORE DELETE ON providers \
+             BEGIN SELECT RAISE(ABORT, 'delete blocked'); END",
+    )
+    .await;
+
+    assert!(h.provider_service.remove_provider(id).await.is_err());
+    assert!(h.repository.get_provider(id).await.is_ok());
+    assert_eq!(h.token_store.get_token(id).await.unwrap(), "token");
+
+    execute(&h, "DROP TRIGGER block_delete").await;
+    h.provider_service.remove_provider(id).await.unwrap();
+    assert!(h.repository.get_provider(id).await.is_err());
+    assert!(h.token_store.get_all_tokens().await.unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn failed_config_deletion_keeps_the_provider_available_for_retry() {
     let h = Harness::new().await;
     config_file(&h, &[("ci-a", "CI A", 30)]);
@@ -1155,18 +1239,22 @@ async fn failed_config_deletion_keeps_the_provider_available_for_retry() {
         .await
         .unwrap();
     let id = provider_id(&h, "ci-a").await.unwrap();
+    let token = h.token_store.get_token(id).await.unwrap();
+    assert_eq!(token, "token-ci-a");
     let path = h.config_state.config_path();
     std::fs::remove_file(path).unwrap();
     std::fs::create_dir(path).unwrap();
 
     assert!(h.provider_service.remove_provider(id).await.is_err());
     assert!(h.repository.get_provider(id).await.is_ok());
+    assert_eq!(h.token_store.get_token(id).await.unwrap(), token);
 
     std::fs::remove_dir(path).unwrap();
     config_file(&h, &[("ci-a", "CI A", 30)]);
     h.provider_service.remove_provider(id).await.unwrap();
     assert!(h.repository.get_provider(id).await.is_err());
     assert!(h.config_state.load_providers().await.unwrap().is_empty());
+    assert!(h.token_store.get_all_tokens().await.unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -1313,6 +1401,7 @@ async fn test_apply_config_file_retry_replaces_providers_saved_by_a_failed_apply
     let b = provider_id(&h, "ci-b").await.unwrap();
     let loaded_a = h.provider_service.generation_of(a).await.unwrap();
     let loaded_b = h.provider_service.generation_of(b).await.unwrap();
+    let announced = h.bus.count("providers-changed");
 
     execute(
         &h,
@@ -1330,6 +1419,7 @@ async fn test_apply_config_file_retry_replaces_providers_saved_by_a_failed_apply
         h.repository.get_provider(a).await.unwrap().display_name(),
         "CI A2"
     );
+    assert_eq!(h.bus.count("providers-changed"), announced + 1);
 
     execute(&h, "DROP TRIGGER fail_ci_b").await;
     h.provider_service
@@ -1341,6 +1431,7 @@ async fn test_apply_config_file_retry_replaces_providers_saved_by_a_failed_apply
         h.repository.get_provider(b).await.unwrap().display_name(),
         "CI B2"
     );
+    assert_eq!(h.bus.count("providers-changed"), announced + 2);
     assert_ne!(h.provider_service.generation_of(a).await, Some(loaded_a));
     assert_ne!(h.provider_service.generation_of(b).await, Some(loaded_b));
     assert_eq!(

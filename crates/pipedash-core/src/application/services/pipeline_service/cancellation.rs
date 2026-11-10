@@ -88,34 +88,38 @@ impl PipelineService {
             )));
         }
 
-        let targets = unique(targets);
-        let mut results = Vec::with_capacity(targets.len());
-        for target in targets {
-            let pipeline_name = match self
-                .repository
-                .get_cached_pipeline(&target.pipeline_id)
-                .await
-            {
-                Ok(pipeline) => pipeline.name,
-                Err(_) => target.pipeline_id.clone(),
-            };
-            let error = self
-                .cancel_run(&target.pipeline_id, target.run_number)
-                .await
-                .err()
-                .map(|error| error.to_string());
-            results.push(CancellationResult {
-                target,
-                pipeline_name,
-                error,
-            });
-        }
-
+        let results: Vec<CancellationResult> = stream::iter(unique(targets))
+            .map(|target| self.cancel_target(target))
+            .buffered(SCAN_CONCURRENCY)
+            .collect()
+            .await;
         Ok(CancellationBatch {
             requested_count: results.len(),
             failed_count: results.iter().filter(|r| r.error.is_some()).count(),
             results,
         })
+    }
+
+    async fn cancel_target(&self, target: RunTarget) -> CancellationResult {
+        let pipeline_name = match self
+            .repository
+            .get_cached_pipeline(&target.pipeline_id)
+            .await
+        {
+            Ok(pipeline) => pipeline.name,
+            Err(_) => target.pipeline_id.clone(),
+        };
+        let error = self
+            .cancel_run(&target.pipeline_id, target.run_number)
+            .await
+            .err()
+            .map(|error| error.to_string());
+
+        CancellationResult {
+            target,
+            pipeline_name,
+            error,
+        }
     }
 
     async fn scan_unfinished(&self, pipeline_id: &str) -> Scanned {

@@ -117,7 +117,7 @@ export function useExportProviders(): UseMutationResult<boolean, Error, void, un
   })
 }
 
-function importSummary({ added, skipped }: ProviderImportResult): string {
+function importSummary({ added, skipped, failed, not_attempted }: ProviderImportResult): string {
   const parts = []
 
   if (added.length > 0) {
@@ -126,8 +126,24 @@ function importSummary({ added, skipped }: ProviderImportResult): string {
   if (skipped.length > 0) {
     parts.push(`Skipped ${skipped.join(', ')}, already set up here.`)
   }
+  for (const { name, error } of failed) {
+    parts.push(`Couldn't add ${name}: ${error}.`)
+  }
+  if (not_attempted.length > 0) {
+    parts.push(`Not attempted: ${not_attempted.join(', ')}.`)
+  }
 
   return parts.join(' ')
+}
+
+function importOutcome({ added, failed }: ProviderImportResult): { title: string; color: string } {
+  if (added.length === 0) {
+    return { title: 'No providers imported', color: failed.length > 0 ? 'orange' : 'gray' }
+  }
+
+  return failed.length > 0
+    ? { title: "Some providers weren't imported", color: 'orange' }
+    : { title: 'Providers imported', color: 'green' }
 }
 
 export function useImportProviders(): UseMutationResult<ProviderImportResult, Error, File, unknown> {
@@ -140,12 +156,7 @@ export function useImportProviders(): UseMutationResult<ProviderImportResult, Er
       void queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
       void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
 
-      notifications.show({
-        title: result.added.length > 0 ? 'Providers imported' : 'No providers imported',
-        message: importSummary(result),
-        color: result.added.length > 0 ? 'green' : 'gray',
-        autoClose: 10_000,
-      })
+      notifications.show({ ...importOutcome(result), message: importSummary(result), autoClose: 10_000 })
     },
 
     onError: (error: Error) => {

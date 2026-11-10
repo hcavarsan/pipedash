@@ -183,6 +183,9 @@ pub(crate) struct StubProvider {
     pub(crate) run_response: Mutex<Option<DomainResult<PipelineRun>>>,
     pub(crate) force_cancel_rejected: AtomicBool,
     pub(crate) cancelled: Mutex<Option<Vec<i64>>>,
+    cancel_gates: HashMap<i64, Arc<Gate>>,
+    cancels_in_flight: AtomicUsize,
+    cancels_peak: AtomicUsize,
     pub(crate) run_action_result: Mutex<DomainResult<()>>,
     pub(crate) parameters: Mutex<DomainResult<Vec<WorkflowParameter>>>,
     pub(crate) rate_limit: Mutex<Option<RateLimit>>,
@@ -230,6 +233,9 @@ impl StubProvider {
             run_response: Mutex::new(None),
             force_cancel_rejected: AtomicBool::new(false),
             cancelled: Mutex::new(None),
+            cancel_gates: HashMap::new(),
+            cancels_in_flight: AtomicUsize::new(0),
+            cancels_peak: AtomicUsize::new(0),
             run_action_result: Mutex::new(Err(DomainError::NotSupported("stub".to_string()))),
             parameters: Mutex::new(Ok(vec![parameter("branch")])),
             rate_limit: Mutex::new(None),
@@ -269,6 +275,19 @@ impl StubProvider {
     pub(crate) fn parameter_gated(mut self, gate: &Arc<Gate>) -> Self {
         self.parameter_gate = Some(Arc::clone(gate));
         self
+    }
+
+    pub(crate) fn cancel_gated(mut self, run_number: i64, gate: &Arc<Gate>) -> Self {
+        self.cancel_gates.insert(run_number, Arc::clone(gate));
+        self
+    }
+
+    pub(crate) fn cancels_in_flight(&self) -> usize {
+        self.cancels_in_flight.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn cancels_peak(&self) -> usize {
+        self.cancels_peak.load(Ordering::SeqCst)
     }
 
     pub(crate) fn rate_limit_gated(mut self, gate: &Arc<Gate>) -> Self {
@@ -463,6 +482,12 @@ impl Provider for StubProvider {
     }
 
     async fn cancel_run(&self, _pipeline_id: &str, run_number: i64) -> DomainResult<()> {
+        let in_flight = self.cancels_in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+        self.cancels_peak.fetch_max(in_flight, Ordering::SeqCst);
+        if let Some(gate) = self.cancel_gates.get(&run_number) {
+            gate.pass().await;
+        }
+        self.cancels_in_flight.fetch_sub(1, Ordering::SeqCst);
         match self.cancelled.lock().unwrap().as_mut() {
             Some(cancelled) if run_number != 13 => {
                 cancelled.push(run_number);
@@ -636,6 +661,7 @@ pub(crate) struct StubFactory {
     queued: Mutex<HashMap<i64, Vec<Arc<StubProvider>>>>,
     built: Mutex<HashMap<i64, usize>>,
     tokens: Mutex<HashMap<i64, String>>,
+    failure: Mutex<Option<DomainError>>,
 }
 
 impl StubFactory {
@@ -650,7 +676,14 @@ impl StubFactory {
         provider
     }
 
+    pub(crate) fn fail_next_build(&self, error: DomainError) {
+        *self.failure.lock().unwrap() = Some(error);
+    }
+
     pub(crate) fn provide(&self, config: &ProviderConfig) -> DomainResult<Arc<dyn Provider>> {
+        if let Some(error) = self.failure.lock().unwrap().take() {
+            return Err(error);
+        }
         let id = config.id.unwrap_or(0);
         self.tokens.lock().unwrap().insert(id, config.token.clone());
         let mut built = self.built.lock().unwrap();
@@ -1195,4 +1228,9 @@ pub(crate) fn statuspage_body(
         "incidents": incidents,
         "scheduled_maintenances": [],
     })
+}
+
+pub(crate) fn unreachable_url() -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    format!("http://{}", listener.local_addr().unwrap())
 }

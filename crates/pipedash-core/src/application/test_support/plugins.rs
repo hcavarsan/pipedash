@@ -18,6 +18,8 @@ use pipedash_plugin_api::{
     PaginatedAvailablePipelines,
     PaginatedResponse,
     PaginationParams,
+    PermissionCheck,
+    PermissionStatus,
     Pipeline,
     PipelineActionState,
     PipelineFacts,
@@ -168,6 +170,14 @@ impl StubPlugin {
         }
     }
 
+    async fn probe_permissions(&self) -> PluginResult<()> {
+        let Some((url, client)) = self.server.as_ref().filter(|_| self.kind == Kind::Http) else {
+            return Ok(());
+        };
+        http::check_response(http::send(url, client.get(url.clone())).await?).await?;
+        Ok(())
+    }
+
     async fn probe(&self) -> PluginResult<()> {
         let Some((url, client)) = &self.server else {
             return Ok(());
@@ -221,6 +231,25 @@ impl Plugin for StubPlugin {
     async fn validate_credentials(&self) -> PluginResult<bool> {
         self.probe().await?;
         Ok(true)
+    }
+
+    async fn check_permissions(&self) -> PluginResult<PermissionStatus> {
+        self.probe_permissions().await?;
+        Ok(PermissionStatus {
+            permissions: self
+                .metadata
+                .required_permissions
+                .iter()
+                .map(|permission| PermissionCheck {
+                    permission: permission.clone(),
+                    granted: true,
+                })
+                .collect(),
+            all_granted: true,
+            checked_at: chrono::Utc::now(),
+            metadata: HashMap::new(),
+            credential_label: None,
+        })
     }
 
     async fn fetch_available_pipelines(

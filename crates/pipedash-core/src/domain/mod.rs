@@ -146,6 +146,7 @@ pub use provider::{
     Provider,
     ProviderConfig,
     ProviderFreshness,
+    ProviderImportFailure,
     ProviderImportResult,
     ProviderRecovery,
     ProviderSummary,
