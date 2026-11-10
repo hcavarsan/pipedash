@@ -14,6 +14,7 @@ export function useTriggerValidation(pipelineId: string, rerunOf: number | undef
   const check = useCheckTrigger()
   const checked = useRef<Record<string, string>>({})
   const latest = useRef(0)
+  const waiting = useRef(new Map<string, (key: string, value: string) => void>())
   const validation = useBlurValidation<string>((key) => checked.current[key])
 
   const run = async (inputs: ParamValues): Promise<Record<string, string>> => {
@@ -24,33 +25,51 @@ export function useTriggerValidation(pipelineId: string, rerunOf: number | undef
 
   const checkAll = async (inputs: ParamValues, names: string[]): Promise<boolean> => {
     latest.current += 1
+    waiting.current.clear()
     checked.current = await run(inputs)
 
     return validation.validateAll(Object.fromEntries([...names, ...Object.keys(checked.current)].map((n) => [n, ''])))
   }
 
-  const recheck = (name: string, inputs: ParamValues, apply: (key: string, value: string) => void): void => {
+  const recheck = (inputs: ParamValues): void => {
     latest.current += 1
     const ticket = latest.current
     run(inputs)
       .then((errors) => {
-        if (ticket === latest.current) {
-          checked.current = errors
+        if (ticket !== latest.current) {
+          return
+        }
+
+        const pending = [...waiting.current]
+
+        checked.current = errors
+        waiting.current.clear()
+
+        for (const [name, apply] of pending) {
           apply(name, '')
         }
       })
-      .catch(() => undefined)
+      .catch(() => {
+        if (ticket === latest.current) {
+          waiting.current.clear()
+        }
+      })
   }
 
   return {
     errors: validation.errors,
     checkAll,
-    blur: (name, inputs) => recheck(name, inputs, validation.onBlur),
+    blur: (name, inputs) => {
+      waiting.current.set(name, validation.onBlur)
+      recheck(inputs)
+    },
     change: (name, inputs) => {
-      if (validation.errors[name] === undefined) {
-        latest.current += 1
-      } else {
-        recheck(name, inputs, validation.onChange)
+      if (validation.errors[name] !== undefined) {
+        waiting.current.set(name, validation.onChange)
+      }
+
+      if (waiting.current.size > 0) {
+        recheck(inputs)
       }
     },
   }

@@ -201,6 +201,27 @@ test('a failed delete after a saved disable stays open and retries only the dele
   assert.equal(flushes.length, 2)
 })
 
+test('a failed standalone delete shows its error with Retry and keeps the dialog open', async () => {
+  const user = userEvent.setup({ document })
+  const onClose = mock.fn()
+
+  flushFailure = 'Store is offline'
+  renderModal({ onClose })
+  await user.click(await view().findByRole('button', { name: 'Delete pipeline metrics' }))
+  await user.click(await view().findByRole('button', { name: 'Delete metrics' }))
+
+  assert.ok((await view().findAllByText(/store is offline/i)).length > 0)
+  assert.ok(view().getByText("Couldn't delete metrics"))
+
+  flushFailure = null
+  await user.click(view().getByRole('button', { name: 'Retry' }))
+
+  await waitFor(() => assert.equal(view().queryByText("Couldn't delete metrics"), null))
+  assert.equal(flushes.length, 2)
+  assert.equal(saves.length, 0)
+  assert.equal(onClose.mock.callCount(), 0)
+})
+
 test('a rejected save hides its error as soon as the draft changes, without a new submit', async () => {
   const user = userEvent.setup({ document })
 

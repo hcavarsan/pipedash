@@ -77,7 +77,9 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
   })
 
   const draftNow = { enabled, retention: retention.value }
-  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deleteFailed, setDeleteFailed] = useState<{ message: string; afterDisable: boolean } | null>(null)
+  const failDelete = (error: unknown, afterDisable: boolean): void =>
+    setDeleteFailed({ message: errorMessage(error, 'Try deleting the stored metrics again.'), afterDisable })
 
   const saveAction = async (): Promise<SaveState> => {
     retention.commit()
@@ -114,7 +116,7 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
         await flushMutation.mutateAsync(pipelineId)
       } catch (error) {
         logger.error('MetricsConfigForm', 'Failed to delete stored metrics', error)
-        setDeleteError(errorMessage(error, 'Try deleting the stored metrics again.'))
+        failDelete(error, true)
 
         return INITIAL_STATE
       }
@@ -128,12 +130,18 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
   const [state, formAction, isPending] = useActionState(saveAction, INITIAL_STATE)
 
   const retryDelete = async (): Promise<void> => {
+    const afterDisable = deleteFailed?.afterDisable ?? false
+
     try {
       await flushMutation.mutateAsync(pipelineId)
-      setDeleteError(null)
-      onClose()
+      setDeleteFailed(null)
+      onConfigChange?.()
+
+      if (afterDisable) {
+        onClose()
+      }
     } catch (error) {
-      setDeleteError(errorMessage(error, 'Try deleting the stored metrics again.'))
+      failDelete(error, afterDisable)
     }
   }
 
@@ -149,18 +157,25 @@ export function MetricsConfigForm(props: MetricsConfigFormProps): ReactNode {
       ),
       labels: { confirm: 'Delete metrics', cancel: 'Cancel' },
       confirmProps: { color: 'red' },
-      onConfirm: () => flushMutation.mutate(pipelineId, { onSuccess: () => onConfigChange?.() }),
+      onConfirm: () =>
+        flushMutation.mutate(pipelineId, {
+          onSuccess: () => {
+            setDeleteFailed(null)
+            onConfigChange?.()
+          },
+          onError: (error) => failDelete(error, false),
+        }),
     })
   }
 
   const isBusy = isPending || flushMutation.isPending
-  const dirty =
-    deleteError === null && (enabled !== baseline.enabled || Number(retention.value) !== baseline.retentionDays)
-  const saveDisabled = flushMutation.isPending || deleteError !== null
+  const blocked = deleteFailed?.afterDisable === true
+  const dirty = !blocked && (enabled !== baseline.enabled || Number(retention.value) !== baseline.retentionDays)
+  const saveDisabled = flushMutation.isPending || blocked
 
-  const deleteFailure = deleteError && (
+  const deleteFailure = deleteFailed && (
     <Stack gap="xs" align="flex-start">
-      <FormErrorDisplay title="Couldn't delete metrics" globalError={deleteError} />
+      <FormErrorDisplay title="Couldn't delete metrics" globalError={deleteFailed.message} />
       <Button size="xs" variant="default" loading={flushMutation.isPending} onClick={() => void retryDelete()}>
         Retry
       </Button>
