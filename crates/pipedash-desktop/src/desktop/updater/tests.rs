@@ -29,28 +29,19 @@ fn automatic_checks_need_the_setting_and_a_settled_phase() {
 }
 
 #[test]
-fn each_phase_reports_its_message() {
+fn every_install_step_keeps_the_found_update() {
     let found = found();
-    assert_eq!(UpdateStatus::default().message, "");
-    assert_eq!(found.checking().message, "Checking for updates…");
-    assert_eq!(
-        found.up_to_date().message,
-        "Pipedash 0.13.0 is the latest version."
-    );
-    assert_eq!(found.message, "Pipedash 0.14.0 is available.");
-    assert_eq!(found.downloading().message, "Downloading Pipedash 0.14.0…");
-    assert_eq!(
-        found.installing().message,
-        "Installing Pipedash 0.14.0. Pipedash restarts when it finishes."
-    );
-    assert_eq!(
-        found.check_failed().message,
-        "Couldn't check for updates. Check your connection and retry."
-    );
-    assert_eq!(
-        found.install_failed().message,
-        "Couldn't install Pipedash 0.14.0. Retry, or download it from the releases page."
-    );
+    for (status, phase) in [
+        (found.checking(), UpdatePhase::Checking),
+        (found.downloading(), UpdatePhase::Downloading),
+        (found.installing(), UpdatePhase::Installing),
+        (found.install_failed(), UpdatePhase::Failed),
+    ] {
+        assert_eq!(status.phase, phase);
+        assert_eq!(status.current_version, "0.13.0");
+        assert_eq!(status.version, found.version, "{phase:?}");
+        assert_eq!(status.notes, found.notes, "{phase:?}");
+    }
 }
 
 #[test]

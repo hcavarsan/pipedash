@@ -2,10 +2,7 @@ import { Button, Group, Progress, Stack, Text } from '@mantine/core'
 import { type ReactNode, useState } from 'react'
 
 import { StandardModal } from '../../../components/common/StandardModal'
-import type { UpdatePhase } from '../../../types/native'
 import { useInstallUpdate, useUpdateStatus } from '../queries/useUpdaterQueries'
-
-const PROMPT_PHASES: UpdatePhase[] = ['available', 'downloading', 'installing', 'failed']
 
 export function UpdatePrompt(): ReactNode {
   const { data: status } = useUpdateStatus()
@@ -21,7 +18,7 @@ export function UpdatePrompt(): ReactNode {
 
   return (
     <StandardModal
-      opened={version !== dismissed && PROMPT_PHASES.includes(phase)}
+      opened={busy || (version !== dismissed && (phase === 'available' || phase === 'failed'))}
       onClose={later}
       title="Update available"
       size="md"

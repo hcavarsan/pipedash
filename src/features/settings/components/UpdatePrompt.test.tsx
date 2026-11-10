@@ -113,6 +113,23 @@ test('a found update only asks, and Later keeps that version dismissed', async (
   assert.ok(await view().findByText('Pipedash 0.15.0 is available.'))
 })
 
+test('an install started elsewhere reopens a dismissed prompt to show its progress', async () => {
+  const user = userEvent.setup({ document, delay: null })
+  await mountWith(available)
+  await user.click(await view().findByRole('button', { name: 'Later' }))
+  await waitFor(() => assert.equal(view().queryByText('Pipedash 0.14.0 is available.'), null))
+
+  await publish({ ...available, phase: 'downloading', total: 200, downloaded: 100, message: 'Downloading' })
+  assert.equal(
+    (await view().findByRole('progressbar', { name: 'Download progress' })).getAttribute('aria-valuenow'),
+    '50'
+  )
+  assert.equal(view().queryByRole('button', { name: 'Close dialog' }), null)
+
+  await publish({ ...available, phase: 'failed', message: 'Install failed' })
+  await waitFor(() => assert.equal(view().queryByText('Install failed'), null))
+})
+
 test('Update and restart installs once and the prompt stays until the restart', async () => {
   const user = userEvent.setup({ document, delay: null })
   await mountWith(available)
