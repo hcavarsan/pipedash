@@ -3,15 +3,12 @@ description: Install the pinned Node and Bun versions and the frontend dependenc
 runs:
   using: composite
   steps:
-    - name: Install mise
+    - name: Install Node and Bun
       uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
       with:
-        install: false
-        cache: true
-
-    - name: Install Node and Bun
-      shell: bash
-      run: mise install node bun
+        install_args: node bun
+        cache_key_prefix: mise-frontend-v1
+        cache_restore_retry_budget: 60s
 
     - name: Install dependencies
       shell: bash

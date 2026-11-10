@@ -4,18 +4,19 @@ inputs:
   rust-targets:
     description: Space-separated Rust targets to install
     required: true
+  cache:
+    description: Restore and save the tool cache; keep it off in jobs that publish
+    required: false
+    default: "false"
 runs:
   using: composite
   steps:
-    - name: Install mise
+    - name: Install mise tools
       uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
       with:
-        install: false
-        cache: false
-
-    - name: Install mise tools
-      shell: bash
-      run: mise install
+        cache: ${{ inputs.cache }}
+        cache_key_prefix: mise-all-v1
+        cache_restore_retry_budget: 60s
 
     - name: Install dependencies
       shell: bash

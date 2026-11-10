@@ -41,7 +41,6 @@ concurrency:
 jobs:
   store-checks:
     name: Build / Unsigned AAB and Google Play checks
-    if: ${{ github.event_name != 'push' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -57,6 +56,7 @@ jobs:
         uses: $/.github/actions/setup-android
         with:
           rust-targets: aarch64-linux-android
+          cache: "true"
 
       - name: Test Android release helpers and publishing guards
         working-directory: android
@@ -87,6 +87,7 @@ jobs:
         uses: $/.github/actions/setup-android
         with:
           rust-targets: x86_64-linux-android
+          cache: "true"
 
       - name: Enable KVM
         run: |

@@ -41,7 +41,6 @@ concurrency:
 jobs:
   store-checks:
     name: Build / Unsigned IPA and App Store checks
-    if: ${{ github.event_name != 'push' }}
     runs-on: macos-26
     timeout-minutes: 40
     permissions:
@@ -56,6 +55,7 @@ jobs:
         uses: $/.github/actions/setup-ios
         with:
           rust-targets: aarch64-apple-ios
+          cache: "true"
 
       - name: Test notification service logic
         run: swift test --package-path ios/notification-service
@@ -85,6 +85,7 @@ jobs:
         uses: $/.github/actions/setup-ios
         with:
           rust-targets: aarch64-apple-ios-sim
+          cache: "true"
 
       - name: Launch and take screenshots
         working-directory: ios

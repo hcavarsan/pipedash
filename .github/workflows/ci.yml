@@ -35,14 +35,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install mise
+      - name: Install zizmor
         uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
         with:
-          install: false
-          cache: true
-
-      - name: Install zizmor
-        run: mise install zizmor
+          install_args: zizmor
+          cache_key_prefix: mise-zizmor-v1
+          cache_restore_retry_budget: 60s
 
       - name: Lint workflows
         run: mise run lint:actions
@@ -98,14 +96,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install mise
+      - name: Install Rust
         uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
         with:
-          install: false
-          cache: true
-
-      - name: Install Rust
-        run: mise install rust
+          install_args: rust
+          cache_key_prefix: mise-rust-v1
+          cache_restore_retry_budget: 60s
 
       - name: Check formatting
         run: mise run fmt:back:check

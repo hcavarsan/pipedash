@@ -31,15 +31,12 @@ runs:
             patchelf \
             xdg-utils
 
-    - name: Install mise
+    - name: Install Rust
       uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
       with:
-        install: false
-        cache: true
-
-    - name: Install Rust
-      shell: bash
-      run: mise install rust
+        install_args: rust
+        cache_key_prefix: mise-rust-v1
+        cache_restore_retry_budget: 60s
 
     - name: Cache Rust build
       uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
