@@ -4,9 +4,10 @@ import { type Dispatch, useMemo } from 'react'
 import { DEBOUNCE_DELAYS } from '../../../../constants/intervals'
 import { useDebounce } from '../../../../hooks/useDebounce'
 import { service } from '../../../../services/service'
-import type { ConfigField, PluginMetadata } from '../../../../types/plugins'
+import type { AuthMode, ConfigField, PluginMetadata } from '../../../../types/plugins'
 import { type FieldAttributes, type FieldInputKind, fieldAttributes } from '../../../../utils/formFields'
 
+import { fieldInMode } from '../../lib/authModes'
 import type { FormAction, ValidateKey } from './types'
 import { type FieldStep, STEP_SECTIONS } from './validation'
 
@@ -31,6 +32,7 @@ interface UseCredentialFieldsParams {
   dispatch: Dispatch<FormAction>
   validateKey: ValidateKey
   step: FieldStep
+  authMode: AuthMode
 }
 
 interface UseCredentialFieldsResult {
@@ -52,12 +54,16 @@ export function useCredentialFields({
   dispatch,
   validateKey,
   step,
+  authMode,
 }: UseCredentialFieldsParams): UseCredentialFieldsResult {
   const debouncedConfigValues = useDebounce(configValues, DEBOUNCE_DELAYS.FILTER)
   const schemaFields = selectedPlugin?.config_schema.fields ?? NO_FIELDS
   const fields = useMemo(
-    () => STEP_SECTIONS[step].flatMap((section) => schemaFields.filter((field) => field.section === section)),
-    [schemaFields, step]
+    () =>
+      STEP_SECTIONS[step].flatMap((section) =>
+        schemaFields.filter((field) => field.section === section && fieldInMode(field, authMode))
+      ),
+    [schemaFields, step, authMode]
   )
   const lastTextKey = fields.findLast((field) => field.field_type !== 'Boolean')?.key
   const dynamicFields = fields.filter(

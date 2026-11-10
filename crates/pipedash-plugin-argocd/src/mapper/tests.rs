@@ -1,5 +1,6 @@
 use super::catalog::map_available_pipeline;
 use super::runs::{
+    follows_live_state,
     map_history_to_run,
     map_runs,
 };
@@ -53,6 +54,31 @@ fn current_operation_replaces_its_own_history_entry() {
         .collect();
 
     assert_eq!(ids, ["argocd-sync-web-current", "argocd-sync-web-1"]);
+}
+
+#[test]
+fn only_the_latest_successful_sync_follows_the_live_health() {
+    let spec = r#"{"source":{"repoURL":"https://github.com/acme/web"},"destination":{"namespace":"web"},"project":"default"}"#;
+    let history = r#""history":[
+        {"deployedAt":"2026-10-20T10:00:30Z","deployStartedAt":"2026-10-20T10:00:00Z","id":1,"revision":"abc"},
+        {"deployedAt":"2026-10-20T11:00:30Z","deployStartedAt":"2026-10-20T11:00:00Z","id":2,"revision":"def"}]"#;
+    let operation = |phase: &str| {
+        format!(
+            r#",{history},"operationState":{{"phase":"{phase}","startedAt":"2026-10-20T11:00:00Z"}}"#
+        )
+    };
+    let following = |status_extra: &str| {
+        let app = app(spec, status_extra);
+        map_runs(&app, "", 10)
+            .iter()
+            .map(|run| follows_live_state(&app, run))
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(following(&operation("Succeeded")), [true, false]);
+    assert_eq!(following(&operation("Failed")), [false, false]);
+    assert_eq!(following(&operation("Running")), [false, false]);
+    assert_eq!(following(&format!(",{history}")), [true, false]);
 }
 
 #[test]
@@ -322,4 +348,13 @@ fn tree_without_degraded_nodes_keeps_the_provider_state() {
 
     assert_eq!(pipeline.status, PipelineStatus::Running);
     assert_eq!(pipeline.resource_state, before);
+}
+
+#[test]
+fn application_links_exist_only_with_a_server_url() {
+    assert_eq!(
+        app_url("https://argo.example.com/", "web"),
+        "https://argo.example.com/applications/web"
+    );
+    assert_eq!(app_url("", "web"), "");
 }

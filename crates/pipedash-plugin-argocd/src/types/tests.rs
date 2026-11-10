@@ -40,3 +40,15 @@ fn primary_source_prefers_sources_over_empty_source() {
     .unwrap();
     assert_eq!(spec.primary_source().repo_url, "https://github.com/acme/c");
 }
+
+#[test]
+fn application_without_status_is_pending_and_unknown() {
+    let app: Application = serde_json::from_str(
+        r#"{"metadata":{"name":"fresh"},"spec":{"source":{"repoURL":"https://github.com/acme/e"},"destination":{"name":"in-cluster"},"project":"default"}}"#,
+    )
+    .unwrap();
+
+    assert_eq!(app.status.health.status, "");
+    assert_eq!(app.status.sync.status, "");
+    assert!(app.status.resources.is_empty());
+}

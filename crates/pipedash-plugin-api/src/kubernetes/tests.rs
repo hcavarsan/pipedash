@@ -142,3 +142,22 @@ async fn a_kubeconfig_without_contexts_names_its_source() {
 
     assert!(matches!(&error, PluginError::InvalidConfig(message) if message.contains("/a/one")));
 }
+
+#[test]
+fn namespaces_are_dns_labels_of_at_most_63_characters() {
+    assert!(is_namespace("team-apps"));
+    assert!(is_namespace("a-1"));
+    assert!(is_namespace(&"a".repeat(63)));
+    for rejected in ["", "-a", "a-", "A", "a_b", "a.b", &"a".repeat(64)] {
+        assert!(!is_namespace(rejected), "{rejected:?} must be rejected");
+    }
+}
+
+#[test]
+fn resource_names_are_dot_separated_dns_labels() {
+    assert!(is_resource_name("web.v2"));
+    assert!(is_resource_name("app"));
+    for rejected in ["", "..", "a..b", ".a", "a.", "A", "a_b", &"a".repeat(254)] {
+        assert!(!is_resource_name(rejected), "{rejected:?} must be rejected");
+    }
+}

@@ -3,6 +3,7 @@ use pipedash_plugin_api::SignInToken;
 use super::*;
 use crate::application::test_support::plugins::{
     self,
+    STUB,
     STUB_DRAFT,
 };
 use crate::application::test_support::Harness;
@@ -400,7 +401,8 @@ async fn saving_a_new_draft_extracts_the_token_and_encodes_the_selection() {
         saved.config,
         map(&[
             ("deck_url", "https://deck.example"),
-            ("selected_items", "a,b")
+            ("selected_items", "a,b"),
+            ("auth_mode", "token")
         ])
     );
 }
@@ -496,7 +498,11 @@ fn token_mode_extracts_the_token_and_drops_other_credentials() {
     assert_eq!(config.token, "abc");
     assert_eq!(
         config.config,
-        map(&[("deck_url", "https://d"), ("auth_scheme", "basic")])
+        map(&[
+            ("deck_url", "https://d"),
+            ("auth_scheme", "basic"),
+            ("auth_mode", "token")
+        ])
     );
     assert_eq!(
         (config.refresh_interval, config.version, config.id),
@@ -525,7 +531,8 @@ fn sign_in_mode_drops_the_token_and_keeps_the_sign_in_reference() {
         map(&[
             ("sign_in", "provider:3"),
             ("deck_url", "https://d"),
-            ("sso_issuer", "i")
+            ("sso_issuer", "i"),
+            ("auth_mode", "sign_in")
         ])
     );
 }
@@ -554,6 +561,75 @@ fn none_mode_keeps_unscoped_fields_and_tracks_auth_mode() {
 }
 
 #[test]
+fn kubeconfig_mode_keeps_the_pasted_secret_and_tracks_auth_mode() {
+    let config = config_of(
+        &draft(
+            AuthMode::Kubeconfig,
+            &[
+                ("token", "apiVersion: v1"),
+                ("sign_in", "provider:1"),
+                ("deck_url", "https://d"),
+                ("auth_scheme", "basic"),
+            ],
+        ),
+        None,
+    );
+
+    assert_eq!(config.token, "apiVersion: v1");
+    assert_eq!(
+        config.config,
+        map(&[("deck_url", "https://d"), ("auth_mode", "kubeconfig")])
+    );
+}
+
+#[tokio::test]
+async fn a_mode_the_provider_does_not_offer_is_rejected() {
+    let h = Harness::new().await;
+    let mut unoffered = draft(AuthMode::Kubeconfig, &[]);
+    unoffered.provider_type = STUB.to_string();
+
+    let result = validate(&h, &unoffered).await;
+    assert_eq!(
+        result.errors.keys().collect::<Vec<_>>(),
+        ["auth_mode"],
+        "{:?}",
+        result.errors
+    );
+    assert!(matches!(
+        h.provider_service.save_draft(unoffered).await,
+        Err(DomainError::InvalidConfig(_))
+    ));
+    assert!(h.repository.list_providers().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn editing_reports_the_mode_a_saved_provider_uses() {
+    let h = Harness::new().await;
+    let saved = [
+        (vec![], "token"),
+        (vec![("auth_mode", "retired")], "token"),
+        (vec![("auth_mode", "none")], "none"),
+        (vec![("auth_mode", "kubeconfig")], "kubeconfig"),
+    ];
+    for (values, expected) in saved {
+        let mut config = stored(&values);
+        config.name = format!("Stub {values:?}");
+        let id = h.repository.add_provider(&config).await.unwrap();
+        let editing = h.provider_service.provider_for_editing(id).await.unwrap();
+
+        assert_eq!(editing.config["auth_mode"], expected, "{values:?}");
+    }
+
+    let signed_in = signed_in_provider(&h).await;
+    let editing = h
+        .provider_service
+        .provider_for_editing(signed_in)
+        .await
+        .unwrap();
+    assert_eq!(editing.config["auth_mode"], "sign_in");
+}
+
+#[test]
 fn selected_items_encoding_follows_the_draft_selection() {
     let mut selected = draft(AuthMode::Token, &[("selected_items", "stale")]);
     selected.selected_pipeline_ids =
@@ -579,7 +655,11 @@ fn changing_the_kubeconfig_clears_its_previous_context() {
 
     assert_eq!(
         config.config,
-        map(&[("kubeconfig", "/new/config"), ("context", "")])
+        map(&[
+            ("kubeconfig", "/new/config"),
+            ("context", ""),
+            ("auth_mode", "token")
+        ])
     );
     assert_eq!(
         (config.id, config.refresh_interval, config.version),

@@ -205,7 +205,7 @@ fn updates_of(stack_id: &str) -> Vec<Value> {
         "id-running" => (0..RUNNING_UPDATES)
             .map(|i| stack_update(stack_id, i, RUNNING_START - i as i64 * 1_000))
             .collect(),
-        "id-down" => vec![stack_update(stack_id, 0, DOWN_START)],
+        "id-down" | "id-gone" => vec![stack_update(stack_id, 0, DOWN_START)],
         _ => QUIET_STACKS
             .iter()
             .position(|quiet| *quiet == stack_id)
@@ -286,6 +286,15 @@ fn reply(request: &Recorded) -> (u16, Value) {
                 ("u-down", _) => (503, json!({"error": "database is down", "trace": []})),
                 ("u-busy", _) => (500, json!({"error": BUSY_CORE, "trace": []})),
                 (_, Some(index)) if index < UPDATE_COUNT => (200, full_update(index)),
+                _ if id.starts_with("id-") => (
+                    200,
+                    json!({
+                        "_id": {"$oid": id}, "operation": "DeployStack", "start_ts": 0,
+                        "success": true, "operator": "usr1",
+                        "target": {"type": "Stack", "id": "id"}, "logs": [],
+                        "end_ts": 1, "status": "Complete", "commit_hash": ""
+                    }),
+                ),
                 _ => (404, json!({"error": "update not found", "trace": []})),
             }
         }
@@ -699,10 +708,11 @@ async fn run_details_resolve_a_run_number_to_one_update() {
     assert_eq!(details.commit_sha.as_deref(), Some("abc1234"));
     assert_eq!(details.logs_url, format!("{server_url}/updates/u004"));
     let lookups = bodies(&requests, "ListUpdates").await;
-    assert_eq!(
-        lookups.last().unwrap()["params"]["query"],
-        json!({"target.type": "Stack", "target.id": "stk1", "start_ts": listed.run_number})
-    );
+    let by_start =
+        json!({"target.type": "Stack", "target.id": "stk1", "start_ts": listed.run_number});
+    assert!(lookups
+        .iter()
+        .any(|lookup| lookup["params"]["query"] == by_start));
     assert_eq!(
         bodies(&requests, "GetUpdate").await,
         [json!({"type": "GetUpdate", "params": {"id": "u004"}})]
@@ -715,6 +725,30 @@ async fn run_details_resolve_a_run_number_to_one_update() {
     assert_eq!(running.status, PipelineStatus::Running);
     assert_eq!(running.concluded_at, None);
     assert_eq!(running.duration_seconds, None);
+}
+
+#[tokio::test]
+async fn the_newest_successful_update_is_degraded_while_the_stack_is_not_up() {
+    let (plugin, _, _) = stub_plugin(&[]).await;
+    let statuses = |runs: Vec<PipelineRun>| runs.iter().map(|run| run.status).collect::<Vec<_>>();
+
+    let dead = plugin.fetch_run_history("id-dead", 2).await.unwrap();
+    let newest = plugin.fetch_run_details("id-dead", BUSY_START).await;
+    let older = plugin
+        .fetch_run_details("id-dead", BUSY_START - 1_000)
+        .await;
+    let running = plugin.fetch_run_history("id-running", 2).await.unwrap();
+
+    assert_eq!(
+        statuses(dead),
+        [PipelineStatus::Degraded, PipelineStatus::Success]
+    );
+    assert_eq!(newest.unwrap().status, PipelineStatus::Degraded);
+    assert_eq!(older.unwrap().status, PipelineStatus::Success);
+    assert_eq!(
+        statuses(running),
+        [PipelineStatus::Success, PipelineStatus::Success]
+    );
 }
 
 #[tokio::test]
@@ -1476,4 +1510,19 @@ fn configured_repositories_should_be_empty() {
     assert!(KomodoPlugin::new()
         .configured_repositories(&config)
         .is_empty());
+}
+
+#[tokio::test]
+async fn a_stack_that_is_no_longer_listed_is_not_reported_as_healthy() {
+    let (plugin, _, _) = stub_plugin(&[]).await;
+
+    let history = plugin.fetch_run_history("id-gone", 2).await;
+    let details = plugin.fetch_run_details("id-gone", DOWN_START).await;
+
+    for missing in [history.map(drop), details.map(drop)] {
+        assert!(
+            matches!(missing, Err(PluginError::PipelineNotFound(_))),
+            "{missing:?}"
+        );
+    }
 }

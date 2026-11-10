@@ -145,6 +145,9 @@ pub(crate) fn operation_status(phase: &str) -> PipelineStatus {
 }
 
 pub(crate) fn app_url(server_url: &str, app_name: &str) -> String {
+    if server_url.is_empty() {
+        return String::new();
+    }
     format!(
         "{}/applications/{}",
         server_url.trim_end_matches('/'),

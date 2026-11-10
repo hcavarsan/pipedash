@@ -13,6 +13,7 @@ use pipedash_plugin_api::support::{
     try_buffered,
     CONCURRENCY,
 };
+use pipedash_plugin_api::utils::deployed_status;
 use pipedash_plugin_api::*;
 use tracing::{
     debug,
@@ -38,6 +39,20 @@ plugin_struct!(
     metadata::create_metadata();
     server_url: String = String::new()
 );
+
+impl CoolifyPlugin {
+    async fn live_status(&self, app_uuid: &str) -> PluginResult<PipelineStatus> {
+        let applications = self.client()?.applications().await?;
+        let app = applications
+            .iter()
+            .find(|app| app.uuid == app_uuid)
+            .ok_or_else(|| {
+                PluginError::PipelineNotFound(format!("Application {app_uuid} not found"))
+            })?;
+
+        Ok(mapper::map_app_state(&app.status).0)
+    }
+}
 
 plugin_impl!(CoolifyPlugin [
     metadata,
@@ -138,19 +153,30 @@ plugin_impl!(CoolifyPlugin [
         let app_uuid = config::parse_pipeline_id(pipeline_id)?;
         let deployments = self.client()?.recent_deployments(app_uuid, limit).await?;
 
-        Ok(deployments
+        let mut runs: Vec<PipelineRun> = deployments
             .iter()
             .map(|deployment| mapper::map_run(pipeline_id, &self.server_url, deployment))
-            .collect())
+            .collect();
+        let latest = runs.iter_mut().max_by_key(|run| run.run_number);
+        if let Some(latest) = latest.filter(|run| run.status == PipelineStatus::Success) {
+            latest.status = deployed_status(latest.status, self.live_status(app_uuid).await?);
+        }
+
+        Ok(runs)
     }
 
     async fn fetch_run_details(
         &self, pipeline_id: &str, run_number: i64,
     ) -> PluginResult<PipelineRun> {
         let app_uuid = config::parse_pipeline_id(pipeline_id)?;
-        let deployment = self.client()?.find_deployment(app_uuid, run_number).await?;
+        let client = self.client()?;
+        let (deployment, newest) = client.find_deployment(app_uuid, run_number).await?;
+        let mut run = mapper::map_run(pipeline_id, &self.server_url, &deployment);
+        if newest && run.status == PipelineStatus::Success {
+            run.status = deployed_status(run.status, self.live_status(app_uuid).await?);
+        }
 
-        Ok(mapper::map_run(pipeline_id, &self.server_url, &deployment))
+        Ok(run)
     }
 
     fn log_dialect(&self) -> &'static dyn LogDialect {
@@ -204,7 +230,7 @@ plugin_impl!(CoolifyPlugin [
     async fn cancel_run(&self, pipeline_id: &str, run_number: i64) -> PluginResult<()> {
         let app_uuid = config::parse_pipeline_id(pipeline_id)?;
         let client = self.client()?;
-        let deployment = client.find_deployment(app_uuid, run_number).await?;
+        let (deployment, _) = client.find_deployment(app_uuid, run_number).await?;
         client.cancel(&deployment.deployment_uuid).await?;
         info!(app_uuid, run_number, "Cancelled Coolify deployment");
         Ok(())

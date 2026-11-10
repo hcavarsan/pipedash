@@ -1,4 +1,6 @@
+mod backend;
 mod client;
+mod cluster;
 mod config;
 mod logs;
 mod mapper;

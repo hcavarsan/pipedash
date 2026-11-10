@@ -109,13 +109,15 @@ impl CoolifyClient {
         Ok(out)
     }
 
-    pub async fn find_deployment(&self, app_uuid: &str, id: i64) -> PluginResult<Deployment> {
+    pub async fn find_deployment(
+        &self, app_uuid: &str, id: i64,
+    ) -> PluginResult<(Deployment, bool)> {
         let mut skip = 0;
         loop {
-            let page = self.deployments(app_uuid, skip, HISTORY_PAGE_SIZE).await?;
+            let mut page = self.deployments(app_uuid, skip, HISTORY_PAGE_SIZE).await?;
             let last_page = page.len() < HISTORY_PAGE_SIZE || page.iter().any(|item| item.id < id);
-            if let Some(found) = page.into_iter().find(|item| item.id == id) {
-                return Ok(found);
+            if let Some(position) = page.iter().position(|item| item.id == id) {
+                return Ok((page.swap_remove(position), skip == 0 && position == 0));
             }
             if last_page {
                 break;

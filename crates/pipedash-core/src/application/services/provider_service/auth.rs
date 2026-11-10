@@ -2,6 +2,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::Utc;
+use pipedash_plugin_api::{
+    AuthMode,
+    ConfigSchema,
+    AUTH_MODE_KEY,
+};
 use tokio::sync::Mutex;
 
 use super::plugin::build_plugin;
@@ -27,6 +32,19 @@ pub(super) enum TakenSignIn {
     None,
     Flow(String),
     Kept,
+}
+
+fn editing_mode(schema: &ConfigSchema, config: &HashMap<String, String>) -> AuthMode {
+    if let Some(stored) = AuthMode::from_config(config).filter(|mode| schema.allows(*mode)) {
+        return stored;
+    }
+    if config.contains_key(SIGN_IN_CONFIG_KEY) {
+        return AuthMode::SignIn;
+    }
+    if schema.allows(AuthMode::Token) {
+        return AuthMode::Token;
+    }
+    schema.default_mode()
 }
 
 impl ProviderService {
@@ -125,6 +143,17 @@ impl ProviderService {
                 SIGN_IN_CONFIG_KEY.to_string(),
                 SignInRef::Provider(id).to_string(),
             );
+        }
+        let schema = self
+            .plugin_registry
+            .get(&config.provider_type)
+            .map(|plugin| &plugin.metadata().config_schema)
+            .filter(|schema| !schema.auth_options.is_empty());
+        if let Some(schema) = schema {
+            let mode = editing_mode(schema, &config.config);
+            config
+                .config
+                .insert(AUTH_MODE_KEY.to_string(), mode.as_str().to_string());
         }
         Ok(config)
     }

@@ -51,6 +51,7 @@ pub struct OidcConfig {
 pub struct Application {
     pub metadata: ApplicationMetadata,
     pub spec: ApplicationSpec,
+    #[serde(default)]
     pub status: ApplicationStatus,
 }
 
@@ -141,18 +142,19 @@ pub struct AutomatedSyncPolicy {
     pub self_heal: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ApplicationStatus {
     pub sync: SyncStatus,
     pub health: HealthStatus,
     #[serde(rename = "operationState")]
     pub operation_state: Option<OperationState>,
     pub history: Option<Vec<RevisionHistory>>,
-    #[serde(default)]
     pub resources: Vec<ResourceStatus>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SyncStatus {
     pub status: String,
     pub revision: Option<String>,
@@ -166,7 +168,7 @@ pub struct ComparedTo {
     pub destination: ApplicationDestination,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HealthStatus {
     #[serde(default)]
     pub status: String,

@@ -1,7 +1,4 @@
-use std::collections::{
-    BTreeMap,
-    HashMap,
-};
+use std::collections::HashMap;
 
 use serde::{
     Deserialize,
@@ -39,6 +36,8 @@ pub struct ConfigField {
     pub validation_regex: Option<String>,
     pub validation_message: Option<String>,
     pub section: ConfigSection,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub auth_modes: Vec<AuthMode>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,31 +46,57 @@ pub enum AuthMode {
     None,
     Token,
     SignIn,
+    Kubeconfig,
 }
 
 pub const AUTH_MODE_KEY: &str = "auth_mode";
 
+impl AuthMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Token => "token",
+            Self::SignIn => "sign_in",
+            Self::Kubeconfig => "kubeconfig",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        [Self::None, Self::Token, Self::SignIn, Self::Kubeconfig]
+            .into_iter()
+            .find(|mode| mode.as_str() == value.trim())
+    }
+
+    pub fn from_config(config: &HashMap<String, String>) -> Option<Self> {
+        config
+            .get(AUTH_MODE_KEY)
+            .and_then(|value| Self::parse(value))
+    }
+}
+
 pub fn is_no_auth(config: &HashMap<String, String>) -> bool {
-    config
-        .get(AUTH_MODE_KEY)
-        .is_some_and(|mode| mode.trim() == "none")
+    AuthMode::from_config(config) == Some(AuthMode::None)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthOption {
+    pub mode: AuthMode,
+    pub label: String,
+    pub description: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigSchema {
     pub fields: Vec<ConfigField>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub auth_modes: BTreeMap<String, Vec<AuthMode>>,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub no_auth: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub auth_options: Vec<AuthOption>,
 }
 
 impl ConfigSchema {
     pub fn new() -> Self {
         Self {
             fields: Vec::new(),
-            auth_modes: BTreeMap::new(),
-            no_auth: false,
+            auth_options: Vec::new(),
         }
     }
 
@@ -80,15 +105,34 @@ impl ConfigSchema {
         self
     }
 
-    pub fn add_auth_field(mut self, modes: &[AuthMode], field: ConfigField) -> Self {
-        self.auth_modes.insert(field.key.clone(), modes.to_vec());
+    pub fn add_auth_field(mut self, modes: &[AuthMode], mut field: ConfigField) -> Self {
+        field.auth_modes = modes.to_vec();
         self.fields.push(field);
         self
     }
 
-    pub fn allow_no_auth(mut self) -> Self {
-        self.no_auth = true;
+    pub fn auth_option(mut self, option: AuthOption) -> Self {
+        self.auth_options.push(option);
         self
+    }
+
+    pub fn default_mode(&self) -> AuthMode {
+        self.auth_options
+            .first()
+            .map_or(AuthMode::Token, |option| option.mode)
+    }
+
+    pub fn allows(&self, mode: AuthMode) -> bool {
+        if self.auth_options.is_empty() {
+            return mode == AuthMode::Token;
+        }
+        self.auth_options.iter().any(|option| option.mode == mode)
+    }
+
+    pub fn active_fields(&self, mode: AuthMode) -> impl Iterator<Item = &ConfigField> {
+        self.fields
+            .iter()
+            .filter(move |field| field.auth_modes.is_empty() || field.auth_modes.contains(&mode))
     }
 }
 

@@ -216,7 +216,7 @@ fn kustomization_history_keeps_native_times_durations_and_labels() {
         )],
     );
 
-    let runs = build_runs(&resource).unwrap();
+    let runs = build_runs(&resource, &[]).unwrap();
 
     assert_eq!(runs.len(), 2);
     assert_eq!(runs[0].status, PipelineStatus::Success);
@@ -259,7 +259,7 @@ fn current_snapshot_is_added_only_when_history_does_not_cover_it() {
         )],
     );
 
-    let runs = build_runs(&failing).unwrap();
+    let runs = build_runs(&failing, &[]).unwrap();
 
     assert_eq!(runs.len(), 2);
     assert_eq!(runs[0].metadata["record_source"], json!("current_snapshot"));
@@ -281,6 +281,43 @@ fn current_snapshot_is_added_only_when_history_does_not_cover_it() {
 }
 
 #[test]
+fn unhealthy_workloads_degrade_the_current_state_and_leave_the_record_archivable() {
+    let resource = kustomization_with_history(
+        json!([entry(
+            "sha256:a",
+            "2026-10-20T10:00:00Z",
+            "2026-10-21T12:00:45Z",
+            "45s",
+            "ReconciliationSucceeded"
+        )]),
+        vec![cond(
+            "Ready",
+            "True",
+            "ReconciliationSucceeded",
+            2,
+            "2026-10-20T10:00:10Z",
+        )],
+    );
+    let issues = ["Deployment ci/web: 0/1 ready".to_string()];
+
+    let healthy = build_runs(&resource, &[]).unwrap();
+    let runs = build_runs(&resource, &issues).unwrap();
+    let pipeline = map_pipeline(&resource, &issues);
+    let archivable = |run: &PipelineRun| {
+        crate::history::can_archive_run(&pipeline.metadata, &run.metadata, run.status)
+    };
+
+    assert_eq!(healthy.len(), 1);
+    assert_eq!(runs.len(), 2);
+    assert_eq!(runs[0].status, PipelineStatus::Degraded);
+    assert_eq!(runs[0].metadata["message"], json!(issues[0]));
+    assert!(!archivable(&runs[0]));
+    assert_eq!(runs[1].status, PipelineStatus::Success);
+    assert_eq!(runs[1].run_number, healthy[0].run_number);
+    assert!(archivable(&runs[1]));
+}
+
+#[test]
 fn snapshot_number_ignores_condition_message_and_transition_churn() {
     let first = kustomization(json!({
         "observedGeneration": 2,
@@ -295,8 +332,8 @@ fn snapshot_number_ignores_condition_message_and_transition_churn() {
         }],
     }));
 
-    let before = build_runs(&first).unwrap();
-    let after = build_runs(&retried).unwrap();
+    let before = build_runs(&first, &[]).unwrap();
+    let after = build_runs(&retried, &[]).unwrap();
 
     assert_eq!(before.len(), 1);
     assert_eq!(before[0].run_number, after[0].run_number);
@@ -325,9 +362,12 @@ fn same_second_records_keep_their_identity_when_a_tied_record_is_evicted() {
     );
     let ready = vec![cond("Ready", "True", "ReconciliationSucceeded", 2, CREATED)];
 
-    let forward = build_runs(&kustomization_with_history(json!([a, b]), ready.clone())).unwrap();
-    let reverse = build_runs(&kustomization_with_history(json!([b, a]), ready.clone())).unwrap();
-    let evicted = build_runs(&kustomization_with_history(json!([b]), ready)).unwrap();
+    let build = |history: Value| {
+        build_runs(&kustomization_with_history(history, ready.clone()), &[]).unwrap()
+    };
+    let forward = build(json!([a, b]));
+    let reverse = build(json!([b, a]));
+    let evicted = build(json!([b]));
 
     assert_ne!(
         number_of(&forward, "sha256:a"),
@@ -368,7 +408,11 @@ fn history_lists_the_latest_reconciliation_first_without_changing_identities() {
         "ReconciliationSucceeded",
     );
     let build = |history: Vec<Value>| {
-        build_runs(&kustomization_with_history(json!(history), ready.clone())).unwrap()
+        build_runs(
+            &kustomization_with_history(json!(history), ready.clone()),
+            &[],
+        )
+        .unwrap()
     };
 
     let before = build(vec![reconciled("2026-10-14T10:00:10Z"), middle.clone()]);
@@ -407,8 +451,11 @@ fn records_observed_at_the_same_time_order_by_identity_in_any_input_order() {
     };
     let (a, b) = (record("sha256:a"), record("sha256:b"));
 
-    let forward = build_runs(&kustomization_with_history(json!([a, b]), ready.clone())).unwrap();
-    let reverse = build_runs(&kustomization_with_history(json!([b, a]), ready)).unwrap();
+    let build = |history: Value| {
+        build_runs(&kustomization_with_history(history, ready.clone()), &[]).unwrap()
+    };
+    let forward = build(json!([a, b]));
+    let reverse = build(json!([b, a]));
 
     assert_eq!(forward[0].started_at, forward[1].started_at);
     assert!(forward[0].run_number > forward[1].run_number);
@@ -429,7 +476,7 @@ fn indistinguishable_history_records_are_an_error_not_an_alias() {
         vec![cond("Ready", "True", "ReconciliationSucceeded", 2, CREATED)],
     );
 
-    let error = build_runs(&resource).unwrap_err();
+    let error = build_runs(&resource, &[]).unwrap_err();
 
     assert!(
         matches!(&error, PluginError::SerializationError(message) if message.contains("Kustomization ci/app")),
@@ -451,8 +498,11 @@ fn repeated_reconciliations_update_the_same_record_instead_of_creating_a_new_one
     later["lastReconciled"] = json!("2026-10-22T10:00:10Z");
     later["totalReconciliations"] = json!(9);
 
-    let before = build_runs(&kustomization_with_history(json!([earlier]), ready.clone())).unwrap();
-    let after = build_runs(&kustomization_with_history(json!([later]), ready)).unwrap();
+    let build = |history: Value| {
+        build_runs(&kustomization_with_history(history, ready.clone()), &[]).unwrap()
+    };
+    let before = build(json!([earlier]));
+    let after = build(json!([later]));
 
     assert_eq!(before[0].id, after[0].id);
     assert_eq!(after[0].metadata["total_reconciliations"], json!(9));
@@ -477,7 +527,7 @@ fn helm_history_exposes_release_versions_and_deploy_times() {
         }),
     );
 
-    let runs = build_runs(&resource).unwrap();
+    let runs = build_runs(&resource, &[]).unwrap();
 
     assert_eq!(runs.len(), 2);
     assert_eq!(runs[0].metadata["release_version"], json!(2));
@@ -592,7 +642,7 @@ fn workload_issues_degrade_only_a_ready_resource_and_summarize_extras() {
 
 #[test]
 fn snapshot_run_keeps_label_and_message_in_run_metadata() {
-    let runs = build_runs(&ready("False")).unwrap();
+    let runs = build_runs(&ready("False"), &[]).unwrap();
 
     assert_eq!(runs.len(), 1);
     assert_eq!(runs[0].metadata["status_label"], json!("Not ready"));
@@ -616,7 +666,7 @@ fn run_numbers_stay_within_javascript_safe_integers() {
         vec![cond("Ready", "False", "BuildFailed", 2, CREATED)],
     );
 
-    let runs = build_runs(&resource).unwrap();
+    let runs = build_runs(&resource, &[]).unwrap();
 
     assert!(runs.iter().all(|run| run.run_number < (1 << 53)));
 }

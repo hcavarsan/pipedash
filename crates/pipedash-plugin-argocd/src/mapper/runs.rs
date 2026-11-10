@@ -80,6 +80,20 @@ pub(crate) fn map_history_to_run(
     }
 }
 
+fn latest_run_number(app: &types::Application) -> Option<i64> {
+    let operation = app.status.operation_state.as_ref();
+    operation
+        .map(|operation| operation.started_at.timestamp())
+        .or_else(|| {
+            let history = app.status.history.iter().flatten();
+            history.map(|entry| entry.deployed_at.timestamp()).max()
+        })
+}
+
+pub(crate) fn follows_live_state(app: &types::Application, run: &PipelineRun) -> bool {
+    run.status == PipelineStatus::Success && latest_run_number(app) == Some(run.run_number)
+}
+
 pub(crate) fn map_runs(
     app: &types::Application, server_url: &str, limit: usize,
 ) -> Vec<PipelineRun> {

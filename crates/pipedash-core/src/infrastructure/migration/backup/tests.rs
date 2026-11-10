@@ -9,6 +9,7 @@ use super::{
     BackupPaths,
 };
 use crate::infrastructure::config::PipedashConfig;
+use crate::test_env::EnvGuard;
 
 async fn check_wal_backup(target: bool) {
     let dir = tempfile::tempdir().unwrap();
@@ -202,7 +203,7 @@ async fn restore_drops_committed_target_writes_after_postgres_source() {
 async fn restore_keeps_sqlite_file_after_postgres_backup() {
     let dir = tempfile::tempdir().unwrap();
     let config_path = dir.path().join("config.toml");
-    std::env::set_var("PIPEDASH_CONFIG_PATH", &config_path);
+    let _env = EnvGuard::set(&[("PIPEDASH_CONFIG_PATH", config_path.to_str())]);
     tokio::fs::write(&config_path, "[storage]\nbackend = \"postgres\"\n")
         .await
         .unwrap();

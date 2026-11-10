@@ -134,7 +134,7 @@ fn deployments_of(app: &str) -> Option<Vec<Value>> {
                 })
                 .collect(),
         ),
-        "app-api" => Some(
+        "app-api" | "app-gone" => Some(
             (API_OLDEST..=API_NEWEST)
                 .rev()
                 .map(|id| deployment(app, id, "finished"))
@@ -488,6 +488,26 @@ async fn run_history_pages_until_the_limit_or_a_short_page() {
 }
 
 #[tokio::test]
+async fn the_newest_finished_deployment_is_degraded_while_the_application_is_unhealthy() {
+    let stub = stub(&[]).await;
+
+    let runs = stub.plugin.fetch_run_history("app-api", 2).await.unwrap();
+    let newest = stub.plugin.fetch_run_details("app-api", API_NEWEST).await;
+    let older = stub
+        .plugin
+        .fetch_run_details("app-api", API_NEWEST - 1)
+        .await;
+
+    let statuses: Vec<_> = runs.iter().map(|run| run.status).collect();
+    assert_eq!(
+        statuses,
+        [PipelineStatus::Degraded, PipelineStatus::Success]
+    );
+    assert_eq!(newest.unwrap().status, PipelineStatus::Degraded);
+    assert_eq!(older.unwrap().status, PipelineStatus::Success);
+}
+
+#[tokio::test]
 async fn run_details_page_until_the_id_and_stop_once_ids_are_older() {
     let stub = stub(&[]).await;
 
@@ -754,4 +774,19 @@ fn configured_repositories_should_be_empty() {
     assert!(CoolifyPlugin::new()
         .configured_repositories(&config)
         .is_empty());
+}
+
+#[tokio::test]
+async fn an_application_that_is_no_longer_listed_is_not_reported_as_healthy() {
+    let stub = stub(&[]).await;
+
+    let history = stub.plugin.fetch_run_history("app-gone", 2).await;
+    let details = stub.plugin.fetch_run_details("app-gone", API_NEWEST).await;
+
+    for missing in [history.map(drop), details.map(drop)] {
+        assert!(
+            matches!(missing, Err(PluginError::PipelineNotFound(_))),
+            "{missing:?}"
+        );
+    }
 }

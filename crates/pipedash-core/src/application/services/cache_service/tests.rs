@@ -8,8 +8,11 @@ use crate::infrastructure::{
     PipedashConfig,
     StorageManager,
 };
+use crate::test_env::EnvGuard;
 
 async fn context(dir: &std::path::Path) -> CoreContext {
+    let config_path = dir.join("config.toml");
+    let _env = EnvGuard::set(&[("PIPEDASH_CONFIG_PATH", config_path.to_str())]);
     let mut config = PipedashConfig::default();
     config.storage.data_dir = dir.display().to_string();
     config.general.metrics_enabled = false;
@@ -50,6 +53,18 @@ async fn clearing_all_caches_keeps_the_stats_empty() {
     core.clear_all_caches().await.unwrap();
 
     assert_eq!(core.cache_stats().await.unwrap().run_logs_bytes, 0);
+    core.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_core_under_test_keeps_its_config_in_its_own_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = context(dir.path()).await;
+
+    assert_eq!(
+        core.config_state.config_path(),
+        &dir.path().join("config.toml")
+    );
     core.shutdown().await;
 }
 

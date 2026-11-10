@@ -3,13 +3,21 @@ use std::collections::HashMap;
 use pipedash_plugin_api::config::{
     csv_list,
     required_base_url,
+    value,
     PIPELINE_ID_SEPARATOR,
+};
+use pipedash_plugin_api::kubernetes::{
+    self,
+    KubeconfigSource,
 };
 use pipedash_plugin_api::utils::repository_name;
 use pipedash_plugin_api::{
+    AuthMode,
     PluginError,
     PluginResult,
 };
+
+pub(crate) const KUBECONFIG_PATH_KEY: &str = "kubeconfig";
 
 pub(crate) fn parse_pipeline_id(id: &str) -> PluginResult<(String, String)> {
     let (namespace, app_name) = id
@@ -33,6 +41,36 @@ pub(crate) fn parse_organizations_filter(config: &HashMap<String, String>) -> Op
 
 pub(crate) fn build_pipeline_id(namespace: &str, app_name: &str) -> String {
     format!("{namespace}__{app_name}")
+}
+
+pub(crate) fn uses_kubeconfig(config: &HashMap<String, String>) -> bool {
+    AuthMode::from_config(config) == Some(AuthMode::Kubeconfig)
+}
+
+pub(crate) struct ClusterSettings {
+    pub source: KubeconfigSource,
+    pub context: Option<String>,
+    pub namespaces: Vec<String>,
+}
+
+impl ClusterSettings {
+    pub fn from_config(config: &HashMap<String, String>) -> PluginResult<Self> {
+        let namespaces = csv_list(config, "namespaces").unwrap_or_default();
+        if let Some(invalid) = namespaces
+            .iter()
+            .find(|namespace| !kubernetes::is_namespace(namespace))
+        {
+            return Err(PluginError::InvalidConfig(format!(
+                "Invalid namespace '{invalid}' in 'namespaces': expected comma-separated Kubernetes namespace names"
+            )));
+        }
+
+        Ok(Self {
+            source: KubeconfigSource::from_config(config, KUBECONFIG_PATH_KEY),
+            context: value(config, "context").map(str::to_string),
+            namespaces,
+        })
+    }
 }
 
 pub(crate) fn extract_git_org(repo_url: &str) -> String {

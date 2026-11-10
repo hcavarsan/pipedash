@@ -55,17 +55,6 @@ fn every_plugin_ships_self_contained_metadata() {
         let icon = metadata.icon.as_deref().unwrap_or_default();
         assert!(icon.starts_with("data:image/svg+xml,"), "{provider}");
         assert!(!metadata.table_schema.tables.is_empty(), "{provider}");
-        let keys: BTreeSet<_> = metadata
-            .config_schema
-            .fields
-            .iter()
-            .map(|field| &field.key)
-            .collect();
-        assert_eq!(
-            keys.len(),
-            metadata.config_schema.fields.len(),
-            "{provider}"
-        );
         let terminology = &metadata.presentation.terminology;
         assert!(
             !terminology.item.is_empty() && !terminology.run.is_empty(),

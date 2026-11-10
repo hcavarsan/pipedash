@@ -36,7 +36,7 @@ export function ProviderStep({
 }: ProviderStepProps): ReactNode {
   useFormEnterNavigation(formRef)
   const mobileShell = useMobileShell()
-  const { selectedPlugin, providerName, configValues, fieldErrors } = state
+  const { selectedPlugin, providerName, authMode, configValues, fieldErrors } = state
   const pickedProvider = useRef(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const { fields, lastTextKey, fieldStateFor, handleConfigChange, handleConfigBlur, handleNameChange, handleNameBlur } =
@@ -47,6 +47,7 @@ export function ProviderStep({
       dispatch,
       validateKey,
       step: 'provider',
+      authMode,
     })
   const advancedShown = advancedOpen || fields.some((field) => fieldErrors[field.key])
 

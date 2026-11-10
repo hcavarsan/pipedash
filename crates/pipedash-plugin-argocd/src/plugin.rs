@@ -5,6 +5,10 @@ use pipedash_plugin_api::config::{
     insecure,
     selected_items,
 };
+use pipedash_plugin_api::kubernetes::{
+    self,
+    KubeconfigSource,
+};
 use pipedash_plugin_api::logs::tagged::{
     TaggedLogDialect,
     TAGGED_MARKERS,
@@ -13,6 +17,7 @@ use pipedash_plugin_api::support::{
     client_options,
     join_buffered,
 };
+use pipedash_plugin_api::utils::deployed_status;
 use pipedash_plugin_api::*;
 use tracing::{
     debug,
@@ -20,6 +25,8 @@ use tracing::{
     warn,
 };
 
+use crate::backend::Backend;
+use crate::cluster::ClusterClient;
 use crate::{
     client,
     config,
@@ -38,7 +45,7 @@ const RESOURCE_TREE_CONCURRENCY: usize = 8;
 
 plugin_struct!(
     ArgocdPlugin,
-    client::ArgocdClient,
+    Backend,
     metadata::create_metadata();
     server_url: Option<String> = None,
     status_source: Option<StatusSource> = None,
@@ -46,27 +53,65 @@ plugin_struct!(
 );
 
 impl ArgocdPlugin {
-    fn get_server_url(&self) -> PluginResult<&str> {
-        self.server_url
-            .as_deref()
-            .ok_or_else(|| PluginError::Internal("Server URL not set".to_string()))
+    fn get_server_url(&self) -> &str {
+        self.server_url.as_deref().unwrap_or_default()
     }
 
-    async fn pipeline_with_live_state(
-        client: &client::ArgocdClient, app: &types::Application, server_url: &str,
-    ) -> Pipeline {
+    async fn live_state(
+        backend: &Backend, app: &types::Application, server_url: &str,
+    ) -> (Pipeline, PluginResult<()>) {
         let mut pipeline = mapper::map_application_to_pipeline(app, server_url);
-        if mapper::needs_resource_tree(app) {
-            match client.resource_tree(&app.metadata.name).await {
-                Ok(tree) => mapper::degrade_from_tree(&mut pipeline, &tree),
-                Err(error) => warn!(
-                    app = %app.metadata.name,
-                    %error,
-                    "Resource tree unavailable, keeping provider-reported state"
-                ),
-            }
+        if !mapper::needs_resource_tree(app) {
+            return (pipeline, Ok(()));
         }
-        pipeline
+        let checked = backend
+            .health_tree(app)
+            .await
+            .map(|tree| mapper::degrade_from_tree(&mut pipeline, &tree));
+
+        (pipeline, checked)
+    }
+
+    async fn listed_pipeline(
+        backend: &Backend, app: &types::Application, server_url: &str,
+    ) -> PluginResult<Pipeline> {
+        let (pipeline, checked) = Self::live_state(backend, app, server_url).await;
+        match checked {
+            Err(error @ PluginError::RateLimited { .. }) => return Err(error),
+            Err(error) => warn!(
+                app = %app.metadata.name,
+                %error,
+                "Resource tree unavailable, keeping provider-reported state"
+            ),
+            Ok(()) => {}
+        }
+
+        Ok(pipeline)
+    }
+
+    async fn reflect_live_state(
+        backend: &Backend, app: &types::Application, server_url: &str, run: &mut PipelineRun,
+    ) -> PluginResult<()> {
+        if !mapper::runs::follows_live_state(app, run) {
+            return Ok(());
+        }
+        let (pipeline, checked) = Self::live_state(backend, app, server_url).await;
+        let unhealthy = matches!(
+            pipeline.status,
+            PipelineStatus::Degraded | PipelineStatus::Failed
+        );
+        match checked {
+            Err(PluginError::PermissionDenied(reason)) => warn!(
+                app = %app.metadata.name,
+                %reason,
+                "Workload health is not permitted, keeping provider-reported state"
+            ),
+            Err(error) if !unhealthy => return Err(error),
+            _ => {}
+        }
+        run.status = deployed_status(run.status, pipeline.status);
+
+        Ok(())
     }
 }
 
@@ -124,28 +169,34 @@ plugin_impl!(ArgocdPlugin [
         info!("Initializing ArgoCD plugin");
         debug!(config_keys = ?config.keys().collect::<Vec<_>>());
 
-        let server_url = config::get_server_url(&config)?;
-        debug!(server_url, "Configured server URL");
-
-        let token = credential(&config, "token")?;
-        debug!(token_length = token.len(), "Retrieved authentication token");
-
-        let insecure = insecure(&config);
-        if insecure {
-            warn!("Insecure TLS mode enabled - certificate verification disabled");
-        }
-
         let organizations_filter = config::parse_organizations_filter(&config);
         debug!(?organizations_filter, "Organizations filter configured");
 
         let status_source = custom_status_source(&config)?;
 
-        let http_client = require_client(http_client)?;
-        let client = client::ArgocdClient::new(http_client, &server_url, &token);
-        debug!("ArgoCD client created successfully");
+        let (backend, server_url) = if config::uses_kubeconfig(&config) {
+            let settings = config::ClusterSettings::from_config(&config)?;
+            debug!(namespaces = ?settings.namespaces, "Configured Kubernetes connection");
+            (Backend::Cluster(ClusterClient::new(settings)), None)
+        } else {
+            let server_url = config::get_server_url(&config)?;
+            debug!(server_url, "Configured server URL");
 
-        self.client = Some(client);
-        self.server_url = Some(server_url);
+            let token = credential(&config, "token")?;
+            debug!(token_length = token.len(), "Retrieved authentication token");
+
+            if insecure(&config) {
+                warn!("Insecure TLS mode enabled - certificate verification disabled");
+            }
+
+            let http_client = require_client(http_client)?;
+            let client = client::ArgocdClient::new(http_client, &server_url, &token);
+            debug!("ArgoCD client created successfully");
+            (Backend::Api(client), Some(server_url))
+        };
+
+        self.client = Some(backend);
+        self.server_url = server_url;
         self.status_source = status_source;
         self.organizations_filter = organizations_filter;
         self.config = config;
@@ -157,7 +208,7 @@ plugin_impl!(ArgocdPlugin [
     async fn validate_credentials(&self) -> PluginResult<bool> {
         debug!("Validating ArgoCD credentials");
         let client = self.client()?;
-        match client.list_applications(None).await {
+        match client.list_applications().await {
             Ok(apps) => {
                 info!(app_count = apps.len(), "Credentials validated successfully");
                 Ok(true)
@@ -172,10 +223,10 @@ plugin_impl!(ArgocdPlugin [
     async fn fetch_pipelines(&self) -> PluginResult<Vec<Pipeline>> {
         debug!("Fetching configured pipelines");
         let client = self.client()?;
-        let server_url = self.get_server_url()?;
+        let server_url = self.get_server_url();
         debug!(server_url, "Using configured server URL");
 
-        let mut apps = client.list_applications(None).await?;
+        let mut apps = client.list_applications().await?;
         debug!(total_apps = apps.len(), "Retrieved all applications");
 
         if let Some(orgs_filter) = &self.organizations_filter {
@@ -211,9 +262,12 @@ plugin_impl!(ArgocdPlugin [
 
         let live_states: Vec<_> = filtered_apps
             .iter()
-            .map(|app| Self::pipeline_with_live_state(client, app, server_url))
+            .map(|app| Self::listed_pipeline(client, app, server_url))
             .collect();
-        let pipelines: Vec<Pipeline> = join_buffered(live_states, RESOURCE_TREE_CONCURRENCY).await;
+        let pipelines = join_buffered(live_states, RESOURCE_TREE_CONCURRENCY)
+            .await
+            .into_iter()
+            .collect::<PluginResult<Vec<Pipeline>>>()?;
 
         debug!(
             pipeline_count = pipelines.len(),
@@ -225,43 +279,47 @@ plugin_impl!(ArgocdPlugin [
     async fn fetch_run_history(
         &self, pipeline_id: &str, limit: usize,
     ) -> PluginResult<Vec<PipelineRun>> {
-        let (_namespace, app_name) = config::parse_pipeline_id(pipeline_id)?;
+        let (namespace, app_name) = config::parse_pipeline_id(pipeline_id)?;
         let client = self.client()?;
-        let server_url = self.get_server_url()?;
+        let server_url = self.get_server_url();
 
-        let app = client.get_application(&app_name).await?;
+        let app = client.get_application(&namespace, &app_name).await?;
 
-        Ok(mapper::runs::map_runs(&app, server_url, limit))
+        let mut runs = mapper::runs::map_runs(&app, server_url, limit);
+        for run in &mut runs {
+            Self::reflect_live_state(client, &app, server_url, run).await?;
+        }
+
+        Ok(runs)
     }
 
     async fn fetch_run_details(
         &self, pipeline_id: &str, run_number: i64,
     ) -> PluginResult<PipelineRun> {
-        let (_namespace, app_name) = config::parse_pipeline_id(pipeline_id)?;
+        let (namespace, app_name) = config::parse_pipeline_id(pipeline_id)?;
         let client = self.client()?;
-        let server_url = self.get_server_url()?;
+        let server_url = self.get_server_url();
 
-        let app = client.get_application(&app_name).await?;
+        let app = client.get_application(&namespace, &app_name).await?;
 
-        if let Some(operation) = mapper::runs::map_operation_to_run(&app, server_url) {
-            if operation.run_number == run_number {
-                return Ok(operation);
-            }
-        }
+        let operation = mapper::runs::map_operation_to_run(&app, server_url)
+            .filter(|operation| operation.run_number == run_number);
+        let mut run = match operation {
+            Some(run) => run,
+            None => app
+                .status
+                .history
+                .iter()
+                .flatten()
+                .find(|entry| entry.deployed_at.timestamp() == run_number)
+                .map(|entry| mapper::runs::map_history_to_run(entry, &app, server_url))
+                .ok_or_else(|| {
+                    PluginError::PipelineNotFound(format!("Run {} not found", run_number))
+                })?,
+        };
+        Self::reflect_live_state(client, &app, server_url, &mut run).await?;
 
-        let history = app.status.history.as_deref().unwrap_or(&[]);
-        let history_item = history
-            .iter()
-            .find(|h| h.deployed_at.timestamp() == run_number)
-            .ok_or_else(|| {
-                PluginError::PipelineNotFound(format!("Run {} not found", run_number))
-            })?;
-
-        Ok(mapper::runs::map_history_to_run(
-            history_item,
-            &app,
-            server_url,
-        ))
+        Ok(run)
     }
 
     fn log_dialect(&self) -> &'static dyn LogDialect {
@@ -272,10 +330,10 @@ plugin_impl!(ArgocdPlugin [
     }
 
     async fn cancel_run(&self, pipeline_id: &str, _run_number: i64) -> PluginResult<()> {
-        let (_namespace, app_name) = config::parse_pipeline_id(pipeline_id)?;
+        let (namespace, app_name) = config::parse_pipeline_id(pipeline_id)?;
         let client = self.client()?;
 
-        client.terminate_operation(&app_name).await?;
+        client.terminate_operation(&namespace, &app_name).await?;
 
         Ok(())
     }
@@ -290,6 +348,19 @@ plugin_impl!(ArgocdPlugin [
 
     fn sign_in_refresh_rejections(&self) -> &'static [SignInRefreshRejection] {
         sign_in::REFRESH_REJECTIONS
+    }
+
+    async fn get_field_options(
+        &self, field_key: &str, config: &HashMap<String, String>,
+    ) -> PluginResult<Vec<String>> {
+        match field_key {
+            "context" => {
+                let source = KubeconfigSource::from_config(config, config::KUBECONFIG_PATH_KEY);
+                let description = source.describe();
+                kubernetes::available_contexts(move || source.load(), description).await
+            }
+            _ => Ok(Vec::new()),
+        }
     }
 });
 
