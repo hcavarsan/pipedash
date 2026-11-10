@@ -52,6 +52,7 @@ interface IosRowContentProps {
   icon?: ReactNode
   value?: ReactNode
   accessory?: ReactNode
+  menu?: ReactNode
   chevron?: boolean
   destructive?: boolean
   selected?: boolean
@@ -77,6 +78,7 @@ export function IosRow(props: IosRowProps): ReactNode {
     icon,
     value,
     accessory,
+    menu,
     chevron = Boolean(props.to),
     destructive,
     selected,
@@ -160,15 +162,22 @@ export function IosRow(props: IosRowProps): ReactNode {
     )
   }
 
-  if (swipeActions?.length) {
+  if (swipeActions?.length || menu) {
+    const body = (
+      <>
+        {render(classes.row)}
+        {menu}
+      </>
+    )
+
     return (
       <div
         ref={pressRef}
-        className={`${classes.swipeRow} ${classes.item}`}
+        className={`${classes.menuRow} ${classes.item}`}
         data-icon={icon ? '' : undefined}
         data-selected={selected ? '' : undefined}
       >
-        <SwipeActions actions={swipeActions}>{render(classes.row)}</SwipeActions>
+        {swipeActions?.length ? <SwipeActions actions={swipeActions}>{body}</SwipeActions> : body}
       </div>
     )
   }

@@ -74,9 +74,14 @@
   transition: background-color 120ms ease;
 }
 
-.swipeRow {
+.menuRow {
   display: flex;
   overflow: hidden;
+}
+
+.row:has([data-row-menu]),
+.item:has([data-row-menu]) .row {
+  padding-inline-end: 44px;
 }
 
 .item {
@@ -103,6 +108,7 @@
 .row[data-pressing],
 .item[data-pressing] .row,
 .row:has([data-row-menu][aria-expanded="true"]),
+.item:has([data-row-menu]:active) .row,
 .item:has([data-row-menu][aria-expanded="true"]) .row {
   background: var(--ios-fill);
 }
