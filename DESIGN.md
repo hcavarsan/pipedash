@@ -164,6 +164,7 @@ Run status uses its own tokens, `--status-success`, `--status-failed`, `--status
 - Sheets resize with the keyboard before revealing the focused field. Main-page field reveal excludes the fixed app header and the keyboard from the visible area. Modal fields use their own sheet boundaries. Picker sheets use one scroll surface and stay above the keyboard and home indicator.
 - The pressed highlight covers the whole row, including the chevron and the trailing … button.
 - A row with a trailing … button reserves 44pt for it, so text and the chevron never sit under it. `IosRow` takes the button through its `menu` prop and `IosPipelineRow` through its own; pages never build their own row shell.
+- Swipe actions are clipped to the width the row uncovered, so their color never shows under the row, along its bottom edge or in the group's rounded corners.
 - The search row on list pages, including run history, hides by default. A short pull reveals it, a longer pull refreshes. During refresh, the indicator stays fixed below the header and connection banner. Its spokes fade without rotating the container.
 - With filters active, the filter button switches to the filled icon in the tint color, and its label carries the count.
 - Run history edit mode uses 22pt selection circles and a full-width bottom toolbar with the bar material and the safe-area inset. The tab bar is hidden and inert while editing.

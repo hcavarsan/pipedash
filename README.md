@@ -3,7 +3,7 @@
   <img src="./app-icon.png" width="102px" alt="Pipedash logo" />
   <h1>Pipedash</h1>
   <p>One dashboard for the CI/CD pipelines of every provider you use.</p>
-  <a href="https://pipedash.app">Website</a> | <a href="https://pipedash.app/downloads">Downloads</a> | <a href="https://pipedash.app/docs">Docs</a>
+  <a href="https://pipedash.app">Website</a> | <a href="https://demo.pipedash.app">Live Demo</a> | <a href="https://pipedash.app/downloads">Downloads</a> | <a href="https://pipedash.app/docs">Docs</a>
   <br><br>
   <a href="https://trendshift.io/repositories/17107?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-17107" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/17107/daily?language=Rust" alt="hcavarsan%2Fpipedash | Trendshift" width="250" height="55"/></a>
   <br><br>
@@ -106,7 +106,35 @@ flowchart LR
 
 ## Supported providers
 
-GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, CircleCI, Jenkins, Azure DevOps Pipelines, Woodpecker CI, Tekton CD, ArgoCD, FluxCD, Prow, Komodo Stacks and Coolify applications. Each one is a plugin crate. The [providers guide](https://pipedash.app/docs/providers) lists the token and permissions each provider needs.
+<table>
+  <tr>
+    <td align="center" width="33%"><a href="https://pipedash.app/docs/providers/github-actions"><img src="./crates/pipedash-plugin-github/assets/icon.svg" width="40" height="40" alt="" /><br><b>GitHub Actions</b></a><br><sub>Workflows</sub></td>
+    <td align="center" width="33%"><a href="https://pipedash.app/docs/providers/gitlab-ci"><img src="./crates/pipedash-plugin-gitlab/assets/icon.svg" width="40" height="40" alt="" /><br><b>GitLab CI</b></a><br><sub>CI/CD pipelines</sub></td>
+    <td align="center" width="33%"><a href="https://pipedash.app/docs/providers/gitea-actions"><img src="./crates/pipedash-plugin-gitea/assets/icon.svg" width="40" height="40" alt="" /><br><b>Gitea Actions</b></a><br><sub>Workflows</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="33%"><a href="https://pipedash.app/docs/providers/bitbucket-pipelines"><img src="./crates/pipedash-plugin-bitbucket/assets/icon.svg" width="40" height="40" alt="" /><br><b>Bitbucket Pipelines</b></a><br><sub>Bitbucket Cloud pipelines</sub></td>
+    <td align="center" width="33%"><a href="https://pipedash.app/docs/providers/azure-devops"><img src="./crates/pipedash-plugin-azure-devops/assets/icon.svg" width="40" height="40" alt="" /><br><b>Azure DevOps Pipelines</b></a><br><sub>YAML and classic pipelines</sub></td>
+    <td align="center" width="33%"><a href="https://pipedash.app/docs/providers/circleci"><img src="./crates/pipedash-plugin-circleci/assets/icon.svg" width="40" height="40" alt="" /><br><b>CircleCI</b></a><br><sub>Pipelines</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="33%"><a href="https://pipedash.app/docs/providers/buildkite"><img src="./crates/pipedash-plugin-buildkite/assets/icon.svg" width="40" height="40" alt="" /><br><b>Buildkite</b></a><br><sub>Builds</sub></td>
+    <td align="center" width="33%"><a href="https://pipedash.app/docs/providers/jenkins"><img src="./crates/pipedash-plugin-jenkins/assets/icon.svg" width="40" height="40" alt="" /><br><b>Jenkins</b></a><br><sub>Jobs and builds</sub></td>
+    <td align="center" width="33%"><a href="https://pipedash.app/docs/providers/woodpecker"><img src="./crates/pipedash-plugin-woodpecker/assets/icon.svg" width="40" height="40" alt="" /><br><b>Woodpecker CI</b></a><br><sub>Pipelines</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="33%"><a href="https://pipedash.app/docs/providers/tekton"><img src="./crates/pipedash-plugin-tekton/assets/icon.svg" width="40" height="40" alt="" /><br><b>Tekton CD</b></a><br><sub>Pipelines on Kubernetes</sub></td>
+    <td align="center" width="33%"><a href="https://pipedash.app/docs/providers/argocd"><img src="./crates/pipedash-plugin-argocd/assets/icon.svg" width="40" height="40" alt="" /><br><b>ArgoCD</b></a><br><sub>Applications and deployments</sub></td>
+    <td align="center" width="33%"><a href="https://pipedash.app/docs/providers/fluxcd"><img src="./crates/pipedash-plugin-fluxcd/assets/icon.svg" width="40" height="40" alt="" /><br><b>FluxCD</b></a><br><sub>Kustomizations and HelmReleases</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="33%"><a href="https://pipedash.app/docs/providers/prow"><img src="./crates/pipedash-plugin-prow/assets/icon.svg" width="40" height="40" alt="" /><br><b>Prow</b></a><br><sub>Kubernetes Prow jobs</sub></td>
+    <td align="center" width="33%"><a href="https://pipedash.app/docs/providers/komodo"><img src="./crates/pipedash-plugin-komodo/assets/icon.svg" width="40" height="40" alt="" /><br><b>Komodo</b></a><br><sub>Stacks</sub></td>
+    <td align="center" width="33%"><a href="https://pipedash.app/docs/providers/coolify"><img src="./crates/pipedash-plugin-coolify/assets/icon.svg" width="40" height="40" alt="" /><br><b>Coolify</b></a><br><sub>Applications</sub></td>
+  </tr>
+</table>
+
+Each provider is a plugin crate, and each name above opens its guide. The [providers guide](https://pipedash.app/docs/providers) lists the token and permissions each provider needs.
 
 Monitor [Buildkite pipelines](https://pipedash.app/docs/providers/buildkite) across your organizations.
 
