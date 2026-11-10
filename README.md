@@ -1,7 +1,7 @@
 <div align="center">
   <br>
   <img src="./app-icon.png" width="102px" alt="Pipedash logo" />
-  <h1>Pipedash</h1>
+  <h3>Pipedash</h3>
   <p>One dashboard for the CI/CD pipelines of every provider you use.</p>
   <a href="https://pipedash.app">Website</a> | <a href="https://demo.pipedash.app">Live Demo</a> | <a href="https://pipedash.app/downloads">Downloads</a> | <a href="https://pipedash.app/docs">Docs</a>
   <br><br>
@@ -32,6 +32,35 @@
 <p align="center">
   <img src="./.github/diagrams/how-it-works.png" alt="How Pipedash works: it reads status and logs from the CI/CD providers, sends run and cancel actions back to them, and shows everything on desktop, web and mobile" width="100%" />
 </p>
+
+## About
+
+Pipedash shows the pipelines of all your CI/CD providers in one table, so you stop switching between dashboards to find the build that failed. It polls each provider with the token or kubeconfig you add and caches the results. From the same table you open, trigger, rerun and cancel runs.
+
+It runs as a desktop app, as a self-hosted web server in Docker or as an iOS and Android app. All of them share one Rust core.
+
+## Features
+
+<div align="center">
+<table>
+  <tr>
+    <td align="center" width="150"><img src="./.github/icons/monitor.svg" width="32" height="32" alt="" /><br><b>Monitor</b></td>
+    <td width="600">See the status of every pipeline in one place.<br><a href="https://pipedash.app/docs/features/dashboard">Dashboard</a> · <a href="https://pipedash.app/docs/features/views">Views</a> · <a href="https://pipedash.app/docs/features/provider-health">Provider health</a> · <a href="https://pipedash.app/docs/features/refresh">Refresh</a></td>
+  </tr>
+  <tr>
+    <td align="center" width="150"><img src="./.github/icons/investigate.svg" width="32" height="32" alt="" /><br><b>Investigate</b></td>
+    <td width="600">Find out why a run failed.<br><a href="https://pipedash.app/docs/features/run-history">Run history</a> · <a href="https://pipedash.app/docs/features/run-logs">Run logs</a> · <a href="https://pipedash.app/docs/features/metrics">Metrics</a></td>
+  </tr>
+  <tr>
+    <td align="center" width="150"><img src="./.github/icons/act.svg" width="32" height="32" alt="" /><br><b>Act</b></td>
+    <td width="600">Start a workflow with inputs or stop a run.<br><a href="https://pipedash.app/docs/features/trigger-and-cancel">Trigger and cancel</a></td>
+  </tr>
+  <tr>
+    <td align="center" width="150"><img src="./.github/icons/notify.svg" width="32" height="32" alt="" /><br><b>Notify</b></td>
+    <td width="600">Get an alert when a pipeline fails or recovers.<br><a href="https://pipedash.app/docs/features/notifications">Notifications</a></td>
+  </tr>
+</table>
+</div>
 
 ## Screenshots
 
@@ -80,35 +109,6 @@
 </table>
 
 </details>
-
-## About
-
-Pipedash shows the pipelines of all your CI/CD providers in one table, so you stop switching between dashboards to find the build that failed. It polls each provider with the token or kubeconfig you add and caches the results. From the same table you open, trigger, rerun and cancel runs.
-
-It runs as a desktop app, as a self-hosted web server in Docker or as an iOS and Android app. All of them share one Rust core.
-
-## Features
-
-<div align="center">
-<table>
-  <tr>
-    <td align="center" width="150"><img src="./.github/icons/monitor.svg" width="32" height="32" alt="" /><br><b>Monitor</b></td>
-    <td width="600">See the status of every pipeline in one place.<br><a href="https://pipedash.app/docs/features/dashboard">Dashboard</a> · <a href="https://pipedash.app/docs/features/views">Views</a> · <a href="https://pipedash.app/docs/features/provider-health">Provider health</a> · <a href="https://pipedash.app/docs/features/refresh">Refresh</a></td>
-  </tr>
-  <tr>
-    <td align="center" width="150"><img src="./.github/icons/investigate.svg" width="32" height="32" alt="" /><br><b>Investigate</b></td>
-    <td width="600">Find out why a run failed.<br><a href="https://pipedash.app/docs/features/run-history">Run history</a> · <a href="https://pipedash.app/docs/features/run-logs">Run logs</a> · <a href="https://pipedash.app/docs/features/metrics">Metrics</a></td>
-  </tr>
-  <tr>
-    <td align="center" width="150"><img src="./.github/icons/act.svg" width="32" height="32" alt="" /><br><b>Act</b></td>
-    <td width="600">Start a workflow with inputs or stop a run.<br><a href="https://pipedash.app/docs/features/trigger-and-cancel">Trigger and cancel</a></td>
-  </tr>
-  <tr>
-    <td align="center" width="150"><img src="./.github/icons/notify.svg" width="32" height="32" alt="" /><br><b>Notify</b></td>
-    <td width="600">Get an alert when a pipeline fails or recovers.<br><a href="https://pipedash.app/docs/features/notifications">Notifications</a></td>
-  </tr>
-</table>
-</div>
 
 ## Supported providers
 
