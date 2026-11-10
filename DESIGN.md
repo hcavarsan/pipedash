@@ -74,6 +74,7 @@ Run status uses its own tokens, `--status-success`, `--status-failed`, `--status
 - External links open through `openLink` in `src/utils/openExternal.ts`, which reports a failure as "Couldn't open link".
 - Ask for confirmation only before something that cannot be undone: removing a provider, deleting metrics, a factory reset, cancelling runs, discarding unsaved edits. Clearing caches and other refetchable work runs at once with progress and a completion message.
 - Cancelling a run says "Cancellation requested" until the provider reports the run as cancelled. Run history, the logs dialog and bulk cancel share `useCancelRun`.
+- Variants of one operation share one control. The variant is an option inside that control's dialog or menu, never a second button beside it. A run has one Cancel action; when the provider allows it, the confirmation offers an unchecked "Force cancel" option, preselected only after a normal cancellation was already requested.
 - Selecting a failed provider opens its pipelines page first. An SSO authentication failure starts sign-in; other connection failures or outages open Pipedash's provider status sheet. Dismissing recovery leaves the provider page open. Background failures never open login or status sheets automatically.
 - Provider recovery saves only credentials, preserving current settings and pipeline selections. The status sheet shows the Pipedash connection and its recovery action before upstream service status. Mobile long-press menus include Provider status and, when the backend requests it, Sign in.
 

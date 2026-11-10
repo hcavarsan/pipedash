@@ -8,7 +8,8 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
-import { confirmBody } from '../components/common/ActionTargetRows'
+import { createElement } from 'react'
+import { CancelRunConfirm } from '../features/runs/components/CancelRunConfirm'
 import { cancelTargetRows } from '../features/runs/lib/cancelTargetRows'
 import { invalidateRunHistory } from '../features/runs/lib/runHistoryCache'
 import {
@@ -60,25 +61,31 @@ interface CancelRunVariables {
   pipelineId: string
   runNumber: number
   pipeline?: Pipeline | undefined
-  run?: Pick<PipelineRun, 'branch'> | undefined
+  run?: Pick<PipelineRun, 'branch' | 'actions'> | undefined
   forceConfirmation?: string | undefined
+  preferForce?: boolean | undefined
+}
+
+interface CancelRunRequest {
+  pipelineId: string
+  runNumber: number
+  force: boolean
 }
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
 
-type UseCancelRunResult = DistributiveOmit<
-  UseMutationResult<void, Error, { pipelineId: string; runNumber: number }, unknown>,
-  'mutateAsync'
-> & { mutateAsync: (variables: CancelRunVariables) => Promise<boolean> }
+type UseCancelRunResult = DistributiveOmit<UseMutationResult<void, Error, CancelRunRequest, unknown>, 'mutateAsync'> & {
+  mutateAsync: (variables: CancelRunVariables) => Promise<boolean>
+}
 
-function useRunCancellation(force: boolean): UseCancelRunResult {
+export function useCancelRun(): UseCancelRunResult {
   const queryClient = useQueryClient()
 
   const mutation = useMutation({
-    mutationFn: ({ pipelineId, runNumber }: { pipelineId: string; runNumber: number }) =>
+    mutationFn: ({ pipelineId, runNumber, force }: CancelRunRequest) =>
       force ? service.forceCancelPipelineRun(pipelineId, runNumber) : service.cancelPipelineRun(pipelineId, runNumber),
 
-    onSuccess: async (_data, { pipelineId, runNumber }) => {
+    onSuccess: async (_data, { pipelineId, runNumber, force }) => {
       const invalidations = [invalidateRunHistory(queryClient, pipelineId, runNumber)]
 
       if (force) {
@@ -97,7 +104,7 @@ function useRunCancellation(force: boolean): UseCancelRunResult {
       )
     },
 
-    onError: (error: Error) => {
+    onError: (error: Error, { force }) => {
       displayErrorNotification(error, force ? "Couldn't force cancel run" : "Couldn't cancel run")
     },
   })
@@ -105,16 +112,21 @@ function useRunCancellation(force: boolean): UseCancelRunResult {
   const cancel = async (variables: CancelRunVariables) => {
     const { promise, resolve } = Promise.withResolvers<boolean>()
     const targets = variables.pipeline ? cancelTargetRows(variables.pipeline, variables.run ? [variables.run] : []) : []
+    const forceAllowed = variables.run?.actions.force_cancel.allowed === true
+    const forceOnly = forceAllowed && variables.run?.actions.cancel.allowed === false
+    let force = forceOnly || (forceAllowed && variables.preferForce === true)
 
     openConfirm({
-      title: force ? 'Force cancel run' : 'Cancel run',
-      children: confirmBody(
-        force
-          ? `Force cancel run #${variables.runNumber}. ${variables.forceConfirmation ?? ''}`.trim()
-          : `This cancels run #${variables.runNumber}. You can't undo this.`,
-        targets
-      ),
-      labels: { confirm: force ? 'Force cancel' : 'Cancel run', cancel: 'Keep running' },
+      title: 'Cancel run',
+      children: createElement(CancelRunConfirm, {
+        message: `This cancels run #${variables.runNumber}. You can't undo this.`,
+        targets,
+        force: forceAllowed ? { initial: force, locked: forceOnly, help: variables.forceConfirmation } : null,
+        onForceChange: (next) => {
+          force = next
+        },
+      }),
+      labels: { confirm: 'Cancel run', cancel: 'Keep running' },
       confirmProps: { color: 'red' },
       onConfirm: () => resolve(true),
       onCancel: () => resolve(false),
@@ -126,20 +138,12 @@ function useRunCancellation(force: boolean): UseCancelRunResult {
       return false
     }
 
-    await mutation.mutateAsync({ pipelineId: variables.pipelineId, runNumber: variables.runNumber })
+    await mutation.mutateAsync({ pipelineId: variables.pipelineId, runNumber: variables.runNumber, force })
 
     return true
   }
 
   return { ...mutation, mutateAsync: cancel }
-}
-
-export function useCancelRun(): UseCancelRunResult {
-  return useRunCancellation(false)
-}
-
-export function useForceCancelRun(): UseCancelRunResult {
-  return useRunCancellation(true)
 }
 
 export function useReviewRun(): UseMutationResult<

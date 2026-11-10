@@ -94,6 +94,7 @@ function WorkflowLogsSession({
     pipeline,
     run,
     forceConfirmation: presentation?.force_cancel_confirmation,
+    cancellationRequested,
     onClose,
     onRerunSuccess,
     onCancelSuccess,

@@ -86,6 +86,7 @@ const RerunTitle = ({ label }: { label: string }): ReactNode => (
 export function MobileRunActions({ run, providerName, note, actions }: RunActionsProps): ReactNode {
   const clipboard = useClipboard({ timeout: 2000 })
   const hasLogs = isHttpUrl(run.logs_url)
+  const canShare = isMobilePlatform() || typeof navigator.share === 'function'
 
   const share = async (source: HTMLElement) => {
     if (isMobilePlatform()) {
@@ -94,12 +95,6 @@ export function MobileRunActions({ run, providerName, note, actions }: RunAction
       } catch (error) {
         displayErrorNotification(error, "Couldn't share link")
       }
-
-      return
-    }
-
-    if (typeof navigator.share !== 'function') {
-      clipboard.copy(run.logs_url)
 
       return
     }
@@ -127,11 +122,13 @@ export function MobileRunActions({ run, providerName, note, actions }: RunAction
             accessory={<IconCopy size={20} aria-hidden />}
             onClick={() => clipboard.copy(run.logs_url)}
           />
-          <IosRow
-            title="Share link"
-            accessory={<IconShare2 size={20} aria-hidden />}
-            onClick={(event) => share(event.currentTarget)}
-          />
+          {canShare && (
+            <IosRow
+              title="Share link"
+              accessory={<IconShare2 size={20} aria-hidden />}
+              onClick={(event) => share(event.currentTarget)}
+            />
+          )}
         </IosGroup>
       )}
       <VisuallyHidden role="status">{clipboard.copied ? 'Link copied' : ''}</VisuallyHidden>

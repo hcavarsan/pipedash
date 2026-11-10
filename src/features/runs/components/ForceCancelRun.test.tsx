@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { after, afterEach, beforeEach, mock, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
+import type { UserEvent } from '@testing-library/user-event'
 import { createElement, type ReactNode } from 'react'
 
 import { pipelineFixture } from '../../../testing/fixtures'
@@ -100,30 +101,38 @@ function renderSurface(surface: 'history' | 'details', target: Pipeline = pipeli
   return render(content, { wrapper })
 }
 
+async function openCancel(user: UserEvent): Promise<HTMLElement> {
+  const view = within(document.body)
+
+  await user.click(await view.findByRole('button', { name: 'Cancel run #7' }))
+
+  return view.findByRole('dialog', { name: 'Cancel run' })
+}
+
 for (const surface of ['history', 'details'] as const) {
-  test(`${surface} force cancel identifies the run, dismisses without a request and confirms once`, async () => {
+  test(`${surface} offers force as an unchecked option of the one cancel action`, async () => {
     const force = mock.method(apiService, 'forceCancelPipelineRun', async () => undefined)
     const cancel = mock.method(apiService, 'cancelPipelineRun', async () => undefined)
     const invalidations = mock.method(client, 'invalidateQueries')
     const user = userEvent.setup({ document })
     const view = within(document.body)
     renderSurface(surface)
-    const name = 'Force cancel run #7'
 
-    await user.click(await view.findByRole('button', { name }))
-    const confirmation = await view.findByRole('dialog', { name: 'Force cancel run' })
+    const confirmation = await openCancel(user)
+    assert.equal(view.queryByRole('button', { name: /Force cancel/ }), null)
     assert.match(confirmation.textContent ?? '', /org\/repo/)
     assert.match(confirmation.textContent ?? '', /feature\/cleanup/)
-    assert.match(confirmation.textContent ?? '', /Force cancel run #7/)
     assert.match(confirmation.textContent ?? '', /You can't undo this/)
-    assert.equal(force.mock.callCount(), 0)
+    const option = within(confirmation).getByRole('checkbox', { name: 'Force cancel' })
+    assert.ok(option instanceof HTMLInputElement)
+    assert.equal(option.checked, false)
     await user.click(within(confirmation).getByRole('button', { name: 'Keep running' }))
-    await waitFor(() => assert.ok(!view.queryByRole('dialog', { name: 'Force cancel run' })))
-    assert.equal(force.mock.callCount(), 0)
+    await waitFor(() => assert.ok(!view.queryByRole('dialog', { name: 'Cancel run' })))
+    assert.equal(force.mock.callCount() + cancel.mock.callCount(), 0)
 
-    await user.click(view.getByRole('button', { name }))
-    const confirmed = await view.findByRole('dialog', { name: 'Force cancel run' })
-    await user.click(within(confirmed).getByRole('button', { name: /^Force cancel$/ }))
+    const confirmed = await openCancel(user)
+    await user.click(within(confirmed).getByRole('checkbox', { name: 'Force cancel' }))
+    await user.click(within(confirmed).getByRole('button', { name: /^Cancel run$/ }))
     await waitFor(() => assert.equal(force.mock.callCount(), 1))
     assert.deepEqual(force.mock.calls[0]?.arguments, [pipeline.id, 7])
     assert.equal(cancel.mock.callCount(), 0)
@@ -140,6 +149,18 @@ for (const surface of ['history', 'details'] as const) {
     }
   })
 
+  test(`${surface} sends a normal cancellation when force stays unchecked`, async () => {
+    const force = mock.method(apiService, 'forceCancelPipelineRun', async () => undefined)
+    const cancel = mock.method(apiService, 'cancelPipelineRun', async () => undefined)
+    const user = userEvent.setup({ document })
+    renderSurface(surface)
+
+    const confirmation = await openCancel(user)
+    await user.click(within(confirmation).getByRole('button', { name: /^Cancel run$/ }))
+    await waitFor(() => assert.equal(cancel.mock.callCount(), 1))
+    assert.equal(force.mock.callCount(), 0)
+  })
+
   test(`${surface} reports a rejected force request without retrying or normal cancellation`, async () => {
     const force = mock.method(apiService, 'forceCancelPipelineRun', async () => {
       throw new Error('GitHub refused force cancellation')
@@ -147,11 +168,11 @@ for (const surface of ['history', 'details'] as const) {
     const cancel = mock.method(apiService, 'cancelPipelineRun', async () => undefined)
     const shown = mock.method(notifications, 'show')
     const user = userEvent.setup({ document })
-    const view = within(document.body)
     renderSurface(surface)
-    await user.click(await view.findByRole('button', { name: 'Force cancel run #7' }))
-    const confirmation = await view.findByRole('dialog', { name: 'Force cancel run' })
-    await user.click(within(confirmation).getByRole('button', { name: /^Force cancel$/ }))
+
+    const confirmation = await openCancel(user)
+    await user.click(within(confirmation).getByRole('checkbox', { name: 'Force cancel' }))
+    await user.click(within(confirmation).getByRole('button', { name: /^Cancel run$/ }))
     await waitFor(() =>
       assert.ok(shown.mock.calls.some((call) => call.arguments[0]?.title === "Couldn't force cancel run"))
     )
@@ -160,41 +181,57 @@ for (const surface of ['history', 'details'] as const) {
     assert.ok(shown.mock.calls.some((call) => call.arguments[0]?.message === 'GitHub refused force cancellation'))
   })
 
-  test(`${surface} hides force cancel when the backend does not allow it`, async () => {
+  test(`${surface} shows no force option when the backend does not allow it`, async () => {
     const targetRun: PipelineRun = { ...run, actions: runActionsFixture() }
     mock.method(apiService, 'getWorkflowRunDetails', async () => targetRun)
-    const view = within(document.body)
+    const user = userEvent.setup({ document })
     renderSurface(surface, pipeline, targetRun)
-    await waitFor(() => assert.equal(client.getQueryState(queryKeys.plugins.list())?.status, 'success'))
-    if (surface === 'details') {
-      await waitFor(() => assert.equal(client.getQueryState(queryKeys.runs.detail(pipeline.id, 7))?.status, 'success'))
+
+    const confirmation = await openCancel(user)
+    assert.equal(within(confirmation).queryByRole('checkbox', { name: 'Force cancel' }), null)
+  })
+
+  test(`${surface} locks force on when it is the only cancellation the backend allows`, async () => {
+    const targetRun: PipelineRun = {
+      ...run,
+      actions: runActionsFixture({
+        cancel: { allowed: false, reason: null },
+        force_cancel: { allowed: true, reason: null },
+      }),
     }
-    assert.equal(view.queryByRole('button', { name: /Force cancel/ }), null)
+    mock.method(apiService, 'getWorkflowRunDetails', async () => targetRun)
+    const force = mock.method(apiService, 'forceCancelPipelineRun', async () => undefined)
+    const user = userEvent.setup({ document })
+    renderSurface(surface, pipeline, targetRun)
+
+    const confirmation = await openCancel(user)
+    const option = within(confirmation).getByRole('checkbox', { name: 'Force cancel' })
+    assert.ok(option instanceof HTMLInputElement)
+    assert.deepEqual([option.checked, option.disabled], [true, true])
+    await user.click(within(confirmation).getByRole('button', { name: /^Cancel run$/ }))
+    await waitFor(() => assert.equal(force.mock.callCount(), 1))
   })
 }
 
-for (const surface of ['history', 'details'] as const) {
-  for (const rejected of [false, true]) {
-    test(`${surface} keeps force cancel separate after normal cancellation ${rejected ? 'fails' : 'is accepted'}`, async () => {
-      mock.method(apiService, 'cancelPipelineRun', async () => {
-        if (rejected) {
-          throw new Error('Normal cancellation failed')
-        }
-      })
-      const force = mock.method(apiService, 'forceCancelPipelineRun', async () => undefined)
-      const user = userEvent.setup({ document })
-      const view = within(document.body)
-      renderSurface(surface)
-      await user.click(await view.findByRole('button', { name: 'Cancel run #7' }))
-      const confirmation = await view.findByRole('dialog', { name: 'Cancel run' })
-      await user.click(within(confirmation).getByRole('button', { name: /^Cancel run$/ }))
-      await waitFor(() => assert.ok(!view.queryByRole('dialog', { name: 'Cancel run' })))
-      const button = await view.findByRole('button', { name: 'Force cancel run #7' })
-      await waitFor(() => assert.equal(button.hasAttribute('disabled'), false))
-      assert.equal(force.mock.callCount(), 0)
-    })
-  }
-}
+test('details keep cancel available with force preselected after a normal cancellation was requested', async () => {
+  mock.method(apiService, 'cancelPipelineRun', async () => undefined)
+  const force = mock.method(apiService, 'forceCancelPipelineRun', async () => undefined)
+  const user = userEvent.setup({ document })
+  const view = within(document.body)
+  renderSurface('details')
+
+  const first = await openCancel(user)
+  await user.click(within(first).getByRole('button', { name: /^Cancel run$/ }))
+  await waitFor(() => assert.ok(!view.queryByRole('dialog', { name: 'Cancel run' })))
+  await view.findByText(/Cancellation requested/)
+
+  const second = await openCancel(user)
+  const option = within(second).getByRole('checkbox', { name: 'Force cancel' })
+  assert.ok(option instanceof HTMLInputElement)
+  assert.equal(option.checked, true)
+  await user.click(within(second).getByRole('button', { name: /^Cancel run$/ }))
+  await waitFor(() => assert.equal(force.mock.callCount(), 1))
+})
 
 for (const shell of ['desktop', 'mobile'] as const) {
   test(`a pending run the backend allows to cancel can be stopped on ${shell}`, async () => {

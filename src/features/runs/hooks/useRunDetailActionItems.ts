@@ -36,7 +36,6 @@ export function useRunDetailActionItems({
     labels: presentation.terminology,
     canCancel: pipeline.actions.cancel.allowed,
     cancellingRun: actions.cancelPending ? number : null,
-    forceCancellingRun: actions.forceCancelPending ? number : null,
     reviewingRun: reviewRun.isPending ? number : null,
     rerunningFailedRun: null,
     rerunningRuns: new Set(actions.rerunPending ? [number] : []),
@@ -45,7 +44,6 @@ export function useRunDetailActionItems({
     openRun: () => undefined,
     openTrigger: () => undefined,
     cancel: () => actions.cancel(),
-    forceCancel: () => actions.forceCancel(),
     review: async (target, decision) => {
       await reviewRun
         .mutateAsync({ pipelineId: target.pipeline_id, runNumber: target.run_number, decision })
@@ -58,7 +56,9 @@ export function useRunDetailActionItems({
     triggerBlockedReason: pipeline.actions.trigger.reason ?? undefined,
   }
 
+  const locked = cancellationRequested && !run.actions.force_cancel.allowed
+
   return buildRunActions(value, run)
     .filter((action) => action.id !== 'details')
-    .map((action) => (action.id === 'cancel' && cancellationRequested ? { ...action, disabled: true } : action))
+    .map((action) => (action.id === 'cancel' && locked ? { ...action, disabled: true } : action))
 }

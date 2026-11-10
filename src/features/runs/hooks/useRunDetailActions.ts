@@ -1,5 +1,5 @@
 import { logger } from '../../../lib/logger'
-import { useCancelRun, useForceCancelRun, useRerunFailedJobs, useRerunRun } from '../../../queries/useRunHistoryQueries'
+import { useCancelRun, useRerunFailedJobs, useRerunRun } from '../../../queries/useRunHistoryQueries'
 import { useModalStore } from '../../../stores/modalStore'
 import type { Pipeline, PipelineRun } from '../../../types/pipelines'
 import type { RerunMode } from '../lib/runActions'
@@ -14,15 +14,14 @@ interface UseRunDetailActionsOptions {
   onCancelSuccess?: (() => void) | undefined
   onCancelRequested: () => void
   forceConfirmation?: string | undefined
+  cancellationRequested?: boolean | undefined
 }
 
 export interface UseRunDetailActionsResult {
   rerun: (mode: RerunMode) => Promise<void>
   cancel: () => Promise<void>
-  forceCancel: () => Promise<void>
   rerunPending: boolean
   cancelPending: boolean
-  forceCancelPending: boolean
 }
 
 export function useRunDetailActions({
@@ -35,9 +34,9 @@ export function useRunDetailActions({
   onCancelSuccess,
   onCancelRequested,
   forceConfirmation,
+  cancellationRequested = false,
 }: UseRunDetailActionsOptions): UseRunDetailActionsResult {
   const cancelRun = useCancelRun()
-  const forceCancelRun = useForceCancelRun()
   const openTriggerModal = useModalStore((state) => state.openTriggerModal)
   const rerunRunMutation = useRerunRun()
   const rerunFailedMutation = useRerunFailedJobs()
@@ -70,7 +69,16 @@ export function useRunDetailActions({
     }
 
     try {
-      if (await cancelRun.mutateAsync({ pipelineId, runNumber, pipeline, run, forceConfirmation })) {
+      const requested = await cancelRun.mutateAsync({
+        pipelineId,
+        runNumber,
+        pipeline,
+        run,
+        forceConfirmation,
+        preferForce: cancellationRequested,
+      })
+
+      if (requested) {
         onCancelRequested()
         onCancelSuccess?.()
       }
@@ -79,27 +87,10 @@ export function useRunDetailActions({
     }
   }
 
-  const forceCancel = async (): Promise<void> => {
-    if (!pipeline || !run?.actions.force_cancel.allowed) {
-      return
-    }
-
-    const cancelled = await forceCancelRun
-      .mutateAsync({ pipelineId, runNumber, pipeline, run, forceConfirmation })
-      .catch(() => false)
-
-    if (cancelled) {
-      onCancelRequested()
-      onCancelSuccess?.()
-    }
-  }
-
   return {
     rerun,
     cancel,
-    forceCancel,
     rerunPending: rerunRunMutation.isPending || rerunFailedMutation.isPending,
     cancelPending: cancelRun.isPending,
-    forceCancelPending: forceCancelRun.isPending,
   }
 }

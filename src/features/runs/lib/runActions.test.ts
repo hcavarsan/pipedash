@@ -34,7 +34,6 @@ const context = (overrides: Partial<RunActionsValue> = {}): RunActionsValue => (
   labels: pluginPresentationFixture().terminology,
   canCancel: true,
   cancellingRun: null,
-  forceCancellingRun: null,
   reviewingRun: null,
   rerunningFailedRun: null,
   rerunningRuns: new Set<number>(),
@@ -43,7 +42,6 @@ const context = (overrides: Partial<RunActionsValue> = {}): RunActionsValue => (
   openRun: () => undefined,
   openTrigger: () => undefined,
   cancel: async () => undefined,
-  forceCancel: async () => undefined,
   review: async () => undefined,
   requestRerun: () => undefined,
   rerunTarget: null,
@@ -112,10 +110,10 @@ test('a pending review disables both review decisions', () => {
   assert.deepEqual(swipeKeys(value, awaiting), [])
 })
 
-test('force cancel is a separate action for running runs with the capability', async () => {
+test('force cancel is an option of the one cancel action, never a second action', async () => {
   let calls = 0
   const value = context({
-    forceCancel: async () => {
+    cancel: async () => {
       calls += 1
     },
   })
@@ -123,20 +121,23 @@ test('force cancel is a separate action for running runs with the capability', a
     status: 'running',
     actions: runActionsFixture({ cancel: allowed, force_cancel: allowed, rerun: blocked }),
   })
-  const actions = buildRunActions(value, running)
+  const forceOnly = run({
+    status: 'running',
+    actions: runActionsFixture({ cancel: blocked, force_cancel: allowed, rerun: blocked }),
+  })
 
-  assert.ok(actions.find((action) => action.id === 'cancel'))
-  assert.equal(actions.find((action) => action.id === 'force-cancel')?.label, 'Force cancel run #7')
-  await actions.find((action) => action.id === 'force-cancel')?.execute()
+  for (const target of [running, forceOnly]) {
+    const cancels = buildRunActions(value, target).filter((action) => action.label.includes('ancel'))
+
+    assert.deepEqual(
+      cancels.map((action) => [action.id, action.label]),
+      [['cancel', 'Cancel run #7']]
+    )
+  }
+
+  await buildRunActions(value, forceOnly)
+    .find((action) => action.id === 'cancel')
+    ?.execute()
   assert.equal(calls, 1)
   assert.deepEqual(swipeKeys(value, running), ['cancel'])
-  assert.equal(
-    buildRunActions(value, run({ status: 'running' })).some((action) => action.id === 'force-cancel'),
-    false
-  )
-  assert.equal(
-    buildRunActions(context({ forceCancellingRun: 7 }), running).find((action) => action.id === 'force-cancel')
-      ?.disabled,
-    true
-  )
 })
