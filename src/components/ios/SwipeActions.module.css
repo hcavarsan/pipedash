@@ -77,6 +77,11 @@
   filter: brightness(0.85);
 }
 
+.action:disabled,
+.primary:disabled {
+  filter: saturate(0.4) brightness(0.8);
+}
+
 .underlay[data-tone="blue"] {
   background: var(--ios-tint);
 }

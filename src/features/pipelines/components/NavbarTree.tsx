@@ -75,14 +75,15 @@ export const NavbarTree = ({
   const searchBusy = searching && (search.isFetching || search.isPlaceholderData)
   const navViews = navigation?.views ?? views
   const viewNodes = viewNodesOf(navViews)
+  const baseNodes = viewNodesOf(views)
   const activeRootId = activeRootOf(views, viewId)
-  const activeKeys = viewId ? ancestorKeys(viewNodes, `view:${viewId}`) : null
   const pinnedNodes = viewNodes.filter((node) => node.view?.kind === 'pinned' || !node.view)
   const otherNodes = viewNodes.filter((node) => node.view && node.view.kind !== 'pinned')
   const { isOpen, toggle, viewsOpen } = useSidebarExpansion({
     searching,
-    activeKeys,
-    activeRootListed: otherNodes.some((node) => node.view && node.view.id === activeRootId),
+    viewId,
+    revealKeys: (viewId ? ancestorKeys(baseNodes, `view:${viewId}`) : null) ?? [],
+    revealViews: baseNodes.some((node) => !!node.view && node.view.kind !== 'pinned' && node.view.id === activeRootId),
   })
   const visiblePins = navigation?.pins ?? pins
   const visibleProviders = navigation?.providers ?? providers

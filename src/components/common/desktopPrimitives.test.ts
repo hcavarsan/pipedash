@@ -133,6 +133,37 @@ test('context menu opens from the keyboard', async () => {
   assert.ok(await view().findByRole('menu', { hidden: true }))
 })
 
+function CardTrigger() {
+  const contextMenu = useContextMenu()
+
+  return createElement(
+    'div',
+    contextMenu(() => [{ label: 'Open run', onClick: () => {} }]),
+    createElement('button', { type: 'button' }, 'Card title')
+  )
+}
+
+test('context menu opened from a nested control returns focus to that control', async () => {
+  const user = userEvent.setup({ document })
+  render(
+    createElement(
+      MantineProvider,
+      { theme: testTheme },
+      createElement(MemoryRouter, null, createElement(CardTrigger), createElement(ContextMenuHost))
+    )
+  )
+  const title = view().getByRole('button', { name: 'Card title' })
+
+  title.focus()
+  await user.keyboard('{Shift>}{F10}{/Shift}')
+  const command = await view().findByRole('menuitem', { name: 'Open run', hidden: true })
+
+  await waitFor(() => assert.equal(document.activeElement, command))
+  await user.keyboard('{Escape}')
+  await waitFor(() => assert.equal(view().queryByRole('menu'), null))
+  assert.equal(document.activeElement, title)
+})
+
 test('context menu closes when the page scrolls', async () => {
   const user = userEvent.setup({ document })
   renderMenu()
