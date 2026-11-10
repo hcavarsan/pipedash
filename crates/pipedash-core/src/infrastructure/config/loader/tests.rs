@@ -195,6 +195,7 @@ fn test_save_with_the_default_data_dir_drops_the_old_path() {
 
     let reloaded = ConfigLoader::load(&path).unwrap();
     assert!(reloaded.storage.data_dir.is_empty());
+    let _env = EnvGuard::set(&[]);
     assert_eq!(reloaded.data_dir(), PipedashConfig::default_data_dir());
 }
 

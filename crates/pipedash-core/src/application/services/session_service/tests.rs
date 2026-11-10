@@ -10,6 +10,7 @@ use crate::infrastructure::{
     PipedashConfig,
     TokenStore,
 };
+use crate::test_env::EnvGuard;
 
 struct StubWarmupFailure;
 
@@ -48,6 +49,8 @@ fn config(dir: &std::path::Path) -> PipedashConfig {
 async fn prepared(
     dir: &std::path::Path, tokens: Arc<dyn TokenStore>, locked: bool,
 ) -> PreparedSession {
+    let config_path = dir.join("config.toml");
+    let _env = EnvGuard::set(&[("PIPEDASH_CONFIG_PATH", config_path.to_str())]);
     let manager = if locked {
         StorageManager::with_token_store_locked(config(dir), tokens, true).await
     } else {
@@ -67,6 +70,18 @@ async fn warming_an_unlocked_session_starts_the_background_tasks() {
 
     assert!(!session.vault_locked);
     assert!(session.warm().await.unwrap());
+    session.core.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_session_under_test_keeps_its_config_in_its_own_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let session = prepared(dir.path(), Arc::new(MemoryTokenStore::new()), false).await;
+
+    assert_eq!(
+        session.core.config_state.config_path(),
+        &dir.path().join("config.toml")
+    );
     session.core.shutdown().await;
 }
 
