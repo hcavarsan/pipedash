@@ -32,7 +32,7 @@ runs:
             xdg-utils
 
     - name: Install Rust
-      uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
+      uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
       with:
         install_args: rust
         cache_key_prefix: mise-rust-v1
@@ -46,6 +46,6 @@ runs:
 
     - name: Install cargo tools
       if: ${{ inputs.tools != '' }}
-      uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2.89.0
+      uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
       with:
         tool: ${{ inputs.tools }}
