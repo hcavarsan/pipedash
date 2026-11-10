@@ -755,6 +755,7 @@ fn progressing_app(name: &str, namespace: &str) -> serde_json::Value {
         serde_json::json!({"status": {
             "sync": {"status": "Synced"}, "health": {"status": "Progressing"},
             "operationState": {"phase": "Succeeded", "startedAt": "2026-10-27T10:00:00Z"},
+            "history": [{"deployedAt": "2026-10-26T09:00:30Z", "deployStartedAt": "2026-10-26T09:00:00Z", "id": 1, "revision": "abc"}],
             "resources": [{"group": "apps", "kind": "Deployment", "namespace": namespace, "name": "cart"}],
         }}),
     )
@@ -1150,6 +1151,20 @@ async fn kubernetes_throttled_pod_check_fails_instead_of_reporting_a_partial_res
             "{failure:?}"
         );
     }
+}
+
+#[tokio::test]
+async fn kubernetes_older_run_opens_while_the_pod_check_is_failing() {
+    let (plugin, requests) = cluster_plugin(&[]).await;
+
+    let older = plugin
+        .fetch_run_details("argocd__throttled", run_at("2026-10-26T09:00:30Z"))
+        .await
+        .unwrap();
+
+    assert_eq!(older.status, PipelineStatus::Success);
+    let requests = requests.lock().await;
+    assert!(requests.iter().all(|request| !request.contains("/pods")));
 }
 
 #[tokio::test]

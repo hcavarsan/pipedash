@@ -1,5 +1,6 @@
 use super::catalog::map_available_pipeline;
 use super::runs::{
+    follows_live_state,
     map_history_to_run,
     map_runs,
 };
@@ -47,7 +48,7 @@ fn current_operation_replaces_its_own_history_entry() {
             "startedAt":"2026-10-20T11:00:00Z","finishedAt":"2026-10-20T11:00:30Z"}"#,
     );
 
-    let ids: Vec<_> = map_runs(&app, "https://argocd.acme.dev", 10, PipelineStatus::Success)
+    let ids: Vec<_> = map_runs(&app, "https://argocd.acme.dev", 10)
         .into_iter()
         .map(|run| run.id)
         .collect();
@@ -66,36 +67,18 @@ fn only_the_latest_successful_sync_follows_the_live_health() {
             r#",{history},"operationState":{{"phase":"{phase}","startedAt":"2026-10-20T11:00:00Z"}}"#
         )
     };
-    let statuses = |status_extra: &str, live| {
-        map_runs(&app(spec, status_extra), "", 10, live)
-            .into_iter()
-            .map(|run| run.status)
+    let following = |status_extra: &str| {
+        let app = app(spec, status_extra);
+        map_runs(&app, "", 10)
+            .iter()
+            .map(|run| follows_live_state(&app, run))
             .collect::<Vec<_>>()
     };
-    use PipelineStatus::{
-        Degraded,
-        Failed,
-        Running,
-        Success,
-    };
 
-    assert_eq!(
-        statuses(&operation("Succeeded"), Degraded),
-        [Degraded, Success]
-    );
-    assert_eq!(
-        statuses(&operation("Succeeded"), Failed),
-        [Degraded, Success]
-    );
-    assert_eq!(
-        statuses(&operation("Succeeded"), Running),
-        [Success, Success]
-    );
-    assert_eq!(statuses(&operation("Failed"), Degraded), [Failed, Success]);
-    assert_eq!(
-        statuses(&format!(",{history}"), Degraded),
-        [Degraded, Success]
-    );
+    assert_eq!(following(&operation("Succeeded")), [true, false]);
+    assert_eq!(following(&operation("Failed")), [false, false]);
+    assert_eq!(following(&operation("Running")), [false, false]);
+    assert_eq!(following(&format!(",{history}")), [true, false]);
 }
 
 #[test]

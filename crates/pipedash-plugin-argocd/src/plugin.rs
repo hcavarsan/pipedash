@@ -17,6 +17,7 @@ use pipedash_plugin_api::support::{
     client_options,
     join_buffered,
 };
+use pipedash_plugin_api::utils::deployed_status;
 use pipedash_plugin_api::*;
 use tracing::{
     debug,
@@ -88,9 +89,12 @@ impl ArgocdPlugin {
         Ok(pipeline)
     }
 
-    async fn live_status(
-        backend: &Backend, app: &types::Application, server_url: &str,
-    ) -> PluginResult<PipelineStatus> {
+    async fn reflect_live_state(
+        backend: &Backend, app: &types::Application, server_url: &str, run: &mut PipelineRun,
+    ) -> PluginResult<()> {
+        if !mapper::runs::follows_live_state(app, run) {
+            return Ok(());
+        }
         let (pipeline, checked) = Self::live_state(backend, app, server_url).await;
         let unhealthy = matches!(
             pipeline.status,
@@ -105,8 +109,9 @@ impl ArgocdPlugin {
             Err(error) if !unhealthy => return Err(error),
             _ => {}
         }
+        run.status = deployed_status(run.status, pipeline.status);
 
-        Ok(pipeline.status)
+        Ok(())
     }
 }
 
@@ -280,9 +285,12 @@ plugin_impl!(ArgocdPlugin [
 
         let app = client.get_application(&namespace, &app_name).await?;
 
-        let live = Self::live_status(client, &app, server_url).await?;
+        let mut runs = mapper::runs::map_runs(&app, server_url, limit);
+        for run in &mut runs {
+            Self::reflect_live_state(client, &app, server_url, run).await?;
+        }
 
-        Ok(mapper::runs::map_runs(&app, server_url, limit, live))
+        Ok(runs)
     }
 
     async fn fetch_run_details(
@@ -309,8 +317,7 @@ plugin_impl!(ArgocdPlugin [
                     PluginError::PipelineNotFound(format!("Run {} not found", run_number))
                 })?,
         };
-        let live = Self::live_status(client, &app, server_url).await?;
-        mapper::runs::reflect_live_state(&app, live, &mut run);
+        Self::reflect_live_state(client, &app, server_url, &mut run).await?;
 
         Ok(run)
     }
