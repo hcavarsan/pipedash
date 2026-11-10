@@ -26,7 +26,6 @@ impl FluxcdPlugin {
     ) -> PluginResult<(Target, FluxResource, Vec<PipelineRun>)> {
         let target = self.target(pipeline_id)?;
         let resource = self.client().await?.get(&target).await?;
-        let mut runs = mapper::build_runs(&resource)?;
         let issues = self
             .degraded
             .lock()
@@ -34,7 +33,7 @@ impl FluxcdPlugin {
             .get(&target)
             .cloned()
             .unwrap_or_default();
-        mapper::degrade_current_run(&mut runs, &issues);
+        let runs = mapper::build_runs(&resource, &issues)?;
 
         Ok((target, resource, runs))
     }
