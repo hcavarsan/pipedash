@@ -128,7 +128,7 @@ Rerun continued CircleCI pipelines without restarting setup workflows through th
 - Sign in to ArgoCD through bundled Dex or an external OIDC provider instead of pasting a token. A Prow Deck can use any OpenID Connect provider. Pipedash renews the session before it expires and asks you to sign in again when the identity provider ends it. The self-hosted web app asks you to paste the address of the page the browser opens after sign-in.
 - Monitor a public Prow Deck without credentials through its [read-only connection](https://pipedash.app/docs/providers/prow).
 - Trigger workflows with provider inputs, clear CircleCI string defaults or rerun past runs through the [trigger guide](https://pipedash.app/docs/features/trigger-and-cancel).
-- Cancel runs, approve GitHub deployment reviews and rerun failed jobs through the [run history guide](https://pipedash.app/docs/features/run-history).
+- Cancel active runs in batches, approve GitHub deployment reviews and rerun failed jobs through the [run history guide](https://pipedash.app/docs/features/run-history).
 - Force cancel stuck GitHub runs through the [trigger guide](https://pipedash.app/docs/features/trigger-and-cancel#force-cancel-on-github).
 - See why GitHub disabled a workflow and enable it again with the [GitHub Actions guide](https://pipedash.app/docs/providers/github-actions#disabled-workflows).
 - Choose per-device alerts, mutes and pipeline watches in the [notifications guide](https://pipedash.app/docs/features/notifications).

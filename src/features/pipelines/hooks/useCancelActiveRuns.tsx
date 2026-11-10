@@ -5,8 +5,7 @@ import { usePipelines } from '../../../queries/usePipelinesQueries'
 import { useRefreshProvider } from '../../../queries/useRefreshQueries'
 import type { Pipeline } from '../../../types/pipelines'
 import type { ProviderSummary } from '../../../types/providers'
-import type { CancelGroup } from '../../../types/run_action_batch'
-import { runTargetsOf } from '../../../utils/cancelActiveRuns'
+import type { CancellationTargets } from '../../../types/run_action_batch'
 import { CancelActiveRunsModal, type CancelScope } from '../../runs/components/CancelActiveRunsModal'
 import { useCancelRuns } from '../../runs/queries/useCancelRuns'
 
@@ -23,8 +22,8 @@ export function useCancelActiveRuns(): CancelActiveRunsResult {
   const [scope, setScope] = useState<CancelScope | null>(null)
   const [opened, setOpened] = useState(false)
 
-  const cancelGroups = async (groups: CancelGroup[]) => {
-    await cancelRuns(runTargetsOf(groups))
+  const cancelGroups = async ({ groups, batches }: CancellationTargets) => {
+    await cancelRuns(batches)
 
     for (const providerId of new Set(groups.map(({ pipeline }) => pipeline.provider_id))) {
       refreshProvider(providerId)

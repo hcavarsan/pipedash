@@ -7,7 +7,7 @@ import { LiveStatus } from '../../../components/forms/LiveStatus'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
 import { useNow } from '../../../hooks/useNow'
 import type { Pipeline } from '../../../types/pipelines'
-import type { CancelGroup } from '../../../types/run_action_batch'
+import type { CancelGroup, CancellationTargets } from '../../../types/run_action_batch'
 import { formatCount } from '../../../utils/formatCount'
 import { useCancellationTargets } from '../queries/useCancellationTargets'
 
@@ -22,7 +22,7 @@ interface CancelActiveRunsModalProps {
   opened: boolean
   scope: CancelScope | null
   onClose: () => void
-  onConfirm: (groups: CancelGroup[]) => Promise<unknown>
+  onConfirm: (targets: CancellationTargets) => Promise<unknown>
 }
 
 const where = ({ pipeline }: CancelGroup): string =>
@@ -59,7 +59,10 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
 
   const [, formAction, isPending] = useActionState(async (): Promise<null> => {
     try {
-      await onConfirm(groups)
+      if (!search.data) {
+        return null
+      }
+      await onConfirm(search.data)
     } catch {
       return null
     }

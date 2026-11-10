@@ -7,6 +7,7 @@ import { createElement } from 'react'
 import { pipelineFixture } from '../../../testing/fixtures'
 import { runPresentationFixture } from '../../../testing/presentation'
 import type { PipelineRun } from '../../../types/pipelines'
+import type { RunTarget } from '../../../types/run_action_batch'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
@@ -70,6 +71,7 @@ function renderModal(onConfirm: () => Promise<unknown>, onClose: () => void) {
 test('a failed cancellation keeps the dialog open and a retry closes it', async (context) => {
   context.mock.method(apiService, 'getCancellationTargets', async () => ({
     groups: [{ pipeline, provider_name: 'GitHub', runs: [run] }],
+    batches: [[{ pipeline_id: pipeline.id, run_number: run.run_number }]],
     failed_pipeline_ids: [],
     skipped: [],
     run_count: 1,
@@ -103,6 +105,7 @@ test('a failed cancellation keeps the dialog open and a retry closes it', async 
 
 const found = () => ({
   groups: [{ pipeline, provider_name: 'GitHub', runs: [run] }],
+  batches: [[{ pipeline_id: pipeline.id, run_number: run.run_number }]],
   failed_pipeline_ids: [],
   skipped: [],
   run_count: 1,
@@ -170,18 +173,19 @@ function CancelLauncher() {
   )
 }
 
-async function openCancelDialog() {
+async function openCancelDialog(count = '1 run') {
   const user = userEvent.setup({ document })
   render(
     createElement(MantineProvider, null, createElement(QueryClientProvider, { client }, createElement(CancelLauncher)))
   )
   await user.click(view().getByRole('button', { name: 'Open' }))
-  await user.click(await view().findByRole('button', { name: 'Cancel 1 run' }))
+  await user.click(await view().findByRole('button', { name: `Cancel ${count}` }))
 }
 
 function stubDiscovery(context: TestContext) {
   context.mock.method(apiService, 'getCancellationTargets', async () => ({
     groups: [{ pipeline, provider_name: 'GitHub', runs: [run] }],
+    batches: [[{ pipeline_id: pipeline.id, run_number: run.run_number }]],
     failed_pipeline_ids: [],
     skipped: [],
     run_count: 1,
@@ -231,4 +235,51 @@ test('a rejected batch shows one error toast, no dialog alert, and the dialog ca
   await waitFor(() => assert.equal(request.mock.callCount(), 2))
   await waitFor(() => assert.equal(errorToasts().length, 2))
   assert.equal(view().queryByRole('alert'), null)
+})
+
+test('confirmation cancels 1001 discovered runs in bounded batches and reports partial failures', async (context) => {
+  const runs = Array.from({ length: 1001 }, (_, index) => ({ ...run, id: `r${index + 1}`, run_number: index + 1 }))
+  const targets = runs.map(({ run_number }) => ({ pipeline_id: pipeline.id, run_number }))
+  context.mock.method(apiService, 'getCancellationTargets', async () => ({
+    groups: [{ pipeline, provider_name: 'Stub', runs }],
+    batches: [targets.slice(0, 1000), targets.slice(1000)],
+    failed_pipeline_ids: [],
+    skipped: [],
+    run_count: runs.length,
+  }))
+  const shown = context.mock.method(notifications, 'show', () => 'id')
+  context.mock.method(apiService, 'refreshProvider', async () => undefined)
+  const cancelled: number[] = []
+  const sizes: number[] = []
+  context.mock.method(apiService, 'cancelPipelineRuns', async (batch: RunTarget[]) => {
+    sizes.push(batch.length)
+    if (batch.length > 1000) {
+      throw new Error('Cancel at most 1000 runs at a time')
+    }
+    const results = batch.map((target) => {
+      const error = target.run_number === 13 ? 'run is locked' : null
+      if (error === null) {
+        cancelled.push(target.run_number)
+      }
+      return { target, pipeline_name: 'Build', error }
+    })
+    return {
+      results,
+      requested_count: batch.length,
+      failed_count: results.filter(({ error }) => error !== null).length,
+    }
+  })
+
+  await openCancelDialog('1,001 runs')
+
+  await waitFor(() => assert.equal(cancelled.length, 1000))
+  assert.deepEqual(
+    cancelled,
+    targets.filter(({ run_number }) => run_number !== 13).map(({ run_number }) => run_number)
+  )
+  assert.deepEqual(sizes, [1000, 1])
+  assert.equal(shown.mock.callCount(), 1)
+  assert.match(String(shown.mock.calls[0]?.arguments[0]?.message), /1000 of 1,001 runs/)
+  await act(async () => undefined)
+  await waitFor(() => assert.equal(view().queryByRole('button', { name: 'Cancel 1,001 runs' }) === null, true))
 })
