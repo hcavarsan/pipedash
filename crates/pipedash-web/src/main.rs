@@ -124,8 +124,7 @@ async fn main() -> anyhow::Result<()> {
     let plugin_registry = Arc::new(pipedash_plugins::registry());
 
     let config_path = ConfigLoader::discover_config_path();
-    let data_dir = config_path.parent().unwrap_or(std::path::Path::new("."));
-    let setup_status = ConfigLoader::get_setup_status(data_dir, &plugin_registry);
+    let setup_status = ConfigLoader::get_setup_status(&config_path, &plugin_registry);
 
     tracing::info!(
         "Setup status: config_exists={}, config_valid={}, needs_setup={}, needs_migration={}",

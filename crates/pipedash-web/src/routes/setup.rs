@@ -60,8 +60,7 @@ pub fn router() -> Router<AppState> {
 
 async fn get_setup_status(State(state): State<AppState>) -> Json<SetupStatusResponse> {
     let config_path = ConfigLoader::discover_config_path();
-    let data_dir = config_path.parent().unwrap_or(Path::new("."));
-    let mut status = ConfigLoader::get_setup_status(data_dir, &state.plugin_registry);
+    let mut status = ConfigLoader::get_setup_status(&config_path, &state.plugin_registry);
 
     if status.config_valid && state.inner.read().await.config_error.is_some() {
         if let Err(err) = start_core_from_fixed_config(&state, &config_path).await {

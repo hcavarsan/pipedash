@@ -153,7 +153,7 @@ Clear cached run history in Settings with the controls in the [cache guide](http
 
 The config editor expands environment references for validation and keeps them unchanged when you save.
 
-- [Configuration](https://pipedash.app/docs/configuration): `config.toml`, environment variables, secrets and provider refresh intervals that take effect during startup.
+- [Configuration](https://pipedash.app/docs/configuration): `config.toml`, custom filenames through `PIPEDASH_CONFIG_PATH`, environment variables, secrets and provider refresh intervals that take effect during startup.
 - [Storage and tokens](https://pipedash.app/docs/configuration/storage-backends): SQLite, PostgreSQL and token encryption.
 - [REST API](https://pipedash.app/docs/deployment/rest-api): routes, authentication and WebSocket events. Metrics queries reject invalid types and require RFC 3339 dates with a timezone.
 - [Architecture](https://pipedash.app/docs/resources/architecture): crates, refresh loop and plugin system.
