@@ -66,6 +66,7 @@ export function App(): ReactNode {
   const handleSetupComplete = (): void => {
     setSetupActive(false)
     void queryClient.invalidateQueries({ queryKey: queryKeys.setup.status() })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.plugins.all })
   }
 
   const retrySetupStatus = (): void => {

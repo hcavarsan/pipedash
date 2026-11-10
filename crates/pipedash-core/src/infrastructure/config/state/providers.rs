@@ -70,8 +70,8 @@ impl ConfigState {
         let validation = ConfigValidator::validate_with_plugins(&file, &self.plugin_registry);
         if !validation.errors.is_empty() {
             return Err(DomainError::InvalidConfig(format!(
-                "Config validation failed: {:?}",
-                validation.errors
+                "Config validation failed: {}",
+                validation.error_summary()
             )));
         }
 

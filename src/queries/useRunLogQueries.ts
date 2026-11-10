@@ -139,7 +139,6 @@ export function useRunLogDocument(
     queryKey: queryKeys.runLogs.doc(pipelineId, runNumber, nodeId),
     queryFn: () => service.openRunLog(pipelineId, runNumber, nodeId, false),
     enabled: active,
-    retry: 1,
     gcTime: GC_TIMES.SHORT,
     refetchInterval: (query) => {
       const doc = query.state.data

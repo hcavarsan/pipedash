@@ -272,6 +272,15 @@ export function useEventSync(): void {
       }
 
       await queryClient.invalidateQueries({
+        queryKey: queryKeys.plugins.all,
+        refetchType: 'active',
+      })
+
+      if (!mounted) {
+        return
+      }
+
+      await queryClient.invalidateQueries({
         queryKey: queryKeys.pipelines.all,
         refetchType: 'active',
       })

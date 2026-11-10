@@ -56,6 +56,27 @@ async fn invalid_content_is_rejected_without_touching_the_file() {
 }
 
 #[tokio::test]
+async fn a_validation_failure_names_the_field_in_plain_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let content = format!(
+        "{}[views.team]\nname = \"\"\nname_contains = \"api\"\n",
+        content_for(dir.path())
+    );
+
+    let error = save_config_content(&path, &content, &registry(), None)
+        .await
+        .unwrap_err()
+        .to_string();
+
+    assert!(
+        error.contains("views.team.name: View name is required"),
+        "{error}"
+    );
+    assert!(!error.contains("ConfigError {"), "{error}");
+}
+
+#[tokio::test]
 async fn config_content_is_read_with_its_path() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");

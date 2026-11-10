@@ -12,6 +12,7 @@ const { notifyManager, QueryClientProvider } = await import('@tanstack/react-que
 const { queryClient } = await import('../lib/queryClient')
 const { useTriggerWorkflow } = await import('../features/runs/queries/useWorkflowQueries')
 const { apiService } = await import('./api')
+const { isTransientError } = await import('../types/errors')
 
 notifyManager.setNotifyFunction((callback) => act(callback))
 
@@ -52,16 +53,24 @@ test('one failed trigger click sends the trigger request once', async (context) 
   assert.deepEqual(sent, ['POST /api/v1/pipelines/jenkins__1__deploy/trigger'])
 })
 
-test('a read that hits a 5xx is sent again and returns the next answer', async (context) => {
+test('a failed read is sent once', async (context) => {
   let sent = 0
   context.mock.method(globalThis, 'fetch', async () => {
     sent += 1
 
-    return sent === 1 ? providerError() : new Response(JSON.stringify([]), { status: 200 })
+    return providerError()
   })
 
-  assert.deepEqual(await apiService.listProviders(), [])
-  assert.equal(sent, 2)
+  await assert.rejects(apiService.listProviders())
+  assert.equal(sent, 1)
+})
+
+test('a fetch that rejects with Load failed is a transient error', async (context) => {
+  context.mock.method(globalThis, 'fetch', async () => {
+    throw new TypeError('Load failed')
+  })
+
+  await assert.rejects(apiService.listProviders(), (error: unknown) => isTransientError(error))
 })
 
 test('provider recovery opens a tab synchronously before starting the provider-bound flow', async (context) => {

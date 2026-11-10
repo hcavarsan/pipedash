@@ -14,7 +14,6 @@ import { logger } from '../../../lib/logger'
 import { notifications } from '../../../lib/notifications'
 import { queryKeys } from '../../../lib/queryKeys'
 import { service } from '../../../services/service'
-import { getErrorCode } from '../../../types/errors'
 import type {
   CreateViewInput,
   PinKind,
@@ -67,7 +66,6 @@ export function usePipelineViewPage(
     placeholderData: (previous) => (previous?.view.id === query.view ? previous : undefined),
     staleTime: STALE_TIMES.FAST_CHANGING,
     gcTime: GC_TIMES.SHORT,
-    retry: (failureCount, error) => getErrorCode(error) !== 'NOT_FOUND' && failureCount < 3,
     enabled,
   })
 }

@@ -169,6 +169,12 @@ impl DomainError {
             Self::ProviderAuthenticationFailed(_) => "PROVIDER_AUTH_FAILED",
             Self::PermissionDenied(_) => "FORBIDDEN",
             Self::NotSupported(_) => "NOT_SUPPORTED",
+            Self::RateLimited { .. } => "RATE_LIMITED",
+            Self::ServiceUnavailable { .. } => "SERVICE_UNAVAILABLE",
+            Self::Timeout(_) => "TIMEOUT",
+            Self::NetworkError(_) => "NETWORK_ERROR",
+            Self::Tls(_) => "TLS_ERROR",
+            Self::ConcurrentModification(_) => "CONFLICT",
             Self::Unprocessable { code, .. } | Self::Conflict { code, .. } => code,
             _ => "INTERNAL_ERROR",
         }

@@ -1,5 +1,7 @@
 import { QueryCache, QueryClient } from '@tanstack/react-query'
 
+import { isTransientError } from '../types/errors'
+
 import { logger } from './logger'
 
 export const queryClient = new QueryClient({
@@ -19,8 +21,8 @@ export const queryClient = new QueryClient({
       refetchOnWindowFocus: true,
       refetchOnReconnect: true,
 
-      retry: 3,
-      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
+      retry: (failureCount, error) => failureCount < 1 && isTransientError(error),
+      retryDelay: 1000,
     },
     mutations: {
       retry: false,

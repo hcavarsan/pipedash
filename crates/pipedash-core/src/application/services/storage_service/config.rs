@@ -113,14 +113,9 @@ pub fn validate_config(config: &PipedashConfig, registry: &PluginRegistry) -> Do
         return Ok(());
     }
 
-    let errors: Vec<String> = validation
-        .errors
-        .iter()
-        .map(|e| format!("{:?}", e))
-        .collect();
     Err(DomainError::InvalidConfig(format!(
         "Config validation failed: {}",
-        errors.join(", ")
+        validation.error_summary()
     )))
 }
 
