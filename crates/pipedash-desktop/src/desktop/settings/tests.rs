@@ -7,6 +7,7 @@ fn disabling_tray_disables_background_but_preserves_notification_consent() {
             show_tray: true,
             keep_running_on_close: true,
             notifications_enabled: true,
+            auto_check_updates: true,
         },
         notification_preference_imported: true,
     };
@@ -99,6 +100,26 @@ fn disabling_tray_cancels_pending_background_and_enable_requests() {
     assert!(!next.settings.show_tray);
     assert!(!next.settings.keep_running_on_close);
     retry.committed(disable);
+    assert!(retry.request(DesktopSettingsPatch::default()).is_empty());
+    assert!(retry.error.is_none());
+}
+
+#[test]
+fn automatic_update_checks_default_on_and_keep_an_explicit_off() {
+    let missing: SavedSettings = serde_json::from_str("{}").unwrap();
+    assert!(missing.settings.auto_check_updates);
+    let off: SavedSettings = serde_json::from_str(r#"{"auto_check_updates":false}"#).unwrap();
+    assert!(!off.settings.auto_check_updates);
+    let request = DesktopSettingsPatch {
+        auto_check_updates: Some(false),
+        ..Default::default()
+    };
+    let mut retry = SettingsRetry::default();
+    retry.failed(request, "Save failed");
+    let retried = retry.request(DesktopSettingsPatch::default());
+    assert_eq!(retried.auto_check_updates, Some(false));
+    assert!(!missing.patch(retried).unwrap().settings.auto_check_updates);
+    retry.committed(retried);
     assert!(retry.request(DesktopSettingsPatch::default()).is_empty());
     assert!(retry.error.is_none());
 }

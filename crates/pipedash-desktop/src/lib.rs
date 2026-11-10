@@ -58,6 +58,7 @@ pub fn run() {
                 tracing::warn!(%error, "Couldn't restore the running Pipedash instance");
             }
         }))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(desktop::handle_window_event);
     let builder = builder
         .plugin(tauri_plugin_dialog::init())
@@ -232,6 +233,12 @@ pub fn run() {
             desktop::notifications::mark_desktop_notifications_read,
             #[cfg(desktop)]
             desktop::notifications::clear_desktop_notifications,
+            #[cfg(desktop)]
+            desktop::updater::get_update_status,
+            #[cfg(desktop)]
+            desktop::updater::check_for_update,
+            #[cfg(desktop)]
+            desktop::updater::install_update,
         ])
         .build(tauri::generate_context!())
         .map(|app| {

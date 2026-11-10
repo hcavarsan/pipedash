@@ -51,6 +51,7 @@ keyring.workspace = true
 pipedash-web.workspace = true
 tauri = { workspace = true, features = ["tray-icon"] }
 tauri-plugin-single-instance.workspace = true
+tauri-plugin-updater.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-native-keyring-store = "1"

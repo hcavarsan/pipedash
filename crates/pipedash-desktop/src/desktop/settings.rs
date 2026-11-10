@@ -31,12 +31,24 @@ use crate::{
     native::NotificationTarget,
 };
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DesktopSettings {
     pub show_tray: bool,
     pub keep_running_on_close: bool,
     pub notifications_enabled: bool,
+    pub auto_check_updates: bool,
+}
+
+impl Default for DesktopSettings {
+    fn default() -> Self {
+        Self {
+            show_tray: false,
+            keep_running_on_close: false,
+            notifications_enabled: false,
+            auto_check_updates: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize)]
@@ -45,6 +57,7 @@ pub struct DesktopSettingsPatch {
     pub show_tray: Option<bool>,
     pub keep_running_on_close: Option<bool>,
     pub notifications_enabled: Option<bool>,
+    pub auto_check_updates: Option<bool>,
 }
 
 impl DesktopSettingsPatch {
@@ -52,6 +65,7 @@ impl DesktopSettingsPatch {
         self.show_tray.is_none()
             && self.keep_running_on_close.is_none()
             && self.notifications_enabled.is_none()
+            && self.auto_check_updates.is_none()
     }
 }
 
@@ -82,6 +96,7 @@ impl SettingsRetry {
         self.patch.notifications_enabled = patch
             .notifications_enabled
             .or(self.patch.notifications_enabled);
+        self.patch.auto_check_updates = patch.auto_check_updates.or(self.patch.auto_check_updates);
         self.error = (!self.patch.is_empty()).then(|| error.to_string());
     }
 
@@ -94,6 +109,9 @@ impl SettingsRetry {
         }
         if patch.notifications_enabled.is_some() {
             self.patch.notifications_enabled = None;
+        }
+        if patch.auto_check_updates.is_some() {
+            self.patch.auto_check_updates = None;
         }
         if self.patch.is_empty() {
             self.error = None;
@@ -127,6 +145,9 @@ impl SavedSettings {
         if let Some(enabled) = patch.notifications_enabled {
             next.settings.notifications_enabled = enabled;
             next.notification_preference_imported = true;
+        }
+        if let Some(enabled) = patch.auto_check_updates {
+            next.settings.auto_check_updates = enabled;
         }
         Ok(next)
     }
@@ -265,6 +286,9 @@ pub async fn update_desktop_settings(
     }
     let next = state.lock().saved.patch(request)?;
     commit_settings(&app, next, request).await?;
+    if request.auto_check_updates == Some(true) {
+        super::updater::wake(&app);
+    }
     refresh_projection(&app).await;
     Ok(current_status(&app))
 }
@@ -308,6 +332,7 @@ pub(crate) async fn reset_settings(app: &AppHandle) -> Result<(), ErrorResponse>
             show_tray: Some(false),
             keep_running_on_close: Some(false),
             notifications_enabled: Some(false),
+            auto_check_updates: Some(true),
         },
     )
     .await
