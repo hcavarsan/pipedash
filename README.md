@@ -108,27 +108,24 @@ flowchart LR
 
 GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, CircleCI, Jenkins, Azure DevOps Pipelines, Woodpecker CI, Tekton CD, ArgoCD, FluxCD, Prow, Komodo Stacks and Coolify applications. Each one is a plugin crate. The [providers guide](https://pipedash.app/docs/providers) lists the token and permissions each provider needs.
 
-Buildkite's organization picker and pipeline discovery include organizations from every API page.
+Monitor [Buildkite pipelines](https://pipedash.app/docs/providers/buildkite) across your organizations.
 
-View [Gitea](https://pipedash.app/docs/providers) workflow status, history and run details across server-capped API pages.
+View [Gitea](https://pipedash.app/docs/providers/gitea-actions) workflow status, history and run details across server-capped API pages.
 
-See dead [Coolify](https://pipedash.app/docs/providers) containers as failed with a `Dead` resource label.
+See dead [Coolify](https://pipedash.app/docs/providers/coolify) containers as failed with a `Dead` resource label.
 
-Follow new [Jenkins](https://pipedash.app/docs/providers) folder and multibranch jobs automatically with the opt-in "Follow all jobs" setting.
+Monitor selected [Jenkins jobs](https://pipedash.app/docs/providers/jenkins) or follow new jobs automatically.
 
 Rerun continued CircleCI pipelines without restarting setup workflows through the [trigger guide](https://pipedash.app/docs/features/trigger-and-cancel).
 
 ## Features
 
 - See pipeline status across providers and pin or hide workflows in the [dashboard](https://pipedash.app/docs/features/dashboard).
-- Organize pipelines into nested views with rules, layouts and bulk actions in the [views guide](https://pipedash.app/docs/features/views). Sidebar names update when another connected client renames a view.
-- Open the run history with commits, branches and durations, and track build metrics per pipeline. The run history updates when another connected client discovers new runs. Metrics refreshes advance the selected time range to include runs that finish after you open the page.
-- Reselect a pipeline to load its latest [run history](https://pipedash.app/docs/features/run-history) without clearing the cache manually.
+- Organize pipelines into nested views with rules, layouts and bulk actions in the [views guide](https://pipedash.app/docs/features/views).
+- Browse [run history](https://pipedash.app/docs/features/run-history) and track [build metrics](https://pipedash.app/docs/features/metrics) per pipeline. Metrics refreshes advance the selected time range to include runs that finish after you open the page.
 - Read, search and download [job logs](https://pipedash.app/docs/features/run-logs) without leaving Pipedash.
-- Choose a Tekton sidecar under its task to read its [logs](https://pipedash.app/docs/features/run-logs) separately on desktop and web.
-- Downloaded Tekton [task logs](https://pipedash.app/docs/features/run-logs) stay available after upgrades when TaskRuns disappear or their listing fails.
 - Open an ArgoCD sync to read its per-resource results, the app's recent events and the last 1000 lines of each pod container. A restarted container also shows its previous attempt. Pod logs need the `logs, get` permission in ArgoCD RBAC.
-- Sign in to ArgoCD with its SSO (bundled Dex or an external OIDC provider), or to a Prow Deck behind any OpenID Connect provider, instead of pasting a token. Pipedash renews the session before it expires and asks you to sign in again when the identity provider ends it. In the self-hosted web app, you paste the address of the page the browser opens after sign-in, unless Pipedash runs on the same machine as the browser.
+- Sign in to ArgoCD through bundled Dex or an external OIDC provider instead of pasting a token. A Prow Deck can use any OpenID Connect provider. Pipedash renews the session before it expires and asks you to sign in again when the identity provider ends it. The self-hosted web app asks you to paste the address of the page the browser opens after sign-in.
 - Monitor a public Prow Deck without credentials through its [read-only connection](https://pipedash.app/docs/providers/prow).
 - Trigger workflows with provider inputs, clear CircleCI string defaults or rerun past runs through the [trigger guide](https://pipedash.app/docs/features/trigger-and-cancel).
 - Cancel runs, approve GitHub deployment reviews and rerun failed jobs through the [run history guide](https://pipedash.app/docs/features/run-history).
@@ -147,15 +144,11 @@ To install the self-hosted web app on iPhone, open it in Safari and choose Share
 
 Move storage with retained run history and metrics from Settings or the config editor on desktop and web with the [storage guide](https://pipedash.app/docs/configuration/storage-backends).
 
-Browse and sort [run history](https://pipedash.app/docs/features/run-history), using complete scans for oldest-first order and a load-more prompt when needed.
-
 Clear cached run history in Settings with the controls in the [cache guide](https://pipedash.app/docs/features/cache).
-
-The config editor expands environment references for validation and keeps them unchanged when you save.
 
 - [Configuration](https://pipedash.app/docs/configuration): `config.toml`, environment variables, secrets and provider refresh intervals that take effect during startup.
 - [Storage and tokens](https://pipedash.app/docs/configuration/storage-backends): SQLite, PostgreSQL and token encryption.
-- [REST API](https://pipedash.app/docs/deployment/rest-api): routes, authentication and WebSocket events. Metrics queries reject invalid types and require RFC 3339 dates with a timezone.
+- [REST API](https://pipedash.app/docs/deployment/rest-api): routes, authentication and WebSocket events.
 - [Architecture](https://pipedash.app/docs/resources/architecture): crates, refresh loop and plugin system.
 - [Security](https://pipedash.app/docs/resources/security): encryption, API authentication and vulnerability reports.
 - [Releases](https://github.com/hcavarsan/pipedash/releases): changes and release assets.
