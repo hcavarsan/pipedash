@@ -3,6 +3,7 @@ import { useActionState } from 'react'
 import { useApplySetupDraft } from '../../../../queries/useStorageQueries'
 import { service } from '../../../../services/service'
 import { formatErrorMessage } from '../../../../types/errors'
+import type { SetupDraft } from '../../../../types/setup'
 import type { MigrationResult } from '../../../../types/storage'
 
 import { toFieldErrors, toSetupDraft } from './setupDraft'
@@ -14,6 +15,7 @@ export interface SetupActionState {
   migrationStats: MigrationResult['stats'] | null
   saved: boolean
   errorStep: WizardStep | null
+  submitted: SetupDraft | null
 }
 
 export const INITIAL_SETUP_ACTION_STATE: SetupActionState = {
@@ -22,10 +24,16 @@ export const INITIAL_SETUP_ACTION_STATE: SetupActionState = {
   migrationStats: null,
   saved: false,
   errorStep: null,
+  submitted: null,
 }
 
-export function setupFailure(step: WizardStep, error: string, fieldErrors: SetupFieldErrors = {}): SetupActionState {
-  return { ...INITIAL_SETUP_ACTION_STATE, error, fieldErrors, errorStep: step }
+export function setupFailure(
+  step: WizardStep,
+  error: string,
+  submitted: SetupDraft,
+  fieldErrors: SetupFieldErrors = {}
+): SetupActionState {
+  return { ...INITIAL_SETUP_ACTION_STATE, error, fieldErrors, errorStep: step, submitted }
 }
 
 interface SetupSubmissionInput {
@@ -59,7 +67,7 @@ export function useSetupSubmission({
       const [firstError] = Object.values(errors)
 
       if (firstError) {
-        return setupFailure(step, firstError, toFieldErrors(errors))
+        return setupFailure(step, firstError, setupDraft, toFieldErrors(errors))
       }
 
       const applied = await apply.mutateAsync({ draft: setupDraft, firstRun })
@@ -72,7 +80,7 @@ export function useSetupSubmission({
 
       return { ...INITIAL_SETUP_ACTION_STATE, saved: applied.saved, migrationStats: applied.migration_stats }
     } catch (error) {
-      return setupFailure(step, formatErrorMessage(error))
+      return setupFailure(step, formatErrorMessage(error), setupDraft)
     }
   }
 

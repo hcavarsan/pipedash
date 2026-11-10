@@ -1,10 +1,11 @@
-import { Box, Card, Checkbox, Group, px, Stack, Text, UnstyledButton, useMantineTheme } from '@mantine/core'
+import { Box, Card, Checkbox, Group, Stack, Text, UnstyledButton } from '@mantine/core'
 import { type ReactNode, type RefObject, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useContextMenu } from '../../../components/common/ContextMenu'
 import { FetchInfo } from '../../../components/common/PipelineFetchInfo'
 import { WorkflowActions } from '../../../components/common/PipelineRowActions'
 import { PipelineStatusBadge } from '../../../components/common/PipelineStatusBadge'
 import { VirtualList } from '../../../components/common/VirtualList'
+import { SPACING_PX } from '../../../theme/theme'
 import type { PipelineActions, PipelineSelection } from '../../../types/pipelineRows'
 import type { ProviderSummary } from '../../../types/providers'
 import type { ViewPipeline } from '../../../types/views'
@@ -12,6 +13,8 @@ import { formatDateTime } from '../../../utils/formatDateTime'
 import { historyLabel, workflowMenuItems } from '../../../utils/pipelineRowActions'
 
 const CARD_ROW_ESTIMATE = 130
+const CARD_MIN_WIDTH = 280
+const MAX_COLUMNS = 4
 
 interface GridRow {
   key: string
@@ -26,20 +29,18 @@ interface PipelineCardGridProps {
 }
 
 function useColumnCount(containerRef: RefObject<HTMLDivElement | null>): number {
-  const { breakpoints } = useMantineTheme()
   const [columns, setColumns] = useState(1)
 
   useLayoutEffect(() => {
     const container = containerRef.current
-    const sm = px(breakpoints.sm)
-    const lg = px(breakpoints.lg)
-    const xl = px(breakpoints.xl)
-    if (!container || typeof sm !== 'number' || typeof lg !== 'number' || typeof xl !== 'number') {
+    if (!container) {
       return
     }
     const measure = () => {
-      const width = window.innerWidth
-      setColumns([xl, lg, sm].filter((breakpoint) => width >= breakpoint).length + 1)
+      const gap = SPACING_PX.sm
+      const fitting = Math.floor((container.clientWidth + gap) / (CARD_MIN_WIDTH + gap))
+
+      setColumns(Math.min(MAX_COLUMNS, Math.max(1, fitting)))
     }
 
     measure()
@@ -47,7 +48,7 @@ function useColumnCount(containerRef: RefObject<HTMLDivElement | null>): number 
     observer.observe(container)
 
     return () => observer.disconnect()
-  }, [containerRef, breakpoints.sm, breakpoints.lg, breakpoints.xl])
+  }, [containerRef])
 
   return columns
 }

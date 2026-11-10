@@ -53,7 +53,7 @@ export function summarizeRefresh(results: RefreshResult[], providers: ProviderSu
     const name =
       providers.find((provider) => provider.id === result.provider_id)?.name ?? `Provider ${result.provider_id}`
 
-    parts.push(`${name}: ${result.kind ? FAILURE_LABELS[result.kind] : 'failed'}`)
+    parts.push(`${name}: ${result.message ?? (result.kind ? FAILURE_LABELS[result.kind] : 'failed')}`)
   }
 
   if (pending.length > 0) {

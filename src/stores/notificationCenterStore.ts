@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { logger } from '../lib/logger'
 import { service } from '../services/service'
 import type { CenterNotification, NotificationCenterChange } from '../types/notifications'
+import { displayErrorNotification } from '../utils/errorDisplay'
 
 export type NotificationInput = Omit<CenterNotification, 'read'>
 
@@ -25,19 +26,18 @@ let pending: Promise<void> = Promise.resolve()
 
 export const useNotificationCenterStore = create<NotificationCenterState>()((set, get) => {
   const update = (change: NotificationCenterChange): Promise<void> => {
-    pending = pending
-      .then(async () => {
-        const { items, revision, unread } = get()
-        const next = await service.updateNotificationCenter({ items, revision, unread }, change)
+    const run = pending.then(async () => {
+      const { items, revision, unread } = get()
+      const next = await service.updateNotificationCenter({ items, revision, unread }, change)
 
-        set({ items: next.items, revision: next.revision, unread: next.unread })
-      })
-      .catch((error: unknown) =>
-        logger.warn('notificationCenterStore', "Couldn't update the notification center", error)
-      )
+      set({ items: next.items, revision: next.revision, unread: next.unread })
+    })
+    pending = run.catch(() => undefined)
 
-    return pending
+    return run
   }
+  const reportFailure = (change: NotificationCenterChange, title: string): Promise<void> =>
+    update(change).catch((error: unknown) => displayErrorNotification(error, title))
 
   return {
     items: [],
@@ -45,15 +45,21 @@ export const useNotificationCenterStore = create<NotificationCenterState>()((set
     unread: 0,
     selection: null,
 
-    push: (input) => update({ type: 'push', notice: { ...input, read: false } }),
+    push: (input) =>
+      update({ type: 'push', notice: { ...input, read: false } }).catch((error: unknown) =>
+        logger.warn('notificationCenterStore', "Couldn't update the notification center", error)
+      ),
 
-    insertMissed: (input) => update({ type: 'insert_missed', notice: { ...input, read: false } }),
+    insertMissed: (input) =>
+      update({ type: 'insert_missed', notice: { ...input, read: false } }).catch((error: unknown) =>
+        logger.warn('notificationCenterStore', "Couldn't update the notification center", error)
+      ),
 
-    markAllRead: () => update({ type: 'read', key: null }),
+    markAllRead: () => reportFailure({ type: 'read', key: null }, "Couldn't mark notifications as read"),
 
-    markRead: (key) => update({ type: 'read', key }),
+    markRead: (key) => reportFailure({ type: 'read', key }, "Couldn't mark the notification as read"),
 
-    clear: () => update({ type: 'clear' }),
+    clear: () => reportFailure({ type: 'clear' }, "Couldn't clear notifications"),
 
     open: (selection) => {
       set({ selection })

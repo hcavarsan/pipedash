@@ -1,13 +1,11 @@
 import { Button, Card, Stack, Switch, Text } from '@mantine/core'
-import { useMutation } from '@tanstack/react-query'
 import { platform } from '@tauri-apps/plugin-os'
 import type { ReactNode } from 'react'
 
 import { ErrorState } from '../../../components/common/ErrorState'
 import { LiveStatus } from '../../../components/forms/LiveStatus'
-import { notifications } from '../../../lib/notifications'
-import { desktopService } from '../../../services/desktop'
 import { useDesktopStatus, useUpdateDesktopSettings } from '../../settings/queries/useDesktopQueries'
+import { useSendTestDesktopNotification } from '../queries/useDesktopNotifications'
 
 function notificationGuidance(os: string): string {
   if (os === 'macos') {
@@ -22,15 +20,7 @@ function notificationGuidance(os: string): string {
 export function DesktopNotificationsCard(): ReactNode {
   const status = useDesktopStatus()
   const settings = useUpdateDesktopSettings()
-  const test = useMutation({
-    mutationFn: () => desktopService.testNotification(),
-    onSuccess: () =>
-      notifications.show({
-        title: 'Notification submitted',
-        message: 'Your operating system decides whether to display it.',
-        color: 'green',
-      }),
-  })
+  const test = useSendTestDesktopNotification()
   const enabled = status.data?.settings.notifications_enabled ?? false
   const error = settings.error ?? status.error ?? status.data?.error
   const os = platform()

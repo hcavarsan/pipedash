@@ -58,12 +58,58 @@ fn test_setup_status_validates_with_the_registry() {
     )
     .unwrap();
 
-    let status = ConfigLoader::get_setup_status(temp_dir.path(), &registry());
+    let status = ConfigLoader::get_setup_status(&temp_dir.path().join("config.toml"), &registry());
 
     assert!(status.config_exists);
     assert!(status.config_valid);
     assert!(status.validation_errors.is_empty());
     assert!(!status.needs_setup);
+}
+
+#[test]
+fn test_setup_status_uses_the_selected_config_file() {
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("custom.toml");
+    std::fs::write(&config_path, "[storage]\nbackend = \"sqlite\"\n").unwrap();
+    std::fs::write(temp_dir.path().join("config.toml"), "invalid TOML").unwrap();
+    std::fs::write(temp_dir.path().join("storage_config.json"), "{}").unwrap();
+
+    let status = ConfigLoader::get_setup_status(&config_path, &registry());
+
+    assert!(status.config_exists);
+    assert!(status.config_valid, "{:?}", status.validation_errors);
+    assert!(!status.needs_setup);
+    assert!(!status.needs_migration);
+}
+
+#[test]
+fn test_setup_status_does_not_use_a_sibling_config() {
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("custom.toml");
+    std::fs::write(
+        temp_dir.path().join("config.toml"),
+        "[storage]\nbackend = \"sqlite\"\n",
+    )
+    .unwrap();
+
+    let status = ConfigLoader::get_setup_status(&config_path, &registry());
+
+    assert!(!status.config_exists);
+    assert!(status.needs_setup);
+    assert!(!status.needs_migration);
+}
+
+#[test]
+fn test_setup_status_finds_legacy_config_beside_the_selected_path() {
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("custom.toml");
+    std::fs::write(temp_dir.path().join("storage_config.json"), "{}").unwrap();
+
+    let status = ConfigLoader::get_setup_status(&config_path, &registry());
+
+    assert!(!status.config_exists);
+    assert!(!status.needs_setup);
+    assert!(status.needs_migration);
 }
 
 #[test]

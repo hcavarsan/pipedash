@@ -1,10 +1,14 @@
+import type { UseQueryResult } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { useState } from 'react'
+import { ErrorState } from '../../../components/common/ErrorState'
+import { LoadingState } from '../../../components/common/LoadingState'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
 import { usePluginPresentation, usePlugins } from '../../../queries/usePluginsQueries'
 import { useRunLogTree } from '../../../queries/useRunLogQueries'
+import type { RunLogTree } from '../../../types/logs'
 import type { Pipeline } from '../../../types/pipelines'
 import { getPluginDisplayName } from '../../../utils/pluginHelpers'
 import { useRunDetailActions } from '../hooks/useRunDetailActions'
@@ -26,6 +30,35 @@ interface WorkflowLogsModalProps {
   canViewLogs: boolean
   onRerunSuccess?: ((pipelineId: string, newRunNumber: number) => void) | undefined
   onCancelSuccess?: (() => void) | undefined
+}
+
+interface MobileJobsProps {
+  tree: UseQueryResult<RunLogTree, Error>
+  onSelect: (nodeId: string) => void
+}
+
+function MobileJobs({ tree, onSelect }: MobileJobsProps): ReactNode {
+  const failure = tree.isError ? (
+    <ErrorState
+      title="Couldn't load jobs"
+      error={tree.error}
+      onRetry={() => {
+        void tree.refetch()
+      }}
+      retrying={tree.isFetching}
+    />
+  ) : null
+
+  if (!tree.data) {
+    return failure ?? <LoadingState message="Loading jobs…" />
+  }
+
+  return (
+    <>
+      {failure}
+      <MobileRunJobs groups={resolveLogGroups(tree.data, true)} onSelect={onSelect} />
+    </>
+  )
 }
 
 export const WorkflowLogsModal = (props: WorkflowLogsModalProps): ReactNode => (
@@ -52,14 +85,8 @@ function WorkflowLogsSession({
   const presentation = usePluginPresentation(providerType)
   const { data: plugins } = usePlugins()
   const providerName = providerType ? getPluginDisplayName(plugins, providerType) : 'provider'
-  const { data: logTree } = useRunLogTree(pipelineId, runNumber, canViewLogs && mobileShell && opened)
-  const {
-    data: run,
-    isLoading,
-    isFetching,
-    error,
-    refetch,
-  } = useRunDetails(pipelineId, runNumber, opened, cancellationRequested)
+  const logTree = useRunLogTree(pipelineId, runNumber, canViewLogs && mobileShell && opened)
+  const { data: run, isFetching, error, refetch } = useRunDetails(pipelineId, runNumber, opened, cancellationRequested)
   const actions = useRunDetailActions({
     pipelineId,
     runNumber,
@@ -88,7 +115,7 @@ function WorkflowLogsSession({
     rerunCompactLabel: presentation?.rerun.compact_label ?? '',
     triggerNote: presentation?.trigger.note,
     canViewLogs,
-    stopDisabled: !mobileShell && cancellationRequested,
+    stopDisabled: cancellationRequested,
     rerunPending: actions.rerunPending,
     cancelPending: actions.cancelPending,
     forceCancelPending: actions.forceCancelPending,
@@ -100,8 +127,7 @@ function WorkflowLogsSession({
       actions.forceCancel().catch(() => undefined)
     },
   }
-  const nodes = logTree?.nodes ?? []
-  const groups = logTree ? resolveLogGroups(logTree, true) : []
+  const nodes = logTree.data?.nodes ?? []
 
   const details = (
     <ErrorBoundary scope="feature" name="Run details" resetKeys={[pipelineId, runNumber]}>
@@ -111,7 +137,6 @@ function WorkflowLogsSession({
         providerId={pipeline?.provider_id}
         run={run}
         error={error}
-        loading={isLoading}
         fetching={isFetching}
         presentation={presentation}
         isMobile={isMobile}
@@ -123,7 +148,7 @@ function WorkflowLogsSession({
       >
         {mobileShell && runActionProps && (
           <>
-            {canViewLogs && <MobileRunJobs groups={groups} onSelect={setLogNodeId} />}
+            {canViewLogs && <MobileJobs tree={logTree} onSelect={setLogNodeId} />}
             <MobileRunActions {...runActionProps} />
           </>
         )}

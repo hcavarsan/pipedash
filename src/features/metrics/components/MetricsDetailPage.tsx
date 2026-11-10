@@ -69,6 +69,12 @@ export const MetricsDetailPage = ({
     tableSort,
   })
   const { data, refetch } = metricsQuery
+  const placeholder = metricsQuery.isPlaceholderData
+  const resolved = useRef({ metricType, aggregationType, aggregationPeriod, dateRange })
+
+  if (data && !placeholder) {
+    resolved.current = { metricType, aggregationType, aggregationPeriod, dateRange }
+  }
 
   const [prevData, setPrevData] = useState(data)
 
@@ -92,23 +98,52 @@ export const MetricsDetailPage = ({
   }
 
   const renderBody = () => {
-    if (metricsQuery.isError) {
-      return (
-        <ErrorState
-          title={`Couldn't load ${metricLabel} metrics`}
-          error={metricsQuery.error}
-          onRetry={() => refetch()}
-          retrying={metricsQuery.isFetching}
-        />
-      )
+    const refreshError = metricsQuery.isError ? (
+      <ErrorState
+        title={`Couldn't load ${metricLabel} metrics`}
+        error={metricsQuery.error}
+        onRetry={() => refetch()}
+        retrying={metricsQuery.isFetching}
+      />
+    ) : null
+
+    if (refreshError && !data) {
+      return refreshError
     }
 
     if (metricsQuery.isPending) {
       return <LoadingState message={`Loading ${metricLabel} metrics...`} />
     }
 
-    if (!data || data.data.metrics.length === 0) {
-      return (
+    const title = resolved.current
+    let content: ReactNode = null
+
+    if (hasData) {
+      content = (
+        <>
+          <LazyMetricsChart
+            data={data}
+            selectedIndex={selectedDataPointIndex}
+            onDataPointClick={setSelectedDataPointIndex}
+            chartTitle={buildChartTitle(
+              title.metricType,
+              title.aggregationType,
+              title.aggregationPeriod,
+              title.dateRange
+            )}
+            chartRef={chartRef}
+          />
+          <MetricsDataTable
+            data={data}
+            sort={tableSort}
+            onSortChange={setTableSort}
+            selectedIndex={selectedDataPointIndex}
+            onRowClick={setSelectedDataPointIndex}
+          />
+        </>
+      )
+    } else if (!placeholder) {
+      content = (
         <MetricsEmptyState
           range={dateRange}
           widest={data?.widest_range ?? dateRange}
@@ -120,21 +155,10 @@ export const MetricsDetailPage = ({
     }
 
     return (
-      <Stack gap={bodyGap}>
-        <LazyMetricsChart
-          data={data}
-          selectedIndex={selectedDataPointIndex}
-          onDataPointClick={setSelectedDataPointIndex}
-          chartTitle={buildChartTitle(metricType, aggregationType, aggregationPeriod, dateRange)}
-          chartRef={chartRef}
-        />
-        <MetricsDataTable
-          data={data}
-          sort={tableSort}
-          onSortChange={setTableSort}
-          selectedIndex={selectedDataPointIndex}
-          onRowClick={setSelectedDataPointIndex}
-        />
+      <Stack gap={bodyGap} aria-busy={placeholder}>
+        {refreshError}
+        {placeholder && <LoadingState variant="compact" message="Updating metrics…" />}
+        {content}
       </Stack>
     )
   }

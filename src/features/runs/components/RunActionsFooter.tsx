@@ -4,7 +4,6 @@ import { IconCopy, IconExternalLink, IconPlayerPlay, IconShare2, IconSquare } fr
 import type { ReactNode } from 'react'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { mobileService } from '../../../services/mobile'
-import { TYPOGRAPHY } from '../../../theme/typography'
 import type { PipelineRun } from '../../../types/pipelines'
 import { displayErrorNotification } from '../../../utils/errorDisplay'
 import { isHttpUrl, openExternal } from '../../../utils/openExternal'
@@ -35,8 +34,6 @@ const logsLabel = (canViewLogs: boolean, isMobile: boolean, providerName: string
   return isMobile ? 'Logs' : 'View full logs'
 }
 
-const PENDING_NOTE = 'This run is pending. It can be stopped or rerun once it starts.'
-
 export function RunActionsFooter({
   run,
   providerName,
@@ -54,7 +51,6 @@ export function RunActionsFooter({
   onForceCancel,
 }: RunActionsProps): ReactNode {
   const isRunning = run.status === 'running' || run.status === 'pending'
-  const isPending = run.status === 'pending'
   const canCancel = run.actions.cancel.allowed
   const note = run.actions.rerun.reason ?? triggerNote
 
@@ -63,11 +59,6 @@ export function RunActionsFooter({
       {note && (
         <Text size="sm" c="dimmed">
           {note}
-        </Text>
-      )}
-      {isPending && canCancel && (
-        <Text size={TYPOGRAPHY.FIELD_VALUE_SMALL.size} c="dimmed">
-          {PENDING_NOTE}
         </Text>
       )}
       <Group justify="flex-end" gap="sm" grow={isMobile}>
@@ -91,7 +82,7 @@ export function RunActionsFooter({
             leftSection={<IconSquare size={16} aria-hidden />}
             onClick={onCancel}
             loading={cancelPending}
-            disabled={isPending || stopDisabled}
+            disabled={stopDisabled}
           >
             {isMobile ? 'Stop' : 'Stop workflow'}
           </Button>
@@ -133,6 +124,7 @@ export function MobileRunActions({
   run,
   rerunLabel,
   triggerNote,
+  stopDisabled,
   rerunPending,
   cancelPending,
   forceCancelPending,
@@ -141,13 +133,11 @@ export function MobileRunActions({
   onForceCancel,
 }: RunActionsProps): ReactNode {
   const clipboard = useClipboard({ timeout: 2000 })
-  const isPending = run.status === 'pending'
   const hasLogs = isHttpUrl(run.logs_url)
   const canCancel = run.actions.cancel.allowed
   const stoppable = canCancel
   const showRerun = run.actions.rerun.allowed
-  const rerunNote = run.actions.rerun.reason ?? triggerNote
-  const note = rerunNote ?? (isPending && canCancel ? PENDING_NOTE : undefined)
+  const note = run.actions.rerun.reason ?? triggerNote
 
   const share = async (source: HTMLElement) => {
     if (isMobilePlatform()) {
@@ -214,7 +204,7 @@ export function MobileRunActions({
             title="Stop workflow"
             destructive
             accessory={cancelPending ? <Loader size="sm" /> : undefined}
-            disabled={isPending || cancelPending}
+            disabled={cancelPending || stopDisabled}
             onClick={onCancel}
           />
         </IosGroup>

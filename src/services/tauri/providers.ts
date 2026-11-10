@@ -12,7 +12,6 @@ import type {
   SignInStart,
   SignInStatus,
 } from '../../types/providers'
-import { DEFAULT_RETRY_CONFIG, withRetry } from '../../utils/retryLogic'
 import { invokeWithTimeout } from '../invoke'
 import type { ProvidersService } from '../types'
 
@@ -28,18 +27,16 @@ export const providersTauriService: ProvidersService = {
   listProviders: async () => {
     logger.debug('tauriService', 'Invoking list_providers...')
 
-    return withRetry(async () => {
-      try {
-        const result = await invoke<ProviderSummary[]>('list_providers')
+    try {
+      const result = await invoke<ProviderSummary[]>('list_providers')
 
-        logger.debug('tauriService', 'list_providers returned', { count: result?.length ?? 0, unit: 'items' })
+      logger.debug('tauriService', 'list_providers returned', { count: result?.length ?? 0, unit: 'items' })
 
-        return result
-      } catch (err) {
-        logger.error('tauriService', 'list_providers error', err)
-        throw toPipedashError(err)
-      }
-    }, DEFAULT_RETRY_CONFIG)
+      return result
+    } catch (err) {
+      logger.error('tauriService', 'list_providers error', err)
+      throw toPipedashError(err)
+    }
   },
 
   getProvider: async (id) => {
@@ -76,19 +73,17 @@ export const providersTauriService: ProvidersService = {
   getProviderTableSchema: async (providerId) => normalized<TableSchema>('get_provider_table_schema', { providerId }),
 
   startSignIn: async (providerType, config) =>
-    invokeWithTimeout<SignInStart>('start_sign_in', { providerType, config }, undefined, false),
+    invokeWithTimeout<SignInStart>('start_sign_in', { providerType, config }),
 
-  startProviderSignIn: async (id) => invokeWithTimeout<SignInStart>('start_provider_sign_in', { id }, undefined, false),
+  startProviderSignIn: async (id) => invokeWithTimeout<SignInStart>('start_provider_sign_in', { id }),
 
-  reconnectProvider: async (id, flowId) =>
-    invokeWithTimeout<void>('reconnect_provider', { id, flowId }, undefined, false),
+  reconnectProvider: async (id, flowId) => invokeWithTimeout<void>('reconnect_provider', { id, flowId }),
 
   signInStatus: async (id) => invokeWithTimeout<SignInStatus>('sign_in_status', { id }),
 
-  completeSignIn: async (id, redirectUrl) =>
-    invokeWithTimeout<SignInStatus>('complete_sign_in', { id, redirectUrl }, undefined, false),
+  completeSignIn: async (id, redirectUrl) => invokeWithTimeout<SignInStatus>('complete_sign_in', { id, redirectUrl }),
 
-  cancelSignIn: async (id) => invokeWithTimeout<void>('cancel_sign_in', { id }, undefined, false),
+  cancelSignIn: async (id) => invokeWithTimeout<void>('cancel_sign_in', { id }),
 
   checkProviderPermissions: async (providerType, config) =>
     normalized<PermissionCheckResult>('check_provider_permissions', { providerType, config }),

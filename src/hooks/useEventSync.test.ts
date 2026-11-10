@@ -53,7 +53,36 @@ function openSocket() {
 
 const flush = () => act(async () => undefined)
 
+const stops: Array<() => void> = []
+
+function observe(key: readonly unknown[], data: unknown = []) {
+  const fetches = { count: 0 }
+  client.setQueryData(key, data)
+  const observer = new QueryObserver(client, {
+    queryKey: key,
+    queryFn: async () => {
+      fetches.count += 1
+
+      return data
+    },
+  })
+  stops.push(observer.subscribe(() => undefined))
+
+  return fetches
+}
+
+async function mountConnected() {
+  mount()
+  const socket = openSocket()
+  await flush()
+
+  return socket
+}
+
 afterEach(async () => {
+  for (const stop of stops.splice(0)) {
+    stop()
+  }
   await act(async () => cleanup())
   wsClient.dispose()
   client.clear()
@@ -202,4 +231,129 @@ test('a history invalidation without a pipeline expires all lists but keeps run 
     assert.equal(client.getQueryState(key)?.isInvalidated, true)
   }
   assert.equal(client.getQueryState(detailKey)?.isInvalidated, false)
+})
+
+test('a scoped history invalidation expires only its run details and log tree', async () => {
+  const expired = [queryKeys.runs.detail(pipeline.id, 3), queryKeys.runLogs.tree(pipeline.id, 3)]
+  const untouched = [
+    queryKeys.runs.detail(pipeline.id, 4),
+    queryKeys.runs.detail('other-pipeline', 3),
+    queryKeys.runLogs.tree(pipeline.id, 4),
+  ]
+  for (const key of [...expired, ...untouched]) {
+    client.setQueryData(key, { run_number: 3 })
+  }
+  const socket = await mountConnected()
+  socket.emit('run-history-cache-invalidated', { pipeline_id: pipeline.id, run_number: 3 })
+  await flush()
+
+  for (const key of expired) {
+    assert.equal(client.getQueryState(key)?.isInvalidated, true)
+  }
+  for (const key of untouched) {
+    assert.equal(client.getQueryState(key)?.isInvalidated, false)
+  }
+})
+
+test('a pipeline snapshot refreshes derived views and navigation without refetching seeded lists', async () => {
+  const navigation = observe(queryKeys.pipelines.navigation(''), { total_pipelines: 1 })
+  const list = observe(queryKeys.pipelines.list({ providerId: 1 }), [pipeline])
+  client.setQueryData(queryKeys.pipelines.views(), [])
+  const socket = await mountConnected()
+  socket.emit('pipelines-updated', {
+    pipelines: [pipeline, { ...pipeline, id: 'second' }],
+    providerId: 1,
+    timestamp: 1,
+  })
+  await flush()
+
+  assert.equal(navigation.count, 1)
+  assert.equal(client.getQueryState(queryKeys.pipelines.views())?.isInvalidated, true)
+  assert.equal(list.count, 0)
+  assert.equal(client.getQueryData<Pipeline[]>(queryKeys.pipelines.list({ providerId: 1 }))?.length, 2)
+})
+
+test('a run update refetches every filtered history variant of its pipeline after the batch window', async () => {
+  const running = runHistoryQuery(1, 20, { statuses: ['running'] })
+  const paged = observe(queryKeys.runs.list(pipeline.id, running))
+  const infinite = observe(queryKeys.runs.infinite(pipeline.id, running))
+  const other = observe(queryKeys.runs.list('other-pipeline', running))
+  const socket = await mountConnected()
+  mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    socket.emit('run-updated', { pipelineId: pipeline.id, runNumber: 4, run: { run_number: 4 } })
+    mock.timers.tick(299)
+    assert.equal(paged.count, 0)
+    mock.timers.tick(1)
+  } finally {
+    mock.timers.reset()
+  }
+  await flush()
+
+  assert.equal(paged.count, 1)
+  assert.equal(infinite.count, 1)
+  assert.equal(other.count, 0)
+})
+
+test('status changes batch history invalidation once per pipeline inside the 300 ms window', async () => {
+  const first = observe(queryKeys.runs.list(pipeline.id, runHistoryQuery(1, 20)))
+  const second = observe(queryKeys.runs.list('other-pipeline', runHistoryQuery(1, 20)))
+  const socket = await mountConnected()
+  mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    socket.emit('pipeline-status-changed', { pipeline_ids: [pipeline.id] })
+    socket.emit('pipeline-status-changed', { pipeline_ids: [pipeline.id, 'other-pipeline'] })
+    mock.timers.tick(299)
+    assert.deepEqual([first.count, second.count], [0, 0])
+    mock.timers.tick(1)
+    assert.deepEqual([first.count, second.count], [1, 1])
+  } finally {
+    mock.timers.reset()
+  }
+})
+
+test('pending history invalidations do not survive an unmount', async () => {
+  const history = observe(queryKeys.runs.list(pipeline.id, runHistoryQuery(1, 20)))
+  const socket = await mountConnected()
+  mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    socket.emit('pipeline-status-changed', { pipeline_ids: [pipeline.id] })
+    cleanup()
+    mock.timers.tick(400)
+  } finally {
+    mock.timers.reset()
+  }
+  await flush()
+
+  assert.equal(history.count, 0)
+})
+
+test('three view changes inside one window refetch the views once and also expire selections and editor options', async () => {
+  const views = observe(queryKeys.pipelines.views())
+  const selection = observe(queryKeys.pipelines.selection([pipeline.id]))
+  const editor = observe(queryKeys.pipelines.editorOption(null), {})
+  const socket = await mountConnected()
+  mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    for (let index = 0; index < 3; index += 1) {
+      socket.emit('pipeline-views-changed', {})
+      mock.timers.tick(100)
+    }
+    assert.deepEqual([views.count, selection.count, editor.count], [0, 0, 0])
+    mock.timers.tick(200)
+  } finally {
+    mock.timers.reset()
+  }
+  await flush()
+
+  assert.deepEqual([views.count, selection.count, editor.count], [1, 1, 1])
+})
+
+test('a global metrics config change refetches every metrics query', async () => {
+  const pipelineConfig = observe(queryKeys.metrics.pipelineConfig(pipeline.id), { enabled: true })
+  const socket = await mountConnected()
+  socket.emit('metrics-global-config-changed', {})
+  await flush()
+
+  assert.equal(pipelineConfig.count, 1)
 })

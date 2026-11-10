@@ -34,18 +34,19 @@ const muteItem = (
   target: 'Pipeline' | 'Provider',
   name: string,
   muted: boolean,
-  toggle: () => void,
+  toggle: () => Promise<boolean>,
   mutedMessage: string
 ): MuteItem => ({
   label: muted ? 'Unmute notifications' : 'Mute notifications',
   icon: muted ? <IconBell size={16} aria-hidden /> : <IconBellOff size={16} aria-hidden />,
   muted,
-  onClick: () => {
-    toggle()
-    displaySuccessNotification(
-      muted ? `${name} is no longer muted.` : mutedMessage,
-      `${target} ${muted ? 'unmuted' : 'muted'}`
-    )
+  onClick: async () => {
+    if (await toggle()) {
+      displaySuccessNotification(
+        muted ? `${name} is no longer muted.` : mutedMessage,
+        `${target} ${muted ? 'unmuted' : 'muted'}`
+      )
+    }
   },
 })
 
@@ -71,8 +72,10 @@ export function useNotifyItems(): NotifyItems {
     return {
       label: watching ? 'Stop watching' : 'Watch all runs',
       icon: watching ? <IconBellX size={16} aria-hidden /> : <IconBellRinging size={16} aria-hidden />,
-      onClick: () => {
-        void changePreference({ type: 'pipeline_watched', pipeline_id: id, watched: !watching })
+      onClick: async () => {
+        if (!(await changePreference({ type: 'pipeline_watched', pipeline_id: id, watched: !watching }))) {
+          return
+        }
         if (watching) {
           displaySuccessNotification(`${name} follows your notification settings again.`, 'Stopped watching')
         } else {
@@ -88,15 +91,15 @@ export function useNotifyItems(): NotifyItems {
     return {
       label: finishLabel(pending, status),
       icon: pending ? <IconBellX size={16} aria-hidden /> : <IconBellPlus size={16} aria-hidden />,
-      onClick: () => {
+      onClick: async () => {
         if (pending) {
-          void changePreference({ type: 'cancel_next_finish', pipeline_id: id })
-          displaySuccessNotification(
-            `${name} no longer has a pending finish notification.`,
-            'Finish notification cancelled'
-          )
-        } else {
-          void changePreference({ type: 'watch_next_finish', pipeline_id: id })
+          if (await changePreference({ type: 'cancel_next_finish', pipeline_id: id })) {
+            displaySuccessNotification(
+              `${name} no longer has a pending finish notification.`,
+              'Finish notification cancelled'
+            )
+          }
+        } else if (await changePreference({ type: 'watch_next_finish', pipeline_id: id })) {
           displaySuccessNotification(
             'Cancel it from this menu or in notification settings.',
             `You'll be notified when ${name} finishes`
@@ -113,7 +116,7 @@ export function useNotifyItems(): NotifyItems {
       'Pipeline',
       name,
       muted,
-      () => void changePreference({ type: 'pipeline_muted', pipeline_id: id, muted: !muted }),
+      () => changePreference({ type: 'pipeline_muted', pipeline_id: id, muted: !muted }),
       `You won't get notifications about ${name}. ${UNMUTE_HINT}`
     )
   }
@@ -135,7 +138,7 @@ export function useNotifyItems(): NotifyItems {
         'Provider',
         name,
         muted,
-        () => void changePreference({ type: 'provider_muted', provider_id: id, muted: !muted }),
+        () => changePreference({ type: 'provider_muted', provider_id: id, muted: !muted }),
         `You won't get notifications from ${name}, except for pipelines you watch. ${UNMUTE_HINT}`
       )
     },

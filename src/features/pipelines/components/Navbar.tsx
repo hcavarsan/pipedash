@@ -1,5 +1,5 @@
 import { ActionIcon, Box, Button, Center, Divider, Stack, Tooltip } from '@mantine/core'
-import { IconPin, IconPinnedOff, IconPlus } from '@tabler/icons-react'
+import { IconPlus } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { useContextMenu } from '../../../components/common/ContextMenu'
@@ -11,11 +11,12 @@ import type { PinKind, PipelineView } from '../../../types/views'
 import { useNotifyItems } from '../../notifications/hooks/useNotifyItems'
 import { useConfirmRemoveProvider } from '../../providers/components/ProviderModals'
 import { useProviderCancelItems } from '../hooks/useCancelActiveRuns'
+import { usePinning } from '../hooks/usePinning'
 import { useViewMenuItems } from '../hooks/useViewMenuItems'
-import { usePins, usePipelineViews, useSetPin } from '../queries/usePipelineViewQueries'
+import { usePins, usePipelineViews } from '../queries/usePipelineViewQueries'
 import { usePipelineViewStore } from '../stores/pipelineViewStore'
-import { isPinned } from '../utils/navTree'
 import { NavbarRail } from './NavbarRail'
+import { readFailureOf } from './NavbarReadFailures'
 import { NavbarTree } from './NavbarTree'
 import { activeRootOf, viewNodesOf } from './NavbarViewRows'
 
@@ -64,9 +65,11 @@ export const Navbar = ({ compact = false }: NavbarProps): ReactNode => {
   } = useProviders()
 
   const confirmRemove = useConfirmRemoveProvider()
-  const { data: views } = usePipelineViews()
-  const { data: pins = [] } = usePins()
-  const { mutate: setPin } = useSetPin()
+  const viewsQuery = usePipelineViews()
+  const pinsQuery = usePins()
+  const views = viewsQuery.data
+  const pins = pinsQuery.data ?? []
+  const pinItem = usePinning()
   const openEditor = usePipelineViewStore((s) => s.openEditor)
   const contextMenu = useContextMenu()
   const { providerItems, dialog } = useProviderCancelItems(providers)
@@ -75,17 +78,12 @@ export const Navbar = ({ compact = false }: NavbarProps): ReactNode => {
     contextMenu(() => [...providerItems(provider), providerItem(provider)])
   const menuItems = useViewMenuItems(views ?? [], 'vertical')
   const viewMenu = (view: PipelineView | undefined) => (view ? contextMenu(() => menuItems(view)) : undefined)
-  const pinMenu = (pin: { kind: PinKind; ref: string; name: string }) => {
-    const pinned = isPinned(pins, pin.kind, pin.ref)
+  const pinMenu = (pin: { kind: PinKind; ref: string; name: string }) => contextMenu(() => [pinItem(pin.kind, pin.ref)])
 
-    return contextMenu(() => [
-      {
-        label: `${pinned ? 'Unpin' : 'Pin'} ${pin.kind}`,
-        icon: pinned ? <IconPinnedOff size={16} aria-hidden /> : <IconPin size={16} aria-hidden />,
-        onClick: () => setPin({ kind: pin.kind, ref: pin.ref, pinned: !pinned }),
-      },
-    ])
-  }
+  const failures = [
+    ...readFailureOf('views', "Couldn't load views", viewsQuery),
+    ...readFailureOf('pins', "Couldn't load pins", pinsQuery),
+  ]
   const onRetry = () => refetchProviders()
 
   const content = compact ? (
@@ -101,6 +99,7 @@ export const Navbar = ({ compact = false }: NavbarProps): ReactNode => {
       onRetry={onRetry}
       providerMenu={providerMenu}
       viewMenu={viewMenu}
+      readFailures={failures}
     />
   ) : (
     <NavbarTree
@@ -121,6 +120,7 @@ export const Navbar = ({ compact = false }: NavbarProps): ReactNode => {
       onEditProvider={requestEditProvider}
       onRemoveProvider={confirmRemove}
       onCreateView={() => openEditor(null)}
+      readFailures={failures}
     />
   )
 

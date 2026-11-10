@@ -72,10 +72,18 @@ pub enum FetchStatus {
     Never,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProviderImportFailure {
+    pub name: String,
+    pub error: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProviderImportResult {
     pub added: Vec<String>,
     pub skipped: Vec<String>,
+    pub failed: Vec<ProviderImportFailure>,
+    pub not_attempted: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

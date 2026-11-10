@@ -51,19 +51,22 @@ export function buildSelectionActions({
     {
       label: allPinned ? 'Unpin' : 'Pin',
       icon: allPinned ? <IconPinnedOff size={14} aria-hidden /> : <IconPin size={14} aria-hidden />,
-      onClick: () => {
-        for (const p of selected.filter((p) => p.pinned === allPinned)) {
-          actions.onTogglePin(p)
-        }
-      },
+      onClick: () =>
+        actions.onSetMarks(
+          'pinned',
+          selected.filter((p) => p.pinned === allPinned),
+          !allPinned
+        ),
     },
     {
       label: allHidden ? 'Unhide' : 'Hide',
       icon: allHidden ? <IconEye size={14} aria-hidden /> : <IconEyeOff size={14} aria-hidden />,
       onClick: () => {
-        for (const p of selected.filter((p) => p.hidden === allHidden)) {
-          actions.onToggleHidden(p)
-        }
+        actions.onSetMarks(
+          'hidden',
+          selected.filter((p) => p.hidden === allHidden),
+          !allHidden
+        )
         finish()
       },
     },

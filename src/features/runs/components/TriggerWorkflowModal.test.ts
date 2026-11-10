@@ -14,11 +14,13 @@ const state: {
   params: WorkflowParameter[]
   values: Record<string, unknown>
   paramsFailure: boolean
+  checkFailure: boolean
   triggerFailure: boolean
 } = {
   params: [],
   values: {},
   paramsFailure: false,
+  checkFailure: false,
   triggerFailure: false,
 }
 const triggers: Record<string, unknown>[] = []
@@ -32,6 +34,10 @@ Object.assign(window, {
         case 'prepare_pipeline_trigger': {
           if (state.paramsFailure) {
             throw new Error('parameters unavailable')
+          }
+
+          if (state.checkFailure && isRecord(args?.inputs)) {
+            throw new Error('inputs service unavailable')
           }
 
           const values = isRecord(args?.inputs) ? args.inputs : state.values
@@ -105,6 +111,7 @@ beforeEach(() => {
   state.params = [branchParam]
   state.values = {}
   state.paramsFailure = false
+  state.checkFailure = false
   state.triggerFailure = false
   triggers.length = 0
   preferenceChanges.length = 0
@@ -242,6 +249,46 @@ test('a rejected trigger keeps the dialog open with the typed values', async () 
   state.triggerFailure = false
   await user.click(view().getByRole('button', { name: 'Trigger workflow' }))
   await waitFor(() => assert.equal(closed.value, true))
+})
+
+test('a failed submit-time check shows the error inline, keeps the typed values and sends no trigger', async () => {
+  const user = userEvent.setup({ document })
+  state.checkFailure = true
+  const { closed } = renderModal()
+
+  const input = await view().findByRole('textbox', { name: 'Branch' })
+  await user.type(input, 'release')
+  await user.click(view().getByRole('button', { name: 'Trigger workflow' }))
+
+  await view().findByText("Couldn't start the workflow")
+  await view().findByText(/inputs service unavailable/)
+  assert.equal(triggers.length, 0)
+  assert.equal(closed.value, false)
+  assert.ok(input instanceof HTMLInputElement)
+  assert.equal(input.value, 'release')
+
+  state.checkFailure = false
+  await user.click(view().getByRole('button', { name: 'Trigger workflow' }))
+  await waitFor(() => assert.equal(closed.value, true))
+  assert.deepEqual(triggers, [{ params: { workflow_id: pipeline.id, inputs: { branch: 'release' } } }])
+})
+
+test('a failed submit-time check hides its error once an input changes, without a new submit', async () => {
+  const user = userEvent.setup({ document })
+  state.checkFailure = true
+  renderModal()
+
+  const input = await view().findByRole('textbox', { name: 'Branch' })
+  await user.type(input, 'release')
+  await user.click(view().getByRole('button', { name: 'Trigger workflow' }))
+  await view().findByText(/inputs service unavailable/)
+
+  await user.type(input, '2')
+
+  await waitFor(() => assert.ok(!view().queryByText(/inputs service unavailable/)))
+  assert.ok(input instanceof HTMLInputElement)
+  assert.equal(input.value, 'release2')
+  assert.equal(triggers.length, 0)
 })
 
 test('a failed parameter load offers a retry that recovers', async () => {

@@ -153,8 +153,10 @@ async fn a_config_that_fails_to_load_keeps_the_launch_going_for_the_error_screen
         let launch = launch_outcome(load_config(dir.path()).await);
         assert!(launch.is_ok(), "{content}: {launch:?}");
 
-        let status =
-            ConfigLoader::get_setup_status(dir.path(), &crate::plugin_registry::plugin_registry());
+        let status = ConfigLoader::get_setup_status(
+            &dir.path().join("config.toml"),
+            &crate::plugin_registry::plugin_registry(),
+        );
         assert!(status.config_exists && !status.config_valid, "{content}");
         assert!(!status.validation_errors.is_empty(), "{content}");
     }

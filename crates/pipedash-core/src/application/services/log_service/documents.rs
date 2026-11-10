@@ -76,15 +76,25 @@ impl LogService {
             run_number,
             node_id: node_id.to_string(),
         };
-        let failure = self.recent_failure(&key, &lease, epoch, retry);
+        if retry {
+            self.attempts.remove_if(&key, |_, record| {
+                record.generation == lease.generation
+                    && record.epoch == epoch
+                    && record.failure.is_some()
+            });
+        }
+        let failure = self.recent_failure(&key, &lease, epoch);
         let meta = self.stored(&key, StoredDocMeta::to_meta).await?;
         let live = availability != LogAvailability::Ready
             || meta.as_ref().is_some_and(|meta| !meta.complete);
         if live {
             self.watch(&lease, epoch, &run_key, Some(node_id), &built)?;
+            if retry {
+                self.wake(&key);
+            }
         }
         if let Some(meta) = meta {
-            return Ok(RunLogDocument::Ready(meta));
+            return Ok(self.presenter.run_log_document(meta, failure));
         }
         if let Some(received_bytes) = self.running(&key, &lease, epoch) {
             return Ok(RunLogDocument::Loading { received_bytes });
@@ -113,10 +123,10 @@ impl LogService {
     }
 
     fn recent_failure(
-        &self, key: &DocKey, lease: &ProviderLease, epoch: CacheEpoch, retry: bool,
+        &self, key: &DocKey, lease: &ProviderLease, epoch: CacheEpoch,
     ) -> Option<String> {
         let record = self.attempts.get(key)?;
-        if retry || record.generation != lease.generation || record.epoch != epoch {
+        if record.generation != lease.generation || record.epoch != epoch {
             return None;
         }
         let age = Instant::now().saturating_duration_since(record.at);

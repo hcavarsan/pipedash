@@ -59,6 +59,8 @@ export function useClearCache(): UseMutationResult<void, Error, void, unknown> {
       await resetRunLogs(queryClient)
       void queryClient.invalidateQueries({ queryKey: queryKeys.cache.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.runs.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workflows.all })
 
       notifications.show({
         title: 'Cache cleared',

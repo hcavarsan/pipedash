@@ -1,6 +1,6 @@
 import { Button, Group, Stack, Text } from '@mantine/core'
 import { type ReactNode, useActionState, useId, useMemo } from 'react'
-import { FormErrorDisplay } from '../../../components/common/FormErrorDisplay'
+import { ErrorState } from '../../../components/common/ErrorState'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { LiveStatus } from '../../../components/forms/LiveStatus'
@@ -8,15 +8,10 @@ import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
 import { useNow } from '../../../hooks/useNow'
 import type { Pipeline } from '../../../types/pipelines'
 import type { CancelGroup } from '../../../types/run_action_batch'
-import { errorMessage } from '../../../utils/errorDisplay'
 import { formatCount } from '../../../utils/formatCount'
 import { useCancellationTargets } from '../queries/useCancellationTargets'
 
 import { CancelRunTargets } from './CancelRunTargets'
-
-interface CancelActionState {
-  error: string | null
-}
 
 export interface CancelScope {
   label: string
@@ -47,7 +42,8 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
   const formId = useId()
   const pipelineIds = useMemo(() => scope?.pipelines.map((pipeline) => pipeline.id) ?? [], [scope])
   const search = useCancellationTargets(pipelineIds, opened)
-  const loading = search.isFetching
+  const failed = search.isError
+  const loading = search.isFetching && !failed
   const groups = search.data?.groups ?? []
   const unreadable = search.data?.failed_pipeline_ids ?? []
   const skippedNote = (search.data?.skipped ?? []).map((entry) => entry.reason).join(' ')
@@ -59,26 +55,23 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
       : null
   const unreadableNote =
     unreadable.length > 0 ? `Couldn't load runs for ${formatCount(unreadable.length, 'pipeline')}.` : null
-  const ready = !loading && count > 0
+  const ready = !loading && !failed && count > 0
 
-  const [state, formAction, isPending] = useActionState(
-    async (): Promise<CancelActionState> => {
-      try {
-        await onConfirm(groups)
-      } catch (error) {
-        return { error: errorMessage(error, "Couldn't cancel the runs. Check them in your provider and try again.") }
-      }
+  const [, formAction, isPending] = useActionState(async (): Promise<null> => {
+    try {
+      await onConfirm(groups)
+    } catch {
+      return null
+    }
 
-      onClose()
+    onClose()
 
-      return { error: null }
-    },
-    { error: null }
-  )
+    return null
+  }, null)
 
-  const status = loading
-    ? 'Looking for running runs…'
-    : `${formatCount(count, 'run')} can be cancelled.${unreadable.length > 0 ? ` Couldn't load runs for ${formatCount(unreadable.length, 'pipeline')}.` : ''}`
+  const found = `${formatCount(count, 'run')} can be cancelled.${unreadable.length > 0 ? ` Couldn't load runs for ${formatCount(unreadable.length, 'pipeline')}.` : ''}`
+  const progress = loading ? 'Looking for running runs…' : found
+  const status = failed ? "Couldn't find running runs." : progress
 
   const footer = ready
     ? (requestClose: () => void) => (
@@ -103,12 +96,18 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
       footer={footer}
     >
       <LiveStatus message={status} />
-      {loading ? (
-        <LoadingState variant="compact" message="Looking for running runs…" />
-      ) : (
+      {failed && (
+        <ErrorState
+          title="Couldn't find running runs"
+          error={search.error}
+          onRetry={() => void search.refetch()}
+          retrying={search.isFetching}
+        />
+      )}
+      {loading && <LoadingState variant="compact" message="Looking for running runs…" />}
+      {!failed && !loading && (
         <form id={formId} action={formAction}>
           <Stack gap={mobileShell ? 'lg' : 'md'}>
-            <FormErrorDisplay title="Couldn't cancel runs" globalError={state.error} />
             {emptyNote && <Text size="sm">{emptyNote}</Text>}
             <CancelRunTargets groups={groups} now={now} shell={mobileShell} where={where} />
             <CancelNote color="red" text={unreadableNote} />

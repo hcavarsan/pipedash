@@ -97,22 +97,16 @@ impl CoreEvent {
                 "action": "removed",
                 "timestamp": timestamp,
             }),
-            CoreEvent::PipelineCacheInvalidated {
-                provider_id,
-                reason,
+            CoreEvent::RunHistoryCacheInvalidated {
+                pipeline_id,
+                run_number,
             } => {
-                let mut json = serde_json::json!({
-                    "reason": reason,
-                });
-                if let Some(pid) = provider_id {
-                    json["providerId"] = serde_json::json!(pid);
-                }
-                json
-            }
-            CoreEvent::RunHistoryCacheInvalidated { pipeline_id } => {
                 let mut json = serde_json::json!({});
                 if let Some(pid) = pipeline_id {
                     json["pipeline_id"] = serde_json::json!(pid);
+                }
+                if let Some(number) = run_number {
+                    json["run_number"] = serde_json::json!(number);
                 }
                 json
             }

@@ -26,14 +26,6 @@ pub struct AlertLink {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum CacheInvalidationReason {
-    Fetch,
-    ProviderChange,
-    ManualRefresh,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload")]
 pub enum CoreEvent {
     ProvidersChanged,
@@ -124,13 +116,10 @@ pub enum CoreEvent {
         timestamp: i64,
     },
 
-    PipelineCacheInvalidated {
-        provider_id: Option<i64>,
-        reason: CacheInvalidationReason,
-    },
-
     RunHistoryCacheInvalidated {
         pipeline_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run_number: Option<i64>,
     },
 
     VaultUnlocked,
@@ -210,7 +199,6 @@ impl CoreEvent {
             CoreEvent::ProviderAdded { .. } => "provider-added",
             CoreEvent::ProviderUpdated { .. } => "provider-updated",
             CoreEvent::ProviderRemoved { .. } => "provider-removed",
-            CoreEvent::PipelineCacheInvalidated { .. } => "pipeline-cache-invalidated",
             CoreEvent::RunHistoryCacheInvalidated { .. } => "run-history-cache-invalidated",
             CoreEvent::VaultUnlocked => "vault-unlocked",
             CoreEvent::VaultLocked => "vault-locked",

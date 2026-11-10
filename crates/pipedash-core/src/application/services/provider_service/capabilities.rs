@@ -12,20 +12,21 @@ use crate::domain::{
     DomainError,
     DomainResult,
 };
+use crate::infrastructure::providers::PluginAdapter;
 
 impl ProviderService {
     pub async fn check_permissions(
         &self, provider_type: &str, config: HashMap<String, String>,
     ) -> DomainResult<PermissionCheckResult> {
         let plugin = self.init_plugin(provider_type, config, 0).await?;
-        let permission_status = plugin.check_permissions().await.ok();
-        let features = permission_status
-            .as_ref()
-            .map(|status| plugin.get_feature_availability(status))
-            .unwrap_or_default();
+        let permission_status = plugin
+            .check_permissions()
+            .await
+            .map_err(PluginAdapter::map_error)?;
+        let features = plugin.get_feature_availability(&permission_status);
 
         Ok(PermissionCheckResult {
-            permission_status,
+            permission_status: Some(permission_status),
             features,
         })
     }

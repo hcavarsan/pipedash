@@ -2,7 +2,7 @@ import type { AuthMode } from '../../../../types/plugins'
 import type { ProviderConfig } from '../../../../types/providers'
 import { AUTH_MODE_KEY, SIGN_IN_KEY, TOKEN_KEY } from '../../lib/credentials'
 
-import { type FormAction, type FormState, initialFormState } from './types'
+import { type FieldRequest, type FormAction, type FormState, initialFormState } from './types'
 
 function authModeOf(config: Record<string, string>): AuthMode {
   if (config[AUTH_MODE_KEY] === 'none') {
@@ -10,6 +10,24 @@ function authModeOf(config: Record<string, string>): AuthMode {
   }
 
   return SIGN_IN_KEY in config ? 'sign_in' : 'token'
+}
+
+export function fieldRequest(state: FormState, key: string): FieldRequest {
+  return {
+    value: key === 'providerName' ? state.providerName : state.configValues[key],
+    providerType: state.selectedPlugin?.provider_type ?? null,
+    authMode: state.authMode,
+  }
+}
+
+function answersCurrentField(state: FormState, key: string, requested: FieldRequest): boolean {
+  const current = fieldRequest(state, key)
+
+  return (
+    current.value === requested.value &&
+    current.providerType === requested.providerType &&
+    current.authMode === requested.authMode
+  )
 }
 
 export function formReducer(state: FormState, action: FormAction): FormState {
@@ -175,12 +193,20 @@ export function formReducer(state: FormState, action: FormAction): FormState {
       return { ...state, error: action.error }
 
     case 'SET_FIELD_ERROR':
+      if (!answersCurrentField(state, action.key, action.requested)) {
+        return state
+      }
+
       return {
         ...state,
         fieldErrors: { ...state.fieldErrors, [action.key]: action.error },
       }
 
     case 'CLEAR_FIELD_ERROR': {
+      if (!answersCurrentField(state, action.key, action.requested)) {
+        return state
+      }
+
       const newErrors = { ...state.fieldErrors }
 
       delete newErrors[action.key]

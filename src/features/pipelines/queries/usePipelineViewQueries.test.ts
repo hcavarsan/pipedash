@@ -4,22 +4,31 @@ import { after, afterEach, beforeEach, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, type ReactNode } from 'react'
 
+import { isRecord } from '../../../utils/isRecord'
+
 GlobalRegistrator.register({ width: 390, height: 844 })
+Object.assign(window, { __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'linux' } })
 const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 const { mockIPC } = await import('@tauri-apps/api/mocks')
-const { cleanup, renderHook, waitFor } = await import('@testing-library/react')
+const { act, cleanup, renderHook, waitFor } = await import('@testing-library/react')
 
 const calls: Array<{ command: string; args: unknown }> = []
 let failure: Error | null = null
+let rejectedPipeline: string | null = null
 mockIPC((command, args) => {
   calls.push({ command, args })
   if (failure) {
     throw failure
   }
+  if (isRecord(args) && args.pipelineId === rejectedPipeline) {
+    throw new Error('The provider refused the change')
+  }
   return { imported: 2, skipped: 0 }
 })
-const { useLegacyPipelineMarksImport } = await import('./usePipelineViewQueries')
+const { useLegacyPipelineMarksImport, useSetPipelineMarks } = await import('./usePipelineViewQueries')
 const { logger } = await import('../../../lib/logger')
+const { notifications } = await import('../../../lib/notifications')
+const { queryKeys } = await import('../../../lib/queryKeys')
 
 const client = new QueryClient()
 const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children)
@@ -27,6 +36,7 @@ const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryCl
 beforeEach(() => {
   calls.length = 0
   failure = null
+  rejectedPipeline = null
   localStorage.setItem('pipedash-pinned-pipelines', JSON.stringify({ state: { pinnedKeys: ['GitHub:github__a', 3] } }))
   localStorage.setItem('pipedash-hidden-pipelines', JSON.stringify({ state: { hiddenKeys: ['GitHub:github__b'] } }))
 })
@@ -93,4 +103,53 @@ test('rerendering after a successful import does not import again', async () => 
   rerender()
 
   assert.equal(calls.length, 1)
+})
+
+const pageInvalidations = (invalidations: { mock: { calls: Array<{ arguments: unknown[] }> } }): number =>
+  invalidations.mock.calls.filter((call) => {
+    const filters = call.arguments[0]
+
+    return isRecord(filters) && JSON.stringify(filters.queryKey) === JSON.stringify(queryKeys.pipelines.pages())
+  }).length
+
+test('a bulk pin attempts every pipeline, toasts the first failure once and reconciles once', async (context) => {
+  const shown = context.mock.method(notifications, 'show', () => 'toast')
+  const invalidations = context.mock.method(client, 'invalidateQueries')
+  rejectedPipeline = 'b'
+  const { result } = renderHook(() => useSetPipelineMarks(), { wrapper })
+
+  await act(async () => {
+    result.current.mutate({ mark: 'pinned', pipelineIds: ['a', 'b', 'c'], value: true })
+  })
+  await waitFor(() => assert.equal(result.current.isError, true))
+
+  assert.deepEqual(
+    calls.map((call) => [call.command, isRecord(call.args) ? call.args.pipelineId : null]),
+    [
+      ['set_pipeline_view_membership', 'a'],
+      ['set_pipeline_view_membership', 'b'],
+      ['set_pipeline_view_membership', 'c'],
+    ]
+  )
+  assert.equal(shown.mock.callCount(), 1)
+  assert.equal(shown.mock.calls[0]?.arguments[0]?.title, "Couldn't update pin")
+  assert.match(String(shown.mock.calls[0]?.arguments[0]?.message), /The provider refused the change/)
+  assert.equal(pageInvalidations(invalidations), 1)
+})
+
+test('hiding in bulk uses the hidden command with its own error title', async (context) => {
+  const shown = context.mock.method(notifications, 'show', () => 'toast')
+  rejectedPipeline = 'a'
+  const { result } = renderHook(() => useSetPipelineMarks(), { wrapper })
+
+  await act(async () => {
+    result.current.mutate({ mark: 'hidden', pipelineIds: ['a', 'b'], value: true })
+  })
+  await waitFor(() => assert.equal(result.current.isError, true))
+
+  assert.deepEqual(
+    calls.map((call) => call.command),
+    ['set_pipeline_hidden', 'set_pipeline_hidden']
+  )
+  assert.equal(shown.mock.calls[0]?.arguments[0]?.title, "Couldn't update hidden pipelines")
 })

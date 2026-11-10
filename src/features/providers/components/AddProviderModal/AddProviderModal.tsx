@@ -1,5 +1,6 @@
 import { Stack } from '@mantine/core'
 import { type ReactNode, useId, useRef } from 'react'
+import { ErrorState } from '../../../../components/common/ErrorState'
 import { LoadingState } from '../../../../components/common/LoadingState'
 import { StandardModal } from '../../../../components/common/StandardModal'
 import { ErrorBoundary } from '../../../../components/ErrorBoundary/ErrorBoundary'
@@ -16,8 +17,6 @@ import { ProviderWizardProgress } from './ProviderWizardProgress'
 import { type AddProviderModalProps, STEP_ORDER, type Step } from './types'
 import { usePermissionCheck } from './usePermissionCheck'
 import { useProviderFormAction } from './useProviderFormAction'
-
-const NO_PLUGINS: PluginMetadata[] = []
 
 type WizardSessionProps = AddProviderModalProps & { plugins: PluginMetadata[] }
 
@@ -153,9 +152,9 @@ function ProviderWizardSession(props: WizardSessionProps): ReactNode {
 }
 
 export function AddProviderModal(props: AddProviderModalProps): ReactNode {
-  const { data, isLoading } = usePlugins()
+  const { data, error, isError, isFetching, refetch } = usePlugins()
 
-  if (isLoading) {
+  if (data === undefined) {
     return (
       <StandardModal
         opened={props.opened}
@@ -163,12 +162,21 @@ export function AddProviderModal(props: AddProviderModalProps): ReactNode {
         title={props.editMode === true ? 'Edit provider' : 'Add provider'}
         size="lg"
       >
-        <LoadingState variant="section" message="Loading available providers..." />
+        {isError ? (
+          <ErrorState
+            title="Couldn't load providers"
+            error={error}
+            onRetry={() => void refetch()}
+            retrying={isFetching}
+          />
+        ) : (
+          <LoadingState variant="section" message="Loading available providers..." />
+        )}
       </StandardModal>
     )
   }
 
-  return <ProviderWizardSession {...props} plugins={data ?? NO_PLUGINS} />
+  return <ProviderWizardSession {...props} plugins={data} />
 }
 
 export type { AddProviderModalProps }

@@ -7,7 +7,7 @@ import {
 } from '@tanstack/react-query'
 import { GC_TIMES } from '../../../lib/cacheConfig'
 import { notifications } from '../../../lib/notifications'
-import { queryKeys } from '../../../lib/queryKeys'
+import { queryKeys, ROW_ACTION_KEY } from '../../../lib/queryKeys'
 import { useRefreshProvider } from '../../../queries/useRefreshQueries'
 import { service } from '../../../services/service'
 import type { Pipeline, TriggerDraft, TriggerParams, TriggerResult } from '../../../types/pipelines'
@@ -26,6 +26,19 @@ export function usePreparedTrigger(
     gcTime: GC_TIMES.SHORT,
     enabled: enabled && !!pipelineId,
     retry: false,
+  })
+}
+
+interface CheckTriggerRequest {
+  pipelineId: string
+  rerunOf: number | null
+  inputs: Record<string, unknown>
+}
+
+export function useCheckTrigger(): UseMutationResult<TriggerDraft, Error, CheckTriggerRequest, unknown> {
+  return useMutation({
+    mutationFn: ({ pipelineId, rerunOf, inputs }: CheckTriggerRequest) =>
+      service.preparePipelineTrigger(pipelineId, rerunOf, inputs),
   })
 }
 
@@ -61,6 +74,7 @@ export function useEnableWorkflow(): UseMutationResult<void, Error, Pipeline, un
   const { mutate: refreshProvider } = useRefreshProvider()
 
   return useMutation({
+    mutationKey: [...ROW_ACTION_KEY, 'enable'],
     mutationFn: (pipeline: Pipeline) => service.enablePipeline(pipeline.id),
 
     onSuccess: (_data, pipeline) => {

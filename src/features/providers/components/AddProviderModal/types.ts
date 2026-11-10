@@ -1,9 +1,21 @@
 import type { AuthMode, PluginMetadata } from '../../../../types/plugins'
+import type { ProviderDraft } from '../../../../types/provider_draft'
 import type { ProviderConfig } from '../../../../types/providers'
 
 export type Step = 'provider' | 'credentials' | 'pipelines'
 
 export const STEP_ORDER: readonly Step[] = ['provider', 'credentials', 'pipelines']
+
+export interface SubmitError {
+  message: string
+  draft: ProviderDraft | null
+}
+
+export interface FieldRequest {
+  value: string | undefined
+  providerType: string | null
+  authMode: AuthMode
+}
 
 export interface FormState {
   step: Step
@@ -21,7 +33,7 @@ export interface FormState {
   selectingAll: boolean
   selectAllRun: number
 
-  error: string | null
+  error: SubmitError | null
   fieldErrors: Record<string, string>
 }
 
@@ -42,9 +54,9 @@ export type FormAction =
   | { type: 'START_SELECT_ALL'; run: number }
   | { type: 'FINISH_SELECT_ALL'; run: number; pipelineIds: string[] | null }
   | { type: 'SET_REPOSITORY_SEARCH'; search: string }
-  | { type: 'SET_ERROR'; error: string | null }
-  | { type: 'SET_FIELD_ERROR'; key: string; error: string }
-  | { type: 'CLEAR_FIELD_ERROR'; key: string }
+  | { type: 'SET_ERROR'; error: SubmitError | null }
+  | { type: 'SET_FIELD_ERROR'; key: string; error: string; requested: FieldRequest }
+  | { type: 'CLEAR_FIELD_ERROR'; key: string; requested: FieldRequest }
   | { type: 'SET_FIELD_ERRORS'; errors: Record<string, string> }
   | { type: 'RESET' }
   | { type: 'INIT_EDIT_MODE'; plugin: PluginMetadata; provider: ProviderConfig & { id: number } }

@@ -73,7 +73,7 @@ pub struct RunLogNode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum RunLogDocument {
-    Ready(LogDocumentMeta),
+    Ready(Box<LogDocumentMeta>),
     Loading { received_bytes: u64 },
     Pending,
     Unavailable { message: String },
@@ -98,6 +98,7 @@ pub struct LogDocumentMeta {
     pub updated_at_ms: i64,
     pub stable_lines: u32,
     pub previous_revision: Option<i64>,
+    pub refresh_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

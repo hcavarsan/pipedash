@@ -1,6 +1,6 @@
 import { Grid, Stack } from '@mantine/core'
 import type { UseQueryResult } from '@tanstack/react-query'
-import { Fragment, type ReactNode } from 'react'
+import { Fragment, type ReactNode, useRef } from 'react'
 import { ErrorState } from '../../../components/common/ErrorState'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
@@ -20,6 +20,59 @@ interface PipelineMetricCardsProps {
   onExpand: (metricType: MetricType) => void
 }
 
+interface MetricCardProps {
+  type: MetricType
+  query: UseQueryResult<MetricsDashboard, Error>
+  dateRange: DateRange
+  aggregationPeriod: AggregationPeriod
+  onExpand: (metricType: MetricType) => void
+}
+
+function MetricCard({ type, query, dateRange, aggregationPeriod, onExpand }: MetricCardProps): ReactNode {
+  const resolved = useRef({ aggregationPeriod, dateRange })
+  const { data, isPlaceholderData } = query
+
+  if (data && !isPlaceholderData) {
+    resolved.current = { aggregationPeriod, dateRange }
+  }
+
+  const error = query.isError && (
+    <ErrorState
+      title={`Couldn't load ${METRIC_CONFIG[type].label.toLowerCase()}`}
+      error={query.error}
+      onRetry={() => void query.refetch()}
+      retrying={query.isFetching}
+    />
+  )
+
+  if (error && !data) {
+    return error
+  }
+
+  const hasMetrics = !!data && data.data.metrics.length > 0
+
+  return (
+    <Stack gap="xs" h="100%" aria-busy={isPlaceholderData}>
+      {error}
+      {isPlaceholderData && <LoadingState variant="compact" message="Updating metrics…" />}
+      <ErrorBoundary scope="feature" name={METRIC_CONFIG[type].label}>
+        <CompactMetricsCard
+          metricType={type}
+          data={data}
+          title={buildChartTitle(
+            type,
+            getDefaultAggregationType(type),
+            resolved.current.aggregationPeriod,
+            resolved.current.dateRange
+          )}
+          loading={query.isPending || (isPlaceholderData && !hasMetrics)}
+          onExpand={() => onExpand(type)}
+        />
+      </ErrorBoundary>
+    </Stack>
+  )
+}
+
 export function PipelineMetricCards({
   queries,
   dateRange,
@@ -31,24 +84,11 @@ export function PipelineMetricCards({
   const mobileShell = useMobileShell()
   const allQueries = METRIC_TYPES.map((type) => queries[type])
   const isRefetching = allQueries.some((query) => query.isFetching)
-  const failedQuery = allQueries.find((query) => query.isError)
+  const resolvedEmpty =
+    allQueries.every((query) => query.isSuccess && !query.isPlaceholderData) &&
+    !allQueries.some((query) => query.data && query.data.data.metrics.length > 0)
 
-  if (failedQuery) {
-    return (
-      <ErrorState
-        title="Couldn't load pipeline metrics"
-        error={failedQuery.error}
-        onRetry={onRefresh}
-        retrying={isRefetching}
-      />
-    )
-  }
-
-  if (allQueries.some((query) => query.isPending)) {
-    return <LoadingState message="Loading pipeline metrics..." />
-  }
-
-  if (!allQueries.some((query) => query.data && query.data.data.metrics.length > 0)) {
+  if (resolvedEmpty) {
     return (
       <MetricsEmptyState
         range={dateRange}
@@ -61,15 +101,13 @@ export function PipelineMetricCards({
   }
 
   const renderCard = (type: MetricType) => (
-    <ErrorBoundary scope="feature" name={METRIC_CONFIG[type].label}>
-      <CompactMetricsCard
-        metricType={type}
-        data={queries[type].data}
-        title={buildChartTitle(type, getDefaultAggregationType(type), aggregationPeriod, dateRange)}
-        loading={queries[type].isPending}
-        onExpand={() => onExpand(type)}
-      />
-    </ErrorBoundary>
+    <MetricCard
+      type={type}
+      query={queries[type]}
+      dateRange={dateRange}
+      aggregationPeriod={aggregationPeriod}
+      onExpand={onExpand}
+    />
   )
 
   if (mobileShell) {

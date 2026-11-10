@@ -9,6 +9,7 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { createElement } from 'react'
 import { MemoryRouter } from 'react-router-dom'
+import { notifications } from '../../../lib/notifications'
 import { apiService } from '../../../services/api'
 import { tauriService } from '../../../services/tauri'
 import { pipelineFixture } from '../../../testing/fixtures'
@@ -96,4 +97,71 @@ test('completed history stays complete across forward and backward page navigati
   assert.equal(result.current.isComplete, true)
   assert.equal(requests.at(-1)?.page, 1)
   assert.equal(requests.at(-1)?.scan_depth, 2)
+})
+
+test('a rejected history refresh rejects the promise and shows one error toast', async (context) => {
+  let failing = false
+  const fetchHistory = async (_pipelineId: string, query: RunHistoryQuery) => {
+    if (failing) {
+      throw new Error('History unavailable')
+    }
+
+    return history(query)
+  }
+  const shown = context.mock.method(notifications, 'show', () => 'toast')
+  context.mock.method(apiService, 'fetchRunHistory', fetchHistory)
+  context.mock.method(tauriService, 'fetchRunHistory', fetchHistory)
+  const { result } = renderHook(() => useRunHistoryPageData(pipeline), { wrapper })
+
+  await waitFor(() => assert.equal(result.current.hasData, true))
+  failing = true
+
+  let outcome: unknown
+  await act(async () => {
+    outcome = await result.current.refresh().then(
+      () => 'resolved',
+      (error: unknown) => error
+    )
+  })
+
+  assert.ok(outcome instanceof Error)
+  assert.equal(outcome.message, 'History unavailable')
+  assert.equal(shown.mock.callCount(), 1)
+  assert.equal(shown.mock.calls[0]?.arguments[0]?.title, "Couldn't refresh run history")
+})
+
+test('a rejected next page keeps the first page and retry requests the failed page', async (context) => {
+  context.mock.getter(navigator, 'userAgent', () => 'iPhone')
+  const pages: number[] = []
+  let failing = true
+  const fetchHistory = async (_pipelineId: string, query: RunHistoryQuery) => {
+    pages.push(query.page)
+
+    if (query.page === 2 && failing) {
+      throw new Error('Page 2 unavailable')
+    }
+
+    return history({ ...query, scan_depth: 2 })
+  }
+  context.mock.method(apiService, 'fetchRunHistory', fetchHistory)
+  context.mock.method(tauriService, 'fetchRunHistory', fetchHistory)
+  const { result } = renderHook(() => useRunHistoryPageData(pipeline), { wrapper })
+
+  await waitFor(() => assert.equal(result.current.runs.length, 1))
+  await act(async () => result.current.fetchMore())
+  await waitFor(() => assert.equal(result.current.isFetchNextPageError, true))
+  assert.deepEqual(
+    result.current.runs.map((run) => run.run_number),
+    [1]
+  )
+  assert.equal(result.current.hasData, true)
+
+  await act(async () => result.current.fetchMore())
+  assert.deepEqual(pages, [1, 2])
+
+  failing = false
+  await act(async () => result.current.retryNextPage())
+  await waitFor(() => assert.equal(result.current.runs.length, 2))
+  assert.deepEqual(pages, [1, 2, 2])
+  assert.equal(result.current.isFetchNextPageError, false)
 })

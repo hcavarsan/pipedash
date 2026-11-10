@@ -7,11 +7,12 @@ import type { PluginMetadata } from '../../../../types/plugins'
 import type { ProviderDraftResult } from '../../../../types/provider_draft'
 import type { ProviderConfig } from '../../../../types/providers'
 import { errorMessage } from '../../../../utils/errorDisplay'
+import { sameJson } from '../../../../utils/sameJson'
 import { TOKEN_KEY } from '../../lib/credentials'
 import { useProviderDraftCheck } from '../../queries/useProviderDraftCheck'
 
 import { buildProviderDraft } from './draft'
-import { formReducer, isFormDirty } from './reducer'
+import { fieldRequest, formReducer, isFormDirty } from './reducer'
 import {
   type AddProviderModalProps,
   type FormAction,
@@ -37,6 +38,7 @@ export interface ProviderFormModel {
   formAction: (formData: FormData) => void
   submitIntent: (intent: ProviderSubmitIntent) => void
   validateKey: (key: string) => Promise<void>
+  submitError: string | null
   isPending: boolean
   providerConfig: ProviderConfig
   check: ProviderDraftResult | undefined
@@ -83,15 +85,19 @@ export function useProviderFormAction({
     refresh_interval: 300,
   }
 
-  const fail = (error: string | null, fieldErrors: Record<string, string>): ProviderFormActionState => {
+  const submittedDraft = buildProviderDraft(state, providerId, Array.from(selectedPipelines))
+  const submitError = state.error && sameJson(state.error.draft, submittedDraft) ? state.error.message : null
+
+  const fail = (error: string, fieldErrors: Record<string, string>): ProviderFormActionState => {
     dispatch({ type: 'SET_FIELD_ERRORS', errors: fieldErrors })
-    dispatch({ type: 'SET_ERROR', error })
+    dispatch({ type: 'SET_ERROR', error: { message: error, draft: submittedDraft } })
 
     return { error, fieldErrors }
   }
 
   const validateKey = async (key: string): Promise<void> => {
     const draft = buildProviderDraft(state, providerId, null)
+    const requested = fieldRequest(state, key)
 
     if (!draft) {
       return
@@ -101,7 +107,11 @@ export function useProviderFormAction({
       const { errors } = await service.validateProviderDraft(draft)
       const message = errors[key]
 
-      dispatch(message ? { type: 'SET_FIELD_ERROR', key, error: message } : { type: 'CLEAR_FIELD_ERROR', key })
+      dispatch(
+        message
+          ? { type: 'SET_FIELD_ERROR', key, error: message, requested }
+          : { type: 'CLEAR_FIELD_ERROR', key, requested }
+      )
     } catch (err: unknown) {
       logger.warn('AddProviderModal', 'Field validation failed', err)
     }
@@ -224,6 +234,7 @@ export function useProviderFormAction({
     formAction,
     submitIntent,
     validateKey,
+    submitError,
     isPending,
     providerConfig,
     check,

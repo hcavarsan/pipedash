@@ -12,6 +12,7 @@ import { STATUS_META } from '../../../theme/status'
 import type { Pipeline, PipelineRun, PipelineStatus } from '../../../types/pipelines'
 import type { RunHistoryScanNotice } from '../../../types/run_history'
 import { isDateRange } from '../../../utils/dateRange'
+import { displayErrorNotification } from '../../../utils/errorDisplay'
 import { useTableDefinition } from '../queries/useTableSchemaQueries'
 
 const isPipelineStatus = (value: string): value is PipelineStatus => value in STATUS_META
@@ -30,11 +31,14 @@ export interface RunHistoryPageData {
   actors: string[]
   sortStatus: DataTableSortStatus<PipelineRun>
   setSortOverride: (status: DataTableSortStatus<PipelineRun>) => void
-  isLoading: boolean
+  hasData: boolean
   isFetching: boolean
   isError: boolean
+  isFetchNextPageError: boolean
   error: Error | null
   refetch: () => Promise<unknown>
+  refresh: () => Promise<void>
+  retryNextPage: () => void
   totalCount: number
   isComplete: boolean
   scanNotice: RunHistoryScanNotice | null
@@ -105,17 +109,32 @@ export function useRunHistoryPageData(pipeline: Pipeline | null): RunHistoryPage
     actors: lastPage?.actors ?? [],
     sortStatus,
     setSortOverride,
-    isLoading: active.isLoading,
+    hasData: active.data !== undefined,
     isFetching: active.isFetching,
     isError: active.isError,
+    isFetchNextPageError: isMobile && infinite.isFetchNextPageError,
     error: active.error,
     refetch: () => active.refetch(),
+    refresh: async () => {
+      try {
+        await active.refetch({ throwOnError: true })
+      } catch (error) {
+        displayErrorNotification(error, "Couldn't refresh run history")
+        throw error
+      }
+    },
+    retryNextPage: () => {
+      void infinite.fetchNextPage()
+    },
     totalCount: lastPage?.total_count ?? 0,
     isComplete: lastPage?.is_complete ?? false,
     scanNotice: lastPage?.scan_notice ?? null,
     hasMore: isMobile ? infinite.hasNextPage : (lastPage?.can_scan_deeper ?? false),
     isFetchingMore: isMobile ? infinite.isFetchingNextPage : paged.isFetching,
     fetchMore: () => {
+      if (active.isPlaceholderData || (isMobile && infinite.isFetchNextPageError)) {
+        return
+      }
       if (!isMobile) {
         setDepth({ key: scanKey, value: scanDepth + 1 })
         return

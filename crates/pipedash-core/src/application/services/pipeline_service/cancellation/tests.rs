@@ -1,9 +1,14 @@
+use std::sync::Arc;
+use std::time::Duration;
+
 use pipedash_plugin_api::AUTH_MODE_KEY;
 
+use super::SCAN_CONCURRENCY;
 use crate::application::services::presenter::READ_ONLY_PROVIDER;
 use crate::application::test_support::{
     pipeline,
     stub_run,
+    Gate,
     Harness,
     StubProvider,
 };
@@ -270,4 +275,69 @@ async fn cancel_runs_should_reject_oversized_batches() {
         result,
         Err(crate::domain::DomainError::InvalidConfig(_))
     ));
+}
+
+async fn wait_until(condition: impl Fn() -> bool) {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !condition() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the condition was never reached");
+}
+
+#[tokio::test]
+async fn cancel_runs_should_run_in_parallel_within_the_limit_and_keep_input_order() {
+    let h = Harness::new().await;
+    let gates: Vec<Arc<Gate>> = (0..SCAN_CONCURRENCY + 2).map(|_| Gate::new()).collect();
+    let (provider_id, stub) = h
+        .add_stub(|id| {
+            gates
+                .iter()
+                .zip(1..)
+                .fold(StubProvider::new(id), |stub, (gate, run)| {
+                    stub.cancel_gated(run, gate)
+                })
+        })
+        .await;
+    *stub.cancelled.lock().unwrap() = Some(Vec::new());
+    let build = pipeline(provider_id, "build", PipelineStatus::Running);
+    let numbers: Vec<i64> = (1..=gates.len() as i64).collect();
+    let runs: Vec<PipelineRun> = numbers
+        .iter()
+        .map(|number| run_as(&build.id, *number, PipelineStatus::Running))
+        .collect();
+    *stub.runs.lock().unwrap() = runs.clone();
+    cache(&h, &build, runs).await;
+    let targets = numbers
+        .iter()
+        .map(|number| RunTarget {
+            pipeline_id: build.id.clone(),
+            run_number: *number,
+        })
+        .collect();
+    let service = Arc::clone(&h.pipeline_service);
+    let batch = tokio::spawn(async move { service.cancel_runs(targets).await });
+
+    wait_until(|| stub.cancels_in_flight() == SCAN_CONCURRENCY).await;
+    gates[SCAN_CONCURRENCY - 1].open();
+    wait_until(|| *stub.cancelled.lock().unwrap() == Some(vec![SCAN_CONCURRENCY as i64])).await;
+    assert!(!batch.is_finished());
+    for gate in &gates {
+        gate.open();
+    }
+    let batch = batch.await.unwrap().unwrap();
+
+    assert!(stub.cancels_peak() > 1);
+    assert!(stub.cancels_peak() <= SCAN_CONCURRENCY);
+    assert_eq!(batch.failed_count, 0);
+    assert_eq!(
+        batch
+            .results
+            .iter()
+            .map(|result| result.target.run_number)
+            .collect::<Vec<_>>(),
+        numbers
+    );
 }

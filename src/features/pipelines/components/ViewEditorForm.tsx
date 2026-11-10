@@ -1,14 +1,17 @@
 import { Button, Group, Select, Stack, Text, TextInput } from '@mantine/core'
+import type { UseQueryResult } from '@tanstack/react-query'
 import { type ChangeEvent, type ReactNode, useActionState, useId, useRef } from 'react'
 import { FormErrorDisplay } from '../../../components/common/FormErrorDisplay'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { logger } from '../../../lib/logger'
-import type { PipelineView, ViewPatch } from '../../../types/views'
+import type { PipelineView, ViewEditorOptions, ViewPatch } from '../../../types/views'
 import { errorMessage } from '../../../utils/errorDisplay'
+import { sameJson } from '../../../utils/sameJson'
 import { useConfirmDeleteView } from '../hooks/useConfirmDeleteView'
-import { NAME_REQUIRED, sameJson, TOP_LEVEL, type ViewEditorDraftModel } from '../hooks/useViewEditorDraft'
+import { NAME_REQUIRED, TOP_LEVEL, type ViewEditorDraftModel } from '../hooks/useViewEditorDraft'
 import { useCreatePipelineView, useUpdatePipelineView } from '../queries/usePipelineViewQueries'
 import type { ViewEditorState } from '../stores/pipelineViewStore'
+import { QueryBoundary } from './QueryBoundary'
 
 interface ParentOption {
   value: string
@@ -20,6 +23,7 @@ interface ViewEditorFormProps {
   view: PipelineView | undefined
   draft: ViewEditorDraftModel
   parentOptions: ParentOption[]
+  parentQuery: UseQueryResult<ViewEditorOptions, Error>
   children: ReactNode
   onClose: () => void
   onSaved: (created: PipelineView | null) => void
@@ -29,9 +33,10 @@ interface SaveState {
   error: string | null
   fieldErrors: Record<string, string>
   session: number
+  submitted: unknown
 }
 
-const settled = (session: number): SaveState => ({ error: null, fieldErrors: {}, session })
+const settled = (session: number): SaveState => ({ error: null, fieldErrors: {}, session, submitted: null })
 
 function buildViewPatch(view: PipelineView, name: string, model: ViewEditorDraftModel): ViewPatch {
   const { draft, initial, memberIds, membersChanged } = model
@@ -56,11 +61,22 @@ function buildViewPatch(view: PipelineView, name: string, model: ViewEditorDraft
   return patch
 }
 
+interface ParentSelectProps {
+  options: ParentOption[]
+  value: string
+  onChange: (value: string | null) => void
+}
+
+const ParentSelect = ({ options, value, onChange }: ParentSelectProps): ReactNode => (
+  <Select label="Inside" data={options} value={value} allowDeselect={false} onChange={onChange} />
+)
+
 export function ViewEditorForm({
   editor,
   view,
   draft,
   parentOptions,
+  parentQuery,
   children,
   onClose,
   onSaved,
@@ -72,13 +88,14 @@ export function ViewEditorForm({
   const confirmDelete = useConfirmDeleteView()
   const { creating, sessionKey } = draft
   const fields = draft.draft
+  const draftNow = { fields, memberIds: draft.memberIds }
 
   const savePipelineView = async (_previous: SaveState, formData: FormData): Promise<SaveState> => {
     const entered = formData.get('name')
     const name = (typeof entered === 'string' ? entered : fields.name).trim()
 
     if (draft.showName && !name) {
-      return { error: null, fieldErrors: { name: NAME_REQUIRED }, session: sessionKey }
+      return { ...settled(sessionKey), fieldErrors: { name: NAME_REQUIRED } }
     }
 
     try {
@@ -111,12 +128,13 @@ export function ViewEditorForm({
     } catch (err) {
       logger.error('ViewEditorForm', 'Failed to save view', err)
 
-      return { error: errorMessage(err, 'Try saving the view again.'), fieldErrors: {}, session: sessionKey }
+      return { ...settled(sessionKey), error: errorMessage(err, 'Try saving the view again.'), submitted: draftNow }
     }
   }
 
   const [state, formAction, isPending] = useActionState(savePipelineView, settled(sessionKey))
   const result = state.session === sessionKey ? state : settled(sessionKey)
+  const saveError = sameJson(result.submitted, draftNow) ? result.error : null
   const nameError = draft.nameError ?? (draft.nameMissing ? result.fieldErrors.name : undefined)
 
   const footer = (requestClose: () => void): ReactNode => (
@@ -160,6 +178,9 @@ export function ViewEditorForm({
       draft.setDraft((d) => ({ ...d, parent: value === TOP_LEVEL ? null : value }))
     }
   }
+  const parentSelect = (
+    <ParentSelect options={parentOptions} value={draft.draft.parent ?? TOP_LEVEL} onChange={onParentChange} />
+  )
 
   return (
     <StandardModal
@@ -177,7 +198,7 @@ export function ViewEditorForm({
     >
       <form id={formId} ref={formRef} action={formAction}>
         <Stack gap="lg">
-          <FormErrorDisplay title="Couldn't save view" globalError={result.error} />
+          <FormErrorDisplay title="Couldn't save view" globalError={saveError} />
 
           {draft.showName && (
             <TextInput
@@ -194,13 +215,14 @@ export function ViewEditorForm({
           )}
 
           {draft.showParent && (
-            <Select
-              label="Inside"
-              data={parentOptions}
-              value={fields.parent ?? TOP_LEVEL}
-              allowDeselect={false}
-              onChange={onParentChange}
-            />
+            <QueryBoundary
+              query={parentQuery}
+              loading="Loading parent views…"
+              failure="Couldn't load parent views"
+              variant="compact"
+            >
+              {() => parentSelect}
+            </QueryBoundary>
           )}
 
           {creating && editor.initialMembers.length > 0 && (

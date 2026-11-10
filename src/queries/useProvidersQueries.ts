@@ -13,7 +13,7 @@ import { service } from '../services/service'
 import type { PermissionCheckResult } from '../types/plugins'
 import type { ProviderDraft } from '../types/provider_draft'
 import type { ProviderConfig, ProviderImportResult, ProviderSummary } from '../types/providers'
-import { errorMessage } from '../utils/errorDisplay'
+import { displayErrorNotification, displaySuccessNotification } from '../utils/errorDisplay'
 import { saveFile } from '../utils/saveFile'
 
 export function useProviders(options?: { enabled?: boolean }): UseQueryResult<ProviderSummary[], Error> {
@@ -46,19 +46,14 @@ export function useSaveProviderDraft(): UseMutationResult<number, Error, Provide
       void queryClient.invalidateQueries({ queryKey: queryKeys.providers.detail(id) })
       void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
 
-      notifications.show({
-        title: updated ? 'Provider updated' : 'Provider added',
-        message: updated ? 'Refreshing pipelines...' : 'Fetching pipelines...',
-        color: 'green',
-      })
+      displaySuccessNotification(
+        updated ? 'Changes saved.' : 'Pipelines appear here when the first fetch finishes.',
+        updated ? 'Provider updated' : 'Provider added'
+      )
     },
 
     onError: (error: Error, draft) => {
-      notifications.show({
-        title: draft.provider_id === null ? "Couldn't add provider" : "Couldn't update provider",
-        message: errorMessage(error, 'Check the provider settings and try again.'),
-        color: 'red',
-      })
+      displayErrorNotification(error, draft.provider_id === null ? "Couldn't add provider" : "Couldn't update provider")
     },
   })
 }
@@ -93,11 +88,7 @@ export function useRemoveProvider(): UseMutationResult<void, Error, number, unkn
     },
 
     onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't remove provider",
-        message: errorMessage(error, 'Try removing the provider again.'),
-        color: 'red',
-      })
+      displayErrorNotification(error, "Couldn't remove provider")
     },
   })
 }
@@ -113,25 +104,20 @@ export function useExportProviders(): UseMutationResult<boolean, Error, void, un
 
     onSuccess: (saved) => {
       if (saved) {
-        notifications.show({
-          title: 'Providers exported',
-          message: 'Tokens are not in the file. Set each token variable on the other machine.',
-          color: 'green',
-        })
+        displaySuccessNotification(
+          'Tokens are not in the file. Set each token variable on the other machine.',
+          'Providers exported'
+        )
       }
     },
 
     onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't export providers",
-        message: errorMessage(error, 'Try exporting the providers again.'),
-        color: 'red',
-      })
+      displayErrorNotification(error, "Couldn't export providers")
     },
   })
 }
 
-function importSummary({ added, skipped }: ProviderImportResult): string {
+function importSummary({ added, skipped, failed, not_attempted }: ProviderImportResult): string {
   const parts = []
 
   if (added.length > 0) {
@@ -140,8 +126,24 @@ function importSummary({ added, skipped }: ProviderImportResult): string {
   if (skipped.length > 0) {
     parts.push(`Skipped ${skipped.join(', ')}, already set up here.`)
   }
+  for (const { name, error } of failed) {
+    parts.push(`Couldn't add ${name}: ${error}.`)
+  }
+  if (not_attempted.length > 0) {
+    parts.push(`Not attempted: ${not_attempted.join(', ')}.`)
+  }
 
   return parts.join(' ')
+}
+
+function importOutcome({ added, failed }: ProviderImportResult): { title: string; color: string } {
+  if (added.length === 0) {
+    return { title: 'No providers imported', color: failed.length > 0 ? 'orange' : 'gray' }
+  }
+
+  return failed.length > 0
+    ? { title: "Some providers weren't imported", color: 'orange' }
+    : { title: 'Providers imported', color: 'green' }
 }
 
 export function useImportProviders(): UseMutationResult<ProviderImportResult, Error, File, unknown> {
@@ -154,20 +156,11 @@ export function useImportProviders(): UseMutationResult<ProviderImportResult, Er
       void queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
       void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
 
-      notifications.show({
-        title: result.added.length > 0 ? 'Providers imported' : 'No providers imported',
-        message: importSummary(result),
-        color: result.added.length > 0 ? 'green' : 'gray',
-        autoClose: 10_000,
-      })
+      notifications.show({ ...importOutcome(result), message: importSummary(result), autoClose: 10_000 })
     },
 
     onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't import providers",
-        message: errorMessage(error, 'Check the providers file and try again.'),
-        color: 'red',
-      })
+      displayErrorNotification(error, "Couldn't import providers")
     },
   })
 }
@@ -206,11 +199,7 @@ export function useUpdateProviderRefreshInterval(
       if (!notify) {
         return
       }
-      notifications.show({
-        title: "Couldn't update refresh interval",
-        message: errorMessage(error, 'Try saving the refresh interval again.'),
-        color: 'red',
-      })
+      displayErrorNotification(error, "Couldn't update refresh interval")
     },
 
     onSuccess: (_data, { id }) => {
@@ -220,11 +209,7 @@ export function useUpdateProviderRefreshInterval(
         return
       }
 
-      notifications.show({
-        title: 'Refresh interval updated',
-        message: 'Provider will use the new refresh interval',
-        color: 'green',
-      })
+      displaySuccessNotification('Provider will use the new refresh interval', 'Refresh interval updated')
     },
   })
 }

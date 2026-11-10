@@ -72,9 +72,16 @@ export type SignInStatus =
   | { state: 'failed'; message: string }
   | { state: 'expired' }
 
+export interface ProviderImportFailure {
+  name: string
+  error: string
+}
+
 export interface ProviderImportResult {
   added: string[]
   skipped: string[]
+  failed: ProviderImportFailure[]
+  not_attempted: string[]
 }
 
 export type ProviderTone = 'fresh' | 'stale' | 'down' | 'never'

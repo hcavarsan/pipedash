@@ -1,9 +1,9 @@
 import { useClipboard } from '@mantine/hooks'
-import { useState } from 'react'
 import { service } from '../../../services/service'
 import { displayErrorNotification } from '../../../utils/errorDisplay'
 import type { DocRef } from '../lib/lineCacheTypes'
 import { collectLines, exportFileName, FULL_LINE_UNITS } from '../lib/logActions'
+import { useExportRunLog } from '../queries/useExportRunLog'
 import type { LogSelection } from './useLogNavigation'
 
 interface LogExportOptions {
@@ -24,7 +24,7 @@ export interface LogExportState {
 export function useLogExport({ doc, pipelineName, nodeName, selection }: LogExportOptions): LogExportState {
   const { pipelineId, runNumber, nodeId, revision } = doc
   const clipboard = useClipboard({ timeout: 2000 })
-  const [exporting, setExporting] = useState(false)
+  const { mutateAsync, isPending } = useExportRunLog()
 
   const copyRange = async (from: number, to: number, title: string) => {
     try {
@@ -45,22 +45,16 @@ export function useLogExport({ doc, pipelineName, nodeName, selection }: LogExpo
   }
 
   const exportLog = async () => {
-    setExporting(true)
-
     try {
-      await service.exportRunLog(
+      await mutateAsync({
         pipelineId,
         runNumber,
         nodeId,
         revision,
-        exportFileName(pipelineName, runNumber, nodeName)
-      )
-    } catch (error) {
-      displayErrorNotification(error, "Couldn't export the log")
-    } finally {
-      setExporting(false)
-    }
+        fileName: exportFileName(pipelineName, runNumber, nodeName),
+      })
+    } catch {}
   }
 
-  return { copyRange, copySelection, exportLog, exporting, copied: clipboard.copied }
+  return { copyRange, copySelection, exportLog, exporting: isPending, copied: clipboard.copied }
 }

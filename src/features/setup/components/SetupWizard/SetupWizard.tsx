@@ -51,6 +51,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps): 
       region={null}
       form={null}
       footer={null}
+      dirty={false}
       shellFooter={null}
       primaryAction={undefined}
       onBack={undefined}

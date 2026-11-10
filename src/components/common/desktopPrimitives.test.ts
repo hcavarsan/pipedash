@@ -122,7 +122,7 @@ test('context menu opens at the pointer, focuses the first enabled command and i
   await waitFor(() => assert.equal(document.activeElement, command))
   await user.click(command)
   assert.equal(selections, 1)
-  await waitFor(() => assert.equal(view().queryByRole('menu'), null))
+  await waitFor(() => assert.ok(!view().queryByRole('menu')))
 })
 
 test('context menu opens from the keyboard', async () => {
@@ -133,6 +133,37 @@ test('context menu opens from the keyboard', async () => {
   assert.ok(await view().findByRole('menu', { hidden: true }))
 })
 
+function CardTrigger() {
+  const contextMenu = useContextMenu()
+
+  return createElement(
+    'div',
+    contextMenu(() => [{ label: 'Open run', onClick: () => {} }]),
+    createElement('button', { type: 'button' }, 'Card title')
+  )
+}
+
+test('context menu opened from a nested control returns focus to that control', async () => {
+  const user = userEvent.setup({ document })
+  render(
+    createElement(
+      MantineProvider,
+      { theme: testTheme },
+      createElement(MemoryRouter, null, createElement(CardTrigger), createElement(ContextMenuHost))
+    )
+  )
+  const title = view().getByRole('button', { name: 'Card title' })
+
+  title.focus()
+  await user.keyboard('{Shift>}{F10}{/Shift}')
+  const command = await view().findByRole('menuitem', { name: 'Open run', hidden: true })
+
+  await waitFor(() => assert.ok(document.activeElement === command))
+  await user.keyboard('{Escape}')
+  await waitFor(() => assert.ok(!view().queryByRole('menu')))
+  assert.ok(document.activeElement === title)
+})
+
 test('context menu closes when the page scrolls', async () => {
   const user = userEvent.setup({ document })
   renderMenu()
@@ -141,7 +172,7 @@ test('context menu closes when the page scrolls', async () => {
   act(() => {
     window.dispatchEvent(new Event('scroll'))
   })
-  await waitFor(() => assert.equal(view().queryByRole('menu'), null))
+  await waitFor(() => assert.ok(!view().queryByRole('menu')))
 })
 
 test('context menu closes when the route changes', async () => {
@@ -150,7 +181,7 @@ test('context menu closes when the route changes', async () => {
   await user.pointer({ target: view().getByRole('button', { name: 'Run' }), keys: '[MouseRight]' })
   assert.ok(await view().findByRole('menu', { hidden: true }))
   await user.click(view().getByRole('button', { name: 'Settings' }))
-  await waitFor(() => assert.equal(view().queryByRole('menu'), null))
+  await waitFor(() => assert.ok(!view().queryByRole('menu')))
 })
 
 function QuietTrigger({ entries }: { entries: Array<{ label: string; disabled?: boolean; onClick: () => void }> }) {

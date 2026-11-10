@@ -12,7 +12,8 @@ import { providerTone } from '../../../utils/fetchInfo'
 import { useNotifyItems } from '../../notifications/hooks/useNotifyItems'
 import { useProviderCancelItems } from '../hooks/useCancelActiveRuns'
 import { useViewMenuItems } from '../hooks/useViewMenuItems'
-import { usePipelineViews, useReorderPipelineViews } from '../queries/usePipelineViewQueries'
+import { usePipelineViews } from '../queries/usePipelineViewQueries'
+import { useReorderPipelineViews, useViewsReordering } from '../queries/useViewReorderQueries'
 import { usePipelineViewStore } from '../stores/pipelineViewStore'
 import { activeTabId, providerTabId, tabSearch } from '../utils/providerTabs'
 import { ToneDot } from './ToneDot'
@@ -26,6 +27,7 @@ export function PipelineViewTabs(): ReactNode {
   const { data: providers = [] } = useProviders()
   const now = useNow(30_000)
   const { mutate: reorder } = useReorderPipelineViews()
+  const { reordering } = useViewsReordering()
   const { providerItems, dialog } = useProviderCancelItems(providers)
   const { providerItem } = useNotifyItems()
   const openEditor = usePipelineViewStore((s) => s.openEditor)
@@ -95,6 +97,7 @@ export function PipelineViewTabs(): ReactNode {
               providers={providers}
               renderTab={tab}
               renderProviderTab={providerTab}
+              disabled={reordering}
               onReorder={(order) => reorder(order)}
             />
           </Suspense>

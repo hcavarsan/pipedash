@@ -15,7 +15,7 @@ export const ProvidersSection = (): ReactNode => {
   const mobileShell = useMobileShell()
   const openAddProviderModal = useProviderStore((s) => s.openAddProviderModal)
   const {
-    data: providers = [],
+    data: loaded,
     isLoading: loading,
     error: providersError,
     refetch: refetchProviders,
@@ -25,19 +25,21 @@ export const ProvidersSection = (): ReactNode => {
   const statusPagesEnabled = useStorageConfig().data?.config.general.status_pages_enabled !== false
   const [editingId, setEditingId] = useState<number | null>(null)
 
+  const providers = loaded ?? []
+  const retry = providersError ? (
+    <ErrorState
+      title="Couldn't load providers"
+      error={providersError}
+      onRetry={() => refetchProviders()}
+      retrying={isRefetchingProviders}
+    />
+  ) : null
   let list: ReactNode
 
   if (loading) {
     list = <LoadingState message="Loading providers..." />
-  } else if (providersError) {
-    list = (
-      <ErrorState
-        title="Couldn't load providers"
-        error={providersError}
-        onRetry={() => refetchProviders()}
-        retrying={isRefetchingProviders}
-      />
-    )
+  } else if (providersError && loaded === undefined) {
+    list = retry
   } else if (providers.length === 0) {
     list = (
       <EmptyState
@@ -53,6 +55,7 @@ export const ProvidersSection = (): ReactNode => {
   } else {
     list = (
       <Stack gap={mobileShell ? 'lg' : 'md'}>
+        {retry}
         {providers.map((provider) => (
           <ProviderSettingsCard
             key={provider.id}

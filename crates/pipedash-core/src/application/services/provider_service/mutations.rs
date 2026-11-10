@@ -63,13 +63,16 @@ impl ProviderService {
 
         let id = self.repository.add_provider(&config).await?;
 
+        let mut config_with_id = config.clone();
+        config_with_id.id = Some(id);
+        let provider = match (self.provider_factory)(&config_with_id) {
+            Ok(provider) => provider,
+            Err(error) => return Err(self.repository.discard_provider(id, error).await),
+        };
+
         if let Some(status) = &permission_status {
             self.store_permissions(id, status).await;
         }
-
-        let mut config_with_id = config.clone();
-        config_with_id.id = Some(id);
-        let provider = (self.provider_factory)(&config_with_id)?;
 
         let lock = self.commit_lock(id);
         let _guard = lock.lock().await;
@@ -110,13 +113,16 @@ impl ProviderService {
             .init_plugin(&config.provider_type, config.plugin_config(), id)
             .await?;
 
-        plugin.validate_credentials().await.map_err(|e| {
+        let (validation_result, permission_status) =
+            tokio::join!(plugin.validate_credentials(), plugin.check_permissions());
+
+        validation_result.map_err(|e| {
             DomainError::InvalidConfig(format!("Credential validation failed: {e}"))
         })?;
 
         keep_selection_with_ci(plugin.as_ref(), &mut config).await?;
 
-        let permission_status = plugin.check_permissions().await.ok();
+        let permission_status = permission_status.ok();
 
         let lock = self.commit_lock(id);
         let guard = lock.lock().await;

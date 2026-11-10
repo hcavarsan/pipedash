@@ -4,9 +4,8 @@ import { API_TIMEOUTS } from '../constants/timeouts'
 import { withBasePath } from '../lib/basePath'
 import { logger } from '../lib/logger'
 import { getToken, useAuthStore } from '../stores/authStore'
-import { formatErrorMessage, getErrorCode, getHttpStatus } from '../types/errors'
+import { formatErrorMessage, getErrorCode } from '../types/errors'
 import type { RemoteResponse } from '../types/native'
-import { DEFAULT_RETRY_CONFIG, withRetry } from '../utils/retryLogic'
 
 import { getConnection, isRemoteClient } from './connection'
 
@@ -85,7 +84,10 @@ export class HttpClient {
       })
     } catch (error) {
       if (!signal?.aborted && error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`Request timeout after ${timeoutMs}ms`)
+        throw Object.assign(new Error(`Request timeout after ${timeoutMs}ms`), { code: 'TIMEOUT', cause: error })
+      }
+      if (error instanceof TypeError) {
+        throw Object.assign(new Error('Network request failed'), { code: 'NETWORK_ERROR', cause: error })
       }
       throw error
     } finally {
@@ -110,10 +112,12 @@ export class HttpClient {
     try {
       res = await invoke<RemoteResponse>('remote_request', { method, path, body, timeoutMs })
     } catch (error) {
-      if (getErrorCode(error) === 'TIMEOUT') {
-        throw new Error(`Request timeout after ${timeoutMs}ms`)
+      const code = getErrorCode(error)
+
+      if (code === 'TIMEOUT') {
+        throw Object.assign(new Error(`Request timeout after ${timeoutMs}ms`), { code })
       }
-      throw new Error(formatErrorMessage(error))
+      throw Object.assign(new Error(formatErrorMessage(error)), { code, cause: error })
     }
 
     if (signal?.aborted) {
@@ -124,57 +128,40 @@ export class HttpClient {
   }
 
   private async send(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<string> {
-    return withRetry(
-      async () => {
-        const token = getToken()
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-        }
+    const token = getToken()
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
 
-        if (token) {
-          headers.Authorization = `Bearer ${token}`
-        }
-        const payload = body ? JSON.stringify(body) : undefined
-        const timeoutMs = options.timeoutMs ?? getTimeoutFor(method, path)
-        const init: RequestInit = { method, headers, ...(payload ? { body: payload } : {}) }
-        const res = isRemoteClient()
-          ? await this.remoteFetch(method, path, payload, timeoutMs, options.signal)
-          : await this.fetchWithTimeout(`${API_BASE}${path}`, init, timeoutMs, options.signal)
+    if (token) {
+      headers.Authorization = `Bearer ${token}`
+    }
+    const payload = body ? JSON.stringify(body) : undefined
+    const timeoutMs = options.timeoutMs ?? getTimeoutFor(method, path)
+    const init: RequestInit = { method, headers, ...(payload ? { body: payload } : {}) }
+    const res = isRemoteClient()
+      ? await this.remoteFetch(method, path, payload, timeoutMs, options.signal)
+      : await this.fetchWithTimeout(`${API_BASE}${path}`, init, timeoutMs, options.signal)
 
-        if (res.ok) {
-          useAuthStore.getState().resetFailures()
-        }
+    if (res.ok) {
+      useAuthStore.getState().resetFailures()
+    }
 
-        if (!res.ok) {
-          if (res.status === 401 && !isRemoteClient()) {
-            useAuthStore.getState().incrementFailure()
-          }
-          const errorText = await res.text()
-          const { code, message } = parseErrorBody(errorText)
-          const error = Object.assign(new Error(message || errorText || `HTTP ${res.status}`), {
-            status: res.status,
-            code,
-          })
-
-          throw error
-        }
-
-        return res.text()
-      },
-      {
-        ...DEFAULT_RETRY_CONFIG,
-        maxAttempts: method === 'GET' ? DEFAULT_RETRY_CONFIG.maxAttempts : 1,
-        shouldRetry: (error: Error) => {
-          const status = getHttpStatus(error) ?? 0
-          const isNetworkError = error instanceof TypeError
-          const isTimeout = error.message.includes('timeout')
-          const is5xxError = status >= 500 && status < 600
-          const isRateLimit = status === 429
-
-          return isNetworkError || isTimeout || is5xxError || isRateLimit
-        },
+    if (!res.ok) {
+      if (res.status === 401 && !isRemoteClient()) {
+        useAuthStore.getState().incrementFailure()
       }
-    )
+      const errorText = await res.text()
+      const { code, message } = parseErrorBody(errorText)
+      const error = Object.assign(new Error(message || errorText || `HTTP ${res.status}`), {
+        status: res.status,
+        code,
+      })
+
+      throw error
+    }
+
+    return res.text()
   }
 
   async request<T>(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<T> {

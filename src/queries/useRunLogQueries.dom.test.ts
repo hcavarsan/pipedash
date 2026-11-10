@@ -114,6 +114,7 @@ const readyMeta: LogDocumentMeta = {
   updated_at_ms: 0,
   stable_lines: 0,
   previous_revision: null,
+  refresh_error: null,
 }
 
 const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })

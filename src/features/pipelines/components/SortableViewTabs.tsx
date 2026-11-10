@@ -10,6 +10,7 @@ interface SortableViewTabsProps {
   providers: ProviderSummary[]
   renderTab: (view: PipelineView) => ReactNode
   renderProviderTab: (provider: ProviderSummary) => ReactNode
+  disabled: boolean
   onReorder: (order: string[]) => void
 }
 
@@ -19,6 +20,7 @@ export function SortableViewTabs({
   providers,
   renderTab,
   renderProviderTab,
+  disabled,
   onReorder,
 }: SortableViewTabsProps): ReactNode {
   return (
@@ -27,6 +29,7 @@ export function SortableViewTabs({
       getId={(view) => view.id}
       orientation="horizontal"
       handle={false}
+      disabled={disabled}
       onReorder={(order) => onReorder(reorderSlots(movableIds, order))}
     >
       {(view, drag) => (

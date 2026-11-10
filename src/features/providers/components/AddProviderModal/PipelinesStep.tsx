@@ -75,6 +75,7 @@ export function PipelinesStep({ state, dispatch, providerConfig, terms, isMobile
     refetch: refetchPipelines,
     fetchNextPage,
     hasNextPage,
+    isFetchNextPageError: nextPageFailed,
     isFetchingNextPage: loadingMore,
   } = usePipelinePreview(
     selectedPlugin?.provider_type || '',
@@ -131,9 +132,13 @@ export function PipelinesStep({ state, dispatch, providerConfig, terms, isMobile
   }
 
   const handleLoadMore = (): void => {
-    if (hasMore && !loadingMore && !selectingAll) {
+    if (hasMore && !loadingMore && !selectingAll && !nextPageFailed) {
       void fetchNextPage()
     }
+  }
+
+  const retryPipelines = (): void => {
+    void (nextPageFailed ? fetchNextPage() : refetchPipelines())
   }
 
   const renderBody = (): ReactNode => {
@@ -176,12 +181,12 @@ export function PipelinesStep({ state, dispatch, providerConfig, terms, isMobile
       )
     }
 
-    if (pipelinesFailed) {
+    if (pipelinesFailed && !pipelinesData) {
       return (
         <ErrorState
           title={`Couldn't load ${terms.items}`}
           error={pipelinesError}
-          onRetry={() => void refetchPipelines()}
+          onRetry={retryPipelines}
           retrying={searchingPipelines}
         />
       )
@@ -205,6 +210,14 @@ export function PipelinesStep({ state, dispatch, providerConfig, terms, isMobile
           onSelectAll={handleSelectAll}
           onEndReached={handleLoadMore}
         />
+        {pipelinesFailed && (
+          <ErrorState
+            title={`Couldn't load ${terms.items}`}
+            error={pipelinesError}
+            onRetry={retryPipelines}
+            retrying={searchingPipelines}
+          />
+        )}
         {(loadingMore || selectingAll) && (
           <Group justify="center" gap="xs" py="3xs" style={{ flexShrink: 0 }}>
             <Loader size="xs" aria-hidden />

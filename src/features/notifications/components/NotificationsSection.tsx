@@ -1,6 +1,5 @@
-import { Button, Card, Stack, Switch, Text } from '@mantine/core'
+import { Button, Card, Stack, Switch } from '@mantine/core'
 import { type ReactNode, useState } from 'react'
-import { Link } from 'react-router-dom'
 import {
   useLocalNotificationSettings,
   useRemoveAlertHost,
@@ -11,7 +10,6 @@ import { isMobileShell, useMobileShell } from '@/hooks/useIsMobile'
 import { getConnection, hasLocalCore, isRemoteClient } from '@/services/connection'
 import { isTauri } from '@/services/isTauri'
 import { useNotificationStore } from '@/stores/notificationStore'
-import type { AlertHostInfo } from '@/types/notifications'
 import { openConfirm } from '@/utils/confirm'
 import { displayWarningNotification } from '@/utils/errorDisplay'
 import { isAndroidPlatform, isDesktopTauri, isMobilePlatform } from '@/utils/platform'
@@ -21,9 +19,11 @@ import {
   systemNotificationsSupported,
 } from '@/utils/systemNotifications'
 
+import { ErrorState } from '../../../components/common/ErrorState'
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { SwitchRow } from '../../../components/ios/mobileParts'
+import { AlertHostGroup } from './AlertHostGroup'
 import { BackgroundNotificationsCard } from './BackgroundNotificationsCard'
 import { DesktopNotificationsCard } from './DesktopNotificationsCard'
 import { MobileDevicesCard } from './MobileDevicesCard'
@@ -31,10 +31,6 @@ import { NotificationPreferencesSection } from './NotificationPreferencesSection
 import { NotificationsBlockedRows } from './NotificationsBlockedRows'
 
 const DESCRIPTION = 'Get a system notification for the alerts you choose below.'
-const CONNECT_PATH = '/connect?purpose=alerts'
-const CONNECT_SUBTITLE =
-  "Get alerts from a Pipedash server or a computer that shares Pipedash, even when its pipelines aren't on this device."
-const DUPLICATE_NOTE = 'If the same providers are also on this device, you can get the same alert twice.'
 
 function confirmBackgroundAccess(system: string, host: string | null): Promise<boolean> {
   const { promise, resolve } = Promise.withResolvers<boolean>()
@@ -65,61 +61,6 @@ function confirmRemoveAlertHost(name: string, onConfirm: () => void): void {
     confirmProps: { color: 'red' },
     onConfirm,
   })
-}
-
-interface AlertHostGroupProps {
-  mobileShell: boolean
-  alertHost: AlertHostInfo | null
-  removing: boolean
-  onRemove: (name: string) => void
-}
-
-function AlertHostGroup({ mobileShell, alertHost, removing, onRemove }: AlertHostGroupProps): ReactNode {
-  const status = alertHost?.push ? 'Push alerts on' : 'Checks in the background'
-
-  if (mobileShell) {
-    return (
-      <IosGroup header="Alerts from a server" footer={alertHost ? DUPLICATE_NOTE : undefined}>
-        {alertHost ? (
-          <>
-            <IosRow title={alertHost.name} subtitle={status} />
-            <IosRow title="Remove" destructive disabled={removing} onClick={() => onRemove(alertHost.name)} />
-          </>
-        ) : (
-          <IosRow title="Connect a server" subtitle={CONNECT_SUBTITLE} to={CONNECT_PATH} />
-        )}
-      </IosGroup>
-    )
-  }
-
-  return (
-    <Card padding="md">
-      <Stack gap="sm" align="flex-start">
-        <Stack gap={0}>
-          <Text size="sm" fw={500}>
-            {alertHost ? alertHost.name : 'Alerts from a server'}
-          </Text>
-          <Text size="xs" c="dimmed">
-            {alertHost ? status : CONNECT_SUBTITLE}
-          </Text>
-        </Stack>
-        {alertHost ? (
-          <>
-            <Button variant="default" color="red" loading={removing} onClick={() => onRemove(alertHost.name)}>
-              Remove
-            </Button>
-            <Text size="xs" c="dimmed">
-              {DUPLICATE_NOTE}
-            </Text>
-          </>
-        ) : (
-          <Button component={Link} to={CONNECT_PATH} variant="default">
-            Connect a server
-          </Button>
-        )}
-      </Stack>
-    </Card>
-  )
 }
 
 export function NotificationsSection(): ReactNode {
@@ -166,8 +107,6 @@ function DeviceNotificationsSection(): ReactNode {
   let note: string | undefined
   if (!notificationsSupported) {
     note = notificationProblem('unsupported')
-  } else if (background && settings.isError) {
-    note = "Couldn't read the notification settings for this device."
   } else if (background && settings.data?.enabled && !settings.data.available) {
     note = settings.data.reason ?? undefined
   } else if (background && settings.data?.pushProblem) {
@@ -227,6 +166,14 @@ function DeviceNotificationsSection(): ReactNode {
       hostNote={alertHost?.standalone ? `Alerts from ${alertHost.name} follow the types you choose here.` : undefined}
     />
   )
+  const settingsError = background && settings.isError && (
+    <ErrorState
+      title="Couldn't read the notification settings"
+      error={settings.error}
+      onRetry={() => void settings.refetch()}
+      retrying={settings.isFetching}
+    />
+  )
   const canTest = background && alertHost?.push === true
   const devicesCard = !isTauri() && (
     <>
@@ -252,6 +199,8 @@ function DeviceNotificationsSection(): ReactNode {
             <IosRow title="Send test alert" disabled={sendTestAlert.isPending} onClick={() => sendTestAlert.mutate()} />
           )}
         </IosGroup>
+
+        {settingsError}
 
         {blocked && notificationsSupported && (
           <IosGroup>
@@ -284,6 +233,8 @@ function DeviceNotificationsSection(): ReactNode {
           )}
         </Stack>
       </Card>
+
+      {settingsError}
 
       {preferencesSection}
       {alertHostGroup}

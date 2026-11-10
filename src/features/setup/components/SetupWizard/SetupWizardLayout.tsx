@@ -2,7 +2,7 @@ import { Box, Stack } from '@mantine/core'
 import type { ReactNode, RefObject } from 'react'
 import { FillScrollArea } from '../../../../components/common/FillScrollArea'
 import { StandardModal } from '../../../../components/common/StandardModal'
-import type { ModalAction } from '../../../../components/common/standardModalTypes'
+import type { ModalAction, StandardModalProps } from '../../../../components/common/standardModalTypes'
 import { ErrorBoundary } from '../../../../components/ErrorBoundary/ErrorBoundary'
 import { StepRegion } from '../../../../components/forms/StepRegion'
 import { useMobileShell } from '../../../../hooks/useIsMobile'
@@ -38,8 +38,9 @@ interface SetupWizardLayoutProps {
   stepper: WizardStepper | null
   region: WizardRegion | null
   form: WizardForm | null
-  footer: ReactNode
+  footer: StandardModalProps['footer']
   shellFooter: ReactNode
+  dirty: boolean
   primaryAction: ModalAction | undefined
   onBack: (() => void) | undefined
   children: ReactNode
@@ -57,6 +58,7 @@ export function SetupWizardLayout({
   region,
   form,
   footer,
+  dirty,
   shellFooter,
   primaryAction,
   onBack,
@@ -110,6 +112,7 @@ export function SetupWizardLayout({
         size="lg"
         fullHeight
         loading={busy}
+        dirty={dirty}
         {...(primaryAction ? { primaryAction } : {})}
         {...(onBack ? { backAction: { label: 'Back', onClick: onBack } } : {})}
       >
@@ -126,6 +129,7 @@ export function SetupWizardLayout({
       title={title}
       size="lg"
       loading={busy}
+      dirty={dirty}
       footer={footer}
       contentPadding={false}
       disableScrollArea

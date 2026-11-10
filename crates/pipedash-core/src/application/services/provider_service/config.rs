@@ -5,6 +5,7 @@ use crate::application::services::health_service::HealthInput;
 use crate::domain::{
     DomainError,
     DomainResult,
+    ProviderImportFailure,
     ProviderImportResult,
 };
 use crate::event::CoreEvent;
@@ -57,9 +58,9 @@ impl ProviderService {
             .map(|provider| provider.name)
             .collect();
         let mut result = ProviderImportResult::default();
-        let mut failure = None;
+        let mut remaining = file.providers.iter();
 
-        for (key, provider) in &file.providers {
+        for (key, provider) in remaining.by_ref() {
             let name = provider.display_name(key).to_string();
             if existing.contains(key) {
                 result.skipped.push(name);
@@ -78,19 +79,25 @@ impl ProviderService {
                             .await
                             .is_ok_and(|providers| providers.iter().any(|p| p.name == *key));
                     if !added_elsewhere {
-                        failure = Some(e);
+                        result.failed.push(ProviderImportFailure {
+                            name,
+                            error: e.to_string(),
+                        });
                         break;
                     }
                     result.skipped.push(name);
                 }
             }
         }
+        result.not_attempted = remaining
+            .map(|(key, provider)| provider.display_name(key).to_string())
+            .collect();
 
         if !result.added.is_empty() {
             self.event_bus.emit(CoreEvent::ProvidersChanged).await;
         }
 
-        failure.map_or(Ok(result), Err)
+        Ok(result)
     }
 
     pub async fn apply_config_file(&self, config_state: &ConfigState) -> DomainResult<SyncResult> {
@@ -133,10 +140,16 @@ impl ProviderService {
         if !changed.is_empty() {
             let existing = self.repository.config_backend().list_providers().await?;
             let token_store = config_state.token_store();
+            let mut failure = None;
             for (key, provider) in &changed {
                 let id = existing.iter().find(|p| p.name == *key).and_then(|p| p.id);
-                self.apply_config_provider(key, provider, id, token_store.as_ref())
-                    .await?;
+                if let Err(e) = self
+                    .apply_config_provider(key, provider, id, token_store.as_ref())
+                    .await
+                {
+                    failure = Some(e);
+                    break;
+                }
                 config_state.remember_provider(key, provider).await;
                 match id {
                     Some(_) => result.updated.push(key.clone()),
@@ -144,12 +157,17 @@ impl ProviderService {
                 }
             }
 
-            tracing::info!(
-                added = result.added.len(),
-                updated = result.updated.len(),
-                "Applied provider changes from config file"
-            );
-            self.event_bus.emit(CoreEvent::ProvidersChanged).await;
+            if !result.added.is_empty() || !result.updated.is_empty() {
+                tracing::info!(
+                    added = result.added.len(),
+                    updated = result.updated.len(),
+                    "Applied provider changes from config file"
+                );
+                self.event_bus.emit(CoreEvent::ProvidersChanged).await;
+            }
+            if let Some(e) = failure {
+                return Err(e);
+            }
         }
         if current.views != views {
             config_state.remember_views(views).await;

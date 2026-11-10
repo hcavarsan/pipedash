@@ -2,6 +2,7 @@ import {
   isCancelledError,
   type QueryClient,
   queryOptions,
+  type UseMutationResult,
   useMutation,
   useQuery,
   useQueryClient,
@@ -10,6 +11,7 @@ import { listen } from '@tauri-apps/api/event'
 import { useCallback, useEffect } from 'react'
 
 import { logger } from '../../../lib/logger'
+import { notifications } from '../../../lib/notifications'
 import {
   DESKTOP_NOTIFICATIONS_EVENT,
   type DesktopNotificationSnapshot,
@@ -109,6 +111,18 @@ export function useNotificationActions(): {
   )
 
   return { open, markRead, markAllRead, clear }
+}
+
+export function useSendTestDesktopNotification(): UseMutationResult<void, Error, void> {
+  return useMutation<void, Error, void>({
+    mutationFn: () => desktopService.testNotification(),
+    onSuccess: () =>
+      notifications.show({
+        title: 'Notification submitted',
+        message: 'Your operating system decides whether to display it.',
+        color: 'green',
+      }),
+  })
 }
 
 export function useDesktopNotifications(): void {

@@ -14,9 +14,9 @@ export interface ProviderChangedPayload {
   timestamp: number
 }
 
-export interface CacheInvalidatedPayload {
-  providerId?: number
-  reason: 'fetch' | 'provider-change' | 'manual-refresh'
+export interface RunHistoryCacheInvalidatedPayload {
+  pipeline_id?: string
+  run_number?: number
 }
 
 export interface RefreshStatusPayload {
@@ -42,9 +42,9 @@ export type EventPayloadMap = {
   'alert-recorded': { id: string; seq: number }
   'providers-changed': undefined
   'pipeline-views-changed': undefined
-  'pipeline-cache-invalidated': CacheInvalidatedPayload
   'pipeline-status-changed': PipelineStatusChangedPayload
-  'run-history-cache-invalidated': { pipeline_id?: string }
+  'run-history-cache-invalidated': RunHistoryCacheInvalidatedPayload
+  'metrics-global-config-changed': undefined
   'refresh-status': RefreshStatusPayload
   'run-log-progress': { pipelineId: string; runNumber: number; nodeId: string; receivedBytes: number }
   'run-log-ready': { pipelineId: string; runNumber: number; nodeId: string; revision: number }

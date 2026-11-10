@@ -37,8 +37,7 @@ export const logsTauriService: LogsService = {
     return invokeWithTimeout<LogSearchResult>(
       'search_run_log',
       { pipelineId, runNumber, nodeId, revision, sessionId, query },
-      RUN_LOG_SEARCH_TIMEOUT_MS,
-      false
+      RUN_LOG_SEARCH_TIMEOUT_MS
     )
   },
 

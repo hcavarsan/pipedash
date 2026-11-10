@@ -14,21 +14,33 @@ use crate::infrastructure::database::{
 };
 use crate::infrastructure::ConfigState;
 
+fn with_cleanup(error: DomainError, cleanup: DomainResult<()>) -> DomainError {
+    match cleanup {
+        Ok(()) => error,
+        Err(cleanup_error) => {
+            DomainError::InternalError(format!("{error}; cleanup failed: {cleanup_error}"))
+        }
+    }
+}
+
 impl Repository {
     pub async fn add_provider(&self, config: &ProviderConfig) -> DomainResult<i64> {
         let provider_id = self.config_backend.create_provider(config).await?;
 
-        self.token_store
+        if let Err(store_error) = self
+            .token_store
             .store_token(provider_id, &config.token)
             .await
-            .map_err(|e| {
-                tracing::error!(
-                    provider_id = provider_id,
-                    error = %e,
-                    "Failed to store provider token - provider may not work correctly"
-                );
-                e
-            })?;
+        {
+            tracing::error!(
+                provider_id = provider_id,
+                error = %store_error,
+                "Failed to store provider token - removing the provider"
+            );
+            let cleanup = self.config_backend.delete_provider(provider_id).await;
+
+            return Err(with_cleanup(store_error, cleanup));
+        }
 
         tracing::debug!(
             provider_id = provider_id,
@@ -45,11 +57,7 @@ impl Repository {
             .await?
             .ok_or_else(|| DomainError::ProviderNotFound(id.to_string()))?;
 
-        provider.token = match self.token_store.get_token(id).await {
-            Ok(token) => token,
-            Err(DomainError::NotFound(_)) => String::new(),
-            Err(e) => return Err(e),
-        };
+        provider.token = self.stored_token(id).await?.unwrap_or_default();
 
         Ok(provider)
     }
@@ -81,16 +89,16 @@ impl Repository {
     }
 
     pub async fn update_provider(&self, id: i64, config: &ProviderConfig) -> DomainResult<()> {
+        let previous = self.get_provider(id).await?;
         self.config_backend.update_provider(id, config).await?;
 
-        self.token_store.store_token(id, &config.token).await?;
-
-        Ok(())
+        self.store_changed_token(id, config, &previous).await
     }
 
     pub async fn update_provider_with_version(
         &self, id: i64, config: &ProviderConfig, expected_version: i64,
     ) -> DomainResult<bool> {
+        let previous = self.get_provider(id).await?;
         let pool = &self.cache_pool;
         let sql = format!(
             "UPDATE providers SET name = {}, provider_type = {}, config_json = {}, refresh_interval = {}, version = version + 1, updated_at = {} WHERE id = {} AND version = {}",
@@ -103,7 +111,7 @@ impl Repository {
             pool.placeholder(6)
         );
 
-        retry_on_busy(|| async {
+        let updated = retry_on_busy(|| async {
             let config_json = serde_json::to_string(&config.config).map_err(|e| {
                 DomainError::DatabaseError(format!("Failed to serialize config: {}", e))
             })?;
@@ -120,37 +128,116 @@ impl Repository {
                 .map_err(|e| DomainError::DatabaseError(format!("Failed to update provider: {}", e)))?
                 .rows_affected());
 
-            let success = rows_affected > 0;
-            if success {
-                self.token_store.store_token(id, &config.token).await?;
-            }
-
-            Ok(success)
+            Ok(rows_affected > 0)
         })
-        .await
+        .await?;
+
+        if updated {
+            self.store_changed_token(id, config, &previous).await?;
+        }
+
+        Ok(updated)
+    }
+
+    async fn stored_token(&self, id: i64) -> DomainResult<Option<String>> {
+        match self.token_store.get_token(id).await {
+            Ok(token) => Ok(Some(token)),
+            Err(DomainError::NotFound(_)) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn store_changed_token(
+        &self, id: i64, config: &ProviderConfig, previous: &ProviderConfig,
+    ) -> DomainResult<()> {
+        if config.token == previous.token {
+            return Ok(());
+        }
+
+        match self.token_store.store_token(id, &config.token).await {
+            Ok(()) => Ok(()),
+            Err(store_error) => {
+                let restore = self.config_backend.update_provider(id, previous).await;
+
+                Err(with_cleanup(store_error, restore))
+            }
+        }
+    }
+
+    async fn restore_token(
+        &self, id: i64, token: Option<String>, error: DomainError,
+    ) -> DomainError {
+        let Some(token) = token else {
+            return error;
+        };
+        let restore = self.token_store.store_token(id, &token).await;
+
+        with_cleanup(error, restore)
+    }
+
+    pub async fn discard_provider(&self, id: i64, error: DomainError) -> DomainError {
+        let cleanup = match self.token_store.delete_token(id).await {
+            Ok(()) => self.config_backend.delete_provider(id).await,
+            Err(e) => Err(e),
+        };
+
+        with_cleanup(error, cleanup)
     }
 
     pub async fn remove_provider(&self, id: i64, config_state: &ConfigState) -> DomainResult<()> {
         let config = self.config_backend.get_provider(id).await?;
-        self.token_store.delete_token(id).await?;
-        if let Some(config) = config {
-            config_state.remove_provider(&config.name).await?;
-        }
-
+        let token = self.stored_token(id).await?;
         let pipelines = self
             .get_cached_pipelines(Some(id))
             .await
             .unwrap_or_default();
+        self.token_store.delete_token(id).await?;
 
-        let _ = self.clear_provider_run_history(id).await;
+        let removed = match &config {
+            Some(config) => match config_state.remove_provider(&config.name).await {
+                Ok(removed) => Some(removed),
+                Err(error) => return Err(self.restore_token(id, token, error).await),
+            },
+            None => None,
+        };
 
+        if let Err(mut error) = self.config_backend.delete_provider(id).await {
+            if let Some(removed) = removed {
+                error = with_cleanup(error, config_state.restore_provider(removed).await);
+            }
+
+            return Err(self.restore_token(id, token, error).await);
+        }
+
+        let ids: Vec<String> = pipelines.into_iter().map(|pipeline| pipeline.id).collect();
+        self.clear_removed_caches(id, &ids).await;
+        if let Err(e) = PipelineViewRepository::new(self.cache_pool.clone())
+            .remove_provider(id)
+            .await
+        {
+            tracing::warn!("Failed to remove provider {id} from pipeline views: {e}");
+        }
+
+        Ok(())
+    }
+
+    async fn clear_removed_caches(&self, provider_id: i64, pipeline_ids: &[String]) {
+        let history_sql = format!(
+            "DELETE FROM run_history_cache WHERE pipeline_id = {}",
+            self.cache_pool.placeholder(1)
+        );
         let workflow_params_sql = format!(
             "DELETE FROM workflow_parameters_cache WHERE workflow_id LIKE {}",
             self.cache_pool.placeholder(1)
         );
-        for pipeline in pipelines {
+        for pipeline_id in pipeline_ids {
+            let _ = on_pool!(&self.cache_pool, p => sqlx::query(sqlx::AssertSqlSafe(history_sql.clone()))
+                .bind(pipeline_id)
+                .execute(p)
+                .await
+                .map(|_| ()));
             let _ = on_pool!(&self.cache_pool, p => sqlx::query(sqlx::AssertSqlSafe(workflow_params_sql.clone()))
-                .bind(format!("{}%", pipeline.id))
+                .bind(format!("{pipeline_id}%"))
                 .execute(p)
                 .await
                 .map(|_| ()));
@@ -161,21 +248,10 @@ impl Repository {
             self.cache_pool.placeholder(1)
         );
         let _ = on_pool!(&self.cache_pool, p => sqlx::query(sqlx::AssertSqlSafe(pipelines_sql))
-            .bind(id)
+            .bind(provider_id)
             .execute(p)
             .await
             .map(|_| ()));
-
-        if let Err(e) = PipelineViewRepository::new(self.cache_pool.clone())
-            .remove_provider(id)
-            .await
-        {
-            tracing::warn!("Failed to remove provider {id} from pipeline views: {e}");
-        }
-
-        self.config_backend.delete_provider(id).await?;
-
-        Ok(())
     }
 
     pub async fn get_table_preferences(

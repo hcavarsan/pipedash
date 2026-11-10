@@ -34,6 +34,42 @@ fn test_event_serialization() {
 }
 
 #[test]
+fn run_history_invalidation_serializes_optional_run_scope() {
+    let scoped = CoreEvent::RunHistoryCacheInvalidated {
+        pipeline_id: Some("stub__1__web".to_string()),
+        run_number: Some(42),
+    };
+    assert_eq!(scoped.event_name(), "run-history-cache-invalidated");
+    assert_eq!(
+        serde_json::to_value(&scoped).unwrap(),
+        serde_json::json!({
+            "type": "RunHistoryCacheInvalidated",
+            "payload": { "pipeline_id": "stub__1__web", "run_number": 42 }
+        })
+    );
+    assert_eq!(
+        scoped.to_json_payload(),
+        serde_json::json!({ "pipeline_id": "stub__1__web", "run_number": 42 })
+    );
+
+    let unscoped = CoreEvent::RunHistoryCacheInvalidated {
+        pipeline_id: Some("stub__1__web".to_string()),
+        run_number: None,
+    };
+    assert_eq!(
+        serde_json::to_value(&unscoped).unwrap(),
+        serde_json::json!({
+            "type": "RunHistoryCacheInvalidated",
+            "payload": { "pipeline_id": "stub__1__web" }
+        })
+    );
+    assert_eq!(
+        unscoped.to_json_payload(),
+        serde_json::json!({ "pipeline_id": "stub__1__web" })
+    );
+}
+
+#[test]
 fn test_provider_health_alert_wire_format() {
     let alert = |link| CoreEvent::ProviderHealthAlert {
         alert_id: "alert-7".to_string(),

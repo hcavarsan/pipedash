@@ -66,8 +66,19 @@ fn codes_are_stable_per_variant() {
                 message: "x".into(),
                 retry_after: None,
             },
-            "INTERNAL_ERROR",
+            "RATE_LIMITED",
         ),
+        (
+            DomainError::ServiceUnavailable {
+                message: "x".into(),
+                retry_after: None,
+            },
+            "SERVICE_UNAVAILABLE",
+        ),
+        (DomainError::Timeout("x".into()), "TIMEOUT"),
+        (DomainError::NetworkError("x".into()), "NETWORK_ERROR"),
+        (DomainError::Tls("x".into()), "TLS_ERROR"),
+        (DomainError::ConcurrentModification("x".into()), "CONFLICT"),
     ];
     for (err, code) in cases {
         assert_eq!(err.code(), code, "{err:?}");

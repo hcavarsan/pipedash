@@ -19,8 +19,10 @@ use crate::domain::pipeline_id;
 use crate::domain::{
     DomainError,
     DomainResult,
+    LogDocumentMeta,
     Pipeline,
     PipelineRun,
+    RunLogDocument,
 };
 use crate::infrastructure::providers::status::plugin_status;
 
@@ -118,6 +120,13 @@ impl Presenter {
             }
         }
         state
+    }
+
+    pub(crate) fn run_log_document(
+        &self, mut meta: LogDocumentMeta, refresh_error: Option<String>,
+    ) -> RunLogDocument {
+        meta.refresh_error = refresh_error;
+        RunLogDocument::Ready(Box::new(meta))
     }
 }
 

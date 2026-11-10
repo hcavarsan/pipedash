@@ -6,7 +6,6 @@ import type { RefreshResult } from '../../types/health'
 import type { Pipeline, PipelineRun, TriggerDraft, TriggerResult } from '../../types/pipelines'
 import type { CancellationBatch, CancellationTargets } from '../../types/run_action_batch'
 import type { RunHistoryPage } from '../../types/run_history'
-import { DEFAULT_RETRY_CONFIG, withRetry } from '../../utils/retryLogic'
 import { invokeWithTimeout } from '../invoke'
 import type { RunsService } from '../types'
 
@@ -14,20 +13,18 @@ export const runsTauriService: RunsService = {
   getCachedPipelines: async (providerId) => {
     logger.debug('tauriService', 'Invoking get_cached_pipelines...', { providerId })
 
-    return withRetry(async () => {
-      try {
-        const result = await invokeWithTimeout<Pipeline[]>('get_cached_pipelines', {
-          providerId: providerId ?? null,
-        })
+    try {
+      const result = await invokeWithTimeout<Pipeline[]>('get_cached_pipelines', {
+        providerId: providerId ?? null,
+      })
 
-        logger.debug('tauriService', 'get_cached_pipelines returned', { count: result?.length ?? 0, unit: 'items' })
+      logger.debug('tauriService', 'get_cached_pipelines returned', { count: result?.length ?? 0, unit: 'items' })
 
-        return result
-      } catch (err) {
-        logger.error('tauriService', 'get_cached_pipelines error', err)
-        throw err
-      }
-    }, DEFAULT_RETRY_CONFIG)
+      return result
+    } catch (err) {
+      logger.error('tauriService', 'get_cached_pipelines error', err)
+      throw err
+    }
   },
 
   fetchRunHistory: async (pipelineId, query) => invoke<RunHistoryPage>('fetch_run_history', { pipelineId, query }),
@@ -42,10 +39,9 @@ export const runsTauriService: RunsService = {
 
   cancelPipelineRuns: async (targets) => invoke<CancellationBatch>('cancel_pipeline_runs', { targets }),
 
-  refreshProvider: async (id) =>
-    invokeWithTimeout<RefreshResult>('refresh_provider', { id }, REFRESH_TIMEOUT_MS, false),
+  refreshProvider: async (id) => invokeWithTimeout<RefreshResult>('refresh_provider', { id }, REFRESH_TIMEOUT_MS),
 
-  refreshAll: async () => invokeWithTimeout<RefreshResult[]>('refresh_all', undefined, REFRESH_TIMEOUT_MS, false),
+  refreshAll: async () => invokeWithTimeout<RefreshResult[]>('refresh_all', undefined, REFRESH_TIMEOUT_MS),
 
   updateGeneralSettings: async (update) => invokeWithTimeout<void>('update_general_settings', { update }),
 

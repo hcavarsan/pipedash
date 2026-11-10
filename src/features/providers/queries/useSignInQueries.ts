@@ -56,6 +56,6 @@ export function useCancelSignIn(): UseMutationResult<void, Error, string, unknow
 
   return useMutation({
     mutationFn: (id: string) => service.cancelSignIn(id),
-    onSettled: (_data, _error, id) => queryClient.removeQueries({ queryKey: queryKeys.signIn.status(id) }),
+    onSuccess: (_data, id) => queryClient.removeQueries({ queryKey: queryKeys.signIn.status(id) }),
   })
 }

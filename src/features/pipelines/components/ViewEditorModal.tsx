@@ -2,6 +2,7 @@ import { SegmentedControl, Stack, Text } from '@mantine/core'
 import { lazy, type ReactNode, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { LoadingState } from '../../../components/common/LoadingState'
+import { StandardModal } from '../../../components/common/StandardModal'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useProviders } from '../../../queries/useProvidersQueries'
 import type { PipelineView, ViewLayout } from '../../../types/views'
@@ -9,6 +10,7 @@ import { viewAncestors } from '../../../utils/viewTree'
 import { TOP_LEVEL, useViewEditorDraft } from '../hooks/useViewEditorDraft'
 import { usePipelineViews, useViewEditorOptions } from '../queries/usePipelineViewQueries'
 import { usePipelineViewStore } from '../stores/pipelineViewStore'
+import { QueryBoundary } from './QueryBoundary'
 import { ViewEditorForm } from './ViewEditorForm'
 import { ViewRulesFields } from './ViewRulesFields'
 
@@ -19,14 +21,15 @@ export function ViewEditorModal(): ReactNode {
   const closeEditor = usePipelineViewStore((s) => s.closeEditor)
   const navigate = useNavigate()
   const mobileShell = useMobileShell()
-  const { data: views = [] } = usePipelineViews()
+  const viewsQuery = usePipelineViews()
+  const views = viewsQuery.data ?? []
   const { data: providers = [] } = useProviders()
   const view = editor.viewId === null ? undefined : views.find((g) => g.id === editor.viewId)
-  const { data: options } = useViewEditorOptions(editor.viewId, true)
+  const optionsQuery = useViewEditorOptions(editor.viewId, true)
   const draft = useViewEditorDraft({ editor, view, mobileShell })
   const parentOptions = [
     { value: TOP_LEVEL, label: 'Top level' },
-    ...(options?.eligible_parents ?? []).map((v) => ({
+    ...(optionsQuery.data?.eligible_parents ?? []).map((v) => ({
       value: v.id,
       label: [...viewAncestors(views, v.id), v].map((n) => n.name).join(' / '),
     })),
@@ -40,12 +43,23 @@ export function ViewEditorModal(): ReactNode {
     }
   }
 
+  if (editor.open && editor.viewId !== null && viewsQuery.data === undefined) {
+    return (
+      <StandardModal opened onClose={closeEditor} size="lg" title="Edit view">
+        <QueryBoundary query={viewsQuery} loading="Loading view…" failure="Couldn't load views">
+          {() => null}
+        </QueryBoundary>
+      </StandardModal>
+    )
+  }
+
   return (
     <ViewEditorForm
       editor={editor}
       view={view}
       draft={draft}
       parentOptions={parentOptions}
+      parentQuery={optionsQuery}
       onClose={closeEditor}
       onSaved={onSaved}
     >
@@ -70,7 +84,7 @@ export function ViewEditorModal(): ReactNode {
 
       {draft.showMembers && (
         <Suspense fallback={<LoadingState variant="compact" message="Loading members..." />}>
-          <ViewMembersFields members={draft.members} onChange={draft.setMemberIds} />
+          <ViewMembersFields query={draft.membersQuery} members={draft.members} onChange={draft.setMemberIds} />
         </Suspense>
       )}
     </ViewEditorForm>

@@ -140,21 +140,27 @@ impl ConfigBackend for SqliteConfigBackend {
 
     async fn delete_provider(&self, id: i64) -> DomainResult<()> {
         retry_on_busy(|| async {
+            let mut tx = self.pool.begin().await.map_err(failed("begin delete"))?;
             for table in [
                 "DELETE FROM pipelines_cache WHERE provider_id = ?",
                 "DELETE FROM provider_permissions WHERE provider_id = ?",
                 "DELETE FROM table_preferences WHERE provider_id = ?",
             ] {
-                let _ = sqlx::query(table).bind(id).execute(&self.pool).await;
+                sqlx::query(table)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(failed("delete provider data"))?;
             }
 
             let result = sqlx::query("DELETE FROM providers WHERE id = ?")
                 .bind(id)
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(failed("delete provider"))?;
+            ensure_found(result.rows_affected(), id)?;
 
-            ensure_found(result.rows_affected(), id)
+            tx.commit().await.map_err(failed("commit delete"))
         })
         .await
     }
