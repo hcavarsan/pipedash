@@ -1174,14 +1174,17 @@ async fn retrying_a_partial_document_preserves_provider_quota_pause() {
     let reads = f.stub.log_read_count();
     *f.stub.log_failure.lock().unwrap() = None;
     f.stub.append_log("b\n");
-    pause_for(&f, chrono::Duration::milliseconds(1500)).await;
+    pause(&f).await;
 
     let retried = meta_of(f.open_with("1", true).await);
     f.tick(6).await;
 
     assert_eq!(retried.refresh_error, None);
     assert_eq!(f.stub.log_read_count(), reads);
-    std::thread::sleep(Duration::from_millis(1600));
+    let lease = f.h.provider_service.acquire(f.id).await.unwrap();
+    f.h.scheduler
+        .set_quota_pause(f.id, lease.generation, None, Instant::now(), Utc::now());
+    f.open_with("1", true).await;
     f.tick(6).await;
     until("polling to resume", || f.stub.log_read_count() > reads).await;
 }

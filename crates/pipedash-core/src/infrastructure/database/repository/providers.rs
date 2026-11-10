@@ -187,39 +187,57 @@ impl Repository {
     pub async fn remove_provider(&self, id: i64, config_state: &ConfigState) -> DomainResult<()> {
         let config = self.config_backend.get_provider(id).await?;
         let token = self.stored_token(id).await?;
+        let pipelines = self
+            .get_cached_pipelines(Some(id))
+            .await
+            .unwrap_or_default();
         self.token_store.delete_token(id).await?;
 
-        if let Err(error) = self
-            .delete_provider_records(id, config.as_ref(), config_state)
+        let removed = match &config {
+            Some(config) => match config_state.remove_provider(&config.name).await {
+                Ok(removed) => Some(removed),
+                Err(error) => return Err(self.restore_token(id, token, error).await),
+            },
+            None => None,
+        };
+
+        if let Err(mut error) = self.config_backend.delete_provider(id).await {
+            if let Some(removed) = removed {
+                error = with_cleanup(error, config_state.restore_provider(removed).await);
+            }
+
+            return Err(self.restore_token(id, token, error).await);
+        }
+
+        let ids: Vec<String> = pipelines.into_iter().map(|pipeline| pipeline.id).collect();
+        self.clear_removed_caches(id, &ids).await;
+        if let Err(e) = PipelineViewRepository::new(self.cache_pool.clone())
+            .remove_provider(id)
             .await
         {
-            return Err(self.restore_token(id, token, error).await);
+            tracing::warn!("Failed to remove provider {id} from pipeline views: {e}");
         }
 
         Ok(())
     }
 
-    async fn delete_provider_records(
-        &self, id: i64, config: Option<&ProviderConfig>, config_state: &ConfigState,
-    ) -> DomainResult<()> {
-        if let Some(config) = config {
-            config_state.remove_provider(&config.name).await?;
-        }
-
-        let pipelines = self
-            .get_cached_pipelines(Some(id))
-            .await
-            .unwrap_or_default();
-
-        let _ = self.clear_provider_run_history(id).await;
-
+    async fn clear_removed_caches(&self, provider_id: i64, pipeline_ids: &[String]) {
+        let history_sql = format!(
+            "DELETE FROM run_history_cache WHERE pipeline_id = {}",
+            self.cache_pool.placeholder(1)
+        );
         let workflow_params_sql = format!(
             "DELETE FROM workflow_parameters_cache WHERE workflow_id LIKE {}",
             self.cache_pool.placeholder(1)
         );
-        for pipeline in pipelines {
+        for pipeline_id in pipeline_ids {
+            let _ = on_pool!(&self.cache_pool, p => sqlx::query(sqlx::AssertSqlSafe(history_sql.clone()))
+                .bind(pipeline_id)
+                .execute(p)
+                .await
+                .map(|_| ()));
             let _ = on_pool!(&self.cache_pool, p => sqlx::query(sqlx::AssertSqlSafe(workflow_params_sql.clone()))
-                .bind(format!("{}%", pipeline.id))
+                .bind(format!("{pipeline_id}%"))
                 .execute(p)
                 .await
                 .map(|_| ()));
@@ -230,19 +248,10 @@ impl Repository {
             self.cache_pool.placeholder(1)
         );
         let _ = on_pool!(&self.cache_pool, p => sqlx::query(sqlx::AssertSqlSafe(pipelines_sql))
-            .bind(id)
+            .bind(provider_id)
             .execute(p)
             .await
             .map(|_| ()));
-
-        if let Err(e) = PipelineViewRepository::new(self.cache_pool.clone())
-            .remove_provider(id)
-            .await
-        {
-            tracing::warn!("Failed to remove provider {id} from pipeline views: {e}");
-        }
-
-        self.config_backend.delete_provider(id).await
     }
 
     pub async fn get_table_preferences(

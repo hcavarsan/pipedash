@@ -1257,6 +1257,112 @@ async fn failed_config_deletion_keeps_the_provider_available_for_retry() {
     assert!(h.token_store.get_all_tokens().await.unwrap().is_empty());
 }
 
+async fn count(h: &Harness, sql: &'static str, id: i64) -> i64 {
+    sqlx::query_scalar(sql)
+        .bind(id)
+        .fetch_one(&h.pool)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_failed_row_deletion_keeps_everything_the_provider_had() {
+    let h = Harness::new().await;
+    config_file(&h, &[("ci-a", "CI A", 30)]);
+    h.provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .unwrap();
+    let id = provider_id(&h, "ci-a").await.unwrap();
+    let rules = format!("{{\"provider_ids\":[{id}]}}");
+    let view: i64 = sqlx::query_scalar(
+        "INSERT INTO pipeline_views (kind, name, rules_json) VALUES ('custom', 'Release', ?) RETURNING id",
+    )
+    .bind(&rules)
+    .fetch_one(&h.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO pipeline_view_members (view_id, provider_id, pipeline_id) VALUES (?, ?, 'web')",
+    )
+    .bind(view)
+    .bind(id)
+    .execute(&h.pool)
+    .await
+    .unwrap();
+    h.repository
+        .update_pipelines_cache(id, &[pipeline(id, "web", PipelineStatus::Success)])
+        .await
+        .unwrap();
+    h.repository
+        .upsert_table_preferences(id, "runs", "{}")
+        .await
+        .unwrap();
+    execute(
+        &h,
+        "CREATE TRIGGER block_delete BEFORE DELETE ON providers \
+             BEGIN SELECT RAISE(ABORT, 'delete blocked'); END",
+    )
+    .await;
+    let stored_rules = || async {
+        sqlx::query_scalar::<_, String>("SELECT rules_json FROM pipeline_views WHERE id = ?")
+            .bind(view)
+            .fetch_one(&h.pool)
+            .await
+            .unwrap()
+    };
+
+    assert!(h.provider_service.remove_provider(id).await.is_err());
+
+    assert!(h.repository.get_provider(id).await.is_ok());
+    assert_eq!(h.token_store.get_token(id).await.unwrap(), "token-ci-a");
+    assert!(h
+        .config_state
+        .load_providers()
+        .await
+        .unwrap()
+        .contains_key("ci-a"));
+    assert!(h.config_state.get().await.providers.contains_key("ci-a"));
+    assert_eq!(
+        count(
+            &h,
+            "SELECT COUNT(*) FROM pipeline_view_members WHERE provider_id = ?",
+            id
+        )
+        .await,
+        1
+    );
+    assert_eq!(stored_rules().await, rules);
+    assert_eq!(h.cached_names(id).await, ["web"]);
+    assert_eq!(
+        h.repository
+            .get_table_preferences(id, "runs")
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("{}")
+    );
+
+    execute(&h, "DROP TRIGGER block_delete").await;
+    h.provider_service.remove_provider(id).await.unwrap();
+
+    assert!(h.repository.get_provider(id).await.is_err());
+    assert!(h.config_state.load_providers().await.unwrap().is_empty());
+    assert!(h.config_state.get().await.providers.is_empty());
+    assert!(h.token_store.get_all_tokens().await.unwrap().is_empty());
+    assert_eq!(
+        count(
+            &h,
+            "SELECT COUNT(*) FROM pipeline_view_members WHERE provider_id = ?",
+            id
+        )
+        .await,
+        0
+    );
+    assert_ne!(stored_rules().await, rules);
+    assert!(h.cached_names(id).await.is_empty());
+}
+
 #[tokio::test]
 async fn renaming_a_toml_provider_keeps_the_file_key_for_removal() {
     let h = Harness::new().await;

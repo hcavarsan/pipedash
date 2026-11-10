@@ -30,7 +30,10 @@ pub use schema::{
     StorageConfig,
     OFFICIAL_PUSH_RELAY_URL,
 };
-pub use state::ConfigState;
+pub use state::{
+    ConfigState,
+    RemovedProvider,
+};
 pub use sync::SyncResult;
 pub use token_ref::{
     TokenRefError,
