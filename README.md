@@ -74,7 +74,7 @@ It runs as a desktop app, as a self-hosted web server in Docker or as an iOS and
   <tr>
     <td align="center" width="120"><img src="./.github/icons/monitor.svg" width="32" height="32" alt="" /><br><b>Monitor</b></td>
     <td width="420">See the status of every pipeline in one place.</td>
-    <td width="264"><a href="https://pipedash.app/docs/features/dashboard">Dashboard</a><br><a href="https://pipedash.app/docs/features/provider-health">Provider health</a><br><a href="https://pipedash.app/docs/features/refresh">Refresh</a></td>
+    <td width="264"><a href="https://pipedash.app/docs/features/dashboard">Dashboard</a><br><a href="https://pipedash.app/docs/features/provider-health">Provider health</a></td>
   </tr>
   <tr>
     <td align="center" width="120"><img src="./.github/icons/organize.svg" width="32" height="32" alt="" /><br><b>Organize</b></td>
