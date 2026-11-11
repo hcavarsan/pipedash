@@ -1,4 +1,7 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
+
+use sqlx::postgres::PgConnectOptions;
 
 use crate::domain::{
     DeviceAlert,
@@ -79,12 +82,38 @@ pub(super) fn remap_alert(
     Some(alert)
 }
 
-pub(super) fn same_database(from: &PipedashConfig, to: &PipedashConfig) -> bool {
+fn postgres_database(connection_string: &str) -> Option<(String, Option<PathBuf>, u16, String)> {
+    let options = connection_string.parse::<PgConnectOptions>().ok()?;
+    Some((
+        options.get_host().to_ascii_lowercase(),
+        options.get_socket().cloned(),
+        options.get_port(),
+        options
+            .get_database()
+            .unwrap_or_else(|| options.get_username())
+            .to_owned(),
+    ))
+}
+
+fn same_postgres_database(from: &str, to: &str) -> bool {
+    if from == to {
+        return true;
+    }
+    match (postgres_database(from), postgres_database(to)) {
+        (Some(from), Some(to)) => from == to,
+        _ => false,
+    }
+}
+
+pub(in crate::infrastructure) fn same_database(from: &PipedashConfig, to: &PipedashConfig) -> bool {
     from.storage.backend == to.storage.backend
         && if to.storage.backend.is_sqlite() {
             from.db_path() == to.db_path()
         } else {
-            from.storage.postgres.connection_string == to.storage.postgres.connection_string
+            same_postgres_database(
+                &from.storage.postgres.connection_string,
+                &to.storage.postgres.connection_string,
+            )
         }
 }
 

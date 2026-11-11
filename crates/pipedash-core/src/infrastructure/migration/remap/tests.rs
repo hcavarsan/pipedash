@@ -46,3 +46,42 @@ fn a_storage_migration_moves_mutes_and_watches_to_the_new_provider_ids_and_drops
         }
     );
 }
+
+fn postgres_config(connection_string: &str) -> PipedashConfig {
+    let mut config = PipedashConfig::default();
+    config.storage.backend = crate::infrastructure::config::StorageBackend::Postgres;
+    config.storage.postgres.connection_string = connection_string.into();
+    config
+}
+
+#[test]
+fn postgres_credentials_and_options_do_not_make_another_database() {
+    let current = postgres_config("postgresql://app:old@db.internal:5432/pipedash");
+
+    for edited in [
+        "postgresql://app:new@db.internal:5432/pipedash",
+        "postgresql://app:old@db.internal:5432/pipedash?application_name=pipedash",
+        "postgresql://app:old@db.internal/pipedash?sslmode=require",
+        "postgres://app:old@DB.internal:5432/pipedash",
+    ] {
+        assert!(
+            same_database(&current, &postgres_config(edited)),
+            "{edited}"
+        );
+    }
+}
+
+#[test]
+fn postgres_host_port_or_database_name_makes_another_database() {
+    let current = postgres_config("postgresql://app:old@db.internal:5432/pipedash");
+
+    for moved in [
+        "postgresql://app:old@db.internal:5432/pipedash_next",
+        "postgresql://app:old@db.internal:5433/pipedash",
+        "postgresql://app:old@replica.internal:5432/pipedash",
+        "postgresql://app:old@db.internal:5432/pipedash?dbname=pipedash_next",
+        "not a connection string",
+    ] {
+        assert!(!same_database(&current, &postgres_config(moved)), "{moved}");
+    }
+}
