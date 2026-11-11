@@ -21,6 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("cargo:rerun-if-env-changed=SKIP_FRONTEND_BUILD");
+    println!("cargo:rerun-if-changed=dist/index.html");
     println!("cargo:rerun-if-changed=../../src");
     println!("cargo:rerun-if-changed=../../package.json");
     println!("cargo:rerun-if-changed=../../vite.config.ts");
