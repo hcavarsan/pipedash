@@ -5,6 +5,7 @@ use pipedash_plugin_api::config::{
     required_value,
     value,
 };
+use pipedash_plugin_api::correlation::oci::authority::registry_authority;
 use pipedash_plugin_api::correlation::oci::OciClient;
 use pipedash_plugin_api::*;
 
@@ -48,8 +49,11 @@ plugin_impl!(OciRegistryPlugin [metadata] {
         &mut self, _provider_id: i64, config: HashMap<String, String>,
         http_client: Option<Arc<reqwest::Client>>,
     ) -> PluginResult<()> {
-        let host = required_value(&config, "registry_host", "Missing registry host")?
-            .to_ascii_lowercase();
+        let host = registry_authority(required_value(
+            &config,
+            "registry_host",
+            "Missing registry host",
+        )?);
         let secret = required_value(&config, "token", "Missing registry password or token")?
             .to_string();
         let username = value(&config, "username").map(str::to_string);
@@ -98,7 +102,7 @@ plugin_impl!(OciRegistryPlugin [metadata] {
         Ok(self
             .credentials
             .clone()
-            .filter(|_| host.eq_ignore_ascii_case(&self.host)))
+            .filter(|_| registry_authority(host) == self.host))
     }
 });
 

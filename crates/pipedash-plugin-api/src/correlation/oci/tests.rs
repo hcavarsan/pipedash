@@ -24,6 +24,7 @@ use super::auth::{
     realm_url,
     Challenge,
 };
+use super::authority::registry_authority;
 use super::provenance::source_url;
 use super::*;
 
@@ -745,6 +746,54 @@ fn token_hosts_match_exactly_and_never_by_suffix() {
         "https://b.shared.test/token",
         &[]
     ));
+    assert!(allow(registry, "https://auth.test/t", &["auth.test:443"]));
+    assert!(allow(registry, "https://auth.test/t", &[" Auth.TEST:443 "]));
+    assert!(allow(
+        registry,
+        "https://auth.test:443/t",
+        &["auth.test:443"]
+    ));
+    assert!(allow(
+        "https://registry.test:443/v2/",
+        "https://registry.test/token",
+        &[]
+    ));
+    assert!(allow(
+        "http://127.0.0.1/v2/",
+        "http://127.0.0.1:80/t",
+        &["127.0.0.1:80"]
+    ));
+    assert!(allow(
+        "http://127.0.0.1:5000/v2/",
+        "http://127.0.0.1/t",
+        &["127.0.0.1:80"]
+    ));
+    assert!(!allow(registry, "https://auth.test/t", &["auth.test:80"]));
+    assert!(!allow(registry, "https://auth.test/t", &["auth.test:8443"]));
+    assert!(!allow(
+        registry,
+        "https://auth.test:8443/t",
+        &["auth.test:443"]
+    ));
+    assert!(!allow(
+        "http://127.0.0.1:5000/v2/",
+        "http://127.0.0.1/t",
+        &["127.0.0.1:443"]
+    ));
+}
+
+#[test]
+fn registry_authorities_drop_only_the_scheme_default_port() {
+    assert_eq!(registry_authority(" Registry.TEST:443 "), "registry.test");
+    assert_eq!(registry_authority("registry.test"), "registry.test");
+    assert_eq!(
+        registry_authority("registry.test:8443"),
+        "registry.test:8443"
+    );
+    assert_eq!(registry_authority("registry.test:80"), "registry.test:80");
+    assert_eq!(registry_authority("localhost:80"), "localhost");
+    assert_eq!(registry_authority("localhost:443"), "localhost:443");
+    assert_eq!(registry_authority("localhost:5000"), "localhost:5000");
 }
 
 fn statement(predicate_type: &str, predicate: serde_json::Value) -> String {

@@ -10,6 +10,7 @@ use reqwest::{
 };
 use serde::Deserialize;
 
+use super::authority::strip_default_port;
 use super::{
     is_loopback_host,
     OciClient,
@@ -130,7 +131,7 @@ pub(super) fn may_receive_secret(auth: &RegistryAuth, registry: &Url, realm: &Ur
         || auth
             .token_hosts
             .iter()
-            .any(|host| host.trim().eq_ignore_ascii_case(&target))
+            .any(|host| strip_default_port(host.trim(), realm.scheme()) == target)
 }
 
 fn challenge_of(response: &Response, auth: Option<&RegistryAuth>) -> Option<Challenge> {

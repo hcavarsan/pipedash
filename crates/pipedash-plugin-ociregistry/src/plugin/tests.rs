@@ -98,6 +98,48 @@ async fn token_hosts_come_from_the_config_and_the_hub_default() {
     );
 }
 
+#[tokio::test]
+async fn a_default_port_in_registry_host_matches_the_bare_host() {
+    let with_port = plugin(&[("registry_host", "Registry.Test:443")]);
+    for host in ["registry.test", "REGISTRY.test:443"] {
+        assert!(with_port.registry_auth(host).await.unwrap().is_some());
+    }
+    assert!(with_port
+        .registry_auth("registry.test:5000")
+        .await
+        .unwrap()
+        .is_none());
+
+    let bare = plugin(&[("registry_host", "registry.test")]);
+    assert!(bare
+        .registry_auth("registry.test:443")
+        .await
+        .unwrap()
+        .is_some());
+
+    let custom = plugin(&[("registry_host", "registry.test:8443")]);
+    assert!(custom
+        .registry_auth("registry.test")
+        .await
+        .unwrap()
+        .is_none());
+    assert!(custom
+        .registry_auth("registry.test:8443")
+        .await
+        .unwrap()
+        .is_some());
+
+    let hub = plugin(&[("registry_host", "docker.io:443")]);
+    assert_eq!(
+        hub.registry_auth("docker.io")
+            .await
+            .unwrap()
+            .unwrap()
+            .token_hosts,
+        ["auth.docker.io"]
+    );
+}
+
 #[test]
 fn the_token_host_field_is_optional_and_validated() {
     let fields = metadata::create_metadata().config_schema.fields;

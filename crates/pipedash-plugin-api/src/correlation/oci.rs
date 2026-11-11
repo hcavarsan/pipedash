@@ -41,6 +41,7 @@ use crate::http::{
 };
 
 mod auth;
+pub mod authority;
 mod provenance;
 
 use self::provenance::{
