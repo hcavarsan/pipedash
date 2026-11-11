@@ -1058,7 +1058,7 @@ impl Harness {
             event_bus: bus.clone(),
             presenter: Arc::clone(&presenter),
             http: correlation_http,
-            event_interval: Duration::from_secs(3600),
+            event_interval: None,
         });
         provider_service.set_applications(correlation_service.clone());
 

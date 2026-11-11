@@ -161,7 +161,7 @@ impl Services {
             event_bus: correlation_event_bus,
             presenter,
             http: correlation_http,
-            event_interval: EVENT_INTERVAL,
+            event_interval: Some(EVENT_INTERVAL),
         });
         pipeline_service.set_observer(correlation_service.clone());
         provider_service.set_applications(correlation_service.clone());

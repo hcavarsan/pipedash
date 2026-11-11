@@ -123,20 +123,23 @@ pub(super) fn run_with(
 }
 
 pub(super) async fn settle(svc: &CorrelationService) {
-    let wait = std::time::Duration::from_secs(1);
-    loop {
-        let mut tasks = std::mem::take(
-            &mut *svc
-                .background
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner),
-        );
-        if tasks.is_empty() {
-            return;
+    let drain = async {
+        loop {
+            let mut tasks = std::mem::take(
+                &mut *svc
+                    .background
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            );
+            if tasks.is_empty() {
+                return;
+            }
+            while tasks.join_next().await.is_some() {}
         }
-        while let Ok(Some(_)) = tokio::time::timeout(wait, tasks.join_next()).await {}
-        tasks.abort_all();
-    }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(60), drain)
+        .await
+        .expect("correlation background work did not finish within 60s");
 }
 
 impl Fx {

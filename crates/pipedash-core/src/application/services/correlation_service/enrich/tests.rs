@@ -104,7 +104,7 @@ impl Fixture {
             event_bus: h.bus.clone(),
             presenter: Arc::clone(&h.presenter),
             http: Arc::new(HttpClientManager::new().unwrap()),
-            event_interval: Duration::from_millis(10),
+            event_interval: Some(Duration::from_millis(10)),
         });
         Self { h, service }
     }

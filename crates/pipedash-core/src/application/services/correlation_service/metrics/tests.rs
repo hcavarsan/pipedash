@@ -69,7 +69,7 @@ impl Fixture {
             event_bus: harness.bus.clone(),
             presenter: harness.presenter.clone(),
             http: Arc::new(HttpClientManager::new().unwrap()),
-            event_interval: super::super::EVENT_INTERVAL,
+            event_interval: None,
         });
         let provider: i64 = sqlx::query_scalar(
             "INSERT INTO providers (name, provider_type, token_encrypted) \

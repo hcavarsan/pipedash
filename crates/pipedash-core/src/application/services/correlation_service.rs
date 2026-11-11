@@ -93,13 +93,13 @@ pub(crate) struct CorrelationDeps {
     pub event_bus: Arc<dyn EventBus>,
     pub presenter: Arc<Presenter>,
     pub http: Arc<HttpClientManager>,
-    pub event_interval: Duration,
+    pub event_interval: Option<Duration>,
 }
 
 struct Emitter {
     dirty: Arc<AtomicBool>,
     pumping: Arc<AtomicBool>,
-    interval: Duration,
+    interval: Option<Duration>,
 }
 
 pub struct CorrelationService {
@@ -176,13 +176,15 @@ impl CorrelationService {
 
     pub(super) fn changed(&self) {
         self.emitter.dirty.store(true, Ordering::SeqCst);
+        let Some(interval) = self.emitter.interval else {
+            return;
+        };
         if self.emitter.pumping.swap(true, Ordering::SeqCst) {
             return;
         }
         let dirty = Arc::clone(&self.emitter.dirty);
         let pumping = Arc::clone(&self.emitter.pumping);
         let bus = Arc::clone(&self.event_bus);
-        let interval = self.emitter.interval;
         self.spawn(async move {
             tokio::time::sleep(interval).await;
             pumping.store(false, Ordering::SeqCst);
