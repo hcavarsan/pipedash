@@ -1835,6 +1835,7 @@ async fn registry_credentials_go_only_to_ghcr_for_github_com() {
             username: None,
             secret: "stub-token".to_string(),
             bearer: true,
+            token_hosts: Vec::new(),
         })
     );
     assert_eq!(

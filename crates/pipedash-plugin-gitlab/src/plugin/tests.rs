@@ -901,6 +901,10 @@ async fn registry_credentials_are_only_given_to_the_instance_registry() {
     assert_eq!(auth.username.as_deref(), Some("alice"));
     assert_eq!(auth.secret, "stub-token");
     assert!(!auth.bearer);
+    assert_eq!(
+        auth.token_hosts,
+        [host.strip_prefix("registry.").unwrap().to_string()]
+    );
     assert_eq!(other, None);
 }
 

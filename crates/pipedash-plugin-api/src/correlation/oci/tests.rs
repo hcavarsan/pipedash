@@ -19,6 +19,7 @@ use reqwest::header::{
 use serde_json::json;
 
 use super::auth::{
+    may_receive_secret,
     parse_challenge,
     realm_url,
     Challenge,
@@ -140,6 +141,7 @@ fn credentials() -> RegistryAuth {
         username: Some("bot".into()),
         secret: "pw".into(),
         bearer: false,
+        token_hosts: Vec::new(),
     }
 }
 
@@ -443,6 +445,7 @@ async fn referrers_fall_back_to_the_tag_schema_on_404() {
         username: None,
         secret: "pass".into(),
         bearer: true,
+        token_hosts: Vec::new(),
     };
     let client = client();
 
@@ -490,6 +493,9 @@ async fn ping_accepts_200_or_a_401_followed_by_a_token_exchange() {
     assert!(client().ping(&open, None).await.unwrap());
 
     let (gated, _) = serve(|request, port| {
+        if request.authorization.as_deref() == Some("Bearer t") {
+            return reply("200 OK", &[], "{}");
+        }
         if request.path.starts_with("/token") {
             if request.auth_is(&basic("bot", "pw")) {
                 return reply("200 OK", &[], r#"{"access_token":"t"}"#);
@@ -522,6 +528,223 @@ async fn ping_answers_basic_challenges_with_the_credentials() {
     });
     assert!(client().ping(&host, Some(&credentials())).await.unwrap());
     assert!(!client().ping(&host, None).await.unwrap());
+}
+
+fn plain_manifest() -> String {
+    json!({"config": {"mediaType": "x", "digest": fake_digest(1), "size": 1}}).to_string()
+}
+
+fn port_of(host: &str) -> u16 {
+    host.rsplit_once(':')
+        .and_then(|(_, port)| port.parse().ok())
+        .unwrap_or_default()
+}
+
+fn token_server(token: &'static str) -> (String, Log) {
+    serve(move |_, _| reply("200 OK", &[], &format!(r#"{{"token":"{token}"}}"#)))
+}
+
+fn registry_behind(realm: &str, token: &'static str) -> (String, Log) {
+    let realm_port = port_of(realm);
+    let expected = format!("Bearer {token}");
+    serve(move |request, _| {
+        if request.authorization.as_deref() == Some(expected.as_str()) {
+            return reply("200 OK", &[], &plain_manifest());
+        }
+        reply(
+            "401 Unauthorized",
+            &challenge(realm_port, "repository:shop/api:pull"),
+            "",
+        )
+    })
+}
+
+fn authorizations(log: &Log) -> Vec<Option<String>> {
+    log.lock()
+        .unwrap()
+        .iter()
+        .map(|(_, authorization)| authorization.clone())
+        .collect()
+}
+
+#[tokio::test]
+async fn a_realm_on_another_host_gets_an_anonymous_exchange() {
+    let (realm, realm_log) = token_server("anon");
+    let (registry, registry_log) = registry_behind(&realm, "anon");
+
+    let (digest, _) = client()
+        .manifest(
+            &repository(&registry, "shop/api"),
+            "latest",
+            Some(&credentials()),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(digest, digest_of(plain_manifest().as_bytes()));
+    assert_eq!(authorizations(&realm_log), [None]);
+    assert!(authorizations(&registry_log).contains(&Some("Bearer anon".into())));
+}
+
+#[tokio::test]
+async fn an_explicitly_trusted_token_host_gets_the_credentials() {
+    let (realm, realm_log) = token_server("trusted");
+    let (registry, _) = registry_behind(&realm, "trusted");
+    let auth = RegistryAuth {
+        token_hosts: vec![realm.to_uppercase()],
+        ..credentials()
+    };
+
+    client()
+        .manifest(&repository(&registry, "shop/api"), "latest", Some(&auth))
+        .await
+        .unwrap();
+
+    assert_eq!(authorizations(&realm_log), [Some(basic("bot", "pw"))]);
+}
+
+#[tokio::test]
+async fn a_realm_on_the_registry_host_gets_the_credentials() {
+    let (registry, log) = serve(|request, port| {
+        if request.path.starts_with("/token") {
+            return reply("200 OK", &[], r#"{"token":"t"}"#);
+        }
+        if request.authorization.as_deref() == Some("Bearer t") {
+            return reply("200 OK", &[], &plain_manifest());
+        }
+        reply(
+            "401 Unauthorized",
+            &challenge(port, "repository:shop/api:pull"),
+            "",
+        )
+    });
+
+    client()
+        .manifest(
+            &repository(&registry, "shop/api"),
+            "latest",
+            Some(&credentials()),
+        )
+        .await
+        .unwrap();
+
+    let token_calls: Vec<_> = log
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(path, _)| path.starts_with("/token"))
+        .map(|(_, authorization)| authorization.clone())
+        .collect();
+    assert_eq!(token_calls, [Some(basic("bot", "pw"))]);
+}
+
+#[tokio::test]
+async fn a_bearer_secret_is_only_sent_to_the_registry_host() {
+    let (realm, realm_log) = token_server("anon");
+    let (registry, registry_log) = registry_behind(&realm, "anon");
+    let auth = RegistryAuth {
+        username: None,
+        secret: "pass".into(),
+        bearer: true,
+        token_hosts: vec![realm.clone()],
+    };
+
+    let result = client()
+        .manifest(&repository(&registry, "shop/api"), "latest", Some(&auth))
+        .await;
+
+    assert!(result.is_err());
+    assert!(authorizations(&realm_log).is_empty());
+    assert_eq!(
+        authorizations(&registry_log),
+        [Some("Bearer pass".to_string())]
+    );
+}
+
+#[tokio::test]
+async fn redirects_never_carry_a_secret_to_another_host() {
+    let (elsewhere, elsewhere_log) = token_server("stolen");
+    let target = elsewhere.clone();
+    let (registry, registry_log) = serve(move |_, _| {
+        reply(
+            "302 Found",
+            &[("Location", format!("http://{target}/stolen"))],
+            "",
+        )
+    });
+    let bearer = RegistryAuth {
+        username: None,
+        secret: "pass".into(),
+        bearer: true,
+        token_hosts: Vec::new(),
+    };
+    let _ = client()
+        .manifest(&repository(&registry, "shop/api"), "latest", Some(&bearer))
+        .await;
+    assert_eq!(
+        authorizations(&registry_log),
+        [Some("Bearer pass".to_string())]
+    );
+    assert_eq!(authorizations(&elsewhere_log), [None]);
+
+    let (elsewhere, elsewhere_log) = token_server("stolen");
+    let target = elsewhere.clone();
+    let (registry, registry_log) = serve(move |request, port| {
+        if request.path.starts_with("/token") {
+            return reply(
+                "302 Found",
+                &[("Location", format!("http://{target}/stolen"))],
+                "",
+            );
+        }
+        reply(
+            "401 Unauthorized",
+            &challenge(port, "repository:shop/api:pull"),
+            "",
+        )
+    });
+    let _ = client()
+        .manifest(
+            &repository(&registry, "shop/api"),
+            "latest",
+            Some(&credentials()),
+        )
+        .await;
+    assert!(authorizations(&registry_log).contains(&Some(basic("bot", "pw"))));
+    assert_eq!(authorizations(&elsewhere_log), [None]);
+}
+
+#[test]
+fn token_hosts_match_exactly_and_never_by_suffix() {
+    let allow = |registry: &str, realm: &str, hosts: &[&str]| {
+        let auth = RegistryAuth {
+            token_hosts: hosts.iter().map(|host| host.to_string()).collect(),
+            ..credentials()
+        };
+        may_receive_secret(
+            &auth,
+            &Url::parse(registry).unwrap(),
+            &Url::parse(realm).unwrap(),
+        )
+    };
+    let registry = "https://registry.test/v2/";
+    assert!(allow(registry, "https://REGISTRY.test:443/token", &[]));
+    assert!(allow(registry, "https://Auth.test/token", &["AUTH.test"]));
+    assert!(allow(
+        registry,
+        "https://auth.test:8443/t",
+        &["auth.test:8443"]
+    ));
+    assert!(!allow(registry, "https://auth.test/token", &[]));
+    assert!(!allow(registry, "https://auth.test:8443/t", &["auth.test"]));
+    assert!(!allow(registry, "https://sub.auth.test/t", &["auth.test"]));
+    assert!(!allow(registry, "https://auth.test/t", &["sub.auth.test"]));
+    assert!(!allow(registry, "https://registry.test:5000/t", &[]));
+    assert!(!allow(
+        "https://a.shared.test/v2/",
+        "https://b.shared.test/token",
+        &[]
+    ));
 }
 
 fn statement(predicate_type: &str, predicate: serde_json::Value) -> String {

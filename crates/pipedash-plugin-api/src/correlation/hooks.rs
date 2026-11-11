@@ -46,6 +46,7 @@ pub struct RegistryAuth {
     pub username: Option<String>,
     pub secret: String,
     pub bearer: bool,
+    pub token_hosts: Vec<String>,
 }
 
 impl fmt::Debug for RegistryAuth {
@@ -54,6 +55,7 @@ impl fmt::Debug for RegistryAuth {
             .field("username", &self.username)
             .field("secret", &"<redacted>")
             .field("bearer", &self.bearer)
+            .field("token_hosts", &self.token_hosts)
             .finish()
     }
 }

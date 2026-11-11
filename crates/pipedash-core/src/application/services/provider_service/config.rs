@@ -168,28 +168,28 @@ impl ProviderService {
         }
 
         let token_store = config_state.token_store();
-        let (staged, shadow) = self.stage_providers(&changed, token_store.as_ref()).await?;
+        let mut reload = self.stage_providers(&changed, token_store.as_ref()).await?;
         if let Some(applications) = self.applications.get() {
             if let Err(error) = applications.commit(&loaded).await {
-                return Err(self.unstage(staged, error).await);
+                return Err(self.unstage(reload, error).await);
             }
         }
 
         let mut result = SyncResult::default();
-        for one in &staged {
+        for one in &reload.staged {
             if one.created {
                 result.added.push(one.key.clone());
             } else {
                 result.updated.push(one.key.clone());
             }
         }
-        let leases = self.activate(staged).await;
-        drop(shadow);
+        let leases = self.activate(std::mem::take(&mut reload.staged)).await;
         let views_changed = current.views != loaded.views;
         if views_changed {
             config_state.remember_views(loaded.views).await;
         }
         config_state.remember_providers(loaded.providers).await;
+        drop(reload);
 
         if !leases.is_empty() {
             tracing::info!(

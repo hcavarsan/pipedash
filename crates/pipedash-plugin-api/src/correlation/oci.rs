@@ -43,7 +43,6 @@ use crate::http::{
 mod auth;
 mod provenance;
 
-use self::auth::Grant;
 use self::provenance::{
     provenance_v02,
     provenance_v1,
@@ -209,8 +208,7 @@ impl OciClient {
         if first.status().is_success() {
             return Ok(true);
         }
-        match self.answer(&first, auth).await {
-            Ok(Some(Grant::Bearer(_))) => Ok(true),
+        match self.answer(&url, &first, auth).await {
             Ok(Some(grant)) => Ok(self
                 .request(&url, None, Some(&grant))
                 .await?

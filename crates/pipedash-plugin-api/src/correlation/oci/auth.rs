@@ -116,6 +116,23 @@ pub(super) fn realm_url(
     Ok(with_query(url, &query))
 }
 
+fn authority(url: &Url) -> String {
+    let host = url.host_str().unwrap_or_default();
+    match url.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_string(),
+    }
+}
+
+pub(super) fn may_receive_secret(auth: &RegistryAuth, registry: &Url, realm: &Url) -> bool {
+    let target = authority(realm);
+    target == authority(registry)
+        || auth
+            .token_hosts
+            .iter()
+            .any(|host| host.trim().eq_ignore_ascii_case(&target))
+}
+
 fn challenge_of(response: &Response, auth: Option<&RegistryAuth>) -> Option<Challenge> {
     let answerable =
         response.status() == StatusCode::UNAUTHORIZED && !auth.is_some_and(|auth| auth.bearer);
@@ -153,23 +170,23 @@ impl OciClient {
         &self, url: &Url, accept: Option<&str>, auth: Option<&RegistryAuth>,
     ) -> PluginResult<Response> {
         let first = self.probe(url, accept, auth).await?;
-        match self.answer(&first, auth).await? {
+        match self.answer(url, &first, auth).await? {
             Some(grant) => self.request(url, accept, Some(&grant)).await,
             None => Ok(first),
         }
     }
 
     pub(super) async fn answer(
-        &self, first: &Response, auth: Option<&RegistryAuth>,
+        &self, url: &Url, first: &Response, auth: Option<&RegistryAuth>,
     ) -> PluginResult<Option<Grant>> {
         match challenge_of(first, auth) {
-            Some(challenge) => self.authorize(challenge, auth).await,
+            Some(challenge) => self.authorize(url, challenge, auth).await,
             None => Ok(None),
         }
     }
 
     async fn authorize(
-        &self, challenge: Challenge, auth: Option<&RegistryAuth>,
+        &self, url: &Url, challenge: Challenge, auth: Option<&RegistryAuth>,
     ) -> PluginResult<Option<Grant>> {
         match challenge {
             Challenge::Basic => Ok(auth
@@ -179,14 +196,14 @@ impl OciClient {
                 service,
                 scope,
             } => {
-                let token = self.exchange(&realm, service, scope, auth).await?;
+                let token = self.exchange(url, &realm, service, scope, auth).await?;
                 Ok(Some(Grant::Bearer(token)))
             }
         }
     }
 
     async fn exchange(
-        &self, realm: &str, service: Option<String>, scope: Option<String>,
+        &self, registry: &Url, realm: &str, service: Option<String>, scope: Option<String>,
         auth: Option<&RegistryAuth>,
     ) -> PluginResult<String> {
         let url = realm_url(realm, service, scope)?;
@@ -195,7 +212,7 @@ impl OciClient {
             username: Some(username),
             secret,
             ..
-        }) = auth
+        }) = auth.filter(|auth| may_receive_secret(auth, registry, &url))
         {
             request = request.basic_auth(username, Some(secret));
         }

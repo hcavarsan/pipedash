@@ -118,6 +118,7 @@ impl GitHubPlugin {
                 username: None,
                 secret: client.token().to_string(),
                 bearer: true,
+                token_hosts: Vec::new(),
             }),
         )
     }

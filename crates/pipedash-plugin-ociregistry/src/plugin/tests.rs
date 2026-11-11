@@ -59,6 +59,61 @@ async fn registry_auth_matches_only_the_configured_host() {
 }
 
 #[tokio::test]
+async fn token_hosts_come_from_the_config_and_the_hub_default() {
+    let hosts = |plugin: OciRegistryPlugin, registry: &'static str| async move {
+        plugin
+            .registry_auth(registry)
+            .await
+            .unwrap()
+            .unwrap()
+            .token_hosts
+    };
+    let own = "registry.example.com:5000";
+
+    assert!(hosts(plugin(&[]), own).await.is_empty());
+    assert_eq!(
+        hosts(plugin(&[("token_host", " Auth.Example.com ")]), own).await,
+        ["auth.example.com"]
+    );
+    assert_eq!(
+        hosts(plugin(&[("token_host", "  ")]), own).await,
+        Vec::<String>::new()
+    );
+    for hub in ["docker.io", "index.docker.io", "registry-1.docker.io"] {
+        assert_eq!(
+            hosts(plugin(&[("registry_host", hub)]), hub).await,
+            ["auth.docker.io"]
+        );
+    }
+    assert_eq!(
+        hosts(
+            plugin(&[
+                ("registry_host", "docker.io"),
+                ("token_host", "tokens.test")
+            ]),
+            "docker.io"
+        )
+        .await,
+        ["tokens.test", "auth.docker.io"]
+    );
+}
+
+#[test]
+fn the_token_host_field_is_optional_and_validated() {
+    let fields = metadata::create_metadata().config_schema.fields;
+    let find = |key: &str| fields.iter().find(|field| field.key == key).unwrap();
+    let field = find("token_host");
+
+    assert!(!field.required);
+    assert!(matches!(field.section, ConfigSection::Authentication));
+    assert!(field.validation_regex.is_some());
+    assert_eq!(
+        field.validation_regex,
+        find("registry_host").validation_regex
+    );
+}
+
+#[tokio::test]
 async fn an_uninitialized_plugin_shares_no_credentials() {
     let plugin = OciRegistryPlugin::new();
     assert!(plugin.registry_auth("").await.unwrap().is_none());

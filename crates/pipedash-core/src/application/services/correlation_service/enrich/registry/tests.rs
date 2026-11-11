@@ -269,6 +269,7 @@ async fn registry_checked_with_credentials(supersede: bool) -> bool {
                 username: None,
                 secret: "token".into(),
                 bearer: true,
+                token_hosts: Vec::new(),
             })
         })
         .await;

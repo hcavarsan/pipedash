@@ -30,6 +30,15 @@ fn create_config_schema() -> ConfigSchema {
             ConfigField::text("username", ConfigSection::Authentication, "Username")
                 .description("Leave empty when the token is a bearer token instead of a password"),
         )
+        .add_field(
+            ConfigField::text("token_host", ConfigSection::Authentication, "Token host")
+                .description(
+                    "Host that issues registry tokens when it differs from the registry, for \
+                     example auth.example.com. It receives the username and password; leave \
+                     empty to request tokens anonymously",
+                )
+                .validation(HOST_REGEX, "Enter a host name without a scheme or path"),
+        )
         .add_field(ConfigField::token(
             "Password or Bearer Token",
             "Registry password, or a bearer token when no username is set",

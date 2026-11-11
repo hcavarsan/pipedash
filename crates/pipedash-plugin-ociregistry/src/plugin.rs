@@ -25,6 +25,18 @@ impl OciRegistryPlugin {
     }
 }
 
+const HUB_HOSTS: [&str; 3] = ["docker.io", "index.docker.io", "registry-1.docker.io"];
+const HUB_TOKEN_HOST: &str = "auth.docker.io";
+
+fn token_hosts(registry: &str, configured: Option<&str>) -> Vec<String> {
+    let hub = HUB_HOSTS.contains(&registry).then_some(HUB_TOKEN_HOST);
+    configured
+        .into_iter()
+        .chain(hub)
+        .map(str::to_ascii_lowercase)
+        .collect()
+}
+
 fn not_supported<T>() -> PluginResult<T> {
     Err(PluginError::NotSupported(
         "Container registries have no pipelines or runs".to_string(),
@@ -46,6 +58,7 @@ plugin_impl!(OciRegistryPlugin [metadata] {
             bearer: username.is_none(),
             username,
             secret,
+            token_hosts: token_hosts(&host, value(&config, "token_host")),
         });
         self.host = host;
         Ok(())

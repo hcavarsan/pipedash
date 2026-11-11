@@ -246,6 +246,7 @@ async fn tag_edges_with_credentials(supersede: bool) -> usize {
                 username: None,
                 secret: "token".into(),
                 bearer: true,
+                token_hosts: Vec::new(),
             })
         })
         .await;

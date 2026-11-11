@@ -258,6 +258,7 @@ plugin_impl!(GitLabPlugin [
             username: Some(user.username),
             secret: secret.clone(),
             bearer: false,
+            token_hosts: config::source_host(&self.config).into_iter().collect(),
         }))
     }
 

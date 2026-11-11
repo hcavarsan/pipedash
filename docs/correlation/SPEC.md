@@ -518,7 +518,7 @@ The feature follows the single adapter path with no logic in a transport.
 
 - Observations hold no token. The repo normalizer removes userinfo before anything is stored.
 - Registry credentials stay in the vault with the provider credentials.
-- Core sends a registry credential only to the host `registry_auth` named.
+- Core sends a registry credential only to the host `registry_auth` named and to the token hosts the credential owner lists in `token_hosts`. A token realm on any other host gets an anonymous token request. A bearer secret goes only to the registry host.
 - Evidence text shown to the user holds no credential and no raw log line beyond the matched digest.
 
 ## 11. Tests

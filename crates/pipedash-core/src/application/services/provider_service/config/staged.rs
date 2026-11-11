@@ -31,45 +31,65 @@ pub(super) struct Staged {
     prior: Prior,
     config: ProviderConfig,
     instance: Arc<dyn Provider>,
-    guard: OwnedMutexGuard<()>,
+}
+
+pub(super) struct Reload {
+    shadow: ShadowGuard,
+    locks: Vec<OwnedMutexGuard<()>>,
+    pub(super) staged: Vec<Staged>,
 }
 
 impl ProviderService {
     pub(super) async fn stage_providers(
         &self, changed: &[(String, ProviderFileConfig)], token_store: &dyn TokenStore,
-    ) -> DomainResult<(Vec<Staged>, ShadowGuard)> {
+    ) -> DomainResult<Reload> {
         if changed.is_empty() {
-            return Ok((Vec::new(), ShadowGuard::none()));
+            return Ok(Reload {
+                shadow: ShadowGuard::none(),
+                locks: Vec::new(),
+                staged: Vec::new(),
+            });
         }
-        let mut reserved = self.reserve_existing(changed).await?;
-        let priors = reserved
+        let (mut priors, locks) = self.reserve_existing(changed).await?;
+        let rows = priors
             .values()
-            .filter_map(|(prior, _)| Some((prior.row.clone()?, prior.token.clone())))
+            .filter_map(|prior| Some((prior.row.clone()?, prior.token.clone())))
             .collect();
         let created = changed
             .iter()
-            .filter(|(key, _)| !reserved.contains_key(key))
+            .filter(|(key, _)| !priors.contains_key(key))
             .map(|(key, _)| key.clone())
             .collect();
-        let shadow = self.repository.shadow().hide(priors, created);
-        let mut staged = Vec::with_capacity(changed.len());
+        let mut reload = Reload {
+            shadow: self.repository.shadow().hide(rows, created),
+            locks,
+            staged: Vec::with_capacity(changed.len()),
+        };
         for (key, provider) in changed {
             let one = self
-                .stage_one(key, provider, reserved.remove(key), token_store, &shadow)
+                .stage_one(
+                    key,
+                    provider,
+                    priors.remove(key),
+                    token_store,
+                    &reload.shadow,
+                    &mut reload.locks,
+                )
                 .await;
             match one {
-                Ok(one) => staged.push(one),
-                Err(error) => return Err(self.unstage(staged, error).await),
+                Ok(one) => reload.staged.push(one),
+                Err(error) => return Err(self.unstage(reload, error).await),
             }
         }
 
-        Ok((staged, shadow))
+        Ok(reload)
     }
 
-    pub(super) async fn unstage(&self, staged: Vec<Staged>, mut error: DomainError) -> DomainError {
-        for one in staged.into_iter().rev() {
+    pub(super) async fn unstage(&self, mut reload: Reload, mut error: DomainError) -> DomainError {
+        for one in std::mem::take(&mut reload.staged).into_iter().rev() {
             error = self.undo(&one.prior, error).await;
         }
+        drop(reload);
 
         error
     }
@@ -86,7 +106,6 @@ impl ProviderService {
             self.health.send(HealthInput::ProvidersChanged {
                 changed: vec![self.health_input(&one.config, &lease)],
             });
-            drop(one.guard);
             leases.push(lease);
         }
 
@@ -95,7 +114,7 @@ impl ProviderService {
 
     async fn reserve_existing(
         &self, changed: &[(String, ProviderFileConfig)],
-    ) -> DomainResult<HashMap<String, (Prior, OwnedMutexGuard<()>)>> {
+    ) -> DomainResult<(HashMap<String, Prior>, Vec<OwnedMutexGuard<()>>)> {
         let rows = self.repository.config_backend().list_providers().await?;
         let mut wanted: Vec<(i64, &str)> = changed
             .iter()
@@ -106,9 +125,10 @@ impl ProviderService {
             .collect();
         wanted.sort_unstable();
 
-        let mut reserved = HashMap::with_capacity(wanted.len());
+        let mut priors = HashMap::with_capacity(wanted.len());
+        let mut locks = Vec::with_capacity(wanted.len());
         for (id, key) in wanted {
-            let guard = self.commit_lock(id).lock_owned().await;
+            locks.push(self.commit_lock(id).lock_owned().await);
             let row = self
                 .repository
                 .config_backend()
@@ -121,35 +141,34 @@ impl ProviderService {
                 row: Some(row),
                 token,
             };
-            reserved.insert(key.to_string(), (prior, guard));
+            priors.insert(key.to_string(), prior);
         }
 
-        Ok(reserved)
+        Ok((priors, locks))
     }
 
     async fn stage_one(
-        &self, key: &str, provider: &ProviderFileConfig,
-        reserved: Option<(Prior, OwnedMutexGuard<()>)>, token_store: &dyn TokenStore,
-        shadow: &ShadowGuard,
+        &self, key: &str, provider: &ProviderFileConfig, reserved: Option<Prior>,
+        token_store: &dyn TokenStore, shadow: &ShadowGuard, locks: &mut Vec<OwnedMutexGuard<()>>,
     ) -> DomainResult<Staged> {
         let sync = ProviderSyncService::new();
         let backend = self.repository.config_backend().as_ref();
-        let (prior, guard) = match reserved {
-            Some((prior, guard)) => {
+        let prior = match reserved {
+            Some(prior) => {
                 if let Some(row) = &prior.row {
                     sync.update_from_toml(key, provider, row, backend).await?;
                 }
-                (prior, guard)
+                prior
             }
             None => {
                 let id = sync.create_from_toml(key, provider, backend).await?;
                 shadow.created(id);
-                let prior = Prior {
+                locks.push(self.commit_lock(id).lock_owned().await);
+                Prior {
                     id,
                     row: None,
                     token: None,
-                };
-                (prior, self.commit_lock(id).lock_owned().await)
+                }
             }
         };
 
@@ -175,7 +194,6 @@ impl ProviderService {
                 prior,
                 config,
                 instance,
-                guard,
             }),
             Err(error) => Err(self.undo(&prior, error).await),
         }

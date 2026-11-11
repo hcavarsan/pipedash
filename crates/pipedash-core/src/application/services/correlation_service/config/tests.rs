@@ -772,6 +772,55 @@ async fn a_cancelled_reload_that_commits_activates_once_with_one_event_of_each_k
     assert_eq!(h.bus.count("applications-changed"), announced + 1);
 }
 
+#[tokio::test]
+async fn a_waiting_provider_update_sees_the_reloaded_settings() {
+    let (h, _) = reload_baseline().await;
+    let ci = provider_named(&h, "ci").await.unwrap();
+    let before = h.provider_service.generation_of(ci).await;
+    let gate = Gate::new();
+    h.commit_hook.pause(Arc::clone(&gate));
+    let renamed = SHOP.replace("name = \"Shop\"", "name = \"Shop 2\"");
+    std::fs::write(
+        h.config_state.config_path(),
+        format!(
+            "{}{}{CE}{renamed}",
+            rotated(PROVIDERS, 60).replace("name = \"CI\"", "name = \"CI Renamed\""),
+            rotated(CD, 90)
+        ),
+    )
+    .unwrap();
+    let reload = reload_in_background(&h);
+    gate.arrived().await;
+    let service = Arc::clone(&h.provider_service);
+    let update =
+        tokio::spawn(async move { service.update_provider_refresh_interval(ci, 120).await });
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    assert!(!update.is_finished());
+
+    gate.open();
+    reload.await.unwrap().unwrap();
+    update.await.unwrap().unwrap();
+
+    let config = h.repository.get_provider(ci).await.unwrap();
+    assert_eq!(config.refresh_interval, 120);
+    assert_eq!(config.display_name(), "CI Renamed");
+    assert_eq!(config.token, "rotated");
+    assert_eq!(h.stubs.token_of(ci).as_deref(), Some("rotated"));
+    assert_ne!(h.provider_service.generation_of(ci).await, before);
+    assert!(provider_named(&h, "ce").await.is_some());
+    let cd = provider_named(&h, "cd").await.unwrap();
+    assert_eq!(
+        h.repository
+            .get_provider(cd)
+            .await
+            .unwrap()
+            .refresh_interval,
+        90
+    );
+}
+
 async fn still_pending(drain: &mut (impl Future<Output = ()> + Unpin)) {
     tokio::select! {
         biased;
