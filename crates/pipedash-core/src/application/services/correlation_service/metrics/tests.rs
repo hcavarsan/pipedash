@@ -528,6 +528,7 @@ async fn rollback_shows_drift() {
     })
     .await;
 
+    fx.settle().await;
     let application = fx.app("api-prod").await.id;
     let group = fx.svc.application_state(application).await.unwrap().groups[0]
         .key
@@ -594,6 +595,7 @@ async fn mixed_group_reports_the_largest_gap() {
     })
     .await;
 
+    fx.settle().await;
     let application = fx.app("shop").await.id;
     let state = fx.svc.application_state(application).await.unwrap();
     assert_eq!(state.groups.len(), 1);
