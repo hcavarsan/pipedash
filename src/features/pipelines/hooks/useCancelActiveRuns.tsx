@@ -1,5 +1,5 @@
 import { IconSquare } from '@tabler/icons-react'
-import { type ReactNode, useRef, useState } from 'react'
+import { type ReactNode, useState } from 'react'
 import type { ContextMenuItem } from '../../../components/common/ContextMenu'
 import { usePipelines } from '../../../queries/usePipelinesQueries'
 import { useRefreshProvider } from '../../../queries/useRefreshQueries'
@@ -17,15 +17,15 @@ interface CancelActiveRunsResult {
 }
 
 export function useCancelActiveRuns(): CancelActiveRunsResult {
-  const { mutateAsync: cancelRuns } = useCancelRuns()
+  const { mutateAsync: cancelRuns, reset: resetCancellation } = useCancelRuns()
   const { mutate: refreshProvider } = useRefreshProvider()
   const [scope, setScope] = useState<CancelScope | null>(null)
   const [opened, setOpened] = useState(false)
-  const submitted = useRef<CancellationTargets | null>(null)
+  const [submitted, setSubmitted] = useState<CancellationTargets | null>(null)
 
   const cancelGroups = async (targets: CancellationTargets) => {
-    submitted.current ??= targets
-    const { groups, batches } = submitted.current
+    setSubmitted(targets)
+    const { groups, batches } = targets
     await cancelRuns(batches)
 
     for (const providerId of new Set(groups.map(({ pipeline }) => pipeline.provider_id))) {
@@ -40,7 +40,8 @@ export function useCancelActiveRuns(): CancelActiveRunsResult {
           icon: <IconSquare size={16} aria-hidden />,
           color: 'red',
           onClick: () => {
-            submitted.current = null
+            resetCancellation()
+            setSubmitted(null)
             setScope({ label, pipelines })
             setOpened(true)
           },
@@ -48,7 +49,13 @@ export function useCancelActiveRuns(): CancelActiveRunsResult {
       : null
 
   const dialog = (
-    <CancelActiveRunsModal opened={opened} scope={scope} onClose={() => setOpened(false)} onConfirm={cancelGroups} />
+    <CancelActiveRunsModal
+      opened={opened}
+      scope={scope}
+      submitted={submitted}
+      onClose={() => setOpened(false)}
+      onConfirm={cancelGroups}
+    />
   )
 
   return { cancelItem, dialog }

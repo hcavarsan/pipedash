@@ -19,7 +19,7 @@ export function useCancelRuns(): UseMutationResult<CancellationBatch, Error, Run
   const queryClient = useQueryClient()
   const progress = useRef<CancellationProgress | null>(null)
 
-  return useMutation({
+  const mutation = useMutation({
     mutationFn: async (batches: RunTarget[][]) => {
       if (progress.current?.batches !== batches) {
         progress.current = {
@@ -48,6 +48,7 @@ export function useCancelRuns(): UseMutationResult<CancellationBatch, Error, Run
           void queryClient.invalidateQueries({ queryKey: queryKeys.runs.list(pipelineId) })
         }
       }
+      progress.current = null
       return combined
     },
 
@@ -55,4 +56,12 @@ export function useCancelRuns(): UseMutationResult<CancellationBatch, Error, Run
 
     onError: (error) => displayErrorNotification(error, "Couldn't cancel runs"),
   })
+
+  return {
+    ...mutation,
+    reset: () => {
+      progress.current = null
+      mutation.reset()
+    },
+  }
 }

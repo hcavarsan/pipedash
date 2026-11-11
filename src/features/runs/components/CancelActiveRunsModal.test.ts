@@ -287,13 +287,14 @@ test('confirmation cancels 1001 discovered runs in bounded batches and reports p
 test('retry resumes after completed batches and retains their failures after discovery refreshes', async (context) => {
   const runs = [12, 13, 14].map((run_number) => ({ ...run, id: `r${run_number}`, run_number }))
   const targets = runs.map(({ run_number }) => ({ pipeline_id: pipeline.id, run_number }))
-  context.mock.method(apiService, 'getCancellationTargets', async () => ({
+  let discovered = {
     groups: [{ pipeline, provider_name: 'Stub', runs }],
     batches: [targets.slice(0, 2), targets.slice(2)],
     failed_pipeline_ids: [],
     skipped: [],
     run_count: runs.length,
-  }))
+  }
+  context.mock.method(apiService, 'getCancellationTargets', async () => discovered)
   const shown = context.mock.method(notifications, 'show', () => 'id')
   context.mock.method(apiService, 'refreshProvider', async () => undefined)
   const attempts: number[] = []
@@ -319,11 +320,59 @@ test('retry resumes after completed batches and retains their failures after dis
   await openCancelDialog('3 runs')
   await waitFor(() => assert.equal(shown.mock.callCount(), 1))
   assert.equal(shown.mock.calls[0]?.arguments[0]?.title, "Couldn't cancel runs")
+  const refreshedRuns = [13, 15].map((run_number) => ({ ...run, id: `r${run_number}`, run_number }))
+  discovered = {
+    groups: [{ pipeline, provider_name: 'Stub', runs: refreshedRuns }],
+    batches: [refreshedRuns.map(({ run_number }) => ({ pipeline_id: pipeline.id, run_number }))],
+    failed_pipeline_ids: [],
+    skipped: [],
+    run_count: refreshedRuns.length,
+  }
   await act(async () => {
     await client.refetchQueries()
   })
+  await userEvent.setup({ document }).tab()
+  assert.ok(view().getByRole('button', { name: 'Cancel 3 runs' }))
+  assert.equal(view().queryByText('#15'), null)
   await userEvent.setup({ document }).click(view().getByRole('button', { name: 'Cancel 3 runs' }))
   await waitFor(() => assert.equal(shown.mock.callCount(), 2))
   assert.deepEqual(attempts, [12, 13, 14, 14])
   assert.match(String(shown.mock.calls[1]?.arguments[0]?.message), /2 of 3 runs.*#13/)
 })
+
+for (const rejected of [false, true]) {
+  test(`reopening cancellation starts a fresh submission after ${rejected ? 'a rejected request' : 'partial failures'}`, async (context) => {
+    const discovered = found()
+    discovered.groups = [{ pipeline, provider_name: 'Stub', runs: [run, { ...run, id: 'r12', run_number: 12 }] }]
+    discovered.batches.push([{ pipeline_id: pipeline.id, run_number: 12 }])
+    discovered.run_count = 2
+    context.mock.method(apiService, 'getCancellationTargets', async () => discovered)
+    context.mock.method(notifications, 'show', () => 'id')
+    context.mock.method(apiService, 'refreshProvider', async () => undefined)
+    const request = context.mock.method(apiService, 'cancelPipelineRuns', async (batch: RunTarget[]) => {
+      if (rejected && batch[0]?.run_number === 12) {
+        throw new Error('provider unreachable')
+      }
+      return {
+        results: batch.map((target) => ({ target, pipeline_name: 'Build', error: 'run is locked' })),
+        requested_count: batch.length,
+        failed_count: batch.length,
+      }
+    })
+
+    await openCancelDialog('2 runs')
+    await waitFor(() => assert.equal(request.mock.callCount(), 2))
+    const user = userEvent.setup({ document })
+    if (rejected) {
+      await user.click(view().getByRole('button', { name: 'Keep running' }))
+    }
+    await act(async () => undefined)
+    await user.click(view().getByRole('button', { name: 'Open' }))
+    await user.click(await view().findByRole('button', { name: 'Cancel 2 runs' }))
+    await waitFor(() => assert.equal(request.mock.callCount(), 4))
+    assert.deepEqual(
+      request.mock.calls.map((call) => call.arguments[0].map(({ run_number }) => run_number)),
+      [[11], [12], [11], [12]]
+    )
+  })
+}

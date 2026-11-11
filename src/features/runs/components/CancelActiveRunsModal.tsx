@@ -21,6 +21,7 @@ export interface CancelScope {
 interface CancelActiveRunsModalProps {
   opened: boolean
   scope: CancelScope | null
+  submitted?: CancellationTargets | null
   onClose: () => void
   onConfirm: (targets: CancellationTargets) => Promise<unknown>
 }
@@ -35,19 +36,26 @@ const CancelNote = ({ color, text }: { color: string; text: string | null }): Re
     </Text>
   ) : null
 
-export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: CancelActiveRunsModalProps): ReactNode => {
+export const CancelActiveRunsModal = ({
+  opened,
+  scope,
+  submitted = null,
+  onClose,
+  onConfirm,
+}: CancelActiveRunsModalProps): ReactNode => {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
   const now = useNow(30_000)
   const formId = useId()
   const pipelineIds = useMemo(() => scope?.pipelines.map((pipeline) => pipeline.id) ?? [], [scope])
   const search = useCancellationTargets(pipelineIds, opened)
-  const failed = search.isError
-  const loading = search.isFetching && !failed
-  const groups = search.data?.groups ?? []
-  const unreadable = search.data?.failed_pipeline_ids ?? []
-  const skippedNote = (search.data?.skipped ?? []).map((entry) => entry.reason).join(' ')
-  const count = search.data?.run_count ?? 0
+  const targets = submitted ?? search.data
+  const failed = submitted === null && search.isError
+  const loading = submitted === null && search.isFetching && !failed
+  const groups = targets?.groups ?? []
+  const unreadable = targets?.failed_pipeline_ids ?? []
+  const skippedNote = (targets?.skipped ?? []).map((entry) => entry.reason).join(' ')
+  const count = targets?.run_count ?? 0
   const label = scope?.label ?? ''
   const emptyNote =
     groups.length === 0 && unreadable.length === 0
@@ -59,10 +67,10 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
 
   const [, formAction, isPending] = useActionState(async (): Promise<null> => {
     try {
-      if (!search.data) {
+      if (!targets) {
         return null
       }
-      await onConfirm(search.data)
+      await onConfirm(targets)
     } catch {
       return null
     }
