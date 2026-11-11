@@ -79,7 +79,7 @@ pub(super) fn remap_alert(
     Some(alert)
 }
 
-pub(super) fn same_database(from: &PipedashConfig, to: &PipedashConfig) -> bool {
+pub(in crate::infrastructure) fn same_database(from: &PipedashConfig, to: &PipedashConfig) -> bool {
     from.storage.backend == to.storage.backend
         && if to.storage.backend.is_sqlite() {
             from.db_path() == to.db_path()
