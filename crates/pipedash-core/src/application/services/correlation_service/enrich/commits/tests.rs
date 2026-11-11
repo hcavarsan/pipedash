@@ -1,4 +1,7 @@
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{
+    AtomicUsize,
+    Ordering,
+};
 
 use chrono::{
     Duration,
@@ -20,7 +23,10 @@ use super::{
     Cached,
     Lru,
 };
-use crate::application::test_support::Gate;
+use crate::application::test_support::{
+    Gate,
+    StubProvider,
+};
 use crate::infrastructure::database::{
     ApplicationRow,
     ChangeRow,
@@ -247,4 +253,38 @@ async fn a_removed_provider_cached_answers_are_not_served() {
         .unwrap();
 
     assert!(f.service.commit_info(&repo, "aaaaaaa").await.is_none());
+}
+
+async fn guarded_calls(stale_secondary: bool) -> (bool, usize) {
+    let f = Fixture::new().await;
+    let (provider, _) = f.stub(|stub| stub).await;
+    let before = f.h.provider_service.acquire(provider).await.unwrap();
+    let secondary = if stale_secondary {
+        f.h.stubs.queue(StubProvider::new(provider));
+        let mut config = f.h.config("replacement", 30);
+        config.id = Some(provider);
+        config.token = "new-token".to_string();
+        f.h.provider_service
+            .update_provider(provider, config)
+            .await
+            .unwrap();
+        before
+    } else {
+        f.h.provider_service.acquire(provider).await.unwrap()
+    };
+    let primary = f.h.provider_service.acquire(provider).await.unwrap();
+    let calls = AtomicUsize::new(0);
+    let result = f
+        .service
+        .commit_guarded(&primary, Some(&secondary), || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+        })
+        .await;
+    (result.is_some(), calls.load(Ordering::SeqCst))
+}
+
+#[tokio::test]
+async fn a_stale_secondary_lease_of_the_same_provider_skips_the_write() {
+    assert_eq!(guarded_calls(true).await, (false, 0));
+    assert_eq!(guarded_calls(false).await, (true, 1));
 }

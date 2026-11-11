@@ -13,6 +13,7 @@ mod names;
 mod observe;
 mod overrides;
 mod page;
+mod removal;
 mod resolve;
 mod state;
 mod stored;
@@ -115,6 +116,7 @@ pub struct CorrelationService {
     presenter: Arc<Presenter>,
     http: Arc<HttpClientManager>,
     write_lock: Mutex<()>,
+    committed: StdMutex<Option<resolve::Resolved>>,
     config_error: RwLock<Option<ConfigLoadError>>,
     background: StdMutex<JoinSet<()>>,
     refetching: StdMutex<HashMap<String, bool>>,
@@ -138,6 +140,7 @@ impl CorrelationService {
             presenter: deps.presenter,
             http: deps.http,
             write_lock: Mutex::new(()),
+            committed: StdMutex::new(None),
             config_error: RwLock::new(None),
             background: StdMutex::new(JoinSet::new()),
             refetching: StdMutex::new(HashMap::new()),
@@ -203,6 +206,7 @@ impl CorrelationService {
     pub async fn reset(&self) -> DomainResult<()> {
         let _guard = self.write_lock.lock().await;
         self.store.conn().clear().await?;
+        self.forget_pipelines(|_| true);
         *self.config_error.write().await = None;
         self.changed();
         self.flush_events().await;

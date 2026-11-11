@@ -229,7 +229,7 @@ impl CorrelationService {
             Some(id) => vec![world
                 .applications
                 .values()
-                .find(|row| row.id == id)
+                .find(|row| row.id == id && row.archived_at.is_none())
                 .ok_or_else(|| DomainError::NotFound(copy::application_not_found(id)))?],
             None => world
                 .applications

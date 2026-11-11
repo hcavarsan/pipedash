@@ -19,10 +19,7 @@ use super::world::{
     World,
 };
 use crate::domain::application::IdentityKind;
-use crate::infrastructure::config::schema::applications::{
-    glob_matches,
-    TargetFileConfig,
-};
+use crate::infrastructure::config::schema::applications::TargetFileConfig;
 use crate::infrastructure::database::{
     ApplicationTargetRow,
     TargetDirectionRow,
@@ -33,7 +30,7 @@ mod tests;
 
 pub(super) const SHORT_LIVED_GROUP: &str = "short_lived";
 const SOURCE_PROVIDER: &str = "provider";
-const SOURCE_USER: &str = "user";
+const SOURCE_OVERRIDE: &str = "override";
 const SOURCE_CONFIG: &str = "config";
 
 pub(super) struct Targets {
@@ -92,20 +89,12 @@ fn default_group(subject: &Subject, target: &TargetRef) -> String {
     }
 }
 
-fn config_matches(table: &TargetFileConfig, row: &ApplicationTargetRow, cluster: &str) -> bool {
-    if table.clusters.is_empty() && table.namespaces.is_empty() {
-        return false;
-    }
-    let namespace = row.target_key.split_once('|').map_or("", |(_, ns)| ns);
-    let name_cluster = row.name.split('/').next().unwrap_or_default();
-    let cluster_ok = table.clusters.is_empty()
-        || table
-            .clusters
-            .iter()
-            .any(|g| glob_matches(g, cluster) || glob_matches(g, name_cluster));
-    let namespace_ok =
-        table.namespaces.is_empty() || table.namespaces.iter().any(|g| glob_matches(g, namespace));
-    cluster_ok && namespace_ok
+fn row_matches(table: &TargetFileConfig, row: &ApplicationTargetRow) -> bool {
+    let (cluster, namespace) = row
+        .target_key
+        .split_once('|')
+        .unwrap_or((&row.target_key, ""));
+    table.matches(cluster, namespace, &row.name)
 }
 
 fn base_rows(world: &World, app: &PlannedApp) -> BTreeMap<String, ApplicationTargetRow> {
@@ -139,12 +128,17 @@ fn apply_config_groups(
     let Some(config) = world.config.applications.get(&app.identity.key) else {
         return;
     };
-    for (table_key, table) in &config.targets {
+    for (table_key, table) in config.targets.iter().filter(|(_, t)| t.group.is_none()) {
+        let tables: Vec<&TargetFileConfig> = config
+            .targets
+            .iter()
+            .filter(|(key, t)| *key == table_key || t.group.as_deref() == Some(table_key))
+            .map(|(_, t)| t)
+            .collect();
         let matched: Vec<String> = rows
             .values()
             .filter(|row| {
-                let cluster = row.target_key.split('|').next().unwrap_or_default();
-                !row.group_key.starts_with("config:") && config_matches(table, row, cluster)
+                !row.group_key.starts_with("config:") && tables.iter().any(|t| row_matches(t, row))
             })
             .map(|row| row.target_key.clone())
             .collect();
@@ -230,10 +224,14 @@ fn config_directions(
     let Some(config) = world.config.applications.get(&app.identity.key) else {
         return;
     };
-    for (table_key, table) in &config.targets {
+    for (table_key, table) in config.targets.iter().filter(|(_, t)| t.group.is_none()) {
         let to = config_group(table_key);
         for before in &table.after {
-            let from = config_group(before);
+            let owner = config
+                .targets
+                .get(before)
+                .map_or(before.as_str(), |t| t.owner(before));
+            let from = config_group(owner);
             let known = groups.contains(&from) && groups.contains(&to);
             if known && !cycles(directions, &from, &to) {
                 directions.insert((from, to.clone()), SOURCE_CONFIG);
@@ -267,7 +265,7 @@ fn user_directions(
             && groups.contains(to_group)
             && !cycles(directions, from_group, to_group)
         {
-            directions.insert(pair, SOURCE_USER);
+            directions.insert(pair, SOURCE_OVERRIDE);
         }
     }
 }

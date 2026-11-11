@@ -41,9 +41,8 @@ use tokio::sync::{
     RwLock,
 };
 
+use crate::remote::test_host::CONFIG_ENV;
 use crate::MaybeCoreContext;
-
-static CONFIG_ENV: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 struct Ipc {
     webview: WebviewWindow<MockRuntime>,

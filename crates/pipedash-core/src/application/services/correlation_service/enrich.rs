@@ -82,6 +82,21 @@ impl EnrichState {
             .put(key, value);
     }
 
+    pub(super) fn forget_provider(&self, owns: impl Fn(&str) -> bool) {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
+        self.asked
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
+        self.backfills
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|pipeline, _| !owns(pipeline));
+    }
+
     fn due(&self, key: &str) -> bool {
         self.deferred
             .lock()

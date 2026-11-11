@@ -354,6 +354,7 @@ pipeline = "acme/shared-lib/*"
 - A unit that a config application claims gets no automatic application.
 - A target table matches that application's targets by `clusters` and `namespaces` globs. A table that matches several targets forms a group.
 - `after` sets a direction from the named target tables to this one.
+- A table's `clusters` x `namespaces` is a product, so a group of targets that is not one needs several tables. A table with `group = "<table key>"` adds its targets to the group of that table, which owns the group's `name` and `after`; the member table sets no `after`, may omit `name`, and an `after` that names either table means the same group. `group` must name another table of the same application that has no `group` itself. A target with no namespace matches `namespaces = [""]`. Copy as TOML writes a product group as one table and any other group as an owner table plus member tables, with each direction once.
 - `[[correlation.ignore]]` stops matching pipelines from creating applications or suggestions.
 - `[correlation]` turns log evidence and registry read on or off. Both default to `true`.
 - The existing `ConfigWatcher` detects a change within its 5 second poll.

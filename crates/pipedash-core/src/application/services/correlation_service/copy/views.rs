@@ -20,7 +20,7 @@ pub(in crate::application::services::correlation_service) fn why_direction(
     source: &str, from_label: &str, to_label: &str,
 ) -> String {
     match source {
-        "user" => format!("You set {to_label} to follow {from_label}"),
+        "override" => format!("You set {to_label} to follow {from_label}"),
         "config" => format!("config.toml sets {to_label} to follow {from_label}"),
         _ => format!("A declared dependency says {to_label} follows {from_label}"),
     }

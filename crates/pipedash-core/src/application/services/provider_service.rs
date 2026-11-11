@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{
     Arc,
+    Mutex as StdMutex,
     OnceLock,
 };
 
@@ -46,6 +47,7 @@ pub(crate) mod plugin;
 mod preferences;
 pub(crate) mod quota;
 mod reconnect;
+mod reloads;
 mod runtime;
 mod summary;
 #[cfg(test)]
@@ -82,7 +84,9 @@ impl ProviderSlot {
 pub(crate) trait ApplicationsConfig: Send + Sync {
     async fn check(&self, loaded: &PipedashConfig) -> DomainResult<()>;
     async fn commit(&self, loaded: &PipedashConfig) -> DomainResult<()>;
+    async fn announce(&self);
     async fn failed(&self, message: String);
+    async fn provider_removed(&self, provider_id: i64);
 }
 
 pub struct ProviderService {
@@ -102,6 +106,7 @@ pub struct ProviderService {
     dispatcher: RefreshDispatcher,
     provider_factory: ProviderFactory,
     config_apply: Mutex<()>,
+    reloads: StdMutex<reloads::Reloads>,
     applications: OnceLock<Arc<dyn ApplicationsConfig>>,
     log_store: Arc<LogStore>,
 }
@@ -149,6 +154,7 @@ impl ProviderService {
             dispatcher,
             provider_factory,
             config_apply: Mutex::new(()),
+            reloads: StdMutex::new(reloads::Reloads::default()),
             applications: OnceLock::new(),
             log_store,
         }

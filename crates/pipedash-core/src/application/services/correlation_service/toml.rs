@@ -1,8 +1,6 @@
-use std::collections::{
-    BTreeMap,
-    BTreeSet,
-};
+use std::collections::BTreeSet;
 
+use indexmap::IndexMap;
 use toml_edit::{
     value,
     Array,
@@ -13,7 +11,7 @@ use toml_edit::{
 };
 
 use crate::domain::application::Stage;
-use crate::infrastructure::config::schema::applications::glob_matches;
+use crate::infrastructure::config::schema::applications::TargetFileConfig;
 
 #[cfg(test)]
 mod tests;
@@ -43,10 +41,8 @@ pub(super) struct TomlApplication<'a> {
 
 struct TargetTable {
     key: String,
-    name: String,
-    clusters: Vec<String>,
-    namespaces: Vec<String>,
     group_key: String,
+    file: TargetFileConfig,
 }
 
 pub(super) fn slug(name: &str) -> String {
@@ -71,20 +67,8 @@ fn pattern(literal: &str) -> String {
     glob::Pattern::escape(literal)
 }
 
-fn matches(table: &TargetTable, target: &TomlTarget<'_>) -> bool {
-    let cluster = table.clusters.is_empty()
-        || table
-            .clusters
-            .iter()
-            .any(|pattern| glob_matches(pattern, target.cluster));
-    let namespace = table.namespaces.is_empty()
-        || target.namespace.is_some_and(|namespace| {
-            table
-                .namespaces
-                .iter()
-                .any(|pattern| glob_matches(pattern, namespace))
-        });
-    cluster && namespace
+fn matches(file: &TargetFileConfig, target: &TomlTarget<'_>) -> bool {
+    file.matches(target.cluster, target.namespace.unwrap_or(""), target.name)
 }
 
 fn distinct<'a>(values: impl Iterator<Item = &'a str>) -> Vec<String> {
@@ -105,49 +89,59 @@ fn unique_key(taken: &BTreeSet<String>, label: &str) -> String {
     key
 }
 
-fn table_of(key: String, name: &str, group_key: &str, targets: &[&TomlTarget<'_>]) -> TargetTable {
-    TargetTable {
-        key,
+fn file_of(name: &str, group: Option<&str>, targets: &[&TomlTarget<'_>]) -> TargetFileConfig {
+    TargetFileConfig {
         name: name.to_string(),
         clusters: distinct(targets.iter().map(|t| t.cluster)),
-        namespaces: distinct(targets.iter().filter_map(|t| t.namespace)),
-        group_key: group_key.to_string(),
+        namespaces: distinct(targets.iter().map(|t| t.namespace.unwrap_or(""))),
+        after: Vec::new(),
+        group: group.map(str::to_string),
     }
 }
 
 fn target_tables(application: &TomlApplication<'_>) -> Vec<TargetTable> {
-    let standing: Vec<&TomlTarget<'_>> = application
+    let mut standing: Vec<&TomlTarget<'_>> = application
         .targets
         .iter()
         .filter(|target| !target.short_lived)
         .collect();
-    let mut groups: BTreeMap<&str, Vec<&TomlTarget<'_>>> = BTreeMap::new();
-    for target in &standing {
+    standing.sort_by_key(|target| (target.cluster, target.namespace));
+    let mut groups: IndexMap<&str, Vec<&TomlTarget<'_>>> = IndexMap::new();
+    for target in standing {
         groups.entry(target.group_key).or_default().push(target);
     }
     let mut taken = BTreeSet::new();
     let mut tables = Vec::new();
     for (group_key, members) in groups {
         let label = members[0].group_label;
-        let whole = table_of(unique_key(&taken, label), label, group_key, &members);
-        let exact = standing
+        let owner = unique_key(&taken, label);
+        taken.insert(owner.clone());
+        let whole = file_of(label, None, &members);
+        let exact = application
+            .targets
             .iter()
-            .all(|t| matches(&whole, t) == (t.group_key == group_key));
-        let parts = if exact || members.len() == 1 {
-            vec![whole]
-        } else {
-            members
-                .iter()
-                .map(|t| {
-                    let key = unique_key(&taken, &format!("{label} {}", t.name));
-                    taken.insert(key.clone());
-                    table_of(key, t.name, group_key, &[t])
-                })
-                .collect()
-        };
-        for part in parts {
-            taken.insert(part.key.clone());
-            tables.push(part);
+            .all(|t| t.group_key == group_key || !matches(&whole, t));
+        if exact || members.len() == 1 {
+            tables.push(TargetTable {
+                key: owner,
+                group_key: group_key.to_string(),
+                file: whole,
+            });
+            continue;
+        }
+        for (index, target) in members.iter().enumerate() {
+            let (key, file) = if index == 0 {
+                (owner.clone(), file_of(label, None, &[target]))
+            } else {
+                let key = unique_key(&taken, &format!("{label} {}", target.name));
+                taken.insert(key.clone());
+                (key, file_of("", Some(&owner), &[target]))
+            };
+            tables.push(TargetTable {
+                key,
+                group_key: group_key.to_string(),
+                file,
+            });
         }
     }
     tables
@@ -174,20 +168,30 @@ fn targets_table(application: &TomlApplication<'_>) -> Table {
     let mut targets = Table::new();
     targets.set_implicit(true);
     for table in &tables {
+        let file = &table.file;
         let mut out = Table::new();
-        out["name"] = value(table.name.as_str());
-        if !table.clusters.is_empty() {
-            out["clusters"] = strings(&table.clusters);
+        if !file.name.is_empty() {
+            out["name"] = value(file.name.as_str());
         }
-        if !table.namespaces.is_empty() {
-            out["namespaces"] = strings(&table.namespaces);
+        if let Some(group) = &file.group {
+            out["group"] = value(group.as_str());
         }
-        let after: Vec<String> = application
-            .directions
+        if !file.clusters.is_empty() {
+            out["clusters"] = strings(&file.clusters);
+        }
+        if !file.namespaces.is_empty() {
+            out["namespaces"] = strings(&file.namespaces);
+        }
+        let after: Vec<String> = tables
             .iter()
-            .filter(|(_, to)| *to == table.group_key)
-            .flat_map(|(from, _)| tables.iter().filter(move |t| t.group_key == *from))
-            .map(|t| t.key.clone())
+            .filter(|from| from.file.group.is_none() && file.group.is_none())
+            .filter(|from| {
+                application
+                    .directions
+                    .iter()
+                    .any(|(a, b)| *a == from.group_key && *b == table.group_key)
+            })
+            .map(|from| from.key.clone())
             .collect();
         if !after.is_empty() {
             out["after"] = strings(&after);

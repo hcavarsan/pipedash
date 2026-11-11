@@ -83,6 +83,7 @@ impl MemberFileConfig {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TargetFileConfig {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub name: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub clusters: Vec<String>,
@@ -90,4 +91,27 @@ pub struct TargetFileConfig {
     pub namespaces: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub after: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+}
+
+impl TargetFileConfig {
+    pub fn owner<'a>(&'a self, key: &'a str) -> &'a str {
+        self.group.as_deref().unwrap_or(key)
+    }
+
+    pub fn matches(&self, cluster: &str, namespace: &str, name: &str) -> bool {
+        if self.clusters.is_empty() && self.namespaces.is_empty() {
+            return false;
+        }
+        let name_cluster = name.split('/').next().unwrap_or_default();
+        let cluster_ok = self.clusters.is_empty()
+            || self
+                .clusters
+                .iter()
+                .any(|g| glob_matches(g, cluster) || glob_matches(g, name_cluster));
+        let namespace_ok = self.namespaces.is_empty()
+            || self.namespaces.iter().any(|g| glob_matches(g, namespace));
+        cluster_ok && namespace_ok
+    }
 }

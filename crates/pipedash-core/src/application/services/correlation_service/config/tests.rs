@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,6 +17,7 @@ use super::super::CorrelationService;
 use crate::application::services::pipeline_service::observer::FetchObserver;
 use crate::application::test_support::{
     pipeline,
+    Gate,
     Harness,
 };
 use crate::application::ConfigWatcher;
@@ -44,10 +46,16 @@ use crate::infrastructure::database::{
     ApplicationTargetRow,
     TargetDirectionRow,
 };
+use crate::infrastructure::TokenStore;
 
 const PROVIDERS: &str =
     "[providers.ci]\nname = \"CI\"\ntype = \"stub\"\ntoken = \"t\"\nrefresh_interval = 30\n\n";
 const SHOP: &str = "[applications.shop]\nname = \"Shop\"\n\n[[applications.shop.members]]\nprovider = \"ci\"\npipeline = \"shop-*\"\n\n[applications.shop.targets.qa]\nname = \"QA\"\nnamespaces = [\"shop-api\"]\n\n[applications.shop.targets.prod]\nname = \"Prod\"\nnamespaces = [\"shop-prod\"]\nafter = [\"qa\"]\n";
+const CD: &str =
+    "[providers.cd]\nname = \"CD\"\ntype = \"stub\"\ntoken = \"t\"\nrefresh_interval = 30\n\n";
+const RELEASE: &str =
+    "\n[views.release]\nname = \"Release\"\nstatuses = [\"failed\"]\nsort = \"status\"\n";
+const OTHER: &str = "\n[applications.other]\nname = \"Other\"\n\n[[applications.other.members]]\nprovider = \"ci\"\npipeline = \"other-*\"\n";
 
 async fn list_named(h: &Harness, name: &str) -> ApplicationSummary {
     settle(service(h)).await;
@@ -442,13 +450,71 @@ async fn pipeline_matching_two_applications_is_claimed_by_neither() {
     assert_eq!(unit_apps(&snap).len(), 1);
 }
 
+fn rotated(block: &str, interval: u32) -> String {
+    block
+        .replace("= 30", &format!("= {interval}"))
+        .replace("token = \"t\"", "token = \"rotated\"")
+}
+
+#[derive(Debug, PartialEq)]
+struct Reload {
+    rows: serde_json::Value,
+    tokens: Vec<Option<String>>,
+    generations: Vec<String>,
+    remembered: String,
+    tables: Snapshot,
+    providers_changed: usize,
+    views_changed: usize,
+}
+
+async fn reload_state(h: &Harness) -> Reload {
+    let rows = h
+        .repository
+        .config_backend()
+        .list_providers()
+        .await
+        .unwrap();
+    let mut tokens = Vec::new();
+    let mut generations = Vec::new();
+    for id in rows.iter().filter_map(|p| p.id) {
+        tokens.push(h.repository.stored_token(id).await.unwrap());
+        let generation = h.provider_service.generation_of(id).await;
+        generations.push(format!("{id}:{generation:?}"));
+    }
+    let config = h.config_state.get().await;
+    Reload {
+        rows: serde_json::to_value(&rows).unwrap(),
+        tokens,
+        generations,
+        remembered: format!(
+            "{:?}",
+            (
+                &config.providers,
+                &config.views,
+                &config.applications,
+                &config.correlation
+            )
+        ),
+        tables: snapshot(h).await,
+        providers_changed: h.bus.count("providers-changed"),
+        views_changed: h.bus.count("pipeline-views-changed"),
+    }
+}
+
+async fn rejected_banner_event(h: &Harness, announced: usize) {
+    settle(service(h)).await;
+    assert!(banner(h).await.is_some());
+    assert_eq!(h.bus.count("applications-changed"), announced + 1);
+}
+
 #[tokio::test]
 async fn failure_in_the_middle_of_a_commit_rolls_back_to_the_previous_config() {
     let (h, ci) = setup().await;
     feed(&h, ci, &["shop-api"]).await;
     write(&h, SHOP);
     apply(&h).await.unwrap();
-    let before = snapshot(&h).await;
+    let before = reload_state(&h).await;
+    let announced = h.bus.count("applications-changed");
     sqlx::query(
         "CREATE TRIGGER fail_other BEFORE INSERT ON applications WHEN NEW.identity_key = 'other' \
          BEGIN SELECT RAISE(ABORT, 'write failed'); END",
@@ -457,18 +523,351 @@ async fn failure_in_the_middle_of_a_commit_rolls_back_to_the_previous_config() {
     .await
     .unwrap();
 
-    write(
-        &h,
-        &format!(
-            "{SHOP}\n[applications.other]\nname = \"Other\"\n\n[[applications.other.members]]\nprovider = \"ci\"\npipeline = \"other-*\"\n"
-        ),
-    );
+    std::fs::write(
+        h.config_state.config_path(),
+        format!("{}{CD}{SHOP}{RELEASE}{OTHER}", rotated(PROVIDERS, 60)),
+    )
+    .unwrap();
     let result = apply(&h).await;
 
     assert!(result.is_err());
-    assert_eq!(snapshot(&h).await, before);
+    assert_eq!(reload_state(&h).await, before);
     assert_eq!(h.config_state.get().await.applications.len(), 1);
+    rejected_banner_event(&h, announced).await;
+
+    write(&h, SHOP);
+    let again = apply(&h).await.unwrap();
+    settle(service(&h)).await;
+
+    assert!(again.added.is_empty() && again.updated.is_empty());
+    assert_eq!(reload_state(&h).await, before);
+    assert!(banner(&h).await.is_none());
+    assert_eq!(h.bus.count("applications-changed"), announced + 2);
+}
+
+#[tokio::test]
+async fn provider_failure_after_applications_commit_restores_everything() {
+    let (h, ci) = setup().await;
+    feed(&h, ci, &["shop-api"]).await;
+    std::fs::write(
+        h.config_state.config_path(),
+        format!("{PROVIDERS}{CD}{SHOP}"),
+    )
+    .unwrap();
+    apply(&h).await.unwrap();
+    let before = reload_state(&h).await;
+    let announced = h.bus.count("applications-changed");
+    let loaded: Vec<i64> = before
+        .rows
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["id"].as_i64().unwrap())
+        .collect();
+    let renamed = SHOP.replace("name = \"Shop\"", "name = \"Shop 2\"");
+    std::fs::write(
+        h.config_state.config_path(),
+        format!(
+            "{}{}{renamed}{RELEASE}",
+            rotated(PROVIDERS, 60),
+            rotated(CD, 90)
+        ),
+    )
+    .unwrap();
+    h.stubs
+        .fail_build_after(3, DomainError::InternalError("build failed".into()));
+
+    let result = apply(&h).await;
+
+    assert!(result.is_err());
+    assert_eq!(reload_state(&h).await, before);
+    assert_eq!(config_apps(&snapshot(&h).await)[0].name, "Shop");
+    rejected_banner_event(&h, announced).await;
+
+    let retried = apply(&h).await.unwrap();
+    settle(service(&h)).await;
+
+    let mut updated = retried.updated.clone();
+    updated.sort();
+    assert_eq!(updated, ["cd", "ci"]);
+    assert!(retried.added.is_empty());
+    assert_eq!(config_apps(&snapshot(&h).await)[0].name, "Shop 2");
+    assert_eq!(
+        h.bus.count("providers-changed"),
+        before.providers_changed + 1
+    );
+    assert_eq!(
+        h.bus.count("pipeline-views-changed"),
+        before.views_changed + 1
+    );
+    assert!(banner(&h).await.is_none());
+    for id in loaded {
+        let generation = format!("{id}:{:?}", h.provider_service.generation_of(id).await);
+        assert!(!before.generations.contains(&generation));
+    }
+}
+
+const CE: &str =
+    "[providers.ce]\nname = \"CE\"\ntype = \"stub\"\ntoken = \"t\"\nrefresh_interval = 30\n\n";
+
+async fn reload_baseline() -> (Harness, Reload) {
+    let (h, ci) = setup().await;
+    feed(&h, ci, &["shop-api"]).await;
+    std::fs::write(
+        h.config_state.config_path(),
+        format!("{PROVIDERS}{CD}{SHOP}"),
+    )
+    .unwrap();
+    apply(&h).await.unwrap();
+    let before = reload_state(&h).await;
+
+    (h, before)
+}
+
+fn write_next(h: &Harness) {
+    let renamed = SHOP.replace("name = \"Shop\"", "name = \"Shop 2\"");
+    std::fs::write(
+        h.config_state.config_path(),
+        format!(
+            "{}{}{CE}{renamed}{RELEASE}",
+            rotated(PROVIDERS, 60),
+            rotated(CD, 90)
+        ),
+    )
+    .unwrap();
+}
+
+fn reload_in_background(h: &Harness) -> tokio::task::JoinHandle<DomainResult<SyncResult>> {
+    let service = Arc::clone(&h.provider_service);
+    let config_state = Arc::clone(&h.config_state);
+    tokio::spawn(async move { service.apply_config_file(&config_state).await })
+}
+
+async fn provider_named(h: &Harness, name: &str) -> Option<i64> {
+    let rows = h
+        .repository
+        .config_backend()
+        .list_providers()
+        .await
+        .unwrap();
+
+    rows.iter().find(|p| p.name == name).and_then(|p| p.id)
+}
+
+async fn raw_interval(h: &Harness, name: &str) -> Option<i64> {
+    sqlx::query_scalar("SELECT refresh_interval FROM providers WHERE name = ?")
+        .bind(name)
+        .fetch_optional(&h.pool)
+        .await
+        .unwrap()
+}
+
+async fn wait_for_applications_event(h: &Harness, announced: usize) {
+    h.bus
+        .wait_for("the reload to finish", |events| {
+            events
+                .iter()
+                .filter(|e| e.event_name() == "applications-changed")
+                .count()
+                > announced
+        })
+        .await;
+}
+
+#[tokio::test]
+async fn readers_see_only_the_last_valid_config_until_the_reload_activates() {
+    let (h, before) = reload_baseline().await;
+    let ci = provider_named(&h, "ci").await.unwrap();
+    let gate = Gate::new();
+    h.commit_hook.pause(Arc::clone(&gate));
+    write_next(&h);
+    let reload = reload_in_background(&h);
+    gate.arrived().await;
+
+    assert_eq!(raw_interval(&h, "ci").await, Some(60));
+    assert_eq!(raw_interval(&h, "ce").await, Some(30));
+    assert_eq!(h.token_store.get_token(ci).await.unwrap(), "rotated");
+    assert_eq!(reload_state(&h).await, before);
+    assert_eq!(provider_named(&h, "ce").await, None);
+    let config = h.repository.get_provider(ci).await.unwrap();
+    assert_eq!((config.refresh_interval, config.token.as_str()), (30, "t"));
+    let summaries = h.provider_service.list_providers().await.unwrap();
+    assert_eq!(summaries.len(), 2);
+    assert!(summaries.iter().all(|s| s.refresh_interval == 30));
+    let exported = h.provider_service.export_providers_toml().await.unwrap();
+    assert!(!exported.contains("providers.ce"));
+    assert_eq!(h.config_state.get().await.views.len(), 0);
+    assert_eq!(config_apps(&snapshot(&h).await)[0].name, "Shop");
+
+    gate.open();
+    let applied = reload.await.unwrap().unwrap();
+    settle(service(&h)).await;
+
+    assert_eq!(applied.added, ["ce"]);
+    let config = h.repository.get_provider(ci).await.unwrap();
+    assert_eq!(
+        (config.refresh_interval, config.token.as_str()),
+        (60, "rotated")
+    );
+    assert!(provider_named(&h, "ce").await.is_some());
+    assert_eq!(h.provider_service.list_providers().await.unwrap().len(), 3);
+    assert_eq!(h.config_state.get().await.views.len(), 1);
+    assert_eq!(config_apps(&snapshot(&h).await)[0].name, "Shop 2");
+}
+
+#[tokio::test]
+async fn a_cancelled_reload_still_undoes_everything_when_the_commit_fails() {
+    let (h, before) = reload_baseline().await;
+    let announced = h.bus.count("applications-changed");
+    let gate = Gate::new();
+    h.commit_hook.pause(Arc::clone(&gate));
+    h.commit_hook
+        .fail_after_pause(DomainError::InternalError("commit failed".into()));
+    write_next(&h);
+    let reload = reload_in_background(&h);
+    gate.arrived().await;
+    assert_eq!(raw_interval(&h, "ci").await, Some(60));
+
+    reload.abort();
+    assert!(reload.await.unwrap_err().is_cancelled());
+    gate.open();
+    wait_for_applications_event(&h, announced).await;
+    settle(service(&h)).await;
+
+    assert_eq!(raw_interval(&h, "ci").await, Some(30));
+    assert_eq!(raw_interval(&h, "ce").await, None);
+    assert_eq!(reload_state(&h).await, before);
     assert!(banner(&h).await.is_some());
+}
+
+#[tokio::test]
+async fn a_cancelled_reload_that_commits_activates_once_with_one_event_of_each_kind() {
+    let (h, before) = reload_baseline().await;
+    let announced = h.bus.count("applications-changed");
+    let gate = Gate::new();
+    h.commit_hook.pause(Arc::clone(&gate));
+    write_next(&h);
+    let reload = reload_in_background(&h);
+    gate.arrived().await;
+
+    reload.abort();
+    assert!(reload.await.unwrap_err().is_cancelled());
+    gate.open();
+    wait_for_applications_event(&h, announced).await;
+    settle(service(&h)).await;
+
+    assert_eq!(raw_interval(&h, "ci").await, Some(60));
+    let after = reload_state(&h).await;
+    assert_eq!(after.providers_changed, before.providers_changed + 1);
+    assert_eq!(after.views_changed, before.views_changed + 1);
+    assert_eq!(h.bus.count("applications-changed"), announced + 1);
+    assert_eq!(config_apps(&after.tables)[0].name, "Shop 2");
+    assert!(banner(&h).await.is_none());
+
+    let again = apply(&h).await.unwrap();
+    settle(service(&h)).await;
+
+    assert!(again.added.is_empty() && again.updated.is_empty());
+    assert_eq!(reload_state(&h).await, after);
+    assert_eq!(h.bus.count("applications-changed"), announced + 1);
+}
+
+async fn still_pending(drain: &mut (impl Future<Output = ()> + Unpin)) {
+    tokio::select! {
+        biased;
+        () = drain => panic!("the drain returned while the commit was paused"),
+        () = std::future::ready(()) => {}
+    }
+}
+
+async fn begin_shutdown_while_paused(h: &Harness, gate: &Arc<Gate>) {
+    let mut drain = std::pin::pin!(h.provider_service.drain_reloads());
+    still_pending(&mut drain).await;
+    let refused = apply(h).await;
+    assert!(matches!(
+        refused,
+        Err(DomainError::ServiceUnavailable { .. })
+    ));
+    gate.open();
+    drain.await;
+}
+
+#[tokio::test]
+async fn shutdown_waits_past_the_warning_bound_for_a_paused_reload() {
+    let (h, before) = reload_baseline().await;
+    let announced = h.bus.count("applications-changed");
+    let gate = Gate::new();
+    h.commit_hook.pause(Arc::clone(&gate));
+    write_next(&h);
+    let reload = reload_in_background(&h);
+    gate.arrived().await;
+    let mut drain = std::pin::pin!(h.provider_service.drain_reloads());
+    still_pending(&mut drain).await;
+
+    tokio::time::pause();
+    for _ in 0..5 {
+        tokio::time::advance(Duration::from_secs(121)).await;
+        still_pending(&mut drain).await;
+    }
+    tokio::time::resume();
+
+    assert!(!reload.is_finished());
+    assert_eq!(raw_interval(&h, "ci").await, Some(60));
+    assert_eq!(reload_state(&h).await, before);
+    gate.open();
+    drain.await;
+
+    assert!(reload.await.unwrap().is_ok());
+    assert_eq!(raw_interval(&h, "ci").await, Some(60));
+    let after = reload_state(&h).await;
+    assert_eq!(after.providers_changed, before.providers_changed + 1);
+    assert_eq!(h.bus.count("applications-changed"), announced + 1);
+    assert_eq!(config_apps(&after.tables)[0].name, "Shop 2");
+}
+
+#[tokio::test]
+async fn shutdown_during_a_paused_commit_drains_to_activation() {
+    let (h, before) = reload_baseline().await;
+    let announced = h.bus.count("applications-changed");
+    let gate = Gate::new();
+    h.commit_hook.pause(Arc::clone(&gate));
+    write_next(&h);
+    let reload = reload_in_background(&h);
+    gate.arrived().await;
+
+    begin_shutdown_while_paused(&h, &gate).await;
+
+    assert_eq!(raw_interval(&h, "ci").await, Some(60));
+    let after = reload_state(&h).await;
+    assert_eq!(after.providers_changed, before.providers_changed + 1);
+    assert_eq!(after.views_changed, before.views_changed + 1);
+    assert_eq!(h.bus.count("applications-changed"), announced + 1);
+    assert_eq!(config_apps(&after.tables)[0].name, "Shop 2");
+    assert!(reload.await.unwrap().is_ok());
+    assert!(banner(&h).await.is_none());
+}
+
+#[tokio::test]
+async fn shutdown_during_a_paused_commit_that_fails_drains_to_restore() {
+    let (h, before) = reload_baseline().await;
+    let announced = h.bus.count("applications-changed");
+    let gate = Gate::new();
+    h.commit_hook.pause(Arc::clone(&gate));
+    h.commit_hook
+        .fail_after_pause(DomainError::InternalError("commit failed".into()));
+    write_next(&h);
+    let reload = reload_in_background(&h);
+    gate.arrived().await;
+    assert_eq!(raw_interval(&h, "ci").await, Some(60));
+
+    begin_shutdown_while_paused(&h, &gate).await;
+
+    assert_eq!(raw_interval(&h, "ci").await, Some(30));
+    assert_eq!(raw_interval(&h, "ce").await, None);
+    assert_eq!(reload_state(&h).await, before);
+    assert!(reload.await.unwrap().is_err());
+    assert!(banner(&h).await.is_some());
+    assert_eq!(h.bus.count("applications-changed"), announced + 1);
 }
 
 #[tokio::test]

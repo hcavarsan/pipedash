@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 use std::slice;
 
 use super::flow::build_flow;

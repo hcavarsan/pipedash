@@ -1,4 +1,7 @@
 use std::collections::HashSet;
+use std::sync::Arc;
+
+mod staged;
 
 use super::ProviderService;
 use crate::application::services::health_service::HealthInput;
@@ -20,7 +23,7 @@ use crate::infrastructure::config::{
     PipedashConfig,
     ProviderFileConfig,
 };
-use crate::infrastructure::TokenStore;
+use crate::infrastructure::reload_shadow::ReloadShadow;
 
 impl ProviderService {
     pub async fn export_providers_toml(&self) -> DomainResult<String> {
@@ -100,7 +103,9 @@ impl ProviderService {
         Ok(result)
     }
 
-    pub async fn apply_config_file(&self, config_state: &ConfigState) -> DomainResult<SyncResult> {
+    pub async fn apply_config_file(
+        self: &Arc<Self>, config_state: &Arc<ConfigState>,
+    ) -> DomainResult<SyncResult> {
         let loaded = match config_state.load_file().await {
             Ok(loaded) => loaded,
             Err(e) => {
@@ -113,13 +118,21 @@ impl ProviderService {
     }
 
     pub(crate) async fn apply_loaded_config(
-        &self, config_state: &ConfigState, loaded: PipedashConfig,
+        self: &Arc<Self>, config_state: &Arc<ConfigState>, loaded: PipedashConfig,
     ) -> DomainResult<SyncResult> {
-        let result = self.apply_loaded_inner(config_state, loaded).await;
-        if let Err(e) = &result {
-            self.config_failed(e.to_string()).await;
-        }
-        result
+        let service = Arc::clone(self);
+        let config_state = Arc::clone(config_state);
+        let done = self.own_reload(ReloadShadow::reveal(async move {
+            let result = service.apply_loaded_inner(&config_state, loaded).await;
+            if let Err(e) = &result {
+                service.config_failed(e.to_string()).await;
+            }
+            result
+        }))?;
+
+        done.await.map_err(|_| {
+            DomainError::InternalError("The config reload ended without a result".into())
+        })?
     }
 
     async fn apply_loaded_inner(
@@ -134,8 +147,8 @@ impl ProviderService {
                 applications.check(&loaded).await?;
             }
         }
-        let file = &loaded.providers;
-        let changed: Vec<(String, ProviderFileConfig)> = file
+        let changed: Vec<(String, ProviderFileConfig)> = loaded
+            .providers
             .iter()
             .filter(|(key, provider)| current.providers.get(*key) != Some(*provider))
             .map(|(key, provider)| (key.clone(), provider.clone()))
@@ -154,50 +167,47 @@ impl ProviderService {
             ))?;
         }
 
-        let mut result = SyncResult::default();
-        if !changed.is_empty() {
-            let existing = self.repository.config_backend().list_providers().await?;
-            let token_store = config_state.token_store();
-            let mut failure = None;
-            for (key, provider) in &changed {
-                let id = existing.iter().find(|p| p.name == *key).and_then(|p| p.id);
-                if let Err(e) = self
-                    .apply_config_provider(key, provider, id, token_store.as_ref())
-                    .await
-                {
-                    failure = Some(e);
-                    break;
-                }
-                config_state.remember_provider(key, provider).await;
-                match id {
-                    Some(_) => result.updated.push(key.clone()),
-                    None => result.added.push(key.clone()),
-                }
-            }
-
-            if !result.added.is_empty() || !result.updated.is_empty() {
-                tracing::info!(
-                    added = result.added.len(),
-                    updated = result.updated.len(),
-                    "Applied provider changes from config file"
-                );
-                self.event_bus.emit(CoreEvent::ProvidersChanged).await;
-            }
-            if let Some(e) = failure {
-                return Err(e);
+        let token_store = config_state.token_store();
+        let (staged, shadow) = self.stage_providers(&changed, token_store.as_ref()).await?;
+        if let Some(applications) = self.applications.get() {
+            if let Err(error) = applications.commit(&loaded).await {
+                return Err(self.unstage(staged, error).await);
             }
         }
-        if current.views != loaded.views {
-            config_state.remember_views(loaded.views.clone()).await;
+
+        let mut result = SyncResult::default();
+        for one in &staged {
+            if one.created {
+                result.added.push(one.key.clone());
+            } else {
+                result.updated.push(one.key.clone());
+            }
+        }
+        let leases = self.activate(staged).await;
+        drop(shadow);
+        let views_changed = current.views != loaded.views;
+        if views_changed {
+            config_state.remember_views(loaded.views).await;
+        }
+        config_state.remember_providers(loaded.providers).await;
+
+        if !leases.is_empty() {
+            tracing::info!(
+                added = result.added.len(),
+                updated = result.updated.len(),
+                "Applied provider changes from config file"
+            );
+            self.event_bus.emit(CoreEvent::ProvidersChanged).await;
+        }
+        if views_changed {
             self.event_bus.emit(CoreEvent::PipelineViewsChanged).await;
         }
         if let Some(applications) = self.applications.get() {
-            applications.commit(&loaded).await?;
-            config_state
-                .remember_applications(loaded.correlation.clone(), loaded.applications.clone())
-                .await;
+            applications.announce().await;
         }
-        config_state.remember_providers(loaded.providers).await;
+        for lease in &leases {
+            self.queue_fetch(lease);
+        }
 
         Ok(result)
     }
@@ -243,49 +253,5 @@ impl ProviderService {
         if !changed.is_empty() {
             self.health.send(HealthInput::ProvidersChanged { changed });
         }
-    }
-
-    async fn apply_config_provider(
-        &self, key: &str, provider: &ProviderFileConfig, existing: Option<i64>,
-        token_store: &dyn TokenStore,
-    ) -> DomainResult<()> {
-        let sync = ProviderSyncService::new();
-        let backend = self.repository.config_backend().as_ref();
-        let id = match existing {
-            Some(id) => id,
-            None => sync.create_from_toml(key, provider, backend).await?,
-        };
-
-        let lock = self.commit_lock(id);
-        let guard = lock.lock().await;
-        if existing.is_some() {
-            let row = backend
-                .get_provider(id)
-                .await?
-                .ok_or_else(|| DomainError::ProviderNotFound(id.to_string()))?;
-            sync.update_from_toml(key, provider, &row, backend).await?;
-        }
-        ProviderSyncService::store_resolved_token(
-            id,
-            &provider.token,
-            existing.is_none(),
-            token_store,
-            &self.plugin_registry,
-        )
-        .await?;
-
-        let config = self.repository.get_provider(id).await?;
-        let instance = (self.provider_factory)(&config)?;
-        self.reset_fetch_status(id).await;
-        let lease = self.replace(id, instance, config.refresh_interval).await;
-        self.purge_run_logs(id).await;
-        self.health.send(HealthInput::ProvidersChanged {
-            changed: vec![self.health_input(&config, &lease)],
-        });
-        drop(guard);
-
-        self.queue_fetch(&lease);
-
-        Ok(())
     }
 }

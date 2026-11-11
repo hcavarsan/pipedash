@@ -149,7 +149,9 @@ impl CoreContext {
         let providers = self.provider_service.list_providers().await?;
         let providers_removed = providers.len();
         for provider in providers {
-            self.provider_service.remove_provider(provider.id).await?;
+            self.provider_service
+                .remove_provider_keeping_applications(provider.id)
+                .await?;
         }
 
         for key in self.config_state.load_providers().await?.keys() {
@@ -233,6 +235,7 @@ impl CoreContext {
     }
 
     pub async fn shutdown(&self) {
+        self.provider_service.drain_reloads().await;
         self.alert_stop.cancel();
         self.pipeline_service.shutdown();
         self.correlation_service.shutdown();

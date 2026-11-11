@@ -48,7 +48,10 @@ use super::services::correlation_service::{
     CorrelationService,
 };
 use super::services::presenter::Presenter;
-use super::services::provider_service::ProviderDeps;
+use super::services::provider_service::{
+    ApplicationsConfig,
+    ProviderDeps,
+};
 use super::{
     FetchResult,
     FetchScheduler,
@@ -777,7 +780,7 @@ pub(crate) struct StubFactory {
     queued: Mutex<HashMap<i64, Vec<Arc<StubProvider>>>>,
     built: Mutex<HashMap<i64, usize>>,
     tokens: Mutex<HashMap<i64, String>>,
-    failure: Mutex<Option<DomainError>>,
+    failure: Mutex<Option<(usize, DomainError)>>,
 }
 
 impl StubFactory {
@@ -793,11 +796,26 @@ impl StubFactory {
     }
 
     pub(crate) fn fail_next_build(&self, error: DomainError) {
-        *self.failure.lock().unwrap() = Some(error);
+        self.fail_build_after(0, error);
+    }
+
+    pub(crate) fn fail_build_after(&self, builds: usize, error: DomainError) {
+        *self.failure.lock().unwrap() = Some((builds, error));
     }
 
     pub(crate) fn provide(&self, config: &ProviderConfig) -> DomainResult<Arc<dyn Provider>> {
-        if let Some(error) = self.failure.lock().unwrap().take() {
+        let failing = {
+            let mut failure = self.failure.lock().unwrap();
+            match failure.take() {
+                Some((0, error)) => Some(error),
+                Some((builds, error)) => {
+                    *failure = Some((builds - 1, error));
+                    None
+                }
+                None => None,
+            }
+        };
+        if let Some(error) = failing {
             return Err(error);
         }
         let id = config.id.unwrap_or(0);
@@ -912,6 +930,59 @@ impl EventBus for RecordingBus {
     }
 }
 
+#[derive(Default)]
+pub(crate) struct CommitHook {
+    gate: Mutex<Option<Arc<Gate>>>,
+    failure: Mutex<Option<DomainError>>,
+}
+
+impl CommitHook {
+    pub(crate) fn pause(&self, gate: Arc<Gate>) {
+        *self.gate.lock().unwrap() = Some(gate);
+    }
+
+    pub(crate) fn fail_after_pause(&self, error: DomainError) {
+        *self.failure.lock().unwrap() = Some(error);
+    }
+}
+
+struct HookedApplications {
+    inner: Arc<CorrelationService>,
+    hook: Arc<CommitHook>,
+}
+
+#[async_trait]
+impl ApplicationsConfig for HookedApplications {
+    async fn check(&self, loaded: &PipedashConfig) -> DomainResult<()> {
+        self.inner.check(loaded).await
+    }
+
+    async fn commit(&self, loaded: &PipedashConfig) -> DomainResult<()> {
+        let gate = self.hook.gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            gate.pass().await;
+        }
+        let failure = self.hook.failure.lock().unwrap().take();
+        if let Some(error) = failure {
+            return Err(error);
+        }
+
+        self.inner.commit(loaded).await
+    }
+
+    async fn announce(&self) {
+        self.inner.announce().await;
+    }
+
+    async fn failed(&self, message: String) {
+        self.inner.failed(message).await;
+    }
+
+    async fn provider_removed(&self, provider_id: i64) {
+        self.inner.provider_removed(provider_id).await;
+    }
+}
+
 pub(crate) struct Harness {
     pub(crate) _temp_dir: TempDir,
     pub(crate) token_store: Arc<FailOnceTokenStore>,
@@ -931,6 +1002,7 @@ pub(crate) struct Harness {
     pub(crate) log_store: Arc<LogStore>,
     pub(crate) log_service: Arc<super::LogService>,
     pub(crate) correlation_service: Arc<CorrelationService>,
+    pub(crate) commit_hook: Arc<CommitHook>,
     pub(crate) stubs: Arc<StubFactory>,
     clock: AtomicU64,
     names: AtomicU64,
@@ -1060,7 +1132,11 @@ impl Harness {
             http: correlation_http,
             event_interval: None,
         });
-        provider_service.set_applications(correlation_service.clone());
+        let commit_hook = Arc::new(CommitHook::default());
+        provider_service.set_applications(Arc::new(HookedApplications {
+            inner: correlation_service.clone(),
+            hook: Arc::clone(&commit_hook),
+        }));
 
         Self {
             _temp_dir: temp_dir,
@@ -1081,6 +1157,7 @@ impl Harness {
             log_store,
             log_service,
             correlation_service,
+            commit_hook,
             stubs,
             clock: AtomicU64::new(0),
             names: AtomicU64::new(0),

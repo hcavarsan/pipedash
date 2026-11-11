@@ -6,7 +6,10 @@ use std::collections::{
     HashMap,
     HashSet,
 };
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    PoisonError,
+};
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -103,7 +106,6 @@ impl ApplicationsConfig for CorrelationService {
         {
             if self.config_error.write().await.take().is_some() {
                 self.changed();
-                self.flush_events().await;
             }
             return Ok(());
         }
@@ -111,11 +113,28 @@ impl ApplicationsConfig for CorrelationService {
         let result = self.commit_in(&mut tx, loaded).await;
         let resolved = finish(tx, result).await?;
 
+        self.config_state
+            .remember_applications(loaded.correlation.clone(), loaded.applications.clone())
+            .await;
         *self.config_error.write().await = None;
-        self.settle(resolved);
+        *self
+            .committed
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(resolved);
         self.changed();
-        self.flush_events().await;
         Ok(())
+    }
+
+    async fn announce(&self) {
+        let resolved = self
+            .committed
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(resolved) = resolved {
+            self.settle(resolved);
+        }
+        self.flush_events().await;
     }
 
     async fn failed(&self, message: String) {
@@ -125,6 +144,12 @@ impl ApplicationsConfig for CorrelationService {
         });
         self.changed();
         self.flush_events().await;
+    }
+
+    async fn provider_removed(&self, provider_id: i64) {
+        if let Err(error) = self.provider_removed_impl(provider_id).await {
+            tracing::warn!(%error, provider_id, "Correlation could not drop a removed provider");
+        }
     }
 }
 

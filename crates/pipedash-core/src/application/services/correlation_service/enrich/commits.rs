@@ -48,6 +48,11 @@ impl Lru {
         }
     }
 
+    pub(super) fn clear(&mut self) {
+        self.entries.clear();
+        self.order.clear();
+    }
+
     pub(super) fn get(&mut self, key: &str) -> Option<Cached> {
         let (tick, value) = self.entries.get_mut(key)?;
         self.order.remove(tick);
@@ -185,9 +190,10 @@ impl CorrelationService {
             return self.provider_service.commit(lease, write).await;
         };
         if other.id == lease.id {
-            return (other.generation == lease.generation)
-                .then_some(())
-                .and(self.provider_service.commit(lease, write).await);
+            if other.generation != lease.generation {
+                return None;
+            }
+            return self.provider_service.commit(lease, write).await;
         }
         let (first, second) = if lease.id < other.id {
             (lease, other)

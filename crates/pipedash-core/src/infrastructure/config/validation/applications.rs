@@ -117,9 +117,7 @@ fn validate_targets(
 ) {
     for (key, target) in targets {
         let field = format!("{prefix}.targets.{key}");
-        if target.name.trim().is_empty() {
-            result.add_error(missing(format!("{field}.name"), "Target name is required"));
-        }
+        check_group(&field, key, target, targets, result);
         for pattern in &target.clusters {
             check_glob(format!("{field}.clusters"), pattern, result);
         }
@@ -143,6 +141,38 @@ fn validate_targets(
     }
 }
 
+fn check_group(
+    field: &str, key: &str, target: &TargetFileConfig,
+    targets: &IndexMap<String, TargetFileConfig>, result: &mut ValidationResult,
+) {
+    let Some(group) = target.group.as_deref() else {
+        if target.name.trim().is_empty() {
+            result.add_error(missing(format!("{field}.name"), "Target name is required"));
+        }
+        return;
+    };
+    let problem = if group == key {
+        Some(format!("Target \"{key}\" cannot be in its own group"))
+    } else {
+        match targets.get(group) {
+            None => Some(format!("Unknown group table \"{group}\"")),
+            Some(owner) if owner.group.is_some() => Some(format!(
+                "Group table \"{group}\" is itself in a group; groups do not chain"
+            )),
+            Some(_) => None,
+        }
+    };
+    if let Some(message) = problem {
+        result.add_error(invalid(format!("{field}.group"), message));
+    }
+    if !target.after.is_empty() {
+        result.add_error(invalid(
+            format!("{field}.after"),
+            format!("A table in a group cannot set `after`; set it on \"{group}\""),
+        ));
+    }
+}
+
 fn cyclic_target(targets: &IndexMap<String, TargetFileConfig>) -> Option<&str> {
     let mut done: HashSet<&str> = HashSet::new();
     targets.keys().find_map(|key| {
@@ -155,6 +185,7 @@ fn visit<'a>(
     key: &'a str, targets: &'a IndexMap<String, TargetFileConfig>, path: &mut Vec<&'a str>,
     done: &mut HashSet<&'a str>,
 ) -> Option<&'a str> {
+    let key = targets.get(key).map_or(key, |target| target.owner(key));
     if path.contains(&key) {
         return Some(key);
     }
