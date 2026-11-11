@@ -54,7 +54,7 @@
   </tr>
   <tr>
     <td align="center" width="120"><img src="./.github/icons/act.svg" width="32" height="32" alt="" /><br><b>Act</b></td>
-    <td width="420">Start a workflow with inputs or stop a run.</td>
+    <td width="420">Start a workflow with inputs or cancel active runs in batches.</td>
     <td width="264"><a href="https://pipedash.app/docs/features/trigger-and-cancel">Trigger and cancel</a></td>
   </tr>
   <tr>
@@ -154,6 +154,7 @@ It runs as a desktop app, as a self-hosted web server in Docker or as an iOS and
 </table>
 
 </details>
+
 
 ## Contributing
 

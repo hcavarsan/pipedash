@@ -5,8 +5,7 @@ import { usePipelines } from '../../../queries/usePipelinesQueries'
 import { useRefreshProvider } from '../../../queries/useRefreshQueries'
 import type { Pipeline } from '../../../types/pipelines'
 import type { ProviderSummary } from '../../../types/providers'
-import type { CancelGroup } from '../../../types/run_action_batch'
-import { runTargetsOf } from '../../../utils/cancelActiveRuns'
+import type { CancellationTargets } from '../../../types/run_action_batch'
 import { CancelActiveRunsModal, type CancelScope } from '../../runs/components/CancelActiveRunsModal'
 import { useCancelRuns } from '../../runs/queries/useCancelRuns'
 
@@ -18,13 +17,16 @@ interface CancelActiveRunsResult {
 }
 
 export function useCancelActiveRuns(): CancelActiveRunsResult {
-  const { mutateAsync: cancelRuns } = useCancelRuns()
+  const { mutateAsync: cancelRuns, reset: resetCancellation } = useCancelRuns()
   const { mutate: refreshProvider } = useRefreshProvider()
   const [scope, setScope] = useState<CancelScope | null>(null)
   const [opened, setOpened] = useState(false)
+  const [submitted, setSubmitted] = useState<CancellationTargets | null>(null)
 
-  const cancelGroups = async (groups: CancelGroup[]) => {
-    await cancelRuns(runTargetsOf(groups))
+  const cancelGroups = async (targets: CancellationTargets) => {
+    setSubmitted(targets)
+    const { groups, batches } = targets
+    await cancelRuns(batches)
 
     for (const providerId of new Set(groups.map(({ pipeline }) => pipeline.provider_id))) {
       refreshProvider(providerId)
@@ -38,6 +40,8 @@ export function useCancelActiveRuns(): CancelActiveRunsResult {
           icon: <IconSquare size={16} aria-hidden />,
           color: 'red',
           onClick: () => {
+            resetCancellation()
+            setSubmitted(null)
             setScope({ label, pipelines })
             setOpened(true)
           },
@@ -45,7 +49,13 @@ export function useCancelActiveRuns(): CancelActiveRunsResult {
       : null
 
   const dialog = (
-    <CancelActiveRunsModal opened={opened} scope={scope} onClose={() => setOpened(false)} onConfirm={cancelGroups} />
+    <CancelActiveRunsModal
+      opened={opened}
+      scope={scope}
+      submitted={submitted}
+      onClose={() => setOpened(false)}
+      onConfirm={cancelGroups}
+    />
   )
 
   return { cancelItem, dialog }

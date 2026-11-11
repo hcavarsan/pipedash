@@ -1,11 +1,8 @@
 import type { NotificationData } from '@mantine/notifications'
 
-import type { CancelGroup, CancellationBatch, RunTarget } from '../types/run_action_batch'
+import type { CancellationBatch } from '../types/run_action_batch'
 
 import { formatCount } from './formatCount'
-
-export const runTargetsOf = (groups: CancelGroup[]): RunTarget[] =>
-  groups.flatMap(({ pipeline, runs }) => runs.map((run) => ({ pipeline_id: pipeline.id, run_number: run.run_number })))
 
 export const summarizeCancellation = ({
   results,
