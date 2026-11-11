@@ -58,7 +58,7 @@ impl CorrelationService {
             rates::deploy_failures(&ctx),
             failures::change_failure_rate(&ctx),
             failures::recovery_time(&ctx),
-            self.drift_metric(&ctx).await,
+            self.drift_metric(&ctx, query.application_id).await,
         ];
         Ok(ApplicationMetrics {
             metrics,

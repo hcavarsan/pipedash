@@ -288,7 +288,7 @@ impl CorrelationService {
     pub(super) async fn behind_of(
         &self, facts: &Facts, lives: &[BTreeMap<String, Vec<Live>>],
     ) -> Behind {
-        let wanted: Vec<(i64, String)> = facts
+        let wanted: Vec<(i64, &str, &[Live])> = facts
             .states
             .iter()
             .zip(lives)
@@ -296,13 +296,16 @@ impl CorrelationService {
                 state
                     .groups
                     .iter()
-                    .filter(|g| !g.short_lived && live.contains_key(&g.key))
-                    .map(|g| (state.row.id, g.key.clone()))
+                    .filter(|g| !g.short_lived)
+                    .filter_map(|g| {
+                        let group_live = live.get(&g.key)?;
+                        Some((state.row.id, g.key.as_str(), group_live.as_slice()))
+                    })
             })
             .collect();
-        let found = chunked(&wanted, BEHIND_PARALLELISM, |(id, key)| async move {
-            let behind = self.behind_commits(*id, key).await;
-            ((*id, key.clone()), behind)
+        let found = chunked(&wanted, BEHIND_PARALLELISM, |(id, key, live)| async move {
+            let behind = self.behind_from(*id, key, live).await;
+            ((*id, (*key).to_string()), behind)
         })
         .await;
         found

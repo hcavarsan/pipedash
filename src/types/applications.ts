@@ -211,7 +211,7 @@ export interface Suggestion {
   kind: SuggestionKind
   title: string
   why: string[]
-  rule_count: number
+  bulk_accept: boolean
 }
 
 export type OverrideKind =

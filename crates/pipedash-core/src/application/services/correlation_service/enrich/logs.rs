@@ -35,6 +35,7 @@ use super::super::{
 };
 use super::Pending;
 use crate::domain::{
+    DomainError,
     DomainResult,
     RunLogDocument,
 };
@@ -59,8 +60,8 @@ struct Candidate {
 
 enum Opened {
     Ready(i64),
-    Gone,
-    TimedOut,
+    Absent,
+    Retry,
 }
 
 #[derive(Default)]
@@ -247,11 +248,15 @@ impl CorrelationService {
         for node in tree.nodes.iter().filter(|node| node.log.is_some()) {
             match self.open_ready(pipeline, run_number, &node.id).await {
                 Opened::Ready(revision) => {
-                    self.read_node(pipeline, run_number, &node.id, revision, wanted, &mut found)
-                        .await;
+                    if !self
+                        .read_node(pipeline, run_number, &node.id, revision, wanted, &mut found)
+                        .await
+                    {
+                        return None;
+                    }
                 }
-                Opened::Gone => {}
-                Opened::TimedOut => return None,
+                Opened::Absent => {}
+                Opened::Retry => return None,
             }
         }
         Some(found)
@@ -259,18 +264,27 @@ impl CorrelationService {
 
     async fn open_ready(&self, pipeline: &str, run_number: i64, node: &str) -> Opened {
         let deadline = Instant::now() + READY_TIMEOUT;
+        let mut retry = true;
         loop {
             match self
                 .log_service
-                .open_document(pipeline, run_number, node, false)
+                .open_document(pipeline, run_number, node, retry)
                 .await
             {
                 Ok(RunLogDocument::Ready(meta)) => return Opened::Ready(meta.revision),
                 Ok(RunLogDocument::Loading { .. }) => {}
-                Ok(_) | Err(_) => return Opened::Gone,
+                Ok(RunLogDocument::Pending | RunLogDocument::Unavailable { .. }) => {
+                    return Opened::Retry;
+                }
+                Err(DomainError::NotFound(_)) => return Opened::Absent,
+                Err(error) => {
+                    tracing::debug!(%error, pipeline, "Log document unavailable");
+                    return Opened::Retry;
+                }
             }
+            retry = false;
             if Instant::now() >= deadline {
-                return Opened::TimedOut;
+                return Opened::Retry;
             }
             sleep(READY_POLL).await;
         }
@@ -279,7 +293,7 @@ impl CorrelationService {
     async fn read_node(
         &self, pipeline: &str, run_number: i64, node: &str, revision: i64, wanted: &Wanted,
         found: &mut Wanted,
-    ) {
+    ) -> bool {
         let stream = match self
             .log_service
             .prepare_export(pipeline, run_number, node, revision)
@@ -289,15 +303,22 @@ impl CorrelationService {
             Ok(stream) => stream,
             Err(error) => {
                 tracing::debug!(%error, pipeline, "Log export unavailable");
-                return;
+                return false;
             }
         };
         futures::pin_mut!(stream);
         let mut lines = Lines::default();
-        while let Some(Ok(chunk)) = stream.next().await {
-            lines.push(&chunk, |line| record(line, wanted, found));
+        while let Some(chunk) = stream.next().await {
+            match chunk {
+                Ok(chunk) => lines.push(&chunk, |line| record(line, wanted, found)),
+                Err(error) => {
+                    tracing::debug!(%error, pipeline, "Log read interrupted");
+                    return false;
+                }
+            }
         }
         lines.finish(|line| record(line, wanted, found));
+        true
     }
 
     async fn write_scan(

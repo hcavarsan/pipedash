@@ -70,6 +70,7 @@ async fn an_uninitialized_plugin_shares_no_credentials() {
 
 #[test]
 fn initialize_requires_a_host_and_a_token() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let mut plugin = OciRegistryPlugin::new();
     let client = Some(Arc::new(reqwest::Client::new()));
     let no_token = HashMap::from([("registry_host".to_string(), "ghcr.io".to_string())]);

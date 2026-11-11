@@ -1,3 +1,8 @@
+use std::collections::{
+    BTreeMap,
+    BTreeSet,
+};
+
 use chrono::{
     DateTime,
     Utc,
@@ -7,6 +12,7 @@ use serde::{
     Serialize,
 };
 
+use super::vocab::commit_node_id;
 use crate::domain::application::overrides::OverrideKind;
 use crate::domain::application::{
     IdentityKind,
@@ -69,6 +75,12 @@ pub(super) enum Op {
     Reject {
         suggestion_id: String,
     },
+    Confirm {
+        suggestion_id: String,
+        digest: String,
+        repo: String,
+        commit: String,
+    },
     Create {
         key: String,
         name: String,
@@ -117,7 +129,7 @@ pub(super) enum Op {
 impl Op {
     pub(super) fn kind(&self) -> OverrideKind {
         match self {
-            Op::Link { .. } => OverrideKind::Link,
+            Op::Link { .. } | Op::Confirm { .. } => OverrideKind::Link,
             Op::Unlink { .. } | Op::Reject { .. } => OverrideKind::Unlink,
             Op::Create { .. } => OverrideKind::Create,
             Op::Merge { .. } => OverrideKind::Merge,
@@ -142,7 +154,7 @@ impl Op {
             | Op::TargetGroup { application, .. }
             | Op::Direction { application, .. } => Some(application),
             Op::Merge { into, .. } => Some(into),
-            Op::Reject { .. } | Op::Create { .. } | Op::Split { .. } => None,
+            Op::Reject { .. } | Op::Confirm { .. } | Op::Create { .. } | Op::Split { .. } => None,
         }
     }
 
@@ -166,7 +178,9 @@ impl Op {
 
     fn subject(&self) -> Option<String> {
         match self {
-            Op::Reject { suggestion_id } => Some(suggestion_id.clone()),
+            Op::Reject { suggestion_id } | Op::Confirm { suggestion_id, .. } => {
+                Some(suggestion_id.clone())
+            }
             Op::Merge { from, .. } => Some(from.clone()),
             other => other
                 .pipelines()
@@ -212,4 +226,21 @@ impl StoredOverride {
             created_at: row.created_at,
         })
     }
+}
+
+pub(super) fn confirmed(overrides: &[StoredOverride]) -> BTreeMap<String, BTreeSet<String>> {
+    let mut found: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for stored in overrides {
+        if let Op::Confirm {
+            digest,
+            repo,
+            commit,
+            ..
+        } = &stored.op
+        {
+            let node = commit_node_id(repo, commit);
+            found.entry(digest.clone()).or_default().insert(node);
+        }
+    }
+    found
 }

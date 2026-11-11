@@ -26,6 +26,7 @@ mod transitions;
 mod vocab;
 mod world;
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{
     AtomicBool,
@@ -116,6 +117,7 @@ pub struct CorrelationService {
     write_lock: Mutex<()>,
     config_error: RwLock<Option<ConfigLoadError>>,
     background: StdMutex<JoinSet<()>>,
+    refetching: StdMutex<HashMap<String, bool>>,
     cancel: CancellationToken,
     enrich_permits: Arc<Semaphore>,
     emitter: Emitter,
@@ -138,6 +140,7 @@ impl CorrelationService {
             write_lock: Mutex::new(()),
             config_error: RwLock::new(None),
             background: StdMutex::new(JoinSet::new()),
+            refetching: StdMutex::new(HashMap::new()),
             cancel: CancellationToken::new(),
             enrich_permits: Arc::new(Semaphore::new(ENRICH_PERMITS)),
             emitter: Emitter {

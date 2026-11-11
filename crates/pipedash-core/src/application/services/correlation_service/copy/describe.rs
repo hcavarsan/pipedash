@@ -12,6 +12,13 @@ pub(in super::super) fn reject() -> String {
     "Rejected a suggestion".into()
 }
 
+pub(in super::super) fn confirm(repo: &str, commit: &str) -> String {
+    format!(
+        "Confirmed an image was built from {repo} at {}",
+        commit.get(..12).unwrap_or(commit)
+    )
+}
+
 pub(in super::super) fn create(name: &str) -> String {
     format!("Created {name}")
 }

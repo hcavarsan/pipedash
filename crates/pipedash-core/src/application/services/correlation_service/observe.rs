@@ -1,4 +1,8 @@
+mod follow;
 mod rows;
+
+#[cfg(test)]
+mod tests;
 
 use std::collections::{
     HashMap,
@@ -9,6 +13,7 @@ use chrono::{
     DateTime,
     Utc,
 };
+use follow::Followed;
 use rows::{
     evidence_row,
     group_by_subject,
@@ -77,7 +82,11 @@ impl CorrelationService {
                 now,
             )
             .await;
-        let changed = finish(tx, result).await?;
+        let (changed, followed) = finish(tx, result).await?;
+        if followed.shown {
+            self.changed();
+        }
+        self.refetch_history(followed.stale);
         if !changed.is_empty() {
             self.resolve(&changed).await?;
             self.schedule_enrichment(&changed);
@@ -88,7 +97,7 @@ impl CorrelationService {
     async fn observe_pipelines(
         &self, conn: &mut CorrelationConn, provider_id: i64, refresh_interval: i64,
         old: &[Pipeline], new: &[&Pipeline], now: DateTime<Utc>,
-    ) -> DomainResult<HashSet<String>> {
+    ) -> DomainResult<(HashSet<String>, Followed)> {
         self.touch_window(conn, provider_id, refresh_interval, now)
             .await?;
         let mut identities: HashMap<String, SubjectIdentityRow> = conn
@@ -105,6 +114,7 @@ impl CorrelationService {
         let by_artifacts = group_by_subject(&artifacts, |r| &r.subject_id);
         let old_by_id: HashMap<&str, &Pipeline> = old.iter().map(|p| (p.id.as_str(), p)).collect();
         let mut changed = HashSet::new();
+        let mut followed = Followed::default();
         for pipeline in new {
             let id = pipeline.id.as_str();
             let stored = Rows::stored(
@@ -116,6 +126,9 @@ impl CorrelationService {
             let rows = Rows::of(provider_id, id, PIPELINE_LEVEL, &pipeline.correlation);
             let identity = identity_row(provider_id, id, &pipeline.correlation);
             let previous = old_by_id.get(id).copied();
+            if let Some(previous) = previous {
+                self.follow(conn, &mut followed, previous, pipeline).await?;
+            }
             if pipeline.correlation.unit.is_some() {
                 let before = stored.snapshot();
                 self.record_transition(conn, provider_id, now, previous, pipeline, &before)
@@ -152,7 +165,7 @@ impl CorrelationService {
             self.forget(conn, &id, identity.unit_id.as_deref()).await?;
             changed.insert(id);
         }
-        Ok(changed)
+        Ok((changed, followed))
     }
 
     async fn forget(

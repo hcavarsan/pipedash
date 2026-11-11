@@ -2,6 +2,7 @@ use std::collections::{
     BTreeMap,
     HashMap,
 };
+use std::future::Future;
 
 use pipedash_plugin_api::{
     ChangedFile,
@@ -106,40 +107,54 @@ impl CorrelationService {
         None
     }
 
-    async fn routed(&self, repo: &RepoId) -> Option<ProviderLease> {
+    async fn keyed(
+        &self, repo: &RepoId, kind: &str, args: &str,
+    ) -> Option<(ProviderLease, String)> {
         let lease = self.route(repo).await?;
-        if self.provider_service.check_quota(&lease).await.is_some() {
-            return None;
-        }
-        Some(lease)
+        let key = format!(
+            "{kind}|{}|{:?}|{}|{args}",
+            lease.id,
+            lease.generation,
+            repo.as_str()
+        );
+        Some((lease, key))
+    }
+
+    async fn admitted(&self, lease: ProviderLease) -> Option<ProviderLease> {
+        let limited = self.provider_service.check_quota(&lease).await.is_some();
+        (!limited).then_some(lease)
     }
 
     pub(in crate::application::services::correlation_service) async fn commit_info(
         &self, repo: &RepoId, rev: &str,
     ) -> Option<CommitInfo> {
-        let key = format!("commit|{}|{rev}", repo.as_str());
+        self.commit_info_leased(repo, rev)
+            .await
+            .map(|(info, _)| info)
+    }
+
+    async fn commit_info_leased(
+        &self, repo: &RepoId, rev: &str,
+    ) -> Option<(CommitInfo, ProviderLease)> {
+        let (lease, key) = self.keyed(repo, "commit", rev).await?;
         if let Some(Cached::Commit(info)) = self.enrich.recall(&key) {
-            return Some(info);
+            return Some((info, lease));
         }
-        let lease = self.routed(repo).await?;
+        let lease = self.admitted(lease).await?;
         let info = quiet(lease.provider.resolve_commit(repo, rev).await)?;
         self.enrich.remember(key, Cached::Commit(info.clone()));
-        Some(info)
+        Some((info, lease))
     }
 
     pub(in crate::application::services::correlation_service) async fn compare(
         &self, repo: &RepoId, base: &CommitSha, head: &CommitSha,
     ) -> Option<CommitComparison> {
-        let key = format!(
-            "compare|{}|{}|{}",
-            repo.as_str(),
-            base.as_str(),
-            head.as_str()
-        );
+        let args = format!("{}|{}", base.as_str(), head.as_str());
+        let (lease, key) = self.keyed(repo, "compare", &args).await?;
         if let Some(Cached::Comparison(comparison)) = self.enrich.recall(&key) {
             return Some(comparison);
         }
-        let lease = self.routed(repo).await?;
+        let lease = self.admitted(lease).await?;
         let comparison = quiet(lease.provider.compare_commits(repo, base, head).await)?;
         self.enrich
             .remember(key, Cached::Comparison(comparison.clone()));
@@ -148,15 +163,41 @@ impl CorrelationService {
 
     pub(in crate::application::services::correlation_service) async fn changes_of(
         &self, repo: &RepoId, sha: &CommitSha,
-    ) -> Option<Vec<ChangedFile>> {
-        let key = format!("changes|{}|{}", repo.as_str(), sha.as_str());
+    ) -> Option<(Vec<ChangedFile>, ProviderLease)> {
+        let (lease, key) = self.keyed(repo, "changes", sha.as_str()).await?;
         if let Some(Cached::Changes(files)) = self.enrich.recall(&key) {
-            return Some(files);
+            return Some((files, lease));
         }
-        let lease = self.routed(repo).await?;
+        let lease = self.admitted(lease).await?;
         let files = quiet(lease.provider.commit_changes(repo, sha).await)?;
         self.enrich.remember(key, Cached::Changes(files.clone()));
-        Some(files)
+        Some((files, lease))
+    }
+
+    pub(in crate::application::services::correlation_service) async fn commit_guarded<F, Fut, T>(
+        &self, lease: &ProviderLease, also: Option<&ProviderLease>, write: F,
+    ) -> Option<T>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = T>,
+    {
+        let Some(other) = also else {
+            return self.provider_service.commit(lease, write).await;
+        };
+        if other.id == lease.id {
+            return (other.generation == lease.generation)
+                .then_some(())
+                .and(self.provider_service.commit(lease, write).await);
+        }
+        let (first, second) = if lease.id < other.id {
+            (lease, other)
+        } else {
+            (other, lease)
+        };
+        self.provider_service
+            .commit(first, || self.provider_service.commit(second, write))
+            .await
+            .flatten()
     }
 
     pub(super) async fn fill_authored_at(&self) -> DomainResult<()> {
@@ -172,14 +213,18 @@ impl CorrelationService {
             ) else {
                 continue;
             };
-            let Some(info) = self.commit_info(&repo, sha.as_str()).await else {
+            let Some((info, lease)) = self.commit_info_leased(&repo, sha.as_str()).await else {
                 continue;
             };
             let row = ChangeRow {
                 authored_at: Some(info.authored_at),
                 ..change
             };
-            self.store.conn().upsert_change(&row).await?;
+            self.commit_guarded(&lease, None, || async {
+                self.store.conn().upsert_change(&row).await
+            })
+            .await
+            .transpose()?;
         }
         Ok(())
     }

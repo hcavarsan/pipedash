@@ -57,6 +57,7 @@ fn describe(world: &World, op: &Op) -> String {
         Op::Link { pipeline_id, .. } => describe::link(&world.name_of(pipeline_id)),
         Op::Unlink { pipeline_id, .. } => describe::unlink(&world.name_of(pipeline_id)),
         Op::Reject { .. } => describe::reject(),
+        Op::Confirm { repo, commit, .. } => describe::confirm(repo, commit),
         Op::Create { name, .. } => describe::create(name),
         Op::Merge { from, .. } => describe::merge(&label_of(world, from)),
         Op::Split { name, .. } => describe::split(name),

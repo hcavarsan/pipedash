@@ -12,6 +12,7 @@ use crate::application::services::correlation_service::vocab::{
     ATTESTATION_COMMIT,
     BUILT_FROM,
     LABEL_CONFIRMED,
+    USER_CONFIRMED,
 };
 use crate::application::services::correlation_service::world::World;
 use crate::domain::application::{
@@ -52,7 +53,7 @@ pub(in crate::application::services::correlation_service) async fn built_from(
     conn: &mut CorrelationConn,
 ) -> DomainResult<BuiltFrom> {
     let mut found: BTreeMap<String, BTreeSet<(String, String)>> = BTreeMap::new();
-    for rule in [ATTESTATION_COMMIT, LABEL_CONFIRMED] {
+    for rule in [ATTESTATION_COMMIT, LABEL_CONFIRMED, USER_CONFIRMED] {
         for edge in conn.list_edges_by_rule(rule).await? {
             if edge.from_kind != ARTIFACT
                 || edge.relation != BUILT_FROM

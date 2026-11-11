@@ -48,6 +48,7 @@ use super::vocab::{
     SAME_REPO_PATH,
     TAG_SHA,
     UNIT,
+    USER_CONFIRMED,
 };
 use super::world::{
     Affected,
@@ -62,6 +63,8 @@ use crate::infrastructure::database::{
     CorrelationEdgeRow,
     PIPELINE_LEVEL,
 };
+
+mod confirmed;
 
 #[cfg(test)]
 mod tests;
@@ -349,6 +352,7 @@ impl CorrelationService {
                     !plan.rejected.contains(&id)
                 }
             });
+            confirmed::apply(plan, &digest, &mut desired);
             let existing = conn.list_edges_from(ARTIFACT, &digest).await?;
             let cleanup_tags = tags.is_some();
             let applied = apply(
@@ -358,7 +362,9 @@ impl CorrelationService {
                 |row| {
                     row.rule == LABEL_CONFIRMED
                         || row.rule == LABEL_UNCONFIRMED
-                        || (cleanup_tags && row.rule == TAG_SHA)
+                        || row.rule == USER_CONFIRMED
+                        || (row.rule == TAG_SHA
+                            && (cleanup_tags || confirmed::contains(plan, &digest, &row.to_id)))
                 },
                 now,
             )

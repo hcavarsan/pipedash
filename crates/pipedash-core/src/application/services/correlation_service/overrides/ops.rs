@@ -99,6 +99,10 @@ pub(in super::super) fn accept_op(world: &World, suggestion: &OpenSuggestion) ->
             pipeline_id: builder.clone(),
             stage: None,
         }),
+        (SuggestionKind::BuiltFrom, _, _) => suggestion
+            .confirm
+            .clone()
+            .ok_or_else(|| invalid(copy::suggestion_not_actionable())),
         _ => Err(invalid(copy::suggestion_not_actionable())),
     }
 }
@@ -263,6 +267,14 @@ pub(in super::super) fn subjects_of(world: &World, ops: &[&Op], ids: &[i64]) -> 
     let mut subjects: HashSet<String> = HashSet::new();
     for op in ops {
         subjects.extend(op.pipelines().into_iter().map(str::to_string));
+        if let Op::Confirm { digest, .. } = op {
+            subjects.extend(
+                world
+                    .unit_subjects()
+                    .filter(|(_, s)| s.consumed_digests().contains(digest.as_str()))
+                    .map(|(_, s)| s.id.clone()),
+            );
+        }
         let named = op.application().into_iter().chain(match op {
             Op::Merge { from, .. } => Some(from.as_str()),
             _ => None,

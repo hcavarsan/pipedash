@@ -26,8 +26,6 @@ interface SuggestionsViewProps {
   copy: ApplicationCopy | undefined
 }
 
-const ACCEPT_ALL_MIN_RULES = 2
-
 function RejectButton({
   applicationId,
   suggestionId,
@@ -107,7 +105,7 @@ function SuggestionsView({ opened, onClose, applicationId, copy }: SuggestionsVi
   const visible = (suggestions.data ?? []).filter(
     (suggestion) => applicationId === undefined || suggestion.application_id === applicationId
   )
-  const confident = visible.filter((suggestion) => suggestion.rule_count >= ACCEPT_ALL_MIN_RULES)
+  const bulk = visible.filter((suggestion) => suggestion.bulk_accept)
 
   if (!copy) {
     return (
@@ -121,9 +119,9 @@ function SuggestionsView({ opened, onClose, applicationId, copy }: SuggestionsVi
     <Group justify="flex-end">
       <Button
         size="sm"
-        disabled={confident.length === 0}
+        disabled={bulk.length === 0}
         loading={accept.isPending}
-        onClick={() => accept.mutate(confident.map((suggestion) => suggestion.id))}
+        onClick={() => accept.mutate(bulk.map((suggestion) => suggestion.id))}
       >
         {copy.accept_all}
       </Button>

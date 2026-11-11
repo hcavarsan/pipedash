@@ -203,6 +203,7 @@ pub struct Suggestion {
     pub title: String,
     pub why: Vec<String>,
     pub rule_count: usize,
+    pub bulk_accept: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

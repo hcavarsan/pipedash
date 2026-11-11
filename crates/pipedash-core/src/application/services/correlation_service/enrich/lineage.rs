@@ -27,6 +27,7 @@ use super::commits::{
     stored_repo,
     Cached,
 };
+use crate::application::services::provider_service::ProviderLease;
 use crate::domain::application::Confidence;
 use crate::domain::DomainResult;
 use crate::infrastructure::database::CorrelationEdgeRow;
@@ -107,20 +108,33 @@ impl CorrelationService {
             let (Some(repo_id), Some(sha_id)) = (stored_repo(&repo), CommitSha::parse(&sha)) else {
                 continue;
             };
-            let Some(files) = self.changes_of(&repo_id, &sha_id).await else {
+            let Some((files, lease)) = self.changes_of(&repo_id, &sha_id).await else {
                 self.enrich.defer(key);
                 continue;
             };
+            let mut complete = true;
             for reference in added_references(&files) {
-                for digest in self.introduced(&reference, &consumed).await {
-                    self.link_lineage(&node, &digest, &reference).await?;
+                let (digests, credentials) = self.introduced(&reference, &consumed).await;
+                for digest in digests {
+                    let linked = self
+                        .commit_guarded(&lease, credentials.as_ref(), || {
+                            self.link_lineage(&node, &digest, &reference)
+                        })
+                        .await;
+                    let Some(linked) = linked else {
+                        complete = false;
+                        continue;
+                    };
+                    linked?;
                     touched.extend(subjects.iter().cloned());
                     if let Some(found) = consumed.get(&digest) {
                         touched.extend(found.subjects.iter().cloned());
                     }
                 }
             }
-            self.enrich.remember(key, Cached::Seen);
+            if complete {
+                self.enrich.remember(key, Cached::Seen);
+            }
         }
         Ok(touched)
     }
@@ -142,26 +156,25 @@ impl CorrelationService {
 
     async fn introduced(
         &self, reference: &str, consumed: &HashMap<String, Consumed>,
-    ) -> Vec<String> {
-        if let Some(digest) = Digest::parse(reference) {
-            return consumed
+    ) -> (Vec<String>, Option<ProviderLease>) {
+        let pinned = |digest: &Digest| {
+            consumed
                 .contains_key(digest.as_str())
                 .then(|| digest.as_str().to_string())
                 .into_iter()
-                .collect();
+                .collect()
+        };
+        if let Some(digest) = Digest::parse(reference) {
+            return (pinned(&digest), None);
         }
         let Some(image) = ImageRef::parse(reference) else {
-            return Vec::new();
+            return (Vec::new(), None);
         };
         if let Some(digest) = image.digest {
-            return consumed
-                .contains_key(digest.as_str())
-                .then(|| digest.as_str().to_string())
-                .into_iter()
-                .collect();
+            return (pinned(&digest), None);
         }
         let Some(tag) = image.tag else {
-            return Vec::new();
+            return (Vec::new(), None);
         };
         let candidates: HashSet<&str> = consumed
             .iter()
@@ -169,25 +182,28 @@ impl CorrelationService {
             .map(|(digest, _)| digest.as_str())
             .collect();
         if candidates.is_empty() || !self.config_state.get().await.correlation.registry_read {
-            return Vec::new();
+            return (Vec::new(), None);
         }
         let Ok(client) = self.oci_client() else {
-            return Vec::new();
+            return (Vec::new(), None);
         };
-        let auth = self.registry_credentials(image.repository.host()).await;
-        match client
-            .tag_digests(&image.repository, &tag, auth.as_ref())
-            .await
-        {
-            Ok(digests) => digests
-                .iter()
-                .map(Digest::as_str)
-                .filter(|digest| candidates.contains(digest))
-                .map(str::to_string)
-                .collect(),
+        let access = self.registry_access(image.repository.host()).await;
+        let auth = access.as_ref().map(|(auth, _)| auth);
+        let resolved = client.tag_digests(&image.repository, &tag, auth).await;
+        let lease = access.map(|(_, lease)| lease);
+        match resolved {
+            Ok(digests) => (
+                digests
+                    .iter()
+                    .map(Digest::as_str)
+                    .filter(|digest| candidates.contains(digest))
+                    .map(str::to_string)
+                    .collect(),
+                lease,
+            ),
             Err(error) => {
                 tracing::debug!(%error, "Tag in config could not be resolved");
-                Vec::new()
+                (Vec::new(), None)
             }
         }
     }

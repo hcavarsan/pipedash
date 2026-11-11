@@ -14,7 +14,10 @@ use super::overrides::entries::{
     override_entries,
     ConfigClaims,
 };
-use super::stored::Identity;
+use super::stored::{
+    Identity,
+    Op,
+};
 use super::targets::group_labels;
 use super::vocab::{
     parse_run_node,
@@ -47,6 +50,7 @@ use crate::infrastructure::database::{
 pub(super) struct OpenSuggestion {
     pub dto: Suggestion,
     pub pipelines: Vec<String>,
+    pub confirm: Option<Op>,
     pub applications: Vec<i64>,
 }
 

@@ -11,6 +11,7 @@ use crate::application::services::correlation_service::applications::{
     Plan,
 };
 use crate::application::services::correlation_service::copy;
+use crate::application::services::correlation_service::stored::Op;
 use crate::application::services::correlation_service::suggestions::suggestion_id;
 use crate::application::services::correlation_service::vocab::{
     parse_commit_node,
@@ -35,6 +36,8 @@ use crate::infrastructure::database::{
     CorrelationConn,
     CorrelationEdgeRow,
 };
+
+const BULK_ACCEPT_MIN_RULES: usize = 2;
 
 fn text<'a>(evidence: &'a Value, key: &str) -> &'a str {
     evidence
@@ -148,8 +151,10 @@ impl Collector<'_> {
                     ),
                     why,
                     rule_count: rules.len(),
+                    bulk_accept: rules.len() >= BULK_ACCEPT_MIN_RULES,
                 },
                 pipelines: vec![a, b],
+                confirm: None,
                 applications,
             });
         }
@@ -181,8 +186,10 @@ impl Collector<'_> {
                     ),
                     why: vec![why_rule(&edge.rule, &evidence)],
                     rule_count: 1,
+                    bulk_accept: false,
                 },
                 pipelines: vec![builder.to_string()],
+                confirm: None,
                 applications,
             });
         }
@@ -205,7 +212,13 @@ impl Collector<'_> {
                 .map(|(_, s)| s.id.clone())
                 .collect();
             let applications: Vec<i64> = pipelines.iter().flat_map(|p| self.apps_for(p)).collect();
-            let commit = parse_commit_node(&edge.to_id).map_or("", |(_, sha)| sha);
+            let (repo, commit) = parse_commit_node(&edge.to_id).unwrap_or_default();
+            let confirm = Op::Confirm {
+                suggestion_id: id.clone(),
+                digest: edge.from_id.clone(),
+                repo: repo.to_string(),
+                commit: commit.to_string(),
+            };
             let evidence = serde_json::from_str(&edge.evidence_json).unwrap_or_default();
             self.found.push(OpenSuggestion {
                 dto: Suggestion {
@@ -215,8 +228,10 @@ impl Collector<'_> {
                     title: copy::suggest_built_from(short(&edge.from_id), short(commit)),
                     why: vec![why_rule(&edge.rule, &evidence)],
                     rule_count: 1,
+                    bulk_accept: false,
                 },
                 pipelines,
+                confirm: Some(confirm),
                 applications,
             });
         }

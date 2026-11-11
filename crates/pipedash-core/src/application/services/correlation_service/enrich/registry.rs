@@ -31,6 +31,7 @@ use super::super::vocab::{
 };
 use super::super::CorrelationService;
 use super::Pending;
+use crate::application::services::provider_service::ProviderLease;
 use crate::domain::application::Confidence;
 use crate::domain::{
     DomainError,
@@ -94,7 +95,9 @@ impl CorrelationService {
         Ok(touched)
     }
 
-    pub(super) async fn registry_credentials(&self, host: &str) -> Option<RegistryAuth> {
+    pub(super) async fn registry_access(
+        &self, host: &str,
+    ) -> Option<(RegistryAuth, ProviderLease)> {
         for config in self.provider_configs().await {
             let Some(id) = config.id else {
                 continue;
@@ -102,8 +105,9 @@ impl CorrelationService {
             let Ok(lease) = self.provider_service.acquire(id).await else {
                 continue;
             };
-            match lease.provider.registry_auth(host).await {
-                Ok(Some(auth)) => return Some(auth),
+            let granted = lease.provider.registry_auth(host).await;
+            match granted {
+                Ok(Some(auth)) => return Some((auth, lease)),
                 Ok(None) => {}
                 Err(error) => {
                     tracing::debug!(%error, provider_id = id, "Registry auth unavailable")
@@ -130,12 +134,13 @@ impl CorrelationService {
             )));
         };
         let repository = image.repository;
-        let auth = self.registry_credentials(repository.host()).await;
+        let access = self.registry_access(repository.host()).await;
+        let auth = access.as_ref().map(|(auth, _)| auth);
         let client = self.oci_client()?;
         let mut attested = Vec::new();
         let mut label_source = None;
         let mut label_revision = None;
-        match read_labels(&client, &repository, &digest, auth.as_ref()).await {
+        match read_labels(&client, &repository, &digest, auth).await {
             Ok((source, revision)) => {
                 label_source = source;
                 label_revision = revision;
@@ -143,11 +148,33 @@ impl CorrelationService {
             Err(error) if error.is_transient() => return Err(PluginAdapter::map_error(error)),
             Err(error) => tracing::debug!(%error, "Registry labels unreadable"),
         }
-        match read_attestations(&client, &repository, &digest, auth.as_ref()).await {
+        match read_attestations(&client, &repository, &digest, auth).await {
             Ok(found) => attested.extend(found),
             Err(error) if error.is_transient() => return Err(PluginAdapter::map_error(error)),
             Err(error) => tracing::debug!(%error, "Registry referrers unreadable"),
         }
+        match access {
+            None => {
+                self.settle_registry(pending, attested, label_source, label_revision)
+                    .await
+            }
+            Some((_, lease)) => {
+                let settled = self
+                    .provider_service
+                    .commit(&lease, || {
+                        self.settle_registry(pending, attested, label_source, label_revision)
+                    })
+                    .await;
+                settled.unwrap_or_else(|| Ok(HashSet::new()))
+            }
+        }
+    }
+
+    async fn settle_registry(
+        &self, pending: &Pending, attested: Vec<Attested>, label_source: Option<RepoId>,
+        label_revision: Option<CommitSha>,
+    ) -> DomainResult<HashSet<String>> {
+        let artifact = &pending.artifact;
         let mut touched: HashSet<String> = pending.consumers.iter().cloned().collect();
         for found in attested {
             touched.extend(

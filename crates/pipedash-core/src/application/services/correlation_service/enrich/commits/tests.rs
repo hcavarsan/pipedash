@@ -20,6 +20,7 @@ use super::{
     Cached,
     Lru,
 };
+use crate::application::test_support::Gate;
 use crate::infrastructure::database::{
     ApplicationRow,
     ChangeRow,
@@ -115,7 +116,13 @@ async fn changes_are_cached_per_commit() {
     let repo = repo("git.test/shop/config");
     let commit = CommitSha::parse(&sha('c')).unwrap();
 
-    assert_eq!(f.service.changes_of(&repo, &commit).await, Some(files));
+    assert_eq!(
+        f.service
+            .changes_of(&repo, &commit)
+            .await
+            .map(|(found, _)| found),
+        Some(files)
+    );
     f.service.changes_of(&repo, &commit).await.unwrap();
     assert_eq!(stub.change_calls.load(Ordering::SeqCst), 1);
 }
@@ -153,6 +160,18 @@ async fn authored_at_is_filled_through_the_cached_lookup() {
                 .with_commit(info.clone())
         })
         .await;
+    let change_id = seed_change(&f).await;
+    let mut conn = f.service.store.conn();
+
+    f.service.fill_authored_at().await.unwrap();
+
+    let stored = conn.get_change(change_id).await.unwrap().unwrap();
+    assert_eq!(stored.authored_at, Some(info.authored_at));
+    f.service.fill_authored_at().await.unwrap();
+    assert_eq!(stub.commit_calls.load(Ordering::SeqCst), 1);
+}
+
+async fn seed_change(f: &Fixture) -> i64 {
     let mut conn = f.service.store.conn();
     let application_id = conn
         .upsert_application(&ApplicationRow {
@@ -166,21 +185,66 @@ async fn authored_at_is_filled_through_the_cached_lookup() {
         })
         .await
         .unwrap();
-    let change_id = conn
-        .upsert_change(&ChangeRow {
-            id: 0,
-            application_id,
-            repo: "git.test/shop/api".into(),
-            commit_sha: sha('a'),
-            authored_at: None,
+    conn.upsert_change(&ChangeRow {
+        id: 0,
+        application_id,
+        repo: "git.test/shop/api".into(),
+        commit_sha: sha('a'),
+        authored_at: None,
+    })
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn a_superseded_commit_response_stores_no_authored_at() {
+    let f = Fixture::new().await;
+    let gate = Gate::new();
+    let (provider, _) = f
+        .stub(|stub| {
+            stub.with_source_hosts(&["git.test"])
+                .with_commit(commit_info('a'))
+                .source_gated(&gate)
         })
+        .await;
+    let change_id = seed_change(&f).await;
+    let service = f.service.clone();
+    let pass = tokio::spawn(async move { service.fill_authored_at().await });
+    gate.arrived().await;
+    f.h.provider_service
+        .remove_provider(provider)
+        .await
+        .unwrap();
+    gate.open();
+    pass.await.unwrap().unwrap();
+
+    let stored = f
+        .service
+        .store
+        .conn()
+        .get_change(change_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.authored_at, None);
+}
+
+#[tokio::test]
+async fn a_removed_provider_cached_answers_are_not_served() {
+    let f = Fixture::new().await;
+    let (provider, _) = f
+        .stub(|stub| {
+            stub.with_source_hosts(&["git.test"])
+                .with_commit(commit_info('a'))
+        })
+        .await;
+    let repo = repo("git.test/shop/api");
+    assert!(f.service.commit_info(&repo, "aaaaaaa").await.is_some());
+
+    f.h.provider_service
+        .remove_provider(provider)
         .await
         .unwrap();
 
-    f.service.fill_authored_at().await.unwrap();
-
-    let stored = conn.get_change(change_id).await.unwrap().unwrap();
-    assert_eq!(stored.authored_at, Some(info.authored_at));
-    f.service.fill_authored_at().await.unwrap();
-    assert_eq!(stub.commit_calls.load(Ordering::SeqCst), 1);
+    assert!(f.service.commit_info(&repo, "aaaaaaa").await.is_none());
 }

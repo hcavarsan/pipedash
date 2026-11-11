@@ -3,7 +3,10 @@ use std::sync::atomic::Ordering;
 use chrono::Utc;
 use pipedash_plugin_api::{
     CommitSha,
+    Digest,
+    ImageRef,
     Provenance,
+    RegistryAuth,
     RepoId,
     SourceObservation,
 };
@@ -19,6 +22,7 @@ use super::super::tests::{
     digest,
     digest_of,
     registry,
+    registry_after,
     sha,
     Fixture,
 };
@@ -193,4 +197,108 @@ async fn registry_read_false_skips_registry_work() {
         .unwrap()
         .unwrap();
     assert!(stored.registry_checked_at.is_none());
+}
+
+async fn leased_provenance(supersede: bool) -> (usize, bool) {
+    let f = Fixture::new().await;
+    let (provider, _) = f
+        .stub(|stub| {
+            stub.with_source_hosts(&["git.test"])
+                .with_provenance(Provenance {
+                    pipeline_id: None,
+                    run_number: None,
+                    source: SourceObservation {
+                        repo: RepoId::parse("https://git.test/shop/api").unwrap(),
+                        path_scopes: Vec::new(),
+                        commit: CommitSha::parse(&sha('b')),
+                    },
+                })
+        })
+        .await;
+    let image = digest('d');
+    f.consume(
+        provider,
+        "stub__1__api",
+        &image,
+        "registry.test/shop/api",
+        Utc::now(),
+    )
+    .await;
+    let pending = f.service.unproduced(|_| true).await.unwrap().remove(0);
+    let repository = ImageRef::parse("registry.test/shop/api")
+        .unwrap()
+        .repository;
+    let (found, settled) = f
+        .service
+        .provider_attestations(&repository, &Digest::parse(&image).unwrap())
+        .await;
+    assert_eq!(found.len(), 1);
+    if supersede {
+        f.h.provider_service
+            .remove_provider(provider)
+            .await
+            .unwrap();
+    }
+
+    f.service
+        .record_leased(&pending, found, settled)
+        .await
+        .unwrap();
+
+    let edges = f
+        .service
+        .store
+        .conn()
+        .list_edges_from(ARTIFACT, &image)
+        .await
+        .unwrap();
+    (edges.len(), f.service.enrich.asked(&image))
+}
+
+#[tokio::test]
+async fn a_provenance_response_from_a_superseded_provider_writes_nothing() {
+    assert_eq!(leased_provenance(false).await, (1, true));
+    assert_eq!(leased_provenance(true).await, (0, false));
+}
+
+async fn registry_checked_with_credentials(supersede: bool) -> bool {
+    let f = Fixture::new().await;
+    let (provider, _) = f
+        .stub(|stub| {
+            stub.with_registry_auth(RegistryAuth {
+                username: None,
+                secret: "token".into(),
+                bearer: true,
+            })
+        })
+        .await;
+    let removing = supersede.then(|| (f.h.provider_service.clone(), provider));
+    let host = registry_after(Vec::new(), removing).await;
+    let image = digest('d');
+    f.consume(
+        provider,
+        "stub__1__api",
+        &image,
+        &format!("{host}/shop/api"),
+        Utc::now(),
+    )
+    .await;
+
+    f.service.read_registries().await.unwrap();
+
+    f.service
+        .store
+        .conn()
+        .get_artifact(&image)
+        .await
+        .unwrap()
+        .unwrap()
+        .registry_checked_at
+        .is_some()
+}
+
+#[tokio::test]
+async fn a_registry_read_with_superseded_credentials_stores_nothing() {
+    assert!(registry_checked_with_credentials(false).await);
+    assert!(!registry_checked_with_credentials(true).await);
 }

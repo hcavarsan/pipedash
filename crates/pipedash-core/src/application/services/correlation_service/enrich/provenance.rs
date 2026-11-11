@@ -9,12 +9,13 @@ use pipedash_plugin_api::{
 use super::registry::Attested;
 use super::Pending;
 use crate::application::services::correlation_service::CorrelationService;
+use crate::application::services::provider_service::ProviderLease;
 use crate::domain::DomainResult;
 
 impl CorrelationService {
     pub(super) async fn provider_attestations(
         &self, repository: &ArtifactRepository, digest: &Digest,
-    ) -> (Vec<Attested>, bool) {
+    ) -> (Vec<(ProviderLease, Attested)>, bool) {
         let mut found = Vec::new();
         let mut asked = false;
         let mut complete = true;
@@ -33,13 +34,17 @@ impl CorrelationService {
                 continue;
             }
             asked = true;
-            match lease.provider.artifact_provenance(repository, digest).await {
-                Ok(Some(provenance)) => found.push(Attested {
-                    repo: Some(provenance.source.repo),
-                    commit: provenance.source.commit,
-                    invocation: None,
-                    run: provenance.pipeline_id.zip(provenance.run_number),
-                }),
+            let provenance = lease.provider.artifact_provenance(repository, digest).await;
+            match provenance {
+                Ok(Some(provenance)) => found.push((
+                    lease,
+                    Attested {
+                        repo: Some(provenance.source.repo),
+                        commit: provenance.source.commit,
+                        invocation: None,
+                        run: provenance.pipeline_id.zip(provenance.run_number),
+                    },
+                )),
                 Ok(None) => {}
                 Err(error) => {
                     complete = false;
@@ -52,23 +57,38 @@ impl CorrelationService {
 
     pub(super) async fn ask_providers(&self, pending: &Pending) -> DomainResult<HashSet<String>> {
         let artifact = &pending.artifact;
-        let mut touched = HashSet::new();
         let (Some(image), Some(digest)) = (
             ImageRef::parse(&artifact.repository),
             Digest::parse(&artifact.digest),
         ) else {
             self.enrich.mark_asked(&artifact.digest);
-            return Ok(touched);
+            return Ok(HashSet::new());
         };
-        let (found, mut settled) = self.provider_attestations(&image.repository, &digest).await;
-        for attested in found {
-            if let Some((pipeline, run_number)) = &attested.run {
+        let (found, settled) = self.provider_attestations(&image.repository, &digest).await;
+        self.record_leased(pending, found, settled).await
+    }
+
+    pub(super) async fn record_leased(
+        &self, pending: &Pending, found: Vec<(ProviderLease, Attested)>, mut settled: bool,
+    ) -> DomainResult<HashSet<String>> {
+        let artifact = &pending.artifact;
+        let mut touched = HashSet::new();
+        for (lease, attested) in found {
+            let run = attested.run.clone();
+            let recorded = self
+                .provider_service
+                .commit(&lease, || {
+                    self.record_attested(&artifact.digest, &artifact.repository, attested, pending)
+                })
+                .await;
+            let Some(recorded) = recorded else {
+                settled = false;
+                continue;
+            };
+            touched.extend(recorded?);
+            if let Some((pipeline, run_number)) = &run {
                 settled &= self.run_stored_or_requested(pipeline, *run_number).await?;
             }
-            touched.extend(
-                self.record_attested(&artifact.digest, &artifact.repository, attested, pending)
-                    .await?,
-            );
         }
         if settled {
             self.enrich.mark_asked(&artifact.digest);

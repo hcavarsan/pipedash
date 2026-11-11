@@ -26,6 +26,7 @@ use crate::application::test_support::{
     StubProvider,
 };
 use crate::domain::{
+    DomainError,
     LogAvailability,
     LogNode,
     LogNodeKind,
@@ -247,4 +248,51 @@ async fn log_evidence_off_scans_nothing() {
         .await
         .unwrap()
         .is_none());
+}
+
+#[tokio::test]
+async fn a_failed_log_read_is_scanned_again_and_a_full_read_is_not() {
+    let f = Fixture::new().await;
+    let built = digest('b');
+    let log = format!("latest: digest: {built} size: 1234\n");
+    let (provider, pipeline_id, stub) = build_run(&f, &log).await;
+    consume_labelled(&f, provider, "api", &built, "registry.test/shop/api").await;
+    *stub.log_failure.lock().unwrap() = Some(DomainError::ProviderError("down".to_string()));
+
+    assert!(f.service.scan_logs().await.unwrap().is_empty());
+
+    let mut conn = f.service.store.conn();
+    assert!(conn
+        .get_log_scan(&pipeline_id, RUN)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(conn
+        .list_artifact_observations_by_subject(&pipeline_id)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(stub.log_read_count(), 1);
+
+    *stub.log_failure.lock().unwrap() = None;
+    f.service.enrich.finish_backfill(&pipeline_id);
+    let touched = f.service.scan_logs().await.unwrap();
+
+    assert!(touched.contains(&pipeline_id));
+    let rows = conn
+        .list_artifact_observations_by_subject(&pipeline_id)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].digest.as_deref(), Some(built.as_str()));
+    assert!(conn
+        .get_log_scan(&pipeline_id, RUN)
+        .await
+        .unwrap()
+        .is_some());
+    assert_eq!(stub.log_read_count(), 2);
+
+    f.service.enrich.finish_backfill(&pipeline_id);
+    assert!(f.service.scan_logs().await.unwrap().is_empty());
+    assert_eq!(stub.log_read_count(), 2);
 }

@@ -228,6 +228,8 @@ pub(crate) struct StubProvider {
     pub(crate) commit_calls: AtomicUsize,
     pub(crate) change_calls: AtomicUsize,
     pub(crate) provenance_calls: AtomicUsize,
+    pub(crate) source_gate: Option<Arc<Gate>>,
+    pub(crate) registry_login: Mutex<Option<pipedash_plugin_api::RegistryAuth>>,
 }
 
 impl StubProvider {
@@ -286,6 +288,8 @@ impl StubProvider {
             commit_calls: AtomicUsize::new(0),
             change_calls: AtomicUsize::new(0),
             provenance_calls: AtomicUsize::new(0),
+            source_gate: None,
+            registry_login: Mutex::new(None),
         }
     }
 
@@ -460,6 +464,16 @@ impl StubProvider {
 
     pub(crate) fn with_provenance(self, provenance: Provenance) -> Self {
         *self.provenance.lock().unwrap() = Some(provenance);
+        self
+    }
+
+    pub(crate) fn source_gated(mut self, gate: &Arc<Gate>) -> Self {
+        self.source_gate = Some(Arc::clone(gate));
+        self
+    }
+
+    pub(crate) fn with_registry_auth(self, auth: pipedash_plugin_api::RegistryAuth) -> Self {
+        *self.registry_login.lock().unwrap() = Some(auth);
         self
     }
 
@@ -713,6 +727,9 @@ impl Provider for StubProvider {
 
     async fn resolve_commit(&self, _repo: &RepoId, _rev: &str) -> DomainResult<CommitInfo> {
         self.commit_calls.fetch_add(1, Ordering::SeqCst);
+        if let Some(gate) = &self.source_gate {
+            gate.pass().await;
+        }
         self.commit
             .lock()
             .unwrap()
@@ -734,7 +751,16 @@ impl Provider for StubProvider {
         &self, _repo: &RepoId, _sha: &CommitSha,
     ) -> DomainResult<Vec<ChangedFile>> {
         self.change_calls.fetch_add(1, Ordering::SeqCst);
+        if let Some(gate) = &self.source_gate {
+            gate.pass().await;
+        }
         Ok(self.changes.lock().unwrap().clone())
+    }
+
+    async fn registry_auth(
+        &self, _host: &str,
+    ) -> DomainResult<Option<pipedash_plugin_api::RegistryAuth>> {
+        Ok(self.registry_login.lock().unwrap().clone())
     }
 
     async fn artifact_provenance(

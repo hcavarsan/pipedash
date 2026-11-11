@@ -5,13 +5,24 @@ use chrono::{
     TimeZone,
     Utc,
 };
+use pipedash_plugin_api::CommitComparison;
 
+use super::super::tests::{
+    builder,
+    run_with,
+    sha,
+    source,
+    target,
+    unit,
+    Fx,
+};
 use super::super::{
     copy,
     CorrelationDeps,
     CorrelationService,
 };
 use crate::application::test_support::Harness;
+use crate::application::test_support::StubProvider;
 use crate::domain::application::metrics::{
     ApplicationMetrics,
     ApplicationMetricsQuery,
@@ -19,6 +30,7 @@ use crate::domain::application::metrics::{
     MetricResult,
 };
 use crate::domain::metrics::AggregationPeriod;
+use crate::domain::PipelineRun;
 use crate::infrastructure::database::{
     ApplicationRow,
     ApplicationTargetRow,
@@ -456,4 +468,77 @@ async fn lead_time_without_commit_times_is_unavailable() {
     let lead = metric(&metrics, MetricId::LeadTime);
     assert_eq!(lead.value, None);
     assert_eq!(lead.unavailable_reason, Some(copy::no_commit_times()));
+}
+
+fn timed(mut run: PipelineRun, hour: u32) -> PipelineRun {
+    run.started_at = at(hour, 0);
+    run.concluded_at = Some(at(hour, 5));
+    run.duration_seconds = Some(300);
+    run
+}
+
+#[tokio::test]
+async fn rollback_shows_drift() {
+    const REPO: &str = "git.test/shop/api";
+    let fx = Fx::new().await;
+    let ci = fx.provider("ci").await;
+    let gitops = fx.provider("gitops").await;
+    let build = builder(ci, "build", vec![source(REPO, &[], None)]);
+    fx.apply(ci, vec![build.clone()]).await;
+    let mut api = unit(gitops, "api-prod");
+    api.correlation.sources = vec![source(REPO, &[], Some('1'))];
+    api.correlation.targets = vec![target("1", "shop", "shop")];
+    fx.apply(gitops, vec![api.clone()]).await;
+    let builds = [('1', 1, 8), ('2', 2, 13)].map(|(commit, number, hour)| {
+        timed(
+            run_with(
+                &build.id,
+                number,
+                vec![source(REPO, &[], Some(commit))],
+                vec![],
+            ),
+            hour,
+        )
+    });
+    fx.runs(ci, &build.id, builds.into()).await;
+    let deploys = [('1', 1, 9), ('2', 2, 14), ('1', 3, 15)].map(|(commit, number, hour)| {
+        timed(
+            run_with(
+                &api.id,
+                number,
+                vec![source(REPO, &[], Some(commit))],
+                vec![],
+            ),
+            hour,
+        )
+    });
+    fx.runs(gitops, &api.id, deploys.into()).await;
+    fx.h.add_stub(|id| {
+        StubProvider::new(id)
+            .with_source_hosts(&["git.test"])
+            .with_comparison(CommitComparison {
+                ahead: 1,
+                behind: 0,
+                commits: vec![sha('2')],
+            })
+    })
+    .await;
+
+    let application = fx.app("api-prod").await.id;
+    let group = fx.svc.application_state(application).await.unwrap().groups[0]
+        .key
+        .clone();
+    assert_eq!(fx.svc.behind_commits(application, &group).await, Some(1));
+    let metrics = fx
+        .svc
+        .metrics(ApplicationMetricsQuery {
+            application_id: application,
+            group_key: None,
+            from: at(0, 0),
+            to: at(23, 59),
+            period: AggregationPeriod::Daily,
+        })
+        .await
+        .unwrap();
+    assert_eq!(metric(&metrics, MetricId::Drift).value, Some(1.0));
 }

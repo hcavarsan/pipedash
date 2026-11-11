@@ -48,6 +48,7 @@ use super::super::{
     CorrelationDeps,
     CorrelationService,
 };
+use crate::application::services::provider_service::ProviderService;
 use crate::application::test_support::{
     pipeline,
     stub_run,
@@ -238,12 +239,22 @@ pub(super) fn digest_of(body: &[u8]) -> String {
 }
 
 pub(super) async fn registry(routes: Vec<(String, Vec<u8>)>) -> String {
+    registry_after(routes, None).await
+}
+
+pub(super) async fn registry_after(
+    routes: Vec<(String, Vec<u8>)>, removing: Option<(Arc<ProviderService>, i64)>,
+) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     tokio::spawn(async move {
         while let Ok((mut socket, _)) = listener.accept().await {
             let routes = routes.clone();
+            let removing = removing.clone();
             tokio::spawn(async move {
+                if let Some((service, provider)) = removing {
+                    let _ = service.remove_provider(provider).await;
+                }
                 let mut buffer = vec![0u8; 8192];
                 let read = socket.read(&mut buffer).await.unwrap_or(0);
                 let request = String::from_utf8_lossy(&buffer[..read]).to_string();

@@ -1,7 +1,10 @@
 use std::sync::atomic::Ordering;
 
 use chrono::Utc;
-use pipedash_plugin_api::ChangedFile;
+use pipedash_plugin_api::{
+    ChangedFile,
+    RegistryAuth,
+};
 
 use super::super::super::vocab::{
     commit_node_id,
@@ -12,10 +15,12 @@ use super::super::tests::{
     digest,
     digest_of,
     registry,
+    registry_after,
     sha,
     Fixture,
 };
 use super::added_references;
+use crate::application::test_support::Gate;
 use crate::infrastructure::database::PIPELINE_LEVEL;
 
 const CONFIG_REPO: &str = "git.test/shop/config";
@@ -181,4 +186,108 @@ async fn a_tag_resolving_to_the_running_digest_links() {
         .unwrap();
     assert_eq!(edges.len(), 1);
     assert_eq!(edges[0].to_id, running);
+}
+
+#[tokio::test]
+async fn a_superseded_changes_response_writes_no_lineage_edge() {
+    let f = Fixture::new().await;
+    let running = digest('d');
+    let gate = Gate::new();
+    let (provider, _) = f
+        .stub(|stub| {
+            stub.with_source_hosts(&["git.test"])
+                .with_changes(patch(&format!(
+                    "+  image: registry.test/shop/api@{running}\n"
+                )))
+                .source_gated(&gate)
+        })
+        .await;
+    unit_at_config_commit(&f, provider, &running).await;
+    let service = f.service.clone();
+    let pass = tokio::spawn(async move { service.follow_lineage().await });
+    gate.arrived().await;
+    f.h.provider_service
+        .remove_provider(provider)
+        .await
+        .unwrap();
+    gate.open();
+
+    assert!(pass.await.unwrap().unwrap().is_empty());
+
+    let node = commit_node_id(CONFIG_REPO, &sha('c'));
+    assert!(f
+        .service
+        .store
+        .conn()
+        .list_edges_from(COMMIT, &node)
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+async fn tag_edges_with_credentials(supersede: bool) -> usize {
+    let f = Fixture::new().await;
+    let manifest = serde_json::json!({
+        "schemaVersion": 2,
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "config": {
+            "mediaType": "application/vnd.oci.image.config.v1+json",
+            "digest": digest('c'),
+            "size": 2,
+        },
+        "layers": [],
+    })
+    .to_string()
+    .into_bytes();
+    let running = digest_of(&manifest);
+    let (login, _) = f
+        .stub(|stub| {
+            stub.with_registry_auth(RegistryAuth {
+                username: None,
+                secret: "token".into(),
+                bearer: true,
+            })
+        })
+        .await;
+    let removing = supersede.then(|| (f.h.provider_service.clone(), login));
+    let host = registry_after(
+        vec![("/v2/shop/api/manifests/v1".to_string(), manifest)],
+        removing,
+    )
+    .await;
+    let repository = format!("{host}/shop/api");
+    let (provider, _) = f
+        .stub(|stub| {
+            stub.with_source_hosts(&["git.test"])
+                .with_changes(patch(&format!("+  image: {repository}:v1\n")))
+        })
+        .await;
+    let subject = format!("stub__{provider}__api-prod");
+    f.consume(provider, &subject, &running, &repository, Utc::now())
+        .await;
+    f.source(
+        provider,
+        &subject,
+        PIPELINE_LEVEL,
+        CONFIG_REPO,
+        Some(&sha('c')),
+    )
+    .await;
+
+    f.service.follow_lineage().await.unwrap();
+
+    let node = commit_node_id(CONFIG_REPO, &sha('c'));
+    f.service
+        .store
+        .conn()
+        .list_edges_from(COMMIT, &node)
+        .await
+        .unwrap()
+        .len()
+}
+
+#[tokio::test]
+async fn a_tag_lookup_with_superseded_credentials_writes_no_edge() {
+    assert_eq!(tag_edges_with_credentials(false).await, 1);
+    assert_eq!(tag_edges_with_credentials(true).await, 0);
 }

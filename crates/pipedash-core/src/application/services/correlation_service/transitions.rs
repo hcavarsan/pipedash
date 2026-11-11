@@ -50,7 +50,7 @@ impl Snapshot {
     }
 }
 
-fn health_of(pipeline: &Pipeline) -> Option<String> {
+pub(super) fn health_of(pipeline: &Pipeline) -> Option<String> {
     pipeline.resource_state.as_ref().map(|s| s.label.clone())
 }
 

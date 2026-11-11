@@ -75,7 +75,7 @@ async fn harness(name: &str) -> Harness {
     let mut config = PipedashConfig::default();
     config.storage.backend = StorageBackendType::Sqlite;
     config.storage.data_dir = data_dir.display().to_string();
-    config.storage.vault_password = Some("vault-password".into());
+    config.storage.vault_password = Some(format!("vault-{}", std::process::id()));
     let storage_manager = StorageManager::from_config(config, false).await.unwrap();
     let provider_id = storage_manager
         .config_backend()

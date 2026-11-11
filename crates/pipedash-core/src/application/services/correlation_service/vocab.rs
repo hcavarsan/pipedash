@@ -20,6 +20,7 @@ pub(super) const ATTESTATION: &str = "attestation";
 pub(super) const LOG_PUSH: &str = "log_push";
 pub(super) const ATTESTATION_COMMIT: &str = "attestation_commit";
 pub(super) const LABEL_CONFIRMED: &str = "label_confirmed";
+pub(super) const USER_CONFIRMED: &str = "user_confirmed";
 pub(super) const UNIT_CONSUMED: &str = "unit_consumed";
 pub(super) const UNIT_SOURCE_COMMIT: &str = "unit_source_commit";
 pub(super) const CONFIG_LINEAGE: &str = "config_lineage";

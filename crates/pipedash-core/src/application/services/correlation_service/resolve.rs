@@ -29,10 +29,7 @@ use super::world::{
     Affected,
     World,
 };
-use super::{
-    CorrelationService,
-    HISTORY_BACKFILL_LIMIT,
-};
+use super::CorrelationService;
 use crate::domain::DomainResult;
 use crate::infrastructure::database::CorrelationConn;
 use crate::infrastructure::PipedashConfig;
@@ -139,27 +136,9 @@ impl CorrelationService {
         if resolved.changed {
             self.changed();
         }
-        self.backfill(resolved.joined);
+        self.refetch_history(resolved.joined);
         self.schedule_changes(resolved.applications);
         resolved.changed
-    }
-
-    fn backfill(&self, pipelines: Vec<String>) {
-        for pipeline in pipelines {
-            let service = Arc::clone(&self.pipeline_service);
-            let permits = Arc::clone(&self.enrich_permits);
-            self.spawn(async move {
-                let Ok(_permit) = permits.acquire_owned().await else {
-                    return;
-                };
-                if let Err(error) = service
-                    .fetch_run_history(&pipeline, HISTORY_BACKFILL_LIMIT)
-                    .await
-                {
-                    tracing::warn!(%error, pipeline, "Run history backfill failed");
-                }
-            });
-        }
     }
 
     pub(super) async fn resolve_in(

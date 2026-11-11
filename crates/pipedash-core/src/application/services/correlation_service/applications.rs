@@ -8,6 +8,7 @@ use super::configured::{
     ConfigApp,
 };
 use super::stored::{
+    confirmed,
     Identity,
     Op,
 };
@@ -47,6 +48,7 @@ pub(super) struct Plan {
     pub unit_app: BTreeMap<String, String>,
     pub unit_source: BTreeMap<String, MemberSource>,
     pub rejected: BTreeSet<String>,
+    pub confirmed: BTreeMap<String, BTreeSet<String>>,
     pub unlinked: BTreeSet<(String, String)>,
     pub stages: BTreeMap<(String, String), Stage>,
     pub warnings: BTreeMap<String, Vec<String>>,
@@ -186,7 +188,10 @@ impl Draft {
             } => self
                 .stages
                 .push((application.clone(), pipeline_id.clone(), *stage)),
-            Op::TargetName { .. } | Op::TargetGroup { .. } | Op::Direction { .. } => {}
+            Op::TargetName { .. }
+            | Op::TargetGroup { .. }
+            | Op::Direction { .. }
+            | Op::Confirm { .. } => {}
         }
     }
 
@@ -300,6 +305,7 @@ pub(super) fn plan(world: &World) -> Plan {
     }
     let mut plan = Plan {
         rejected: draft.rejected.clone(),
+        confirmed: confirmed(&world.overrides),
         unlinked: draft
             .unlinked
             .iter()

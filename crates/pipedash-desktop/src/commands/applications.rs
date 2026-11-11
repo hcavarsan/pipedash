@@ -158,3 +158,6 @@ pub async fn get_deploy_changes(
         .deploy_changes(&pipeline_id, run_number)
         .await?)
 }
+
+#[cfg(test)]
+mod tests;
