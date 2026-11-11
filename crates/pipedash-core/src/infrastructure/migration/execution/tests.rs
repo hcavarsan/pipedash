@@ -189,14 +189,11 @@ async fn migration_skips_data_deselected_after_planning() {
 }
 
 #[cfg(feature = "postgres")]
-#[tokio::test]
-#[ignore = "requires TEST_DATABASE_URL"]
-async fn postgres_connection_change_copies_providers_and_history_after_restart() {
+async fn scratch_postgres(
+    root: &TempDir, sides: &[&str],
+) -> (sqlx::PgConnection, Vec<String>, PipedashConfig) {
     use sqlx::Connection;
 
-    let root = TempDir::new().unwrap();
-    let config_path = root.path().join("config.toml");
-    let _env = EnvGuard::set(&[("PIPEDASH_CONFIG_PATH", config_path.to_str())]);
     let database_url = std::env::var("TEST_DATABASE_URL").unwrap();
     let mut admin = sqlx::PgConnection::connect(&database_url).await.unwrap();
     let suffix: String = root
@@ -208,7 +205,7 @@ async fn postgres_connection_change_copies_providers_and_history_after_restart()
         .filter(char::is_ascii_alphanumeric)
         .collect();
     let mut urls = Vec::new();
-    for side in ["source", "target"] {
+    for side in sides {
         let database = format!("migration_{suffix}_{side}").to_ascii_lowercase();
         sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE DATABASE {database}")))
             .execute(&mut admin)
@@ -222,7 +219,98 @@ async fn postgres_connection_change_copies_providers_and_history_after_restart()
     source.storage.data_dir = root.path().to_string_lossy().to_string();
     source.storage.backend = crate::infrastructure::config::StorageBackend::Postgres;
     source.storage.postgres.connection_string = urls[0].clone();
-    source.storage.vault_password = Some("test-password".to_string());
+    source.storage.vault_password = Some(suffix);
+    (admin, urls, source)
+}
+
+#[cfg(feature = "postgres")]
+async fn drop_scratch_postgres(mut admin: sqlx::PgConnection, urls: Vec<String>) {
+    for connection_string in urls {
+        let url = url::Url::parse(&connection_string).unwrap();
+        let database = url.path().trim_start_matches('/');
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "DROP DATABASE {database} WITH (FORCE)"
+        )))
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    }
+}
+
+#[cfg(feature = "postgres")]
+#[tokio::test]
+#[ignore = "requires TEST_DATABASE_URL"]
+async fn postgres_connection_option_edit_keeps_one_copy_of_saved_views() {
+    use crate::domain::{
+        ViewDisplay,
+        ViewKind,
+        ViewRules,
+    };
+    use crate::infrastructure::database::PipelineViewRepository;
+
+    let root = TempDir::new().unwrap();
+    let config_path = root.path().join("config.toml");
+    let _env = EnvGuard::set(&[("PIPEDASH_CONFIG_PATH", config_path.to_str())]);
+    let (admin, urls, source) = scratch_postgres(&root, &["options"]).await;
+    std::fs::write(&config_path, toml::to_string(&source).unwrap()).unwrap();
+    let mut target = source.clone();
+    target.storage.postgres.connection_string = format!("{}?application_name=pipedash", urls[0]);
+    let manager = StorageManager::from_config(source, false).await.unwrap();
+    let views = PipelineViewRepository::new(manager.database_pool());
+    views
+        .insert_custom(
+            "saved-view",
+            None,
+            &ViewRules::default(),
+            &ViewDisplay::default(),
+        )
+        .await
+        .unwrap();
+    let analysis = analyze_config(
+        &toml::to_string(&target).unwrap(),
+        &manager,
+        None,
+        None,
+        &registry(),
+    )
+    .await
+    .unwrap();
+    assert!(analysis.valid, "{:?}", analysis.errors);
+    assert!(analysis.migration_plan.is_none());
+    let orchestrator = MigrationOrchestrator::from_manager(&manager, None, None).await;
+    let options = MigrationOptions {
+        migrate_cache: true,
+        migrate_tokens: true,
+        token_password: target.storage.vault_password.clone(),
+        ..Default::default()
+    };
+    let plan = orchestrator.plan_migration(target, &options).unwrap();
+    assert!(!plan.migrate_configs);
+    let result = orchestrator.execute_migration(plan, options, false).await;
+    assert!(result.success, "{:?}", result.errors);
+    let custom_views: Vec<String> = views
+        .list_views()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|view| view.kind == ViewKind::Custom)
+        .map(|view| view.name)
+        .collect();
+    assert_eq!(custom_views, ["saved-view"]);
+    drop(views);
+    drop(orchestrator);
+    drop(manager);
+    drop_scratch_postgres(admin, urls).await;
+}
+
+#[cfg(feature = "postgres")]
+#[tokio::test]
+#[ignore = "requires TEST_DATABASE_URL"]
+async fn postgres_connection_change_copies_providers_and_history_after_restart() {
+    let root = TempDir::new().unwrap();
+    let config_path = root.path().join("config.toml");
+    let _env = EnvGuard::set(&[("PIPEDASH_CONFIG_PATH", config_path.to_str())]);
+    let (admin, urls, source) = scratch_postgres(&root, &["source", "target"]).await;
     std::fs::write(&config_path, toml::to_string(&source).unwrap()).unwrap();
     let mut target = source.clone();
     target.storage.postgres.connection_string = urls[1].clone();
@@ -284,7 +372,7 @@ async fn postgres_connection_change_copies_providers_and_history_after_restart()
     let options = MigrationOptions {
         migrate_cache: true,
         migrate_tokens: true,
-        token_password: Some("test-password".to_string()),
+        token_password: target.storage.vault_password.clone(),
         ..Default::default()
     };
     let plan = orchestrator
@@ -338,14 +426,5 @@ async fn postgres_connection_change_copies_providers_and_history_after_restart()
     drop(orchestrator);
     drop(manager);
     drop(reopened);
-    for connection_string in urls {
-        let url = url::Url::parse(&connection_string).unwrap();
-        let database = url.path().trim_start_matches('/');
-        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-            "DROP DATABASE {database} WITH (FORCE)"
-        )))
-        .execute(&mut admin)
-        .await
-        .unwrap();
-    }
+    drop_scratch_postgres(admin, urls).await;
 }
