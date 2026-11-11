@@ -11,6 +11,7 @@ use pipedash_plugin_api::correlation::{
     TargetObservation,
 };
 
+use super::super::tests::settle;
 use super::super::CorrelationService;
 use crate::application::services::pipeline_service::observer::FetchObserver;
 use crate::application::test_support::{
@@ -49,6 +50,7 @@ const PROVIDERS: &str =
 const SHOP: &str = "[applications.shop]\nname = \"Shop\"\n\n[[applications.shop.members]]\nprovider = \"ci\"\npipeline = \"shop-*\"\n\n[applications.shop.targets.qa]\nname = \"QA\"\nnamespaces = [\"shop-api\"]\n\n[applications.shop.targets.prod]\nname = \"Prod\"\nnamespaces = [\"shop-prod\"]\nafter = [\"qa\"]\n";
 
 async fn list_named(h: &Harness, name: &str) -> ApplicationSummary {
+    settle(service(h)).await;
     service(h)
         .list(ApplicationListQuery {
             include_hidden: true,
@@ -528,6 +530,7 @@ async fn commit_emits_exactly_one_applications_changed() {
 }
 
 async fn warnings_of(h: &Harness, name: &str) -> Vec<String> {
+    settle(service(h)).await;
     service(h)
         .list(ApplicationListQuery {
             include_hidden: true,
@@ -609,6 +612,7 @@ async fn file_wins_over_a_ui_override_which_is_then_shadowed() {
 
     let snap = snapshot(&h).await;
     assert_eq!(members_of(&snap, "shop").len(), 1);
+    settle(service(&h)).await;
     let detail = service(&h).detail(mine.summary.id).await.unwrap();
     assert!(
         detail.overrides.iter().any(|o| o.shadowed),
@@ -644,6 +648,7 @@ async fn copy_as_toml_loaded_as_config_gives_the_same_members_and_targets() {
     let snap = snapshot(&h).await;
     let config = config_apps(&snap);
     assert_eq!(config.len(), 1);
+    settle(service(&h)).await;
     let detail = service(&h).detail(config[0].id).await.unwrap();
     let loaded: Vec<String> = detail
         .members
@@ -728,6 +733,7 @@ async fn provider_only_change_emits_no_applications_changed_and_a_valid_file_cle
 const CHECKOUT: &str = "[applications.checkout]\nname = \"Checkout\"\n\n[[applications.checkout.members]]\nprovider = \"ci\"\npipeline = \"checkout-*\"\n\n[applications.checkout.targets.qa]\nname = \"QA\"\nnamespaces = [\"checkout-qa\"]\n\n[applications.checkout.targets.staging]\nname = \"Staging\"\nnamespaces = [\"checkout-staging\"]\nafter = [\"qa\"]\n\n[applications.checkout.targets.prod]\nname = \"Prod\"\nnamespaces = [\"checkout-prod\"]\nafter = [\"staging\"]\n";
 
 async fn listed(h: &Harness) -> Vec<ApplicationSummary> {
+    settle(service(h)).await;
     service(h)
         .list(ApplicationListQuery {
             include_hidden: true,

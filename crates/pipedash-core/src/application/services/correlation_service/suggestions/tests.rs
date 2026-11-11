@@ -39,6 +39,7 @@ async fn labelled_unit(fx: &Fx) -> (i64, Pipeline) {
 }
 
 async fn mark_label(fx: &Fx) {
+    fx.settle().await;
     fx.svc
         .store
         .conn()
@@ -215,6 +216,7 @@ async fn accepting_through_the_application_edit_stores_a_described_link_override
     for part in [digest('a').as_str(), REPO, sha('c').as_str()] {
         assert!(stored[0].value_json.contains(part), "{part}");
     }
+    fx.settle().await;
     let state = fx.svc.application_state(app.id).await.unwrap();
     assert_eq!(state.overrides.len(), 1);
     assert!(state.overrides[0].description.contains(REPO));
@@ -316,6 +318,7 @@ async fn an_ownerless_confirmation_is_listed_on_the_consumer_and_can_be_reverted
     api.correlation.targets = vec![target("1", "shop", "shop")];
     api.correlation.consumed = vec![consumed(IMAGE, digest('a'), Some(0))];
     fx.apply(gitops, vec![api]).await;
+    fx.settle().await;
     let app = fx.app("api").await;
 
     let state = fx.svc.application_state(app.id).await.unwrap();

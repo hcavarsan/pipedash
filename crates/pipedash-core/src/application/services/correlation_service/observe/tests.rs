@@ -96,6 +96,7 @@ async fn until(done: impl Fn() -> bool) {
 }
 
 async fn emitted(fx: &Fx) -> usize {
+    fx.settle().await;
     fx.svc.flush_events().await;
     fx.h.bus.count("applications-changed")
 }

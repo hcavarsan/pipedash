@@ -79,6 +79,7 @@ async fn a_pipeline_matching_two_config_applications_is_claimed_by_neither() {
     let second = fx.app("Second").await;
     assert!(fx.members(first.id).await.is_empty());
     assert!(fx.members(second.id).await.is_empty());
+    fx.settle().await;
     for id in [first.id, second.id] {
         let state = fx.svc.application_state(id).await.unwrap();
         assert!(state.warnings.iter().any(|w| w.contains("svc-api")));

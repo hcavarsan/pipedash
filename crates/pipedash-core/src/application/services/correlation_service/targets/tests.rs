@@ -43,6 +43,7 @@ async fn shared_namespace_keeps_separate_target_names() {
         .unwrap();
     assert_eq!(api_rows[0].name, "Production");
     assert_eq!(web_rows[0].name, "Prod");
+    fx.settle().await;
     let api_state = fx.svc.application_state(api_app.id).await.unwrap();
     let web_state = fx.svc.application_state(web_app.id).await.unwrap();
     assert_eq!(api_state.groups[0].label, "Live");

@@ -39,6 +39,7 @@ use crate::infrastructure::PipedashConfig;
 const IMAGE: &str = "registry.test/shop/api";
 
 async fn names(fx: &Fx, query: ApplicationListQuery) -> Vec<String> {
+    fx.settle().await;
     fx.svc
         .list(query)
         .await
@@ -50,6 +51,7 @@ async fn names(fx: &Fx, query: ApplicationListQuery) -> Vec<String> {
 }
 
 async fn first_app(fx: &Fx) -> ApplicationSummary {
+    fx.settle().await;
     let mut list = fx.svc.list(ApplicationListQuery::default()).await.unwrap();
     list.applications.remove(0)
 }
@@ -71,6 +73,7 @@ async fn deployed_api(fx: &Fx) -> (Pipeline, Pipeline, ApplicationDetail) {
     api.correlation.targets = vec![target("1", "shop", "shop")];
     api.correlation.consumed = vec![consumed(IMAGE, digest('a'), Some(0))];
     fx.apply(gitops, vec![api.clone()]).await;
+    fx.settle().await;
     let detail = fx.svc.detail(fx.app("api-prod").await.id).await.unwrap();
     (build, api, detail)
 }
@@ -211,6 +214,7 @@ async fn open_suggestions_show_in_the_list_and_as_dashed_siblings() {
     let mut third = unit(ci, "solo");
     third.correlation.targets = vec![target("1", "c", "c")];
     fx.apply(ci, vec![first, second.clone(), third]).await;
+    fx.settle().await;
 
     let list = fx.svc.list(ApplicationListQuery::default()).await.unwrap();
     assert_eq!(list.suggestion_count, 1);
@@ -276,6 +280,7 @@ async fn arrows_and_columns_come_only_from_directions() {
     preview.correlation.app_ref = Some(app_ref("checkout"));
     preview.correlation.targets = vec![target("1", "preview", "Preview")];
     fx.apply(ci, vec![qa, prod, preview]).await;
+    fx.settle().await;
 
     let detail = fx.svc.detail(fx.app("checkout").await.id).await.unwrap();
     assert_eq!(detail.summary.chips.len(), 3);
@@ -328,6 +333,7 @@ async fn chips_follow_target_directions() {
         ],
     )
     .await;
+    fx.settle().await;
 
     let id = fx.app("checkout").await.id;
     let detail = fx.svc.detail(id).await.unwrap();
@@ -392,6 +398,7 @@ async fn changes_page_has_one_cell_per_stage_and_marks_the_live_commit() {
     fx.runs(ci, &build.id, builds).await;
     let deploy = run_with(&api.id, 1, vec![source(repo, &[], Some('2'))], Vec::new());
     fx.runs(gitops, &api.id, vec![deploy]).await;
+    fx.settle().await;
     let id = fx.app("api-prod").await.id;
 
     let page = fx.svc.changes(id, None, 10).await.unwrap();
@@ -446,6 +453,7 @@ async fn config_defined_application_is_read_only_and_has_no_toml() {
     let mut api = unit(provider, "shop-api");
     api.correlation.targets = vec![target("1", "shop", "shop")];
     fx.apply(provider, vec![api]).await;
+    fx.settle().await;
 
     let list = fx.svc.list(ApplicationListQuery::default()).await.unwrap();
     let summary = &list.applications[0];

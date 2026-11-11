@@ -122,6 +122,23 @@ pub(super) fn run_with(
     run
 }
 
+pub(super) async fn settle(svc: &CorrelationService) {
+    let wait = std::time::Duration::from_secs(1);
+    loop {
+        let mut tasks = std::mem::take(
+            &mut *svc
+                .background
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+        if tasks.is_empty() {
+            return;
+        }
+        while let Ok(Some(_)) = tokio::time::timeout(wait, tasks.join_next()).await {}
+        tasks.abort_all();
+    }
+}
+
 impl Fx {
     pub(super) async fn new() -> Self {
         let h = Harness::new().await;
@@ -201,16 +218,7 @@ impl Fx {
     }
 
     pub(super) async fn settle(&self) {
-        let mut tasks = std::mem::take(
-            &mut *self
-                .svc
-                .background
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner),
-        );
-        let wait = std::time::Duration::from_secs(1);
-        while let Ok(Some(_)) = tokio::time::timeout(wait, tasks.join_next()).await {}
-        tasks.abort_all();
+        settle(&self.svc).await;
     }
 
     pub(super) async fn open(&self) -> Vec<OpenSuggestion> {

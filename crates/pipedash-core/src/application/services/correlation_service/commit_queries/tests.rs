@@ -46,6 +46,7 @@ async fn shop(fx: &Fx) -> Shop {
     api.correlation.sources = vec![source(REPO, &[], Some('2'))];
     api.correlation.targets = vec![target("1", "shop", "shop")];
     fx.apply(gitops, vec![api.clone()]).await;
+    fx.settle().await;
     Shop {
         build,
         api,
@@ -100,6 +101,7 @@ async fn commit_locations_tell_live_behind_and_not_deployed() {
         })
         .collect();
     fx.runs(shop.ci, &shop.build.id, builds).await;
+    fx.settle().await;
 
     let live = fx.svc.commit_locations(&shop.build.id, 2).await.unwrap();
     assert_eq!(live.title, copy::commit_locations_title());
@@ -177,6 +179,7 @@ async fn deploy_changes_list_the_commits_since_the_last_live_deploy() {
     );
     failed.status = PipelineStatus::Failed;
     fx.runs(shop.gitops, &shop.api.id, vec![good, failed]).await;
+    fx.settle().await;
 
     let first = fx.svc.deploy_changes(&shop.api.id, 1).await.unwrap();
     assert_eq!(first.title, copy::deploy_changes_title());
