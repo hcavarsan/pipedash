@@ -96,7 +96,7 @@ pub(in super::super) fn override_entries(
         .iter()
         .filter_map(|stored| {
             let displaced = displaced_into(plan, stored, &encoded);
-            if !displaced && !belongs(plan, stored, application.id, &identity, &encoded) {
+            if !displaced && !belongs(world, plan, stored, application.id, &identity, &encoded) {
                 return None;
             }
             Some(OverrideEntry {
@@ -129,8 +129,20 @@ fn displaced_into(plan: &Plan, stored: &StoredOverride, encoded: &str) -> bool {
             .is_some_and(|into| into.contains(encoded))
 }
 
+fn consumes(world: &World, id: i64, digest: &str) -> bool {
+    world.members.get(&id).into_iter().flatten().any(|member| {
+        world
+            .subjects
+            .get(&member.pipeline_id)
+            .is_some_and(|subject| {
+                subject.unit.is_some() && subject.consumed_digests().contains(digest)
+            })
+    })
+}
+
 fn belongs(
-    plan: &Plan, stored: &StoredOverride, id: i64, identity: &Identity, encoded: &str,
+    world: &World, plan: &Plan, stored: &StoredOverride, id: i64, identity: &Identity,
+    encoded: &str,
 ) -> bool {
     stored.application_id == Some(id)
         || stored.op.owned_key() == Some(identity.key.as_str())
@@ -138,4 +150,5 @@ fn belongs(
             .op
             .application()
             .is_some_and(|app| plan.final_identity(app) == encoded)
+        || matches!(&stored.op, Op::Confirm { digest, .. } if consumes(world, id, digest))
 }

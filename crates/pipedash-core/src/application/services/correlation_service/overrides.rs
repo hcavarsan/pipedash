@@ -202,14 +202,17 @@ impl CorrelationService {
         let _guard = self.write_lock.lock().await;
         let mut tx = self.store.begin().await?;
         let result = self.revert_in(&mut tx, application_id, override_id).await;
-        let resolved = finish(tx, result).await?;
+        let (resolved, retag) = finish(tx, result).await?;
         self.conclude(resolved).await;
+        if !retag.is_empty() {
+            self.resolve(&retag).await?;
+        }
         Ok(application_id)
     }
 
     async fn revert_in(
         &self, conn: &mut CorrelationConn, application_id: i64, override_id: i64,
-    ) -> DomainResult<Resolved> {
+    ) -> DomainResult<(Resolved, HashSet<String>)> {
         let row = conn
             .get_application(application_id)
             .await?
@@ -225,8 +228,17 @@ impl CorrelationService {
             return Err(DomainError::NotFound(copy::override_not_found(override_id)));
         };
         let subjects = subjects_of(&world, &[&stored.op], &[application_id]);
+        let confirmation = matches!(stored.op, Op::Confirm { .. });
         conn.delete_override(override_id).await?;
-        self.resolve_subjects_in(conn, &subjects).await
+        let resolved = self.resolve_subjects_in(conn, &subjects).await?;
+        Ok((
+            resolved,
+            if confirmation {
+                subjects
+            } else {
+                HashSet::new()
+            },
+        ))
     }
 
     pub async fn delete_application(&self, id: i64) -> DomainResult<()> {

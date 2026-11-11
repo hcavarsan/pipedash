@@ -5,9 +5,13 @@ use chrono::{
     TimeZone,
     Utc,
 };
-use pipedash_plugin_api::CommitComparison;
+use pipedash_plugin_api::{
+    CommitComparison,
+    UnitId,
+};
 
 use super::super::tests::{
+    app_ref,
     builder,
     run_with,
     sha,
@@ -528,7 +532,7 @@ async fn rollback_shows_drift() {
     let group = fx.svc.application_state(application).await.unwrap().groups[0]
         .key
         .clone();
-    assert_eq!(fx.svc.behind_commits(application, &group).await, Some(1));
+    assert_eq!(behind_in(&fx, application, &group).await, Some(1));
     let metrics = fx
         .svc
         .metrics(ApplicationMetricsQuery {
@@ -541,4 +545,58 @@ async fn rollback_shows_drift() {
         .await
         .unwrap();
     assert_eq!(metric(&metrics, MetricId::Drift).value, Some(1.0));
+}
+
+async fn behind_in(fx: &Fx, application: i64, group: &str) -> Option<u32> {
+    let lives = fx.svc.live_of(application).await.unwrap();
+    let live = lives.get(group).map_or(&[][..], Vec::as_slice);
+    fx.svc.behind_from(application, group, live).await
+}
+
+#[tokio::test]
+async fn mixed_group_reports_the_largest_gap() {
+    const REPO: &str = "git.test/shop/api";
+    let fx = Fx::new().await;
+    let ci = fx.provider("ci").await;
+    let gitops = fx.provider("gitops").await;
+    let build = builder(ci, "build", vec![source(REPO, &[], None)]);
+    fx.apply(ci, vec![build.clone()]).await;
+    let mut units = Vec::new();
+    for (name, uid, commit) in [("shop-eu", "1", '2'), ("shop-us", "2", '1')] {
+        let mut member = unit(gitops, name);
+        member.correlation.app_ref = Some(app_ref("shop"));
+        member.correlation.unit_parent = UnitId::new("shop-set");
+        member.correlation.sources = vec![source(REPO, &[], Some(commit))];
+        member.correlation.targets = vec![target(uid, name, name)];
+        units.push(member);
+    }
+    fx.apply(gitops, units.clone()).await;
+    let builds = [('1', 1, 8), ('2', 2, 13)].map(|(commit, number, hour)| {
+        timed(
+            run_with(
+                &build.id,
+                number,
+                vec![source(REPO, &[], Some(commit))],
+                vec![],
+            ),
+            hour,
+        )
+    });
+    fx.runs(ci, &build.id, builds.into()).await;
+    fx.h.add_stub(|id| {
+        StubProvider::new(id)
+            .with_source_hosts(&["git.test"])
+            .with_comparison(CommitComparison {
+                ahead: 2,
+                behind: 0,
+                commits: vec![sha('1'), sha('2')],
+            })
+    })
+    .await;
+
+    let application = fx.app("shop").await.id;
+    let state = fx.svc.application_state(application).await.unwrap();
+    assert_eq!(state.groups.len(), 1);
+    let group = state.groups[0].key.clone();
+    assert_eq!(behind_in(&fx, application, &group).await, Some(2));
 }

@@ -52,6 +52,25 @@ async fn mark_label(fx: &Fx) {
         .unwrap();
     fx.svc.resolve_all().await.unwrap();
 }
+
+async fn labelled_artifact(fx: &Fx) {
+    fx.svc
+        .store
+        .conn()
+        .upsert_artifact(&ArtifactRow {
+            digest: digest('a').as_str().to_string(),
+            repository: IMAGE.to_string(),
+            first_seen: Utc::now(),
+            label_source: Some(REPO.to_string()),
+            label_revision: Some(sha('c').as_str().to_string()),
+            registry_checked_at: None,
+            log_scanned_at: None,
+        })
+        .await
+        .unwrap();
+    fx.svc.resolve_all().await.unwrap();
+}
+
 #[tokio::test]
 async fn shared_config_repo_does_not_merge() {
     let fx = Fx::new().await;
@@ -205,21 +224,7 @@ async fn accepting_through_the_application_edit_stores_a_described_link_override
 #[tokio::test]
 async fn a_built_from_suggestion_without_an_application_can_be_accepted() {
     let fx = Fx::new().await;
-    fx.svc
-        .store
-        .conn()
-        .upsert_artifact(&ArtifactRow {
-            digest: digest('a').as_str().to_string(),
-            repository: IMAGE.to_string(),
-            first_seen: Utc::now(),
-            label_source: Some(REPO.to_string()),
-            label_revision: Some(sha('c').as_str().to_string()),
-            registry_checked_at: None,
-            log_scanned_at: None,
-        })
-        .await
-        .unwrap();
-    fx.svc.resolve_all().await.unwrap();
+    labelled_artifact(&fx).await;
     let open = fx.open().await;
     assert_eq!(open.len(), 1);
     assert_eq!(open[0].dto.application_id, None);
@@ -291,4 +296,45 @@ async fn rejected_built_from_suggestion_never_returns() {
     assert!(fx.open().await.is_empty());
     assert!(fx.edges(LABEL_UNCONFIRMED).await.is_empty());
     assert!(fx.edges(USER_CONFIRMED).await.is_empty());
+}
+
+#[tokio::test]
+async fn an_ownerless_confirmation_is_listed_on_the_consumer_and_can_be_reverted() {
+    let fx = Fx::new().await;
+    labelled_artifact(&fx).await;
+    let open = fx.open().await;
+    fx.svc
+        .accept_suggestions(vec![open[0].dto.id.clone()], None)
+        .await
+        .unwrap();
+    let stored = fx.svc.store.conn().list_overrides().await.unwrap();
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].application_id, None);
+
+    let gitops = fx.provider("gitops").await;
+    let mut api = unit(gitops, "api");
+    api.correlation.targets = vec![target("1", "shop", "shop")];
+    api.correlation.consumed = vec![consumed(IMAGE, digest('a'), Some(0))];
+    fx.apply(gitops, vec![api]).await;
+    let app = fx.app("api").await;
+
+    let state = fx.svc.application_state(app.id).await.unwrap();
+    assert_eq!(state.overrides.len(), 1);
+    assert_eq!(state.overrides[0].id, stored[0].id);
+    assert_eq!(fx.edges(USER_CONFIRMED).await.len(), 1);
+
+    fx.svc.revert_internal(app.id, stored[0].id).await.unwrap();
+
+    assert!(fx
+        .svc
+        .store
+        .conn()
+        .list_overrides()
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(fx.edges(USER_CONFIRMED).await.is_empty());
+    let reopened = fx.open().await;
+    assert_eq!(reopened.len(), 1);
+    assert_eq!(reopened[0].dto.id, open[0].dto.id);
 }

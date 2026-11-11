@@ -13,7 +13,6 @@ use crate::application::services::correlation_service::changes::ChangeData;
 use crate::application::services::correlation_service::page::live::{
     built_from,
     live_commits,
-    primary,
     Live,
 };
 use crate::application::services::correlation_service::{
@@ -35,11 +34,14 @@ struct Heads<'a> {
     green: &'a ChangeData,
 }
 
-fn live_commit<'a>(
+fn live_commits_of<'a>(
     changes: &'a [ChangeData], live: &'a [Live], group_key: &str,
-) -> Option<(&'a str, &'a str)> {
-    if let Some(found) = primary(live) {
-        return Some((&found.repo, &found.sha));
+) -> Vec<(&'a str, &'a str)> {
+    if !live.is_empty() {
+        return live
+            .iter()
+            .map(|found| (found.repo.as_str(), found.sha.as_str()))
+            .collect();
     }
     changes
         .iter()
@@ -48,26 +50,32 @@ fn live_commit<'a>(
         .filter_map(|(run, change)| Some((run.succeeded_at()?, run.run_number, change)))
         .max_by_key(|(at, number, change)| (*at, *number, change.id))
         .map(|(_, _, change)| (change.repo.as_str(), change.commit_sha.as_str()))
+        .into_iter()
+        .collect()
 }
 
-fn heads<'a>(changes: &'a [ChangeData], live: &'a [Live], group_key: &str) -> Option<Heads<'a>> {
-    let (repo, sha) = live_commit(changes, live, group_key)?;
-    let green = changes
-        .iter()
-        .filter(|change| change.repo == repo)
-        .filter_map(|change| Some((change.first_green_build()?.succeeded_at()?, change)))
-        .max_by_key(|(at, change)| (*at, change.id))?
-        .1;
-    let live_id = changes
-        .iter()
-        .find(|change| change.repo == repo && change.commit_sha == sha)
-        .map(|change| change.id);
-    Some(Heads {
-        repo,
-        sha,
-        live_id,
-        green,
-    })
+fn heads<'a>(changes: &'a [ChangeData], live: &'a [Live], group_key: &str) -> Vec<Heads<'a>> {
+    live_commits_of(changes, live, group_key)
+        .into_iter()
+        .filter_map(|(repo, sha)| {
+            let green = changes
+                .iter()
+                .filter(|change| change.repo == repo)
+                .filter_map(|change| Some((change.first_green_build()?.succeeded_at()?, change)))
+                .max_by_key(|(at, change)| (*at, change.id))?
+                .1;
+            let live_id = changes
+                .iter()
+                .find(|change| change.repo == repo && change.commit_sha == sha)
+                .map(|change| change.id);
+            Some(Heads {
+                repo,
+                sha,
+                live_id,
+                green,
+            })
+        })
+        .collect()
 }
 
 pub(super) fn repo_id(stored: &str) -> Option<RepoId> {
@@ -86,7 +94,9 @@ impl CorrelationService {
         Some(self.compare(&repo, &live, &green).await?.ahead)
     }
 
-    async fn live_of(&self, application_id: i64) -> DomainResult<BTreeMap<String, Vec<Live>>> {
+    pub(super) async fn live_of(
+        &self, application_id: i64,
+    ) -> DomainResult<BTreeMap<String, Vec<Live>>> {
         let mut conn = self.store.conn();
         let world = self.load_world(&mut conn).await?;
         let built = built_from(&mut conn).await?;
@@ -103,17 +113,11 @@ impl CorrelationService {
         &self, application_id: i64, group_key: &str, live: &[Live],
     ) -> Option<u32> {
         let changes = self.all_changes(application_id).await.ok()?;
-        self.commits_behind(&heads(&changes, live, group_key)?)
-            .await
-    }
-
-    #[cfg(test)]
-    pub(in crate::application::services::correlation_service) async fn behind_commits(
-        &self, application_id: i64, group_key: &str,
-    ) -> Option<u32> {
-        let lives = self.live_of(application_id).await.ok()?;
-        let live = lives.get(group_key).map_or(&[][..], Vec::as_slice);
-        self.behind_from(application_id, group_key, live).await
+        let mut gap = None;
+        for head in heads(&changes, live, group_key) {
+            gap = gap.max(self.commits_behind(&head).await);
+        }
+        gap
     }
 
     pub(super) async fn drift_metric(&self, ctx: &Ctx, application_id: i64) -> MetricResult {
@@ -124,20 +128,20 @@ impl CorrelationService {
         let mut live_groups = 0;
         for group in ctx.groups.iter().filter(|g| ctx.group_visible(&g.key)) {
             let live = lives.get(&group.key).map_or(&[][..], Vec::as_slice);
-            let Some(group_heads) = heads(&ctx.changes, live, &group.key) else {
+            let group_heads = heads(&ctx.changes, live, &group.key);
+            if group_heads.is_empty() {
                 continue;
-            };
+            }
             live_groups += 1;
-            let ids = group_heads
-                .live_id
-                .into_iter()
-                .chain([group_heads.green.id]);
-            match self.commits_behind(&group_heads).await {
-                Some(count) => {
-                    behind.push(count);
-                    measured.extend(ids);
+            for head in &group_heads {
+                let ids = head.live_id.into_iter().chain([head.green.id]);
+                match self.commits_behind(head).await {
+                    Some(count) => {
+                        behind.push(count);
+                        measured.extend(ids);
+                    }
+                    None => skipped.extend(ids),
                 }
-                None => skipped.extend(ids),
             }
         }
         let skipped_only: BTreeSet<i64> = skipped.difference(&measured).copied().collect();
