@@ -15,6 +15,7 @@ use pipedash_plugin_api::support::{
     run_metadata_str,
     write_in_chunks,
 };
+use pipedash_plugin_api::utils::deployed_status;
 use pipedash_plugin_api::*;
 use tracing::{
     debug,
@@ -40,6 +41,16 @@ plugin_struct!(
 );
 
 impl KomodoPlugin {
+    async fn live_status(&self, stack_id: &str) -> PluginResult<PipelineStatus> {
+        let stacks = self.client()?.list_stacks().await?;
+        let stack = stacks
+            .iter()
+            .find(|stack| stack.id == stack_id)
+            .ok_or_else(|| PluginError::PipelineNotFound(format!("Stack {stack_id} not found")))?;
+
+        Ok(mapper::map_stack_state(&stack.info).0)
+    }
+
     async fn update_started_at(
         &self, stack_id: &str, run_number: i64,
     ) -> PluginResult<types::UpdateListItem> {
@@ -199,12 +210,19 @@ plugin_impl!(KomodoPlugin [
         &self, pipeline_id: &str, limit: usize,
     ) -> PluginResult<Vec<PipelineRun>> {
         let stack_id = config::parse_pipeline_id(pipeline_id)?;
-        let updates = self.client()?.stack_updates(stack_id, limit).await?;
+        let client = self.client()?;
+        let updates = client.stack_updates(stack_id, limit).await?;
 
-        Ok(updates
+        let mut runs: Vec<PipelineRun> = updates
             .iter()
             .map(|update| mapper::map_run(stack_id, &self.server_url, update, None))
-            .collect())
+            .collect();
+        let latest = runs.iter_mut().max_by_key(|run| run.run_number);
+        if let Some(latest) = latest.filter(|run| run.status == PipelineStatus::Success) {
+            latest.status = deployed_status(latest.status, self.live_status(stack_id).await?);
+        }
+
+        Ok(runs)
     }
 
     async fn fetch_run_details(
@@ -219,13 +237,15 @@ plugin_impl!(KomodoPlugin [
         } else {
             Some(client.update(&item.id).await?)
         };
+        let mut run = mapper::map_run(stack_id, &self.server_url, &item, detail.as_ref());
+        if run.status == PipelineStatus::Success {
+            let latest = client.latest_update_starts(&[stack_id]).await?;
+            if latest.get(stack_id) == Some(&run_number) {
+                run.status = deployed_status(run.status, self.live_status(stack_id).await?);
+            }
+        }
 
-        Ok(mapper::map_run(
-            stack_id,
-            &self.server_url,
-            &item,
-            detail.as_ref(),
-        ))
+        Ok(run)
     }
 
     async fn fetch_log_nodes(&self, run: RunRef<'_>) -> PluginResult<Vec<LogNode>> {

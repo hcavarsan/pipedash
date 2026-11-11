@@ -151,6 +151,15 @@ pub fn status_from_conclusion(
     }
 }
 
+pub fn deployed_status(result: PipelineStatus, live: PipelineStatus) -> PipelineStatus {
+    match (result, live) {
+        (PipelineStatus::Success, PipelineStatus::Degraded | PipelineStatus::Failed) => {
+            PipelineStatus::Degraded
+        }
+        _ => result,
+    }
+}
+
 pub fn repository_name(repo_url: &str) -> String {
     let cleaned = repo_url
         .trim_end_matches('/')

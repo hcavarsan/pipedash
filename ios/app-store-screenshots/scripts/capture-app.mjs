@@ -119,10 +119,11 @@ try {
     await capture('01', phone ? 'storefront' : 'Argo CD')
 
     const history = `/pipelines/${encodeURIComponent(failure.id)}`
+    const latestRun = phone ? '#248' : 'Validate checkout API contract'
     await prepare(history, 'API integration tests')
-    await capture('02', 'Validate checkout API contract')
+    await capture('02', latestRun)
 
-    await page.getByText('Validate checkout API contract', { exact: false }).first().click()
+    await page.getByText(latestRun, { exact: false }).first().click()
     if (!phone) await page.getByRole('tab', { name: 'Details', exact: true }).click()
     await capture('03', phone ? 'Contract tests' : 'Actor')
 

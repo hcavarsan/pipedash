@@ -4,7 +4,10 @@ use std::collections::{
 };
 
 use pipedash_plugin_api::plugin::Plugin;
-use pipedash_plugin_api::AuthMode;
+use pipedash_plugin_api::{
+    AuthMode,
+    AUTH_MODE_KEY,
+};
 
 use super::ProviderService;
 use crate::domain::provider_draft::{
@@ -90,7 +93,13 @@ impl ProviderService {
         if draft.name.trim().is_empty() {
             errors.insert(rules::NAME_KEY.to_string(), rules::NAME_ERROR.to_string());
         }
-        for field in rules::active_fields(&metadata.config_schema, draft.auth_mode) {
+        if !metadata.config_schema.allows(draft.auth_mode) {
+            errors.insert(
+                AUTH_MODE_KEY.to_string(),
+                "Choose one of this provider's connection methods".to_string(),
+            );
+        }
+        for field in metadata.config_schema.active_fields(draft.auth_mode) {
             let value = rules::value_of(&values, &field.key);
             active_field_keys.push(field.key.clone());
             if field.required && value.trim().is_empty() {

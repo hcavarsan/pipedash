@@ -196,7 +196,9 @@ pub(crate) fn describes_current_state(run: &PipelineRun) -> bool {
         || run.metadata.contains_key("message_source")
 }
 
-pub(crate) fn build_runs(resource: &FluxResource) -> PluginResult<Vec<PipelineRun>> {
+pub(crate) fn build_runs(
+    resource: &FluxResource, workload_issues: &[String],
+) -> PluginResult<Vec<PipelineRun>> {
     let pipeline_id = target_of(resource).selection_id();
     let current = current_status(resource);
     let latest_version = latest_release_version(resource);
@@ -235,9 +237,16 @@ pub(crate) fn build_runs(resource: &FluxResource) -> PluginResult<Vec<PipelineRu
                 .unwrap_or(candidate.run.started_at)
         })
         .map(|(index, _)| index);
-    let covered = newest.filter(|&index| covers_current(resource, &candidates[index], current));
+    let degraded = degraded_message(current, workload_issues);
+    let newest_end = newest.map(|index| {
+        let run = &candidates[index].run;
+        run.concluded_at.unwrap_or(run.started_at)
+    });
+    let covered = newest.filter(|&index| {
+        degraded.is_none() && covers_current(resource, &candidates[index], current)
+    });
 
-    let snapshot = match covered {
+    let mut snapshot = match covered {
         Some(index) => {
             let (reason, message) = headline(resource, current);
             let metadata = &mut candidates[index].run.metadata;
@@ -256,6 +265,16 @@ pub(crate) fn build_runs(resource: &FluxResource) -> PluginResult<Vec<PipelineRu
                 .max(),
         )?),
     };
+    if let (Some(run), Some(message)) = (snapshot.as_mut(), degraded) {
+        run.status = PipelineStatus::Degraded;
+        run.started_at = newest_end.map_or(run.started_at, |end| end.max(run.started_at));
+        put(
+            &mut run.metadata,
+            "status_label",
+            Some(status_label(PipelineStatus::Degraded)),
+        );
+        put(&mut run.metadata, "message", Some(message.as_str()));
+    }
 
     let mut runs: Vec<PipelineRun> = candidates
         .into_iter()
@@ -267,16 +286,20 @@ pub(crate) fn build_runs(resource: &FluxResource) -> PluginResult<Vec<PipelineRu
     Ok(runs)
 }
 
+fn degraded_message(status: PipelineStatus, workload_issues: &[String]) -> Option<String> {
+    if status != PipelineStatus::Success {
+        return None;
+    }
+    match workload_issues.split_first()? {
+        (first, []) => Some(first.clone()),
+        (first, rest) => Some(format!("{first} (+{} more)", rest.len())),
+    }
+}
+
 pub(crate) fn map_pipeline(resource: &FluxResource, workload_issues: &[String]) -> Pipeline {
     let flux_status = current_status(resource);
     let (reason, flux_message) = headline(resource, flux_status);
-    let degraded = match (flux_status, workload_issues.split_first()) {
-        (PipelineStatus::Success, Some((first, []))) => Some(first.clone()),
-        (PipelineStatus::Success, Some((first, rest))) => {
-            Some(format!("{first} (+{} more)", rest.len()))
-        }
-        _ => None,
-    };
+    let degraded = degraded_message(flux_status, workload_issues);
     let (status, message) = match degraded {
         Some(message) => (PipelineStatus::Degraded, message),
         None => (flux_status, flux_message),

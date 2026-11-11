@@ -118,7 +118,7 @@ function runsFor(pipeline) {
       branch: 'main', actor,
       inputs: { environment: 'Production', version: '2.8.0', ref: 'main', run_tests: true }, metadata: {},
       actions: runActions,
-      display: { title: `#${248 - index}`, message: commit_message, context: [{ label: 'Branch', value: 'main' }, { label: 'Actor', value: actor }], started_label: 'Started' },
+      display: { title: `#${248 - index}`, context: [{ label: 'Branch', value: 'main' }, { label: 'Actor', value: actor }], started_label: 'Started' },
       pace: { live: index === 0 && pipeline.status === 'running', typical_duration_seconds: 250, past_usual: false },
     }
   })

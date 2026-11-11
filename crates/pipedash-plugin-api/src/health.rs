@@ -87,6 +87,7 @@ pub fn status_page_field() -> ConfigField {
             "Must be an https URL without credentials, query or fragment".to_string(),
         ),
         section: ConfigSection::Settings,
+        auth_modes: Vec::new(),
     }
 }
 

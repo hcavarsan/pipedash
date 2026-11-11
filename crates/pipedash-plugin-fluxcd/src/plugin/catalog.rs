@@ -208,6 +208,10 @@ impl FluxcdPlugin {
                 .push(finding.message);
         }
         issues.values_mut().for_each(|found| found.sort());
+        self.degraded
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone_from(&issues);
 
         issues
     }

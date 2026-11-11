@@ -20,8 +20,6 @@ use crate::{
     types::Kind,
 };
 
-const NAMESPACE_LIST_REGEX: &str =
-    r"^$|^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(\s*,\s*[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)*$";
 const FLUX_NAMESPACE_REGEX: &str = r"^$|^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$";
 
 pub(crate) struct PermissionSpec {
@@ -176,10 +174,7 @@ fn create_config_schema() -> ConfigSchema {
                 .description(
                     "Comma-separated namespaces to monitor, for example flux-system,apps. Leave empty to monitor Kustomizations and HelmReleases in every namespace, which needs cluster-wide list permission. List your namespaces when your RBAC is namespace-scoped.",
                 )
-                .validation(
-                    NAMESPACE_LIST_REGEX,
-                    "Use comma-separated Kubernetes namespace names: lowercase letters, numbers and hyphens, starting and ending with a letter or number, up to 63 characters each.",
-                ),
+                .validation(kubernetes::NAMESPACE_LIST_REGEX, kubernetes::NAMESPACE_LIST_MESSAGE),
         )
         .add_field(
             ConfigField::text("flux_namespace", ConfigSection::Settings, "Flux namespace")

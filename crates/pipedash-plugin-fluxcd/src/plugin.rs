@@ -51,7 +51,8 @@ plugin_struct!(
     client: OnceCell<FluxClient> = OnceCell::new(),
     settings: Option<Settings> = None,
     status_source: Option<StatusSource> = None,
-    unhealthy: std::sync::Mutex<UnhealthyWorkloads> = std::sync::Mutex::default()
+    unhealthy: std::sync::Mutex<UnhealthyWorkloads> = std::sync::Mutex::default(),
+    degraded: std::sync::Mutex<HashMap<Target, Vec<String>>> = std::sync::Mutex::default()
 );
 
 impl FluxcdPlugin {

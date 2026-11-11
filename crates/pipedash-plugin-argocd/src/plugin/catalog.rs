@@ -50,7 +50,7 @@ impl ArgocdPlugin {
         debug!("Fetching available pipelines");
         let client = self.client()?;
 
-        let mut apps = client.list_applications(None).await?;
+        let mut apps = client.list_applications().await?;
         debug!(
             total_apps = apps.len(),
             "Retrieved applications from ArgoCD"
@@ -87,7 +87,7 @@ impl ArgocdPlugin {
         debug!("Fetching Git organizations from applications");
         let client = self.client()?;
 
-        let apps = client.list_applications(None).await?;
+        let apps = client.list_applications().await?;
 
         debug!(
             app_count = apps.len(),
@@ -132,7 +132,7 @@ impl ArgocdPlugin {
 
         let client = self.client()?;
 
-        let apps = client.list_applications(None).await?;
+        let apps = client.list_applications().await?;
 
         debug!(
             total_apps = apps.len(),

@@ -29,23 +29,13 @@ const DEFAULT_REFRESH_INTERVAL: i64 = 30;
 const REGEX_SIZE_LIMIT: usize = 1 << 20;
 const REGEX_NEST_LIMIT: u32 = 64;
 
-fn in_mode(schema: &ConfigSchema, key: &str, mode: AuthMode) -> bool {
-    schema
-        .auth_modes
-        .get(key)
-        .is_none_or(|modes| modes.contains(&mode))
+fn key_in_mode(schema: &ConfigSchema, key: &str, mode: AuthMode) -> bool {
+    schema.fields.iter().all(|field| field.key != key)
+        || schema.active_fields(mode).any(|field| field.key == key)
 }
 
 pub(super) fn value_of<'a>(values: &'a HashMap<String, String>, key: &str) -> &'a str {
     values.get(key).map_or("", String::as_str)
-}
-
-pub(super) fn active_fields(
-    schema: &ConfigSchema, mode: AuthMode,
-) -> impl Iterator<Item = &ConfigField> {
-    schema.fields.iter().filter(move |field| {
-        (field.key != TOKEN_KEY || mode == AuthMode::Token) && in_mode(schema, &field.key, mode)
-    })
 }
 
 pub(super) fn validate_field(field: &ConfigField, value: &str) -> Option<String> {
@@ -149,22 +139,18 @@ pub(super) fn provider_config(
     selection_required: bool,
 ) -> ProviderConfig {
     let mode = draft.auth_mode;
+    let schema = &metadata.config_schema;
     let mut values = effective_values(draft, stored);
-    values.retain(|key, _| in_mode(&metadata.config_schema, key, mode));
+    values.retain(|key, _| key_in_mode(schema, key, mode));
 
     let token = values.remove(TOKEN_KEY).unwrap_or_default();
-    let token = if mode == AuthMode::Token {
-        token
-    } else {
-        String::new()
-    };
     if mode != AuthMode::SignIn {
         values.remove(SIGN_IN_CONFIG_KEY);
     }
-    if mode == AuthMode::None {
-        values.insert(AUTH_MODE_KEY.to_string(), "none".to_string());
-    } else {
+    if schema.auth_options.is_empty() {
         values.remove(AUTH_MODE_KEY);
+    } else {
+        values.insert(AUTH_MODE_KEY.to_string(), mode.as_str().to_string());
     }
 
     let kept = values.remove(SELECTION_KEY);

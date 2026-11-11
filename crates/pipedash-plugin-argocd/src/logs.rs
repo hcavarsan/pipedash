@@ -75,7 +75,7 @@ pub(crate) fn log_nodes(
         started_at: None,
         finished_at: None,
         log,
-        web_url: Some(web_url.to_string()),
+        web_url: (!web_url.is_empty()).then(|| web_url.to_string()),
     };
 
     let (status, started_at, finished_at) = match sync {

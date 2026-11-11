@@ -195,24 +195,14 @@ impl ArgocdClient {
     }
 
     pub async fn sync_application(
-        &self, app_name: &str, revision: Option<String>, prune: bool, dry_run: bool, force: bool,
-        apply_only: bool,
+        &self, app_name: &str, sync_request: &SyncRequest,
     ) -> PluginResult<()> {
         let url = self.endpoint(&format!("/applications/{}/sync", app_name))?;
-
-        let strategy = sync_strategy(force, apply_only);
-
-        let sync_request = SyncRequest {
-            revision,
-            prune: Some(prune),
-            dry_run: Some(dry_run),
-            strategy,
-        };
 
         debug!(?sync_request, "Sending sync request to ArgoCD API");
 
         send_checked(&self.retry_policy, &url, || {
-            bearer_request(&self.http_client, Method::POST, &url, &self.token).json(&sync_request)
+            bearer_request(&self.http_client, Method::POST, &url, &self.token).json(sync_request)
         })
         .await
         .map(drop)
@@ -236,7 +226,7 @@ async fn read_json<T: DeserializeOwned>(
     decode_json(check_response(response).await?, "ArgoCD API response").await
 }
 
-fn sync_strategy(force: bool, apply_only: bool) -> Option<SyncStrategy> {
+pub(crate) fn sync_strategy(force: bool, apply_only: bool) -> Option<SyncStrategy> {
     if apply_only {
         Some(SyncStrategy {
             apply: Some(SyncStrategyApply { force: Some(force) }),

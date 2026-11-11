@@ -8,13 +8,17 @@ use pipedash_plugin_api::{
 use tracing::info;
 
 use super::ArgocdPlugin;
-use crate::config;
+use crate::types::SyncRequest;
+use crate::{
+    client,
+    config,
+};
 
 impl ArgocdPlugin {
     pub(super) async fn trigger_pipeline_impl(
         &self, params: TriggerParams,
     ) -> PluginResult<TriggerResult> {
-        let (_namespace, app_name) = config::parse_pipeline_id(&params.workflow_id)?;
+        let (namespace, app_name) = config::parse_pipeline_id(&params.workflow_id)?;
         let client = self.client()?;
 
         let inputs = params.inputs.as_ref();
@@ -54,8 +58,14 @@ impl ArgocdPlugin {
             "Triggering ArgoCD sync operation"
         );
 
+        let request = SyncRequest {
+            revision,
+            prune: Some(prune),
+            dry_run: Some(dry_run),
+            strategy: client::sync_strategy(force, apply_only),
+        };
         client
-            .sync_application(&app_name, revision, prune, dry_run, force, apply_only)
+            .sync_application(&namespace, &app_name, &request)
             .await?;
 
         Ok(TriggerResult::default())

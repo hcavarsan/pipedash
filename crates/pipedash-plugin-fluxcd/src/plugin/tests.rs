@@ -2117,6 +2117,33 @@ async fn unhealthy_managed_workloads_degrade_only_the_resource_that_owns_them() 
 }
 
 #[tokio::test]
+async fn the_current_record_is_degraded_like_its_pipeline() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = apps_stub(
+        vec![kustomization("ci", "app"), kustomization("ci", "other")],
+        vec![],
+        vec![unready_deployment("app", "web")],
+    );
+    let plugin = without_grace(plugin(&stub.server, &dir, &[]));
+    let pipelines = plugin.fetch_pipelines().await.unwrap();
+    let pipeline = |name: &str| pipelines.iter().find(|p| p.name == name).unwrap();
+    let app = pipeline("Kustomization/app");
+
+    let degraded = plugin.fetch_run_history(&app.id, 5).await.unwrap();
+    let ready = plugin
+        .fetch_run_history(&pipeline("Kustomization/other").id, 5)
+        .await
+        .unwrap();
+
+    assert_eq!(degraded[0].status, PipelineStatus::Degraded);
+    assert_eq!(
+        degraded[0].metadata["message"].as_str(),
+        app.resource_state.as_ref().unwrap().message.as_deref()
+    );
+    assert_eq!(ready[0].status, PipelineStatus::Success);
+}
+
+#[tokio::test]
 async fn pods_still_warming_up_after_an_update_keep_the_ready_state() {
     let dir = tempfile::tempdir().unwrap();
     let stub = apps_stub(

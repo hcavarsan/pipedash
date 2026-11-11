@@ -4268,6 +4268,7 @@ version = "0.14.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "kube",
  "pipedash-plugin-api",
  "reqwest",
  "rustls",
