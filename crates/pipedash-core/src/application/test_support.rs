@@ -1,6 +1,9 @@
 pub(crate) mod plugins;
 
-use std::collections::HashMap;
+use std::collections::{
+    HashMap,
+    HashSet,
+};
 use std::sync::atomic::{
     AtomicBool,
     AtomicU64,
@@ -780,6 +783,7 @@ pub(crate) struct StubFactory {
     queued: Mutex<HashMap<i64, Vec<Arc<StubProvider>>>>,
     built: Mutex<HashMap<i64, usize>>,
     tokens: Mutex<HashMap<i64, String>>,
+    reserved: Mutex<HashSet<String>>,
     failure: Mutex<Option<(usize, DomainError)>>,
 }
 
@@ -793,6 +797,14 @@ impl StubFactory {
             .or_default()
             .push(Arc::clone(&provider));
         provider
+    }
+
+    pub(crate) fn reserve(&self, name: &str) {
+        self.reserved.lock().unwrap().insert(name.to_string());
+    }
+
+    pub(crate) fn release(&self, name: &str) {
+        self.reserved.lock().unwrap().remove(name);
     }
 
     pub(crate) fn fail_next_build(&self, error: DomainError) {
@@ -817,6 +829,12 @@ impl StubFactory {
         };
         if let Some(error) = failing {
             return Err(error);
+        }
+        if self.reserved.lock().unwrap().contains(&config.name) {
+            return Err(DomainError::ConcurrentModification(format!(
+                "Stub provider {} is still being registered",
+                config.name
+            )));
         }
         let id = config.id.unwrap_or(0);
         self.tokens.lock().unwrap().insert(id, config.token.clone());
@@ -1197,13 +1215,16 @@ impl Harness {
         &self, refresh_interval: i64, build: impl FnOnce(i64) -> StubProvider,
     ) -> (i64, Arc<StubProvider>) {
         let name = format!("stub-{}", self.names.fetch_add(1, Ordering::SeqCst));
+        self.stubs.reserve(&name);
         let id = self
             .repository
             .add_provider(&self.config(&name, refresh_interval))
             .await
             .unwrap();
+        let stub = self.stubs.queue(build(id));
+        self.stubs.release(&name);
 
-        (id, self.stubs.queue(build(id)))
+        (id, stub)
     }
 
     pub(crate) async fn spawn_fetch(&self, id: i64) -> tokio::task::JoinHandle<FetchResult> {

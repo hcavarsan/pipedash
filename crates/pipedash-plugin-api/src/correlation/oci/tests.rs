@@ -255,6 +255,26 @@ fn registry_urls_map_docker_hub_and_reject_unsafe_input() {
         registry_base("localhost:5000").unwrap(),
         "http://localhost:5000"
     );
+    assert_eq!(
+        registry_base("LOCALHOST:5000").unwrap(),
+        "http://localhost:5000"
+    );
+    assert_eq!(registry_base("LOCALHOST:80").unwrap(), "http://localhost");
+    assert_eq!(
+        registry_base("LOCALHOST:443").unwrap(),
+        "http://localhost:443"
+    );
+    assert_eq!(
+        registry_base("Registry.Test:443").unwrap(),
+        "https://registry.test"
+    );
+    assert_eq!(
+        registry_base("Docker.IO:443").unwrap(),
+        "https://registry-1.docker.io"
+    );
+    assert!(is_loopback_host("LocalHost:5000"));
+    assert!(is_loopback_host("[::1]:80"));
+    assert!(!is_loopback_host("localhost.evil.test"));
     assert!(registry_base("evil@host").is_err());
     assert!(registry_base("host/path").is_err());
 
@@ -780,6 +800,22 @@ fn token_hosts_match_exactly_and_never_by_suffix() {
         "http://127.0.0.1/t",
         &["127.0.0.1:443"]
     ));
+    assert!(allow(registry, "https://AUTH.Test/t", &["Auth.test:443"]));
+    assert!(allow(
+        "http://LOCALHOST:5000/v2/",
+        "http://localhost:6000/t",
+        &["LocalHost:6000"]
+    ));
+    assert!(allow(
+        "http://127.0.0.1:5000/v2/",
+        "http://LOCALHOST/t",
+        &["localhost:80"]
+    ));
+    assert!(!allow(
+        "http://127.0.0.1:5000/v2/",
+        "http://localhost/t",
+        &["LOCALHOST:443"]
+    ));
 }
 
 #[test]
@@ -794,6 +830,22 @@ fn registry_authorities_drop_only_the_scheme_default_port() {
     assert_eq!(registry_authority("localhost:80"), "localhost");
     assert_eq!(registry_authority("localhost:443"), "localhost:443");
     assert_eq!(registry_authority("localhost:5000"), "localhost:5000");
+    assert_eq!(registry_authority("LOCALHOST:80"), "localhost");
+    assert_eq!(
+        registry_authority("LOCALHOST:80"),
+        registry_authority("localhost:80")
+    );
+    assert_eq!(
+        registry_authority("localhost:80"),
+        registry_authority("localhost")
+    );
+    assert_eq!(registry_authority("LOCALHOST:443"), "localhost:443");
+    assert_eq!(
+        registry_authority("Registry.Test:443"),
+        registry_authority("registry.test")
+    );
+    assert_eq!(registry_authority("127.0.0.1:80"), "127.0.0.1");
+    assert_eq!(registry_authority("[::1]:443"), "[::1]:443");
 }
 
 fn statement(predicate_type: &str, predicate: serde_json::Value) -> String {

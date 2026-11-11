@@ -99,6 +99,61 @@ async fn token_hosts_come_from_the_config_and_the_hub_default() {
 }
 
 #[tokio::test]
+async fn an_uppercase_loopback_host_keeps_its_port_for_matching_and_ping() {
+    use std::io::{
+        Read,
+        Write,
+    };
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buf = [0u8; 1024];
+        let read = stream.read(&mut buf).unwrap();
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
+            .unwrap();
+        String::from_utf8_lossy(&buf[..read]).into_owned()
+    });
+    let configured = format!("LOCALHOST:{port}");
+    let loopback = plugin(&[("registry_host", configured.as_str())]);
+
+    assert!(loopback
+        .registry_auth(&format!("localhost:{port}"))
+        .await
+        .unwrap()
+        .is_some());
+    assert!(loopback.registry_auth("localhost").await.unwrap().is_none());
+    assert!(loopback.validate_credentials().await.unwrap());
+    assert!(server.join().unwrap().starts_with("GET /v2/ HTTP/1.1"));
+
+    let http_default = plugin(&[("registry_host", "LOCALHOST:80")]);
+    assert!(http_default
+        .registry_auth("localhost")
+        .await
+        .unwrap()
+        .is_some());
+    assert!(http_default
+        .registry_auth("localhost:80")
+        .await
+        .unwrap()
+        .is_some());
+
+    let https_port = plugin(&[("registry_host", "LOCALHOST:443")]);
+    assert!(https_port
+        .registry_auth("localhost:443")
+        .await
+        .unwrap()
+        .is_some());
+    assert!(https_port
+        .registry_auth("localhost")
+        .await
+        .unwrap()
+        .is_none());
+}
+
+#[tokio::test]
 async fn a_default_port_in_registry_host_matches_the_bare_host() {
     let with_port = plugin(&[("registry_host", "Registry.Test:443")]);
     for host in ["registry.test", "REGISTRY.test:443"] {

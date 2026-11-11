@@ -1,7 +1,8 @@
 use super::is_loopback_host;
 
 pub fn registry_authority(host: &str) -> String {
-    let host = host.trim();
+    let host = host.trim().to_ascii_lowercase();
+    let host = host.as_str();
     let scheme = if is_loopback_host(host) {
         "http"
     } else {

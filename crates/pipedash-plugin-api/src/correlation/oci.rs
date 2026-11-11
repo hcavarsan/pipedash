@@ -44,6 +44,7 @@ mod auth;
 pub mod authority;
 mod provenance;
 
+use self::authority::registry_authority;
 use self::provenance::{
     provenance_v02,
     provenance_v1,
@@ -327,10 +328,11 @@ async fn read_index(response: Response, url: &Url) -> PluginResult<Vec<Descripto
 }
 
 fn is_loopback_host(host: &str) -> bool {
+    let host = host.to_ascii_lowercase();
     let name = host
         .rsplit_once(':')
         .filter(|(_, port)| port.bytes().all(|byte| byte.is_ascii_digit()))
-        .map_or(host, |(name, _)| name);
+        .map_or(host.as_str(), |(name, _)| name);
     matches!(name, "localhost" | "127.0.0.1" | "[::1]")
 }
 
@@ -345,6 +347,7 @@ fn registry_base(host: &str) -> PluginResult<String> {
             "Invalid registry host: {host}"
         )));
     }
+    let host = registry_authority(&host);
     let host = if DOCKER_HUB_HOSTS.contains(&host.as_str()) {
         DOCKER_HUB_REGISTRY.to_string()
     } else {
