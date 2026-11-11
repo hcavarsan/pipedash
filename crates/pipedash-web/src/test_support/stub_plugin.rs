@@ -90,6 +90,8 @@ impl StubPlugin {
 
     fn run(&self, raw: StubRun) -> PipelineRun {
         PipelineRun {
+            correlation: Correlation::default(),
+            evidence: RunEvidence::default(),
             id: format!("stub-run-{}", raw.number),
             pipeline_id: self.pipeline_id(),
             run_number: raw.number,
@@ -145,6 +147,7 @@ impl Plugin for StubPlugin {
         let latest = self.runs(1).await?.into_iter().next();
 
         Ok(vec![Pipeline {
+            correlation: Correlation::default(),
             id: self.pipeline_id(),
             name: "build".into(),
             status: latest

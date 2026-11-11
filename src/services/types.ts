@@ -1,3 +1,17 @@
+import type {
+  ApplicationDetail,
+  ApplicationEdit,
+  ApplicationList,
+  ApplicationListQuery,
+  ApplicationMetrics,
+  ApplicationMetricsQuery,
+  ApplicationRef,
+  ChangesPage,
+  CommitLocations,
+  CreateApplicationInput,
+  DeployChanges,
+  Suggestion,
+} from '../types/applications'
 import type { RefreshResult } from '../types/health'
 import type { LogLinesPage, LogSearchQuery, LogSearchResult, RunLogDocument, RunLogTree } from '../types/logs'
 import type {
@@ -202,6 +216,22 @@ export interface ViewsService {
   getPipelineNavigation(search?: string): Promise<PipelineNavigation>
 }
 
+export interface ApplicationsService {
+  listApplications(query: ApplicationListQuery): Promise<ApplicationList>
+  getApplication(id: number): Promise<ApplicationDetail>
+  getApplicationChanges(id: number, cursor: string | null, limit: number): Promise<ChangesPage>
+  getApplicationMetrics(query: ApplicationMetricsQuery): Promise<ApplicationMetrics>
+  createApplication(input: CreateApplicationInput): Promise<ApplicationDetail>
+  editApplication(id: number, edit: ApplicationEdit): Promise<ApplicationDetail>
+  deleteApplication(id: number): Promise<void>
+  revertApplicationOverride(id: number, overrideId: number): Promise<ApplicationDetail>
+  listApplicationSuggestions(): Promise<Suggestion[]>
+  acceptApplicationSuggestions(ids: string[]): Promise<void>
+  getPipelineApplications(pipelineId: string): Promise<ApplicationRef[]>
+  getCommitLocations(pipelineId: string, runNumber: number): Promise<CommitLocations>
+  getDeployChanges(pipelineId: string, runNumber: number): Promise<DeployChanges>
+}
+
 export interface StorageService {
   checkSetupStatus(): Promise<SetupStatus>
   prepareSetupDraft(draft: SetupDraft, firstRun: boolean): Promise<SetupDraftResult>
@@ -257,6 +287,7 @@ export interface PipedashService
     LogsService,
     MetricsService,
     ViewsService,
+    ApplicationsService,
     StorageService,
     DevicesService,
     NotificationsService,

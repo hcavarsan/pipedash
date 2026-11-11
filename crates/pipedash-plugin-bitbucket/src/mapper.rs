@@ -3,15 +3,22 @@ use std::collections::HashMap;
 use chrono::Utc;
 use pipedash_plugin_api::{
     AvailablePipeline,
+    CommitSha,
+    Correlation,
     LogAvailability,
     LogNode,
     LogNodeKind,
     Pipeline,
     PipelineRun,
     PipelineStatus,
+    RepoId,
+    RunEvidence,
 };
 
-use crate::types;
+use crate::{
+    config,
+    types,
+};
 
 pub(crate) fn map_status(state: &types::PipelineState) -> PipelineStatus {
     match state.name.as_str() {
@@ -90,6 +97,7 @@ pub(crate) fn map_pipeline(
     metadata.insert("repo_slug".to_string(), serde_json::json!(repo.slug));
 
     Pipeline {
+        correlation: Correlation::single_source(RepoId::parse(&repo.links.html.href), None),
         id: format!("{}__{}", repo.workspace.slug, repo.slug),
         name: repo.name.clone(),
         status,
@@ -109,12 +117,12 @@ pub(crate) fn map_pipeline_run(
     let mut metadata = HashMap::new();
     metadata.insert("workspace".to_string(), serde_json::json!(workspace));
 
-    if let Some(ref selector) = pipeline.target.selector {
+    if let Some(selector) = &pipeline.target.selector {
         metadata.insert(
             "selector_type".to_string(),
             serde_json::json!(selector.selector_type),
         );
-        if let Some(ref pattern) = selector.pattern {
+        if let Some(pattern) = &selector.pattern {
             metadata.insert("selector_pattern".to_string(), serde_json::json!(pattern));
         }
     }
@@ -132,6 +140,15 @@ pub(crate) fn map_pipeline_run(
         });
 
     PipelineRun {
+        correlation: Correlation::single_source(
+            config::repo_id(workspace, repo_slug),
+            pipeline
+                .target
+                .commit
+                .as_ref()
+                .and_then(|commit| CommitSha::parse(&commit.hash)),
+        ),
+        evidence: RunEvidence::default(),
         id: format!("{workspace}__{repo_slug}__{}", pipeline.build_number),
         pipeline_id: format!("{workspace}__{repo_slug}"),
         run_number: pipeline.build_number,
@@ -162,6 +179,8 @@ pub(crate) fn map_available_pipeline(repo: &types::Repository) -> AvailablePipel
         repository: Some(repo.slug.clone()),
     }
 }
+
+pub(crate) mod commits;
 
 #[cfg(test)]
 mod tests;

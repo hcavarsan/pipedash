@@ -15,6 +15,7 @@ use crate::types::{
     TektonPipelineRun,
 };
 
+pub(crate) mod correlation;
 pub(crate) mod logs;
 pub(crate) mod runs;
 
@@ -74,6 +75,9 @@ pub(crate) fn map_pipeline(
     let metadata = pipeline_metadata(namespace, pipeline_name);
 
     Pipeline {
+        correlation: latest_run
+            .map(correlation::pipeline_correlation)
+            .unwrap_or_default(),
         id: format!("{namespace}__{pipeline_name}"),
         name: pipeline_name.clone(),
         status,

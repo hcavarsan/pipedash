@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use chrono::Utc;
 use pipedash_plugin_api::utils::repository_name;
 use pipedash_plugin_api::{
+    Correlation,
     Pipeline,
     PipelineStatus,
     ResourceState,
@@ -14,6 +15,7 @@ use crate::{
 };
 
 pub(crate) mod catalog;
+pub(crate) mod correlation;
 pub(crate) mod runs;
 
 fn operation_outcome(operation: &types::OperationState) -> Option<(PipelineStatus, &'static str)> {
@@ -282,6 +284,7 @@ pub(crate) fn map_application_to_pipeline(app: &types::Application, _server_url:
     let repository = repository_name(&source.repo_url);
 
     Pipeline {
+        correlation: Correlation::default(),
         id: pipeline_id_of(app),
         name: app.metadata.name.clone(),
         status,

@@ -1,7 +1,18 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use pipedash_plugin_api::TriggerResult;
+use pipedash_plugin_api::{
+    ArtifactRepository,
+    ChangedFile,
+    CommitComparison,
+    CommitInfo,
+    CommitSha,
+    Digest,
+    Provenance,
+    RegistryAuth,
+    RepoId,
+    TriggerResult,
+};
 use serde::{
     Deserialize,
     Serialize,
@@ -295,6 +306,42 @@ pub trait Provider: Send + Sync {
         Err(DomainError::NotSupported(
             "Run logs are not supported by this provider".into(),
         ))
+    }
+
+    fn source_hosts(&self, _config: &HashMap<String, String>) -> Vec<String> {
+        Vec::new()
+    }
+
+    async fn resolve_commit(&self, _repo: &RepoId, _rev: &str) -> DomainResult<CommitInfo> {
+        Err(DomainError::NotSupported(
+            "Commit lookup is not supported by this provider".into(),
+        ))
+    }
+
+    async fn compare_commits(
+        &self, _repo: &RepoId, _base: &CommitSha, _head: &CommitSha,
+    ) -> DomainResult<CommitComparison> {
+        Err(DomainError::NotSupported(
+            "Commit comparison is not supported by this provider".into(),
+        ))
+    }
+
+    async fn commit_changes(
+        &self, _repo: &RepoId, _sha: &CommitSha,
+    ) -> DomainResult<Vec<ChangedFile>> {
+        Err(DomainError::NotSupported(
+            "Commit changes are not supported by this provider".into(),
+        ))
+    }
+
+    async fn artifact_provenance(
+        &self, _repository: &ArtifactRepository, _digest: &Digest,
+    ) -> DomainResult<Option<Provenance>> {
+        Ok(None)
+    }
+
+    async fn registry_auth(&self, _host: &str) -> DomainResult<Option<RegistryAuth>> {
+        Ok(None)
     }
 }
 

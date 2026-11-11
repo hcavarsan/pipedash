@@ -48,7 +48,7 @@ struct AccessStatus {
 }
 
 impl FluxClient {
-    async fn list_all(
+    pub(super) async fn list_all(
         &self, request: &Request, mut params: ListParams, context: &str,
     ) -> PluginResult<Vec<Value>> {
         let mut items = Vec::new();

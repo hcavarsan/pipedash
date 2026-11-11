@@ -4,12 +4,18 @@ use chrono::Utc;
 use pipedash_plugin_api::utils::duration_seconds;
 use pipedash_plugin_api::{
     AvailablePipeline,
+    CommitSha,
+    Correlation,
     LogAvailability,
     LogNode,
     LogNodeKind,
+    Observed,
     Pipeline,
     PipelineRun,
     PipelineStatus,
+    RepoId,
+    RunEvidence,
+    TargetObservation,
 };
 
 use crate::types;
@@ -50,6 +56,7 @@ pub(crate) fn map_pipeline(
     }
 
     Pipeline {
+        correlation: Correlation::single_source(RepoId::parse(&project.web_url), None),
         id: project.id.to_string(),
         name: project.name.clone(),
         status,
@@ -64,14 +71,22 @@ pub(crate) fn map_pipeline(
 }
 
 pub(crate) fn map_pipeline_run(
-    pipeline: &types::Pipeline, project_id: i64, namespace: Option<&str>,
+    pipeline: &types::Pipeline, project: &types::Project, namespace: Option<&str>,
+    targets: Vec<TargetObservation>,
 ) -> PipelineRun {
-    let duration = pipeline
-        .duration
-        .or_else(|| duration_seconds(pipeline.started_at, pipeline.finished_at));
+    let duration = pipeline.started_at.and_then(|started| {
+        pipeline
+            .duration
+            .or_else(|| duration_seconds(Some(started), pipeline.finished_at))
+    });
+    let timing = if pipeline.started_at.is_some() {
+        Observed::Recorded
+    } else {
+        Observed::Absent
+    };
 
     let mut metadata = HashMap::new();
-    if let Some(ref source) = pipeline.source {
+    if let Some(source) = &pipeline.source {
         metadata.insert("source".to_string(), serde_json::json!(source));
     }
     if let Some(ns) = namespace {
@@ -79,8 +94,19 @@ pub(crate) fn map_pipeline_run(
     }
 
     PipelineRun {
-        id: format!("{}_{}", project_id, pipeline.id),
-        pipeline_id: project_id.to_string(),
+        correlation: Correlation {
+            targets,
+            ..Correlation::single_source(
+                RepoId::parse(&project.web_url),
+                CommitSha::parse(&pipeline.sha),
+            )
+        },
+        evidence: RunEvidence {
+            timing,
+            ..RunEvidence::default()
+        },
+        id: format!("{}_{}", project.id, pipeline.id),
+        pipeline_id: project.id.to_string(),
         run_number: pipeline.id,
         status: map_status(&pipeline.status),
         started_at: pipeline.started_at.unwrap_or(pipeline.created_at),
@@ -206,6 +232,9 @@ pub(crate) fn jobs_to_log_nodes(jobs: &[types::Job]) -> Vec<LogNode> {
     }
     nodes
 }
+
+pub(crate) mod commits;
+pub(crate) mod targets;
 
 #[cfg(test)]
 mod tests;

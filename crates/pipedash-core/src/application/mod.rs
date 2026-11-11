@@ -17,6 +17,11 @@ pub use fetch_scheduler::{
     Outcome,
 };
 use pipedash_plugin_api::PluginRegistry;
+pub use services::correlation_service::CorrelationService;
+use services::correlation_service::{
+    CorrelationDeps,
+    EVENT_INTERVAL,
+};
 pub use services::device_alerts::recording_bus;
 pub use services::health_service::{
     refresh_notifications,
@@ -71,6 +76,7 @@ pub struct Services {
     pub health_service: Arc<ProviderHealthService>,
     pub log_service: Arc<LogService>,
     pub pipeline_view_service: Arc<PipelineViewService>,
+    pub correlation_service: Arc<CorrelationService>,
 }
 
 impl Services {
@@ -87,6 +93,10 @@ impl Services {
         let view_repository = Arc::clone(&repository);
         let view_config_state = Arc::clone(&config_state);
         let view_event_bus = Arc::clone(&event_bus);
+        let correlation_repository = Arc::clone(&repository);
+        let correlation_config_state = Arc::clone(&config_state);
+        let correlation_event_bus = Arc::clone(&event_bus);
+        let correlation_http = Arc::clone(&http_client_manager);
 
         let provider_service = Arc::new(ProviderService::new(
             ProviderDeps {
@@ -140,8 +150,21 @@ impl Services {
             Arc::clone(&pipeline_service),
             view_config_state,
             view_event_bus,
-            presenter,
+            Arc::clone(&presenter),
         ));
+        let correlation_service = CorrelationService::new(CorrelationDeps {
+            repository: correlation_repository,
+            provider_service: Arc::clone(&provider_service),
+            pipeline_service: Arc::clone(&pipeline_service),
+            log_service: Arc::clone(&log_service),
+            config_state: correlation_config_state,
+            event_bus: correlation_event_bus,
+            presenter,
+            http: correlation_http,
+            event_interval: EVENT_INTERVAL,
+        });
+        pipeline_service.set_observer(correlation_service.clone());
+        provider_service.set_applications(correlation_service.clone());
 
         Self {
             provider_service,
@@ -151,6 +174,7 @@ impl Services {
             health_service,
             log_service,
             pipeline_view_service,
+            correlation_service,
         }
     }
 }

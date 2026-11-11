@@ -8,6 +8,7 @@ export const BROWSE_PATH = '/browse'
 
 const BROWSE_BACK = { to: BROWSE_PATH, label: 'Browse' }
 const LIST_BACK = { to: '/pipelines', label: 'All pipelines' }
+const APPLICATIONS_BACK = { to: '/applications', label: 'Applications' }
 
 export type MobileTab = (typeof MOBILE_TABS)[number]
 
@@ -92,6 +93,10 @@ function ownChrome(pathname: string, search: string): MobileChrome {
     }
     case 'browse':
       return { title: 'Browse', back: null, tab: 'pipelines' }
+    case 'applications':
+      return segment
+        ? { title: 'Application', back: APPLICATIONS_BACK, tab: 'pipelines' }
+        : { title: 'Applications', back: BROWSE_BACK, tab: 'pipelines' }
     case 'notifications':
       return { title: 'Notifications', back: null, tab: 'notifications' }
     default: {

@@ -102,6 +102,7 @@ impl Repository {
             overdue_run: None,
             typical_duration_seconds: None,
             actions: Default::default(),
+            correlation: Default::default(),
         })
     }
 }

@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use chrono::Utc;
 use futures::stream::{
     self,
     StreamExt,
@@ -12,9 +11,9 @@ use octocrab::models::workflows::{
 use octocrab::models::WorkflowId;
 use pipedash_plugin_api::{
     Pipeline,
-    PipelineStatus,
     PluginError,
     PluginResult,
+    RepoId,
 };
 
 use super::{
@@ -23,40 +22,9 @@ use super::{
 };
 use crate::{
     config,
+    correlation,
     mapper,
 };
-
-fn workflow_pipeline(
-    owner: &str, repo: &str, repo_full_name: &str, workflow: WorkFlow, latest_run: Option<&Run>,
-) -> Pipeline {
-    let resource_state = mapper::disabled_state(&workflow.state);
-    let status = if resource_state.is_some() {
-        PipelineStatus::Skipped
-    } else {
-        latest_run
-            .map(|run| mapper::map_status(run.status.as_str(), run.conclusion.as_deref()))
-            .unwrap_or(PipelineStatus::Pending)
-    };
-
-    let mut metadata = HashMap::new();
-    metadata.insert("workflow_id".to_string(), serde_json::json!(workflow.id));
-    if resource_state.is_some() {
-        metadata.insert("can_enable".to_string(), serde_json::json!(true));
-    }
-
-    Pipeline {
-        id: format!("{owner}__{repo}__{}", workflow.id),
-        name: workflow.name,
-        status,
-        last_run: latest_run.map(|run| run.created_at.with_timezone(&Utc)),
-        last_updated: Utc::now(),
-        repository: repo_full_name.to_string(),
-        branch: latest_run.map(|run| run.head_branch.clone()),
-        workflow_file: Some(workflow.path),
-        resource_state,
-        metadata,
-    }
-}
 
 impl GitHubClient {
     async fn latest_runs(
@@ -106,7 +74,7 @@ impl GitHubClient {
     }
 
     pub async fn fetch_repo_workflows(
-        &self, repo_full_name: String,
+        &self, repo_full_name: String, host: Option<&str>,
     ) -> PluginResult<Vec<Pipeline>> {
         self.retry_policy
             .retry(|| async {
@@ -128,6 +96,10 @@ impl GitHubClient {
                 let runs_map = self
                     .latest_runs(&owner, &repo, &repo_full_name, &workflows.items)
                     .await?;
+                let mut scopes = self
+                    .workflow_scopes(&owner, &repo, &workflows.items)
+                    .await?;
+                let source = host.and_then(|host| RepoId::from_host_path(host, &repo_full_name));
 
                 Ok(workflows
                     .items
@@ -136,7 +108,18 @@ impl GitHubClient {
                         let latest_run = runs_map
                             .get(&workflow.id)
                             .and_then(|runs| runs.items.first());
-                        workflow_pipeline(&owner, &repo, &repo_full_name, workflow, latest_run)
+                        let correlation = correlation::pipeline_correlation(
+                            source.clone(),
+                            scopes.remove(&workflow.id).unwrap_or_default(),
+                        );
+                        mapper::workflow_pipeline(
+                            &owner,
+                            &repo,
+                            &repo_full_name,
+                            workflow,
+                            latest_run,
+                            correlation,
+                        )
                     })
                     .collect())
             })
@@ -159,6 +142,33 @@ impl GitHubClient {
             .await
     }
 
+    pub(super) async fn read_workflow_file(
+        &self, owner: &str, repo: &str, path: &str,
+    ) -> PluginResult<String> {
+        let response = self
+            .octocrab
+            .repos(owner, repo)
+            .get_content()
+            .path(path)
+            .raw()
+            .send()
+            .await
+            .map_err(|e| match map_octocrab_error("Failed to fetch workflow file", e) {
+                PluginError::PipelineNotFound(_) => PluginError::PipelineNotFound(format!(
+                    "{path} isn't on the default branch, so this workflow can't be triggered. GitHub keeps listing a workflow after its file is deleted or when it only ran from another branch. On a private repository, a fine-grained token without Contents (Read) gets the same response."
+                )),
+                PluginError::PermissionDenied(message) => PluginError::PermissionDenied(
+                    format!("{message}. Fine-grained tokens need Contents (Read) on the repository"),
+                ),
+                other => other,
+            })?;
+
+        self.octocrab
+            .body_to_string(response)
+            .await
+            .map_err(|e| map_octocrab_error("Failed to read workflow file", e))
+    }
+
     pub async fn fetch_workflow_source(
         &self, owner: &str, repo: &str, workflow_id: u64,
     ) -> PluginResult<String> {
@@ -172,29 +182,7 @@ impl GitHubClient {
                     .await
                     .map_err(|e| map_octocrab_error("Failed to fetch workflow", e))?;
 
-                let response = self
-                    .octocrab
-                    .repos(owner, repo)
-                    .get_content()
-                    .path(&workflow.path)
-                    .raw()
-                    .send()
-                    .await
-                    .map_err(|e| match map_octocrab_error("Failed to fetch workflow file", e) {
-                        PluginError::PipelineNotFound(_) => PluginError::PipelineNotFound(format!(
-                            "{} isn't on the default branch, so this workflow can't be triggered. GitHub keeps listing a workflow after its file is deleted or when it only ran from another branch. On a private repository, a fine-grained token without Contents (Read) gets the same response.",
-                            workflow.path
-                        )),
-                        PluginError::PermissionDenied(message) => PluginError::PermissionDenied(
-                            format!("{message}. Fine-grained tokens need Contents (Read) on the repository"),
-                        ),
-                        other => other,
-                    })?;
-
-                self.octocrab
-                    .body_to_string(response)
-                    .await
-                    .map_err(|e| map_octocrab_error("Failed to read workflow file", e))
+                self.read_workflow_file(owner, repo, &workflow.path).await
             })
             .await
     }

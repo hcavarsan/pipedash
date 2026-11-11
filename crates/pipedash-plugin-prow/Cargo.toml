@@ -22,6 +22,9 @@ serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
+[features]
+fixtures = []
+
 [dev-dependencies]
 rustls.workspace = true
 tempfile.workspace = true

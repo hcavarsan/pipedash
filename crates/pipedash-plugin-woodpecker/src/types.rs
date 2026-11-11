@@ -10,6 +10,10 @@ pub(crate) struct Repo {
     pub default_branch: String,
     #[serde(default)]
     pub config_file: String,
+    #[serde(default)]
+    pub forge_url: Option<String>,
+    #[serde(default)]
+    pub clone_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

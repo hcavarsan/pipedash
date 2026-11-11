@@ -2,7 +2,7 @@ mod aggregation;
 mod batch;
 mod config;
 mod filters;
-mod percentile;
+pub(crate) mod percentile;
 mod processing;
 mod query;
 mod records;

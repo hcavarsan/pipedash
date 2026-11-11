@@ -14,6 +14,8 @@ use pipedash_plugin_api::{
 use serde::Deserialize;
 use serde_json::Value;
 
+pub(crate) const GIT_REPOSITORY: &str = "GitRepository";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum Kind {
     Kustomization,
@@ -93,6 +95,8 @@ pub(crate) struct ObjectMeta {
     pub creation_timestamp: Option<DateTime<Utc>>,
     #[serde(default)]
     pub annotations: HashMap<String, String>,
+    #[serde(default)]
+    pub labels: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -128,6 +132,9 @@ pub(crate) struct Spec {
     pub source_ref: Option<Reference>,
     pub chart: Option<ChartTemplate>,
     pub chart_ref: Option<Reference>,
+    #[serde(default)]
+    pub depends_on: Vec<Reference>,
+    pub target_namespace: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -168,6 +175,18 @@ pub(crate) struct HistoryEntry {
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
+pub(crate) struct Inventory {
+    #[serde(default)]
+    pub entries: Vec<InventoryEntry>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub(crate) struct InventoryEntry {
+    #[serde(default)]
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Status {
     #[serde(default)]
@@ -180,6 +199,8 @@ pub(crate) struct Status {
     pub last_attempted_release_action_duration: Option<String>,
     #[serde(default)]
     pub history: Vec<HistoryEntry>,
+    #[serde(default)]
+    pub inventory: Inventory,
 }
 
 #[derive(Debug, Clone)]
@@ -223,6 +244,14 @@ impl FluxResource {
             spec: document.spec,
             status: document.status,
         })
+    }
+
+    pub fn target_namespace(&self) -> &str {
+        self.spec
+            .target_namespace
+            .as_deref()
+            .filter(|namespace| !namespace.is_empty())
+            .unwrap_or(&self.metadata.namespace)
     }
 }
 

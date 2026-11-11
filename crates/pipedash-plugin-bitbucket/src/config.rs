@@ -9,8 +9,11 @@ use pipedash_plugin_api::{
     FeedFormat,
     PluginError,
     PluginResult,
+    RepoId,
     StatusSource,
 };
+
+const HOST: &str = "bitbucket.org";
 
 pub(crate) fn parse_pipeline_id(id: &str) -> PluginResult<(String, String)> {
     let (workspace, rest) = id
@@ -18,6 +21,32 @@ pub(crate) fn parse_pipeline_id(id: &str) -> PluginResult<(String, String)> {
         .ok_or_else(|| invalid_pipeline_id(id))?;
     let repo_slug = rest.split(PIPELINE_ID_SEPARATOR).next().unwrap_or(rest);
     Ok((workspace.to_string(), repo_slug.to_string()))
+}
+
+pub(crate) fn parse_repo(repo: &RepoId) -> PluginResult<(&str, &str)> {
+    repo.path()
+        .split_once('/')
+        .filter(|(workspace, slug)| {
+            repo.host() == HOST && !workspace.is_empty() && !slug.is_empty() && !slug.contains('/')
+        })
+        .ok_or_else(|| {
+            PluginError::InvalidConfig(format!(
+                "Not a Bitbucket Cloud repository: {}",
+                repo.as_str()
+            ))
+        })
+}
+
+pub(crate) fn repo_id(workspace: &str, repo_slug: &str) -> Option<RepoId> {
+    RepoId::from_host_path(HOST, &format!("{workspace}/{repo_slug}"))
+}
+
+pub(crate) fn source_hosts(config: &HashMap<String, String>) -> Vec<String> {
+    if config.is_empty() {
+        Vec::new()
+    } else {
+        vec![HOST.to_string()]
+    }
 }
 
 pub(crate) fn check_step_uuid(id: &str) -> PluginResult<()> {

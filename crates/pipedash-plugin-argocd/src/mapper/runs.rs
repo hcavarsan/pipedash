@@ -2,12 +2,16 @@ use std::collections::HashMap;
 
 use pipedash_plugin_api::utils::duration_seconds;
 use pipedash_plugin_api::{
+    Correlation,
+    Observed,
     PipelineRun,
     PipelineStatus,
+    RunEvidence,
 };
 
 use super::{
     app_url,
+    correlation,
     operation_status,
     pipeline_id_of,
 };
@@ -54,7 +58,10 @@ pub(crate) fn map_history_to_run(
         }
     }
 
-    insert_app_status(&mut metadata, app);
+    metadata.insert(
+        "destination_namespace".to_string(),
+        serde_json::json!(app.spec.destination.namespace),
+    );
     metadata.insert(
         "destination_cluster".to_string(),
         serde_json::json!(app.spec.destination.cluster()),
@@ -63,13 +70,23 @@ pub(crate) fn map_history_to_run(
     let run_number = history.deployed_at.timestamp();
 
     PipelineRun {
+        correlation: correlation::history(history),
+        evidence: RunEvidence {
+            outcome: Observed::Absent,
+            timing: if history.deploy_started_at.is_some() {
+                Observed::Recorded
+            } else {
+                Observed::Absent
+            },
+            attempt: false,
+        },
         id: format!("argocd-sync-{}-{}", app.metadata.name, history.id),
         pipeline_id,
         run_number,
         status,
-        started_at: history.deployed_at,
+        started_at: history.deploy_started_at.unwrap_or(history.deployed_at),
         concluded_at: Some(history.deployed_at),
-        duration_seconds: None,
+        duration_seconds: duration_seconds(history.deploy_started_at, Some(history.deployed_at)),
         logs_url,
         commit_sha: history.primary_revision().map(str::to_string),
         commit_message: None,
@@ -148,6 +165,8 @@ pub(crate) fn map_operation_to_run(
     let run_number = operation_state.started_at.timestamp();
 
     Some(PipelineRun {
+        correlation: Correlation::default(),
+        evidence: RunEvidence::default(),
         id: format!("argocd-sync-{}-current", app.metadata.name),
         pipeline_id,
         run_number,
@@ -164,3 +183,6 @@ pub(crate) fn map_operation_to_run(
         metadata,
     })
 }
+
+#[cfg(test)]
+mod tests;

@@ -35,6 +35,7 @@ use crate::types::{
     Timeline,
 };
 
+mod commits;
 mod logs;
 
 const API_VERSION: &str = "7.0";

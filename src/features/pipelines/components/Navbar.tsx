@@ -98,6 +98,7 @@ export const Navbar = ({ compact = false }: NavbarProps): ReactNode => {
   const content = compact ? (
     <NavbarRail
       providers={providers}
+      applicationsActive={pathname.startsWith('/applications')}
       viewNodes={viewNodesOf(views)}
       activeRootId={activeRootOf(views, viewParam)}
       providerId={providerParam}
@@ -114,6 +115,7 @@ export const Navbar = ({ compact = false }: NavbarProps): ReactNode => {
     <NavbarTree
       providers={providers}
       views={views}
+      applicationsActive={pathname.startsWith('/applications')}
       pins={pins}
       viewId={viewParam}
       providerId={providerParam}

@@ -87,6 +87,8 @@ pub struct CoreContext {
 
     pub pipeline_view_service: Arc<application::PipelineViewService>,
 
+    pub correlation_service: Arc<application::CorrelationService>,
+
     config_watcher: Arc<application::ConfigWatcher>,
 
     alert_events: AlertEvents,
@@ -158,6 +160,7 @@ impl CoreContext {
         }
         self.pipeline_service.clear_all_caches_atomic().await?;
         self.pipeline_view_service.reset().await?;
+        self.correlation_service.reset().await?;
         self.log_service.clear().await?;
         let metrics = MetricsRepository::new_from_pool(
             self.provider_service.repository().cache_pool().clone(),
@@ -232,6 +235,7 @@ impl CoreContext {
     pub async fn shutdown(&self) {
         self.alert_stop.cancel();
         self.pipeline_service.shutdown();
+        self.correlation_service.shutdown();
         self.log_service.shutdown().await;
         self.config_watcher.stop().await;
         self.refresh_manager.stop().await;

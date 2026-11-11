@@ -56,7 +56,7 @@ fn create_config_schema() -> ConfigSchema {
                 "Kubeconfig",
             )
             .description(
-                "Path on the machine running Pipedash, not in your browser. Defaults to $KUBECONFIG or ~/.kube/config. Separate files with ':' (';' on Windows). Ignored when Kubeconfig content is set. Needs get and list on applications.argoproj.io. Syncing and cancelling also need patch. Pod health and pod logs need list on pods, replicasets and jobs. Pod logs also need get on pods/log and list on events.",
+                "Path on the machine running Pipedash, not in your browser. Defaults to $KUBECONFIG or ~/.kube/config. Separate files with ':' (';' on Windows). Ignored when Kubeconfig content is set. Needs get and list on applications.argoproj.io. Syncing and cancelling also need patch. Pod health, pod images and pod logs need list on pods, replicasets and jobs. Pod logs also need get on pods/log and list on events. Identifying the cluster needs get on the kube-system namespace.",
             )
             .default_text(&kubernetes::default_kubeconfig_path()),
         )

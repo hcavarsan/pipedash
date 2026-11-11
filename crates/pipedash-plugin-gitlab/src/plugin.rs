@@ -23,6 +23,8 @@ use crate::{
 
 mod catalog;
 
+const DETAIL_DEPLOYMENTS: usize = 100;
+
 #[derive(serde::Serialize, serde::Deserialize)]
 struct LogPosition {
     job: String,
@@ -131,11 +133,13 @@ plugin_impl!(GitLabPlugin [
         let pipeline = client.get_pipeline(project_id, run_number).await?;
 
         let namespace = namespace_of(&project);
+        let mut targets = self.run_targets(&project, DETAIL_DEPLOYMENTS).await?;
 
         Ok(mapper::map_pipeline_run(
             &pipeline,
-            project_id,
+            &project,
             namespace.as_deref(),
+            targets.remove(&pipeline.id).unwrap_or_default(),
         ))
     }
 
@@ -216,6 +220,45 @@ plugin_impl!(GitLabPlugin [
         let client = self.client()?;
         client.cancel_pipeline(project_id, run_number).await?;
         Ok(())
+    }
+
+    fn source_hosts(&self, config: &HashMap<String, String>) -> Vec<String> {
+        config::source_hosts(config)
+    }
+
+    async fn resolve_commit(&self, repo: &RepoId, rev: &str) -> PluginResult<CommitInfo> {
+        mapper::commits::commit_info(self.client()?.get_commit(repo, rev).await?)
+    }
+
+    async fn compare_commits(
+        &self, repo: &RepoId, base: &CommitSha, head: &CommitSha,
+    ) -> PluginResult<CommitComparison> {
+        let client = self.client()?;
+        let ahead = client.commits_between(repo, base, head).await?;
+        let behind = client.commits_between(repo, head, base).await?;
+        Ok(mapper::commits::comparison(&ahead, &behind))
+    }
+
+    async fn commit_changes(
+        &self, repo: &RepoId, sha: &CommitSha,
+    ) -> PluginResult<Vec<ChangedFile>> {
+        let files = self.client()?.commit_diff(repo, sha).await?;
+        Ok(files.into_iter().map(mapper::commits::changed_file).collect())
+    }
+
+    async fn registry_auth(&self, host: &str) -> PluginResult<Option<RegistryAuth>> {
+        let client = self.client()?;
+        let serves_host = config::registry_host(&self.config)
+            .is_some_and(|registry| registry.eq_ignore_ascii_case(host));
+        let Some(secret) = self.config.get("token").filter(|_| serves_host) else {
+            return Ok(None);
+        };
+        let user = client.get_user().await?;
+        Ok(Some(RegistryAuth {
+            username: Some(user.username),
+            secret: secret.clone(),
+            bearer: false,
+        }))
     }
 
 });

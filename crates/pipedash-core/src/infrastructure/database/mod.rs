@@ -11,10 +11,11 @@ macro_rules! on_pool {
 
 mod bind;
 mod config_transfer;
+mod correlation_repository;
 mod device_alert_repository;
 mod device_push_repository;
 mod device_repository;
-mod metrics_repository;
+pub(crate) mod metrics_repository;
 mod pipeline_view_repository;
 mod pool;
 mod provider_row;
@@ -27,6 +28,28 @@ mod sqlite_backend;
 #[cfg(feature = "postgres")]
 mod postgres_backend;
 
+pub use correlation_repository::{
+    ApplicationMemberRow,
+    ApplicationOverrideRow,
+    ApplicationRow,
+    ApplicationTargetRow,
+    ArtifactObservationRow,
+    ArtifactRow,
+    ChangeRow,
+    ChangeStageRow,
+    CorrelationConn,
+    CorrelationEdgeRow,
+    CorrelationRepository,
+    LogScanRow,
+    ObservationWindowRow,
+    ObservedTransitionRow,
+    RunEvidenceRow,
+    SourceObservationRow,
+    SubjectIdentityRow,
+    TargetDirectionRow,
+    TargetObservationRow,
+    PIPELINE_LEVEL,
+};
 pub use device_alert_repository::DeviceAlertRepository;
 pub use device_push_repository::DevicePushRepository;
 pub use device_repository::DeviceRepository;

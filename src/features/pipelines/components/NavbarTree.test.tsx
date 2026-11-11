@@ -38,6 +38,7 @@ function tree(viewId: string) {
         <MemoryRouter>
           <NavbarTree
             providers={[]}
+            applicationsActive={false}
             views={views}
             pins={[]}
             viewId={viewId}

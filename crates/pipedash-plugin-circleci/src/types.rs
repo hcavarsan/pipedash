@@ -31,6 +31,7 @@ pub struct CirclePipeline {
 pub struct Vcs {
     pub branch: Option<String>,
     pub revision: Option<String>,
+    pub target_repository_url: Option<String>,
     pub commit: Option<Commit>,
 }
 

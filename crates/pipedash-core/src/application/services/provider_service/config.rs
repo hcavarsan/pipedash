@@ -101,7 +101,13 @@ impl ProviderService {
     }
 
     pub async fn apply_config_file(&self, config_state: &ConfigState) -> DomainResult<SyncResult> {
-        let loaded = config_state.load_file().await?;
+        let loaded = match config_state.load_file().await {
+            Ok(loaded) => loaded,
+            Err(e) => {
+                self.config_failed(e.to_string()).await;
+                return Err(e);
+            }
+        };
 
         self.apply_loaded_config(config_state, loaded).await
     }
@@ -109,19 +115,31 @@ impl ProviderService {
     pub(crate) async fn apply_loaded_config(
         &self, config_state: &ConfigState, loaded: PipedashConfig,
     ) -> DomainResult<SyncResult> {
+        let result = self.apply_loaded_inner(config_state, loaded).await;
+        if let Err(e) = &result {
+            self.config_failed(e.to_string()).await;
+        }
+        result
+    }
+
+    async fn apply_loaded_inner(
+        &self, config_state: &ConfigState, loaded: PipedashConfig,
+    ) -> DomainResult<SyncResult> {
         let _apply = self.config_apply.lock().await;
-        let PipedashConfig {
-            providers: file,
-            views,
-            ..
-        } = loaded;
         let current = config_state.get().await;
+        if let Some(applications) = self.applications.get() {
+            if loaded.applications != current.applications
+                || loaded.correlation != current.correlation
+            {
+                applications.check(&loaded).await?;
+            }
+        }
+        let file = &loaded.providers;
         let changed: Vec<(String, ProviderFileConfig)> = file
             .iter()
             .filter(|(key, provider)| current.providers.get(*key) != Some(*provider))
             .map(|(key, provider)| (key.clone(), provider.clone()))
             .collect();
-
         for (key, provider) in &changed {
             if !self.plugin_registry.is_registered(&provider.provider_type) {
                 return Err(DomainError::InvalidProviderType(format!(
@@ -169,11 +187,17 @@ impl ProviderService {
                 return Err(e);
             }
         }
-        if current.views != views {
-            config_state.remember_views(views).await;
+        if current.views != loaded.views {
+            config_state.remember_views(loaded.views.clone()).await;
             self.event_bus.emit(CoreEvent::PipelineViewsChanged).await;
         }
-        config_state.remember_providers(file).await;
+        if let Some(applications) = self.applications.get() {
+            applications.commit(&loaded).await?;
+            config_state
+                .remember_applications(loaded.correlation.clone(), loaded.applications.clone())
+                .await;
+        }
+        config_state.remember_providers(loaded.providers).await;
 
         Ok(result)
     }

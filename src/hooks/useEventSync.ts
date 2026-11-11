@@ -13,8 +13,13 @@ import { useEventBatch } from './useEventBatch'
 
 export function useEventSync(): void {
   const queryClient = useQueryClient()
-  const { scheduleBatchedInvalidation, scheduleRunHistoryInvalidation, scheduleViewsInvalidation, cancel } =
-    useEventBatch(queryClient)
+  const {
+    scheduleBatchedInvalidation,
+    scheduleRunHistoryInvalidation,
+    scheduleViewsInvalidation,
+    scheduleApplicationsInvalidation,
+    cancel,
+  } = useEventBatch(queryClient)
 
   useEffect(() => {
     let mounted = true
@@ -102,6 +107,11 @@ export function useEventSync(): void {
     void register<EventPayloadMap['pipeline-views-changed']>('pipeline-views-changed', () => {
       logger.debug('EventSync', 'pipeline-views-changed')
       scheduleViewsInvalidation()
+    })
+
+    void register<EventPayloadMap['applications-changed']>('applications-changed', () => {
+      logger.debug('EventSync', 'applications-changed')
+      scheduleApplicationsInvalidation()
     })
 
     void register<EventPayloadMap['pipeline-status-changed']>('pipeline-status-changed', (payload) => {
@@ -284,7 +294,14 @@ export function useEventSync(): void {
       }
       cleanupFns.length = 0
     }
-  }, [queryClient, scheduleBatchedInvalidation, scheduleRunHistoryInvalidation, scheduleViewsInvalidation, cancel])
+  }, [
+    queryClient,
+    scheduleBatchedInvalidation,
+    scheduleRunHistoryInvalidation,
+    scheduleViewsInvalidation,
+    scheduleApplicationsInvalidation,
+    cancel,
+  ])
 
   useEffect(() => {
     let mounted = true

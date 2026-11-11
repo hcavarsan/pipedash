@@ -219,6 +219,10 @@ pub fn parse_deep_link(url: &Url) -> Option<NativeIntent> {
         ("pipelines", [id, "runs", run]) if is_route_segment(id) => {
             link(format!("/pipelines/{id}"), Some(run.parse().ok()?))
         }
+        ("applications", []) => link("/applications".to_string(), None),
+        ("applications", [id]) if id.parse::<i64>().is_ok() => {
+            link(format!("/applications/{id}"), None)
+        }
         ("notifications", []) => link("/notifications".to_string(), None),
         ("providers", []) => link("/providers".to_string(), None),
         ("settings", []) => link("/settings".to_string(), None),

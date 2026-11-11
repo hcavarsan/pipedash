@@ -4,13 +4,19 @@ use chrono::Utc;
 use pipedash_plugin_api::utils::{
     duration_seconds,
     parse_timestamp,
+    repository_name,
 };
 use pipedash_plugin_api::{
+    CommitSha,
+    Correlation,
     LogAvailability,
     LogNode,
     LogNodeKind,
+    Pipeline,
     PipelineRun,
     PipelineStatus,
+    RepoId,
+    RunEvidence,
 };
 
 use crate::types;
@@ -86,6 +92,30 @@ pub(crate) fn jobs_to_log_nodes(jobs: &[types::Job]) -> Vec<LogNode> {
         .collect()
 }
 
+pub(crate) fn map_pipeline(
+    org: &str, slug: &str, pipeline: types::Pipeline, latest_build: Option<&types::Build>,
+) -> Pipeline {
+    let metadata = HashMap::from([("organization_slug".to_string(), serde_json::json!(org))]);
+
+    Pipeline {
+        correlation: Correlation::single_source(RepoId::parse(&pipeline.repository), None),
+        id: format!("{org}__{slug}"),
+        name: pipeline.name,
+        status: latest_build.map_or(PipelineStatus::Pending, |build| {
+            map_build_state(&build.state)
+        }),
+        last_run: latest_build.and_then(|build| parse_timestamp(&build.created_at)),
+        last_updated: Utc::now(),
+        repository: repository_name(&pipeline.repository),
+        branch: latest_build
+            .map(|build| build.branch.clone())
+            .filter(|branch| !branch.is_empty()),
+        workflow_file: None,
+        resource_state: None,
+        metadata,
+    }
+}
+
 pub(crate) fn build_to_pipeline_run(build: types::Build, pipeline_id: &str) -> PipelineRun {
     let status = map_build_state(&build.state);
 
@@ -120,6 +150,15 @@ pub(crate) fn build_to_pipeline_run(build: types::Build, pipeline_id: &str) -> P
     );
 
     PipelineRun {
+        correlation: Correlation::single_source(
+            build
+                .pipeline
+                .as_ref()
+                .and_then(|pipeline| pipeline.repository.as_deref())
+                .and_then(RepoId::parse),
+            CommitSha::parse(&build.commit),
+        ),
+        evidence: RunEvidence::default(),
         id: format!("{pipeline_id}__{}", build.id),
         pipeline_id: pipeline_id.to_string(),
         run_number: build.number,

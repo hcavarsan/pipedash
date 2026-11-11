@@ -161,3 +161,167 @@ fn resource_names_are_dot_separated_dns_labels() {
         assert!(!is_resource_name(rejected), "{rejected:?} must be rejected");
     }
 }
+
+struct Object {
+    name: String,
+    namespace: String,
+    owners: Vec<(String, String)>,
+}
+
+impl OwnedObject for Object {
+    fn namespace(&self) -> &str {
+        &self.namespace
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn owner_references(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.owners
+            .iter()
+            .map(|(kind, name)| (kind.as_str(), name.as_str()))
+    }
+}
+
+fn object(name: &str, owner: Option<(&str, &str)>) -> Object {
+    Object {
+        name: name.to_string(),
+        namespace: "web".to_string(),
+        owners: owner
+            .map(|(kind, name)| (kind.to_string(), name.to_string()))
+            .into_iter()
+            .collect(),
+    }
+}
+
+fn keys<'a>(entries: &[(&'a str, &'a str, &'a str)]) -> Vec<ObjectKey<'a>> {
+    entries
+        .iter()
+        .map(|&(kind, namespace, name)| ObjectKey {
+            kind,
+            namespace,
+            name,
+        })
+        .collect()
+}
+
+fn names(objects: &[Object]) -> Vec<&str> {
+    objects.iter().map(|object| object.name.as_str()).collect()
+}
+
+#[test]
+fn deployment_pods_are_found_through_their_replica_set() {
+    let managed = keys(&[("Deployment", "web", "api")]);
+    let replica_sets = vec![
+        object("api-7f", Some(("Deployment", "api"))),
+        object("db-1", Some(("Deployment", "db"))),
+    ];
+    let pods = vec![
+        object("api-7f-a", Some(("ReplicaSet", "api-7f"))),
+        object("db-1-a", Some(("ReplicaSet", "db-1"))),
+    ];
+    let owners = Owners {
+        managed: &managed,
+        parents: &[("ReplicaSet", replica_sets.as_slice())],
+    };
+
+    let found = owned_by(pods, &owners);
+
+    assert_eq!(names(&found), ["api-7f-a"]);
+}
+
+#[test]
+fn cron_job_pods_are_found_through_their_job() {
+    let managed = keys(&[("CronJob", "web", "nightly")]);
+    let jobs = vec![object("nightly-28", Some(("CronJob", "nightly")))];
+    let pods = vec![
+        object("nightly-28-x", Some(("Job", "nightly-28"))),
+        object("other-1-x", Some(("Job", "other-1"))),
+    ];
+    let owners = Owners {
+        managed: &managed,
+        parents: &[("Job", jobs.as_slice())],
+    };
+
+    let found = owned_by(pods, &owners);
+
+    assert_eq!(names(&found), ["nightly-28-x"]);
+}
+
+#[test]
+fn stateful_set_and_bare_pods_are_owned_directly() {
+    let managed = keys(&[("StatefulSet", "web", "db"), ("Pod", "web", "lonely")]);
+    let pods = vec![
+        object("db-0", Some(("StatefulSet", "db"))),
+        object("lonely", None),
+        object("stranger", None),
+    ];
+    let owners = Owners::<Object> {
+        managed: &managed,
+        parents: &[],
+    };
+
+    let found = owned_by(pods, &owners);
+
+    assert_eq!(names(&found), ["db-0", "lonely"]);
+}
+
+#[test]
+fn unrelated_pods_in_the_same_namespace_are_excluded() {
+    let managed = keys(&[("Deployment", "web", "api")]);
+    let replica_sets = vec![object("api-7f", Some(("Deployment", "api")))];
+    let pods = vec![
+        object("stranger", None),
+        object("elsewhere", Some(("ReplicaSet", "unknown"))),
+        object("same-name", Some(("Deployment", "other"))),
+    ];
+    let owners = Owners {
+        managed: &managed,
+        parents: &[("ReplicaSet", replica_sets.as_slice())],
+    };
+
+    assert!(owned_by(pods, &owners).is_empty());
+}
+
+#[test]
+fn resources_in_another_namespace_do_not_own_pods() {
+    let managed = keys(&[("StatefulSet", "other", "db")]);
+    let owners = Owners::<Object> {
+        managed: &managed,
+        parents: &[],
+    };
+
+    assert!(owned_by(vec![object("db-0", Some(("StatefulSet", "db")))], &owners).is_empty());
+}
+
+#[test]
+fn a_parent_of_another_kind_does_not_link_a_pod_to_its_owner() {
+    let managed = keys(&[("Deployment", "web", "api")]);
+    let jobs = vec![object("api-7f", Some(("Deployment", "api")))];
+    let pods = vec![object("api-7f-a", Some(("ReplicaSet", "api-7f")))];
+    let owners = Owners {
+        managed: &managed,
+        parents: &[("Job", jobs.as_slice())],
+    };
+
+    assert!(owned_by(pods, &owners).is_empty());
+}
+
+#[test]
+fn borrowed_pods_are_filtered_without_cloning() {
+    let managed = keys(&[("StatefulSet", "web", "db")]);
+    let pods = [
+        object("db-0", Some(("StatefulSet", "db"))),
+        object("stranger", None),
+    ];
+    let owners = Owners::<Object> {
+        managed: &managed,
+        parents: &[],
+    };
+
+    let found = owned_by(pods.iter(), &owners);
+
+    assert_eq!(found.len(), 1);
+    assert!(std::ptr::eq(found[0], &pods[0]));
+}

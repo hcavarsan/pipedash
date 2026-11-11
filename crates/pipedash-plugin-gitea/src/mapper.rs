@@ -10,12 +10,17 @@ use pipedash_plugin_api::utils::{
 };
 use pipedash_plugin_api::{
     AvailablePipeline,
+    CommitSha,
+    Correlation,
     LogAvailability,
     LogNode,
     LogNodeKind,
+    Observed,
     Pipeline,
     PipelineRun,
     PipelineStatus,
+    RepoId,
+    RunEvidence,
 };
 
 use crate::{
@@ -43,8 +48,10 @@ pub(crate) fn map_available_pipeline(repo: &types::Repository) -> AvailablePipel
 
 pub(crate) fn map_pipeline(
     owner: &str, repo: &str, workflow: &types::Workflow, latest_run: Option<&types::Run>,
+    source: Option<RepoId>,
 ) -> Pipeline {
     Pipeline {
+        correlation: Correlation::single_source(source, None),
         id: config::build_pipeline_id(owner, repo, &workflow.id),
         name: workflow.name.clone(),
         status: latest_run
@@ -60,11 +67,23 @@ pub(crate) fn map_pipeline(
     }
 }
 
-pub(crate) fn map_run(run: &types::Run, pipeline_id: &str, owner: &str) -> PipelineRun {
+pub(crate) fn map_run(
+    run: &types::Run, pipeline_id: &str, owner: &str, source: Option<RepoId>,
+) -> PipelineRun {
     let started_at = timestamp(run.started_at);
     let concluded_at = timestamp(run.completed_at);
+    let timing = if started_at.is_some() {
+        Observed::Recorded
+    } else {
+        Observed::Absent
+    };
 
     PipelineRun {
+        correlation: Correlation::single_source(source, CommitSha::parse(&run.head_sha)),
+        evidence: RunEvidence {
+            timing,
+            ..RunEvidence::default()
+        },
         id: format!("gitea-run-{}", run.id),
         pipeline_id: pipeline_id.to_string(),
         run_number: run.run_number,
@@ -132,6 +151,8 @@ pub(crate) fn jobs_to_log_nodes(jobs: &[types::Job]) -> Vec<LogNode> {
 
     nodes
 }
+
+pub(crate) mod commits;
 
 #[cfg(test)]
 mod tests;

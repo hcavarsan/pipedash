@@ -26,6 +26,12 @@ fn app_pages_open_from_custom_scheme_links() {
         link("pipedash://settings/app-lock"),
         to("/settings/app-lock", None)
     );
+    assert_eq!(link("pipedash://applications"), to("/applications", None));
+    assert_eq!(
+        link("pipedash://applications/12"),
+        to("/applications/12", None)
+    );
+    assert_eq!(link("pipedash://applications/twelve"), None);
 }
 
 #[test]

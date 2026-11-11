@@ -40,6 +40,71 @@ pub fn is_resource_name(value: &str) -> bool {
     value.len() <= 253 && value.split('.').all(is_dns_label)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ObjectKey<'a> {
+    pub kind: &'a str,
+    pub namespace: &'a str,
+    pub name: &'a str,
+}
+
+pub trait OwnedObject {
+    fn namespace(&self) -> &str;
+    fn name(&self) -> &str;
+    fn owner_references(&self) -> impl Iterator<Item = (&str, &str)>;
+}
+
+impl<T: OwnedObject> OwnedObject for &T {
+    fn namespace(&self) -> &str {
+        (**self).namespace()
+    }
+
+    fn name(&self) -> &str {
+        (**self).name()
+    }
+
+    fn owner_references(&self) -> impl Iterator<Item = (&str, &str)> {
+        (**self).owner_references()
+    }
+}
+
+pub struct Owners<'a, P> {
+    pub managed: &'a [ObjectKey<'a>],
+    pub parents: &'a [(&'a str, &'a [P])],
+}
+
+impl<P: OwnedObject> Owners<'_, P> {
+    fn manages(&self, kind: &str, namespace: &str, name: &str) -> bool {
+        self.managed
+            .iter()
+            .any(|key| key.kind == kind && key.namespace == namespace && key.name == name)
+    }
+
+    fn manages_through_parent(&self, kind: &str, namespace: &str, name: &str) -> bool {
+        self.parents
+            .iter()
+            .filter(|entry| entry.0 == kind)
+            .flat_map(|entry| entry.1.iter())
+            .filter(|parent| parent.namespace() == namespace && parent.name() == name)
+            .flat_map(|parent| parent.owner_references())
+            .any(|(grand_kind, grand_name)| self.manages(grand_kind, namespace, grand_name))
+    }
+}
+
+pub fn owned_by<O: OwnedObject, P: OwnedObject>(
+    pods: impl IntoIterator<Item = O>, owners: &Owners<'_, P>,
+) -> Vec<O> {
+    pods.into_iter()
+        .filter(|pod| {
+            let namespace = pod.namespace();
+            owners.manages("Pod", namespace, pod.name())
+                || pod.owner_references().any(|(kind, name)| {
+                    owners.manages(kind, namespace, name)
+                        || owners.manages_through_parent(kind, namespace, name)
+                })
+        })
+        .collect()
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub enum KubeconfigSource {
     Content(String),

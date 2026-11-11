@@ -1,3 +1,4 @@
+pub(crate) mod applications;
 pub(crate) mod cache;
 pub(crate) mod capabilities;
 pub(crate) mod config;

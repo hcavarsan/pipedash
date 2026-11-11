@@ -1,14 +1,8 @@
-use std::collections::HashMap;
-
-use chrono::Utc;
 use pipedash_plugin_api::http::{
     decode_json,
     parse_http_url,
 };
-use pipedash_plugin_api::utils::{
-    parse_timestamp,
-    repository_name,
-};
+use pipedash_plugin_api::utils::repository_name;
 use pipedash_plugin_api::{
     check_response,
     map_send_error,
@@ -134,37 +128,7 @@ impl BuildkiteClient {
             ))
             .await?;
 
-        let latest_build = builds.first();
-        let status = latest_build
-            .map(|build| mapper::map_build_state(&build.state))
-            .unwrap_or(pipedash_plugin_api::PipelineStatus::Pending);
-
-        let last_run = latest_build.and_then(|build| parse_timestamp(&build.created_at));
-
-        let mut metadata = HashMap::new();
-        metadata.insert(
-            "organization_slug".to_string(),
-            serde_json::json!(org.clone()),
-        );
-
-        Ok(Pipeline {
-            id: format!("{org}__{slug}"),
-            name: pipeline.name,
-            status,
-            last_run,
-            last_updated: Utc::now(),
-            repository: repository_name(&pipeline.repository),
-            branch: latest_build.and_then(|b| {
-                if b.branch.is_empty() {
-                    None
-                } else {
-                    Some(b.branch.clone())
-                }
-            }),
-            workflow_file: None,
-            resource_state: None,
-            metadata,
-        })
+        Ok(mapper::map_pipeline(&org, &slug, pipeline, builds.first()))
     }
 
     pub async fn fetch_builds(

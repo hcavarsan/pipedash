@@ -10,6 +10,9 @@ use tokio::io::{
 
 use super::*;
 
+const STUB_COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+const STUB_PARENT: &str = "fedcba9876543210fedcba9876543210fedcba98";
+
 const STUB_REPOS: usize = 150;
 const STUB_ORGS: usize = 70;
 const MAX_RESPONSE_ITEMS: usize = 50;
@@ -215,6 +218,31 @@ async fn stub_gitea_with_run_cap(
                 }
                 ("GET", "/api/v1/repos/claude/old/actions/runs/7/jobs") => {
                     (404, serde_json::json!({"message": "not found"}))
+                }
+                ("GET", path) if path.starts_with("/api/v1/repos/claude/smoke__ci/git/commits/") => {
+                    (
+                        200,
+                        serde_json::json!({
+                            "sha": STUB_COMMIT,
+                            "commit": {
+                                "message": "ship it",
+                                "author": {"date": "2026-10-01T10:00:00Z"},
+                                "committer": {"date": "2026-10-01T10:05:00Z"}
+                            },
+                            "parents": [{"sha": STUB_PARENT}],
+                            "files": [{"filename": "deploy/values.yaml", "status": "modified"}]
+                        }),
+                    )
+                }
+                ("GET", path) if path.starts_with("/api/v1/repos/claude/smoke__ci/compare/") => {
+                    let ahead = path.ends_with(&format!("{STUB_PARENT}...{STUB_COMMIT}"));
+                    (
+                        200,
+                        serde_json::json!({
+                            "total_commits": u32::from(ahead) * 2,
+                            "commits": if ahead { vec![serde_json::json!({"sha": STUB_COMMIT})] } else { Vec::new() }
+                        }),
+                    )
                 }
                 (method, path) => panic!("Unexpected stub request: {method} {path}"),
             };
@@ -947,4 +975,102 @@ async fn rerun_keeping_the_job_id_restarts_even_when_its_log_is_longer_than_the_
     server.abort();
 
     assert_eq!(ranges(&log), [None, None, None]);
+}
+
+#[tokio::test]
+async fn runs_and_pipelines_name_the_configured_server_repository() {
+    let (plugin, server) = stub_gitea().await;
+    let runs = plugin
+        .fetch_run_history("claude/smoke__ci/lint.yaml", 20)
+        .await
+        .unwrap();
+    server.abort();
+
+    let host = config::source_host(&plugin.config).unwrap();
+    let repo = RepoId::from_host_path(&host, "claude/smoke__ci");
+    assert!(!runs.is_empty());
+    for run in &runs {
+        assert_eq!(run.correlation.sources[0].repo, repo.clone().unwrap());
+    }
+}
+
+#[tokio::test]
+async fn commit_hooks_read_the_repository_through_the_server_api() {
+    let (plugin, server) = stub_gitea().await;
+    let host = config::source_host(&plugin.config).unwrap();
+    let repo = RepoId::from_host_path(&host, "claude/smoke__ci").unwrap();
+    let commit = CommitSha::parse(STUB_COMMIT).unwrap();
+    let parent = CommitSha::parse(STUB_PARENT).unwrap();
+
+    let info = plugin.resolve_commit(&repo, "main").await.unwrap();
+    let comparison = plugin
+        .compare_commits(&repo, &parent, &commit)
+        .await
+        .unwrap();
+    let changes = plugin.commit_changes(&repo, &commit).await.unwrap();
+    server.abort();
+
+    assert_eq!(info.sha, commit);
+    assert_eq!(info.parents, [parent]);
+    assert_eq!(
+        (comparison.ahead, comparison.behind, comparison.commits),
+        (2, 0, vec![commit])
+    );
+    assert_eq!(
+        changes,
+        [ChangedFile {
+            path: "deploy/values.yaml".to_string(),
+            patch: None,
+        }]
+    );
+}
+
+#[tokio::test]
+async fn commit_hooks_reject_a_repository_that_is_not_owner_and_name() {
+    let (plugin, server) = stub_gitea().await;
+    let repo = RepoId::from_host_path("example.test", "group/sub/repo").unwrap();
+    let error = plugin.resolve_commit(&repo, "main").await.unwrap_err();
+    server.abort();
+
+    assert!(matches!(error, PluginError::InvalidConfig(_)), "{error}");
+}
+
+#[tokio::test]
+async fn hooks_on_an_uninitialized_plugin_report_it_instead_of_unsupported() {
+    let plugin = GiteaPlugin::new();
+    let repo = RepoId::from_host_path("example.test", "owner/repo").unwrap();
+    let sha = CommitSha::parse(STUB_COMMIT).unwrap();
+
+    let errors = [
+        plugin.resolve_commit(&repo, "main").await.unwrap_err(),
+        plugin.compare_commits(&repo, &sha, &sha).await.unwrap_err(),
+        plugin.commit_changes(&repo, &sha).await.unwrap_err(),
+    ];
+
+    for error in errors {
+        assert!(matches!(error, PluginError::Internal(_)), "{error}");
+    }
+}
+
+#[test]
+fn source_hosts_follow_the_base_url_and_are_empty_without_configuration() {
+    let plugin = GiteaPlugin::new();
+    let hosts = |pairs: &[(&str, &str)]| {
+        plugin.source_hosts(
+            &pairs
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect(),
+        )
+    };
+
+    assert!(hosts(&[]).is_empty());
+    assert_eq!(
+        hosts(&[("base_url", "https://example.test")]),
+        ["example.test"]
+    );
+    assert_eq!(
+        hosts(&[("base_url", "https://Git.Example.test:3000/")]),
+        ["git.example.test:3000"]
+    );
 }

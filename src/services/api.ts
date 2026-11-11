@@ -1,3 +1,4 @@
+import { createApplicationsApi } from './api/applications'
 import { createDevicesApi } from './api/devices'
 import { createLogsApi } from './api/logs'
 import { createMetricsApi } from './api/metrics'
@@ -18,6 +19,7 @@ export const apiService: PipedashService & ServerVersionService & PushService = 
   ...createLogsApi(client),
   ...createMetricsApi(client),
   ...createViewsApi(client),
+  ...createApplicationsApi(client),
   ...createStorageApi(client),
   ...createDevicesApi(client),
   ...createNotificationsApi(client),

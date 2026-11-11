@@ -48,6 +48,11 @@
     <td width="264"><a href="https://pipedash.app/docs/features/views">Views</a></td>
   </tr>
   <tr>
+    <td align="center" width="120"><img src="./.github/icons/trace.svg" width="32" height="32" alt="" /><br><b>Trace</b></td>
+    <td width="420">Follow a commit from its build to each deployment, across providers, with nothing to add to a pipeline.</td>
+    <td width="264"><a href="https://pipedash.app/docs/features/applications">Applications</a></td>
+  </tr>
+  <tr>
     <td align="center" width="120"><img src="./.github/icons/investigate.svg" width="32" height="32" alt="" /><br><b>Investigate</b></td>
     <td width="420">Find out why a run failed.</td>
     <td width="264"><a href="https://pipedash.app/docs/features/run-logs">Run logs</a><br><a href="https://pipedash.app/docs/features/metrics">Metrics</a></td>

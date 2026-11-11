@@ -12,6 +12,7 @@ use crate::{
 
 mod actions;
 mod catalog;
+mod hooks;
 mod logs;
 mod permissions;
 
@@ -48,7 +49,7 @@ plugin_impl!(GitHubPlugin [
         state.rerun_strategy = RerunStrategy::InPlace;
         if pipeline
             .workflow_file
-            .is_some_and(|file| file.starts_with("dynamic/"))
+            .is_some_and(|file| file.starts_with(config::DYNAMIC_WORKFLOW_PREFIX))
         {
             state.trigger = ActionAvailability::blocked(
                 "GitHub starts this built-in workflow itself. It has no workflow file, so only its existing runs can be rerun.",
@@ -162,6 +163,36 @@ plugin_impl!(GitHubPlugin [
         client
             .check_token_permissions(&config::get_repositories(&self.config))
             .await
+    }
+
+    fn source_hosts(&self, config: &HashMap<String, String>) -> Vec<String> {
+        config::source_hosts(config)
+    }
+
+    async fn resolve_commit(&self, repo: &RepoId, rev: &str) -> PluginResult<CommitInfo> {
+        self.resolve_commit_impl(repo, rev).await
+    }
+
+    async fn compare_commits(
+        &self, repo: &RepoId, base: &CommitSha, head: &CommitSha,
+    ) -> PluginResult<CommitComparison> {
+        self.compare_commits_impl(repo, base, head).await
+    }
+
+    async fn commit_changes(
+        &self, repo: &RepoId, sha: &CommitSha,
+    ) -> PluginResult<Vec<ChangedFile>> {
+        self.commit_changes_impl(repo, sha).await
+    }
+
+    async fn artifact_provenance(
+        &self, _repository: &ArtifactRepository, digest: &Digest,
+    ) -> PluginResult<Option<Provenance>> {
+        self.artifact_provenance_impl(digest).await
+    }
+
+    async fn registry_auth(&self, host: &str) -> PluginResult<Option<RegistryAuth>> {
+        self.registry_auth_impl(host).await
     }
 });
 

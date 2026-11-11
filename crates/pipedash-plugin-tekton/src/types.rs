@@ -203,6 +203,13 @@ impl StepState {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TaskResult {
+    pub name: String,
+    #[serde(default)]
+    pub value: serde_json::Value,
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct TaskRunStatusFields {
     #[serde(rename = "startTime", skip_serializing_if = "Option::is_none")]
@@ -217,6 +224,8 @@ pub struct TaskRunStatusFields {
     pub steps: Vec<StepState>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sidecars: Vec<StepState>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub results: Vec<TaskResult>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -256,6 +265,8 @@ pub struct PipelineRunStatus {
     pub task_runs: HashMap<String, TaskRunStatus>,
     #[serde(rename = "childReferences", default)]
     pub child_references: Vec<ChildReference>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub results: Vec<TaskResult>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
