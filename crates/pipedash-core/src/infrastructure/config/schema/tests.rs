@@ -134,3 +134,19 @@ fn test_config_paths() {
     assert!(config.db_path().starts_with(&data_dir));
     assert!(config.cache_dir().starts_with(&data_dir));
 }
+
+#[test]
+fn a_target_table_without_group_loads_and_saves_as_before() {
+    let text = "[applications.x]\nname = \"X\"\n\n[applications.x.targets.qa]\nname = \"QA\"\nclusters = [\"c\"]\nnamespaces = [\"n\"]\n\n[applications.x.targets.prod]\nname = \"Prod\"\nclusters = [\"d\"]\nafter = [\"qa\"]\n";
+    let config: PipedashConfig = toml::from_str(text).unwrap();
+    let targets = &config.applications["x"].targets;
+
+    assert_eq!(targets.len(), 2);
+    assert!(targets.values().all(|t| t.group.is_none()));
+    assert_eq!(targets["prod"].owner("prod"), "prod");
+    assert_eq!(targets["prod"].after, ["qa"]);
+    let saved = toml::to_string(&config).unwrap();
+    assert!(!saved.contains("group"));
+    let reloaded: PipedashConfig = toml::from_str(&saved).unwrap();
+    assert_eq!(reloaded.applications, config.applications);
+}

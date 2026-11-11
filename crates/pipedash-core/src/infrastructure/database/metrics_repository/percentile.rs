@@ -16,7 +16,7 @@ use crate::domain::{
 };
 use crate::infrastructure::database::bind::fetch_rows;
 
-pub(super) fn calculate_percentile(sorted_values: &[f64], percentile: f64) -> f64 {
+pub(crate) fn calculate_percentile(sorted_values: &[f64], percentile: f64) -> f64 {
     match sorted_values {
         [] => return 0.0,
         [only] => return *only,

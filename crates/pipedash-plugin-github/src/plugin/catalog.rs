@@ -19,9 +19,12 @@ impl GitHubPlugin {
         }
 
         let client = self.client()?;
+        let host = config::source_host(&self.config);
         let requests: Vec<_> = repositories
             .iter()
-            .map(|repo_full_name| client.fetch_repo_workflows(repo_full_name.clone()))
+            .map(|repo_full_name| {
+                client.fetch_repo_workflows(repo_full_name.clone(), host.as_deref())
+            })
             .collect();
         let results: Vec<_> = join_buffered(requests, 8).await;
 
@@ -63,19 +66,34 @@ impl GitHubPlugin {
         }
     }
 
+    fn run_source(&self, owner: &str, repo: &str) -> (Option<String>, Option<RepoId>) {
+        let host = config::source_host(&self.config);
+        let repo_id = host
+            .as_deref()
+            .and_then(|host| RepoId::from_host_path(host, &format!("{owner}/{repo}")));
+        (host, repo_id)
+    }
+
     pub(super) async fn fetch_run_history_impl(
         &self, pipeline_id: &str, limit: usize,
     ) -> PluginResult<Vec<PipelineRun>> {
         let (owner, repo, workflow_id) = Self::pipeline_ref(pipeline_id)?;
+        let client = self.client()?;
 
-        let runs = self
-            .client()?
+        let runs = client
             .fetch_run_history(owner, repo, workflow_id, limit)
+            .await?;
+        let (host, repo_id) = self.run_source(owner, repo);
+        let targets = client
+            .run_targets(owner, repo, host.as_deref(), &runs)
             .await?;
 
         Ok(runs
             .into_iter()
-            .map(|run| mapper::run_to_pipeline_run(run, pipeline_id))
+            .zip(targets)
+            .map(|(run, targets)| {
+                mapper::run_to_pipeline_run(run, pipeline_id, repo_id.clone(), targets)
+            })
             .collect())
     }
 
@@ -83,12 +101,23 @@ impl GitHubPlugin {
         &self, pipeline_id: &str, run_number: i64,
     ) -> PluginResult<PipelineRun> {
         let (owner, repo, workflow_id) = Self::pipeline_ref(pipeline_id)?;
+        let client = self.client()?;
 
-        let run = self
-            .client()?
+        let run = client
             .fetch_run_by_number(owner, repo, workflow_id, run_number)
             .await?;
+        let (host, repo_id) = self.run_source(owner, repo);
+        let targets = client
+            .run_targets(owner, repo, host.as_deref(), std::slice::from_ref(&run))
+            .await?
+            .pop()
+            .unwrap_or_default();
 
-        Ok(mapper::run_to_pipeline_run(run, pipeline_id))
+        Ok(mapper::run_to_pipeline_run(
+            run,
+            pipeline_id,
+            repo_id,
+            targets,
+        ))
     }
 }

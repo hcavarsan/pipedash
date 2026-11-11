@@ -32,6 +32,8 @@ pub enum CoreEvent {
 
     PipelineViewsChanged,
 
+    ApplicationsChanged,
+
     PipelinesUpdated {
         pipelines: Vec<Pipeline>,
         provider_id: i64,
@@ -182,6 +184,7 @@ impl CoreEvent {
         match self {
             CoreEvent::ProvidersChanged => "providers-changed",
             CoreEvent::PipelineViewsChanged => "pipeline-views-changed",
+            CoreEvent::ApplicationsChanged => "applications-changed",
             CoreEvent::PipelinesUpdated { .. } => "pipelines-updated",
             CoreEvent::PipelineStatusChanged { .. } => "pipeline-status-changed",
             CoreEvent::PipelinesFailed { .. } => "pipelines-failed",

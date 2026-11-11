@@ -4,15 +4,18 @@ use chrono::{
     DateTime,
     Utc,
 };
+use pipedash_plugin_api::utils::deployed_status;
 use pipedash_plugin_api::{
     AvailablePipeline,
     LogAvailability,
     LogNode,
     LogNodeKind,
+    Observed,
     Pipeline,
     PipelineRun,
     PipelineStatus,
     ResourceState,
+    RunEvidence,
 };
 use serde_json::{
     json,
@@ -26,6 +29,8 @@ use crate::types::{
     UpdateListItem,
     UpdateLogs,
 };
+
+mod correlation;
 
 pub(crate) fn map_stack_state(info: &StackInfo) -> (PipelineStatus, ResourceState) {
     let (status, label) = match info.state.as_str() {
@@ -128,6 +133,7 @@ pub(crate) fn map_pipeline(stack: &StackListItem, last_update_start: Option<i64>
     let branch = (!info.repo.is_empty() && !info.branch.is_empty()).then(|| info.branch.clone());
 
     Pipeline {
+        correlation: correlation::pipeline(stack),
         id: stack.id.clone(),
         name: stack.name.clone(),
         status,
@@ -162,6 +168,7 @@ pub(crate) fn map_available_pipeline(stack: &StackListItem) -> AvailablePipeline
 
 pub(crate) fn map_run(
     stack_id: &str, server_url: &str, item: &UpdateListItem, detail: Option<&Update>,
+    info: Option<&StackInfo>,
 ) -> PipelineRun {
     let (status, success) = detail.map_or((item.status.as_str(), item.success), |update| {
         (update.status.as_str(), update.success)
@@ -183,6 +190,15 @@ pub(crate) fn map_run(
     }
 
     PipelineRun {
+        correlation: correlation::run(info, detail),
+        evidence: RunEvidence {
+            timing: if end_ts.is_some() {
+                Observed::Recorded
+            } else {
+                Observed::Absent
+            },
+            ..RunEvidence::default()
+        },
         id: format!("{stack_id}__{}", item.id),
         pipeline_id: stack_id.to_string(),
         run_number: item.start_ts,
@@ -199,6 +215,15 @@ pub(crate) fn map_run(
         actor,
         inputs: None,
         metadata,
+    }
+}
+
+pub(crate) fn apply_live_status(run: &mut PipelineRun, live: PipelineStatus) {
+    let status = deployed_status(run.status, live);
+    if status != run.status {
+        run.status = status;
+        run.evidence.outcome = Observed::Absent;
+        run.evidence.attempt = false;
     }
 }
 

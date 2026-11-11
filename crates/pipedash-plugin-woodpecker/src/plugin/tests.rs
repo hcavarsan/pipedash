@@ -181,7 +181,9 @@ fn repo_json(id: i64, owner: &str, name: &str) -> Value {
         "name": name,
         "full_name": format!("{owner}/{name}"),
         "default_branch": "trunk",
-        "config_file": ".woodpecker.yaml"
+        "config_file": ".woodpecker.yaml",
+        "forge_url": format!("https://forge.test/{owner}/{name}"),
+        "clone_url": format!("https://forge.test/{owner}/{name}.git")
     })
 }
 
@@ -202,6 +204,9 @@ fn pipeline_json(number: i64, status: &str) -> Value {
 }
 
 fn capped_history(request: &Request) -> Reply {
+    if request.url.path() == "/api/repos/5" {
+        return Reply::json(200, repo_json(5, "acme", "web"));
+    }
     if request.url.path() != "/api/repos/5/pipelines" {
         return Reply::not_found(request);
     }
@@ -299,6 +304,11 @@ async fn run_history_reads_past_a_server_page_cap_until_an_empty_page() {
         runs[0].logs_url,
         format!("{}/repos/5/pipeline/45", stub.base_url)
     );
+    assert_eq!(
+        runs[0].correlation.sources[0].repo,
+        RepoId::from_host_path("forge.test", "acme/web").unwrap()
+    );
+    assert_eq!(stub.requests_to("GET", "/api/repos/5").len(), 1);
 }
 
 #[tokio::test]

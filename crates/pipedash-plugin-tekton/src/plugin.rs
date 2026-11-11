@@ -56,6 +56,18 @@ impl TektonPlugin {
     }
 }
 
+fn group_by_pipeline_run(
+    task_runs: Vec<types::TektonTaskRun>,
+) -> HashMap<String, Vec<types::TektonTaskRun>> {
+    let mut grouped: HashMap<String, Vec<types::TektonTaskRun>> = HashMap::new();
+    for task in task_runs {
+        if let Some(run) = task.metadata.labels.get("tekton.dev/pipelineRun").cloned() {
+            grouped.entry(run).or_default().push(task);
+        }
+    }
+    grouped
+}
+
 async fn accessible_namespaces(client: &client::TektonClient) -> PluginResult<Vec<String>> {
     if client.try_list_namespaces_cluster_wide().await?.is_empty() {
         return Err(PluginError::InvalidConfig(
@@ -139,9 +151,19 @@ plugin_impl!(TektonPlugin [
 
         let limited_runs: Vec<types::TektonPipelineRun> = runs.into_iter().take(limit).collect();
 
+        let task_runs = client
+            .list_pipeline_taskruns(&namespace, &pipeline_name)
+            .await
+            .inspect_err(|error| tracing::warn!(%error, "Failed to list Tekton TaskRuns"))
+            .unwrap_or_default();
+        let mut by_run = group_by_pipeline_run(task_runs);
+
         Ok(limited_runs
             .iter()
-            .map(mapper::runs::map_pipeline_run)
+            .map(|run| {
+                let tasks = by_run.remove(&run.metadata.name).unwrap_or_default();
+                mapper::runs::map_pipeline_run(run, &tasks)
+            })
             .collect())
     }
 
@@ -156,8 +178,13 @@ plugin_impl!(TektonPlugin [
             .await?;
 
         let run = find_run(runs, run_number)?;
+        let tasks = client
+            .list_taskruns(&namespace, &run.metadata.name)
+            .await
+            .inspect_err(|error| tracing::warn!(%error, "Failed to list Tekton TaskRuns"))
+            .unwrap_or_default();
 
-        Ok(mapper::runs::map_pipeline_run(&run))
+        Ok(mapper::runs::map_pipeline_run(&run, &tasks))
     }
 
     fn log_dialect(&self) -> &'static dyn LogDialect {

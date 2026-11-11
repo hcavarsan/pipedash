@@ -27,7 +27,7 @@ use crate::types::{
 
 pub(crate) enum Backend {
     Api(ArgocdClient),
-    Cluster(ClusterClient),
+    Cluster(Box<ClusterClient>),
 }
 
 impl Backend {
@@ -45,10 +45,29 @@ impl Backend {
         }
     }
 
-    pub async fn health_tree(&self, app: &Application) -> PluginResult<ApplicationTree> {
+    pub async fn health_tree(
+        &self, app: &Application, listed: Option<&[Pod]>,
+    ) -> PluginResult<ApplicationTree> {
+        match (self, listed) {
+            (Self::Api(client), _) => client.resource_tree(&app.metadata.name).await,
+            (Self::Cluster(_), Some(pods)) => Ok(pods::tree(app, pods)),
+            (Self::Cluster(cluster), None) => Ok(pods::tree(app, &cluster.pods(app).await?)),
+        }
+    }
+
+    pub async fn cluster_uid(&self) -> PluginResult<Option<&str>> {
         match self {
-            Self::Api(client) => client.resource_tree(&app.metadata.name).await,
-            Self::Cluster(cluster) => Ok(pods::tree(app, &cluster.pods(app).await?)),
+            Self::Api(_) => Ok(None),
+            Self::Cluster(cluster) => cluster.cluster_uid().await.map(Some),
+        }
+    }
+
+    pub async fn destination_pods(&self, app: &Application) -> PluginResult<Option<Vec<Pod>>> {
+        match self {
+            Self::Cluster(cluster) if pods::in_cluster(&app.spec.destination) => {
+                cluster.pods(app).await.map(Some)
+            }
+            _ => Ok(None),
         }
     }
 

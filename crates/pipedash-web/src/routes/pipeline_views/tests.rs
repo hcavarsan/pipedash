@@ -59,6 +59,7 @@ fn pipeline(provider_id: i64, name: &str) -> Pipeline {
         overdue_run: None,
         typical_duration_seconds: None,
         actions: Default::default(),
+        correlation: Default::default(),
     }
 }
 

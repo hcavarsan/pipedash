@@ -23,7 +23,7 @@ use crate::{
 };
 
 impl CoolifyPlugin {
-    async fn placements(&self) -> PluginResult<HashMap<i64, mapper::Placement>> {
+    pub(super) async fn placements(&self) -> PluginResult<HashMap<i64, mapper::Placement>> {
         let client = self.client()?;
         let projects = client.projects().await?;
         let details: Vec<(types::Project, types::ProjectDetail)> = stream::iter(projects)

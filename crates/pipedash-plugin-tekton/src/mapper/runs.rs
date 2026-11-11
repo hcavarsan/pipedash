@@ -1,7 +1,12 @@
 use chrono::Utc;
 use pipedash_plugin_api::utils;
-use pipedash_plugin_api::PipelineRun;
+use pipedash_plugin_api::{
+    Observed,
+    PipelineRun,
+    RunEvidence,
+};
 
+use super::correlation::run_correlation;
 use super::{
     map_status,
     pipeline_metadata,
@@ -10,6 +15,7 @@ use super::{
 use crate::types::{
     self,
     TektonPipelineRun,
+    TektonTaskRun,
 };
 
 fn parse_tasks_message(message: &str) -> Option<(usize, usize)> {
@@ -64,7 +70,7 @@ fn task_summary(run: &TektonPipelineRun) -> Option<String> {
     ))
 }
 
-pub(crate) fn map_pipeline_run(run: &TektonPipelineRun) -> PipelineRun {
+pub(crate) fn map_pipeline_run(run: &TektonPipelineRun, tasks: &[TektonTaskRun]) -> PipelineRun {
     let namespace = &run.metadata.namespace;
     let pipeline_name = run
         .spec
@@ -261,7 +267,19 @@ pub(crate) fn map_pipeline_run(run: &TektonPipelineRun) -> PipelineRun {
         );
     }
 
+    let timed = types::parse_timestamp(&run.status.start_time).is_some();
+    let evidence = RunEvidence {
+        timing: if timed {
+            Observed::Recorded
+        } else {
+            Observed::Absent
+        },
+        ..RunEvidence::default()
+    };
+
     PipelineRun {
+        correlation: run_correlation(run, tasks),
+        evidence,
         id: format!("{namespace}__{run_name}"),
         pipeline_id: format!("{namespace}__{pipeline_name}"),
         run_number,

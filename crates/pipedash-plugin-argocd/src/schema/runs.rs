@@ -67,7 +67,7 @@ pub(super) fn trailing_columns() -> Vec<ColumnDefinition> {
             ColumnDataType::String,
             CellRenderer::Badge,
         )
-        .described("Current application sync status")
+        .described("Application sync status; shown on the current sync only")
         .hidden()
         .with_width(120),
         ColumnDefinition::new(
@@ -77,7 +77,7 @@ pub(super) fn trailing_columns() -> Vec<ColumnDefinition> {
             ColumnDataType::String,
             CellRenderer::Badge,
         )
-        .described("Current application health status")
+        .described("Application health status; shown on the current sync only")
         .hidden()
         .with_width(120),
         ColumnDefinition::new(

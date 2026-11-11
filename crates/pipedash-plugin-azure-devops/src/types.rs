@@ -70,6 +70,8 @@ pub(crate) struct Build {
     pub parameters: Option<String>,
     #[serde(default)]
     pub definition: Option<DefinitionRef>,
+    #[serde(default)]
+    pub repository: Option<Repository>,
     #[serde(default, rename = "_links")]
     pub links: Option<Links>,
 }
@@ -98,6 +100,8 @@ pub(crate) struct Definition {
 pub(crate) struct Repository {
     #[serde(default)]
     pub default_branch: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -160,4 +164,55 @@ pub(crate) struct TimelineRecord {
 pub(crate) struct Timeline {
     #[serde(default)]
     pub records: Vec<TimelineRecord>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GitUserDate {
+    #[serde(default)]
+    pub date: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GitCommit {
+    pub commit_id: String,
+    #[serde(default)]
+    pub author: Option<GitUserDate>,
+    #[serde(default)]
+    pub committer: Option<GitUserDate>,
+    #[serde(default)]
+    pub comment: Option<String>,
+    #[serde(default)]
+    pub parents: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GitCommitDiffs {
+    #[serde(default)]
+    pub ahead_count: u32,
+    #[serde(default)]
+    pub behind_count: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GitItem {
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub is_folder: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct GitChange {
+    #[serde(default)]
+    pub item: Option<GitItem>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct GitChanges {
+    #[serde(default)]
+    pub changes: Vec<GitChange>,
 }

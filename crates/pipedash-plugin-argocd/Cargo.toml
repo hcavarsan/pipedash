@@ -21,6 +21,9 @@ tracing.workspace = true
 [dev-dependencies]
 rustls.workspace = true
 
+[features]
+fixtures = []
+
 [lints]
 workspace = true
 

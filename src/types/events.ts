@@ -42,6 +42,7 @@ export type EventPayloadMap = {
   'alert-recorded': { id: string; seq: number }
   'providers-changed': undefined
   'pipeline-views-changed': undefined
+  'applications-changed': undefined
   'pipeline-status-changed': PipelineStatusChangedPayload
   'run-history-cache-invalidated': RunHistoryCacheInvalidatedPayload
   'metrics-global-config-changed': undefined

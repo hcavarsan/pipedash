@@ -1,3 +1,5 @@
+use pipedash_plugin_api::SourceObservation;
+
 use super::*;
 
 const STATUSES: [&str; 7] = [
@@ -456,4 +458,72 @@ fn only_a_job_record_with_a_log_gives_a_log_id_and_its_attempt() {
     for record_id in ["bare-job", "task", "stage", "missing", "7"] {
         assert_eq!(job_log_ref(&timeline, record_id), None, "{record_id}");
     }
+}
+
+const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+fn shop() -> RepoId {
+    RepoId::from_host_path("dev.azure.com", "acme/Web%20App/_git/shop").unwrap()
+}
+
+fn observed(repo: RepoId, commit: Option<&str>) -> Correlation {
+    Correlation {
+        sources: vec![SourceObservation {
+            repo,
+            path_scopes: Vec::new(),
+            commit: commit.and_then(CommitSha::parse),
+        }],
+        ..Correlation::default()
+    }
+}
+
+#[test]
+fn run_and_pipeline_observe_the_build_repository_and_commit() {
+    let repository =
+        r#""repository": {"url": "https://acme@dev.azure.com/acme/Web%20App/_git/shop"}"#;
+    let run = build(&format!(
+        r#"{{"id": 7, "sourceVersion": "{SHA}", "status": "completed", "result": "succeeded", {repository}}}"#
+    ));
+    let definition: types::Definition = serde_json::from_str(&format!(
+        r#"{{"id": 12, "name": "CI", "latestBuild": {{"id": 7, "sourceVersion": "{SHA}", {repository}}}}}"#
+    ))
+    .unwrap();
+
+    let mapped = map_run(&run, "App/12", "App", &server());
+
+    assert_eq!(mapped.correlation, observed(shop(), Some(SHA)));
+    assert_eq!(mapped.evidence, RunEvidence::default());
+    assert_eq!(
+        map_pipeline("acme", "App", &definition).correlation,
+        observed(shop(), None)
+    );
+    assert_eq!(
+        map_run(&run, "App/12", "App", &server()).correlation,
+        mapped.correlation
+    );
+}
+
+#[test]
+fn a_version_that_is_not_a_commit_id_keeps_the_repository_without_a_commit() {
+    let run = build(
+        r#"{"id": 8, "sourceVersion": "C1234", "repository": {"url": "https://dev.azure.com/acme/Web%20App/_git/shop"}}"#,
+    );
+    assert_eq!(
+        map_run(&run, "App/12", "App", &server()).correlation,
+        observed(shop(), None)
+    );
+}
+
+#[test]
+fn builds_without_a_repository_url_observe_no_source() {
+    let run = build(&format!(
+        r#"{{"id": 9, "sourceVersion": "{SHA}", "repository": {{}}}}"#
+    ));
+    assert!(map_run(&run, "App/12", "App", &server())
+        .correlation
+        .is_empty());
+    let unparsable = build(r#"{"id": 9, "repository": {"url": "not a url"}}"#);
+    assert!(map_run(&unparsable, "App/12", "App", &server())
+        .correlation
+        .is_empty());
 }

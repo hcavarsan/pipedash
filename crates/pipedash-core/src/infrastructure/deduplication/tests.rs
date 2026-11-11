@@ -178,6 +178,8 @@ fn run(status: PipelineStatus) -> PipelineRun {
         actions: Default::default(),
         display: Default::default(),
         pace: Default::default(),
+        correlation: Default::default(),
+        evidence: Default::default(),
     }
 }
 

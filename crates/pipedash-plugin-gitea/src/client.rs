@@ -39,6 +39,7 @@ use crate::types::{
     WorkflowList,
 };
 
+mod commits;
 mod logs;
 
 const RUNS_PAGE_SIZE: usize = 50;

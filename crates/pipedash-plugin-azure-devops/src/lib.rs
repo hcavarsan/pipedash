@@ -1,5 +1,7 @@
 mod client;
 mod config;
+#[cfg(any(test, feature = "fixtures"))]
+mod fixtures;
 mod log_dialect;
 mod log_tail;
 mod mapper;
@@ -8,6 +10,8 @@ mod plugin;
 mod schema;
 mod types;
 
+#[cfg(any(test, feature = "fixtures"))]
+pub use fixtures::correlation_fixtures;
 pub use log_dialect::AzureDevOpsLogDialect;
 pub use plugin::AzureDevOpsPlugin;
 

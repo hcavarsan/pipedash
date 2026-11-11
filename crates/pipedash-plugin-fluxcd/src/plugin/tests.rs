@@ -2009,8 +2009,13 @@ fn workload_requests(requests: &[Recorded]) -> Vec<String> {
         .collect()
 }
 
+const IDENTITY: &str = "/api/v1/namespaces/kube-system";
+
 fn cluster_requests(requests: &[Recorded]) -> usize {
-    requests.len() - workload_requests(requests).len()
+    requests
+        .iter()
+        .filter(|(_, target, _)| !target.starts_with(APPS) && !target.starts_with(IDENTITY))
+        .count()
 }
 
 fn without_grace(mut plugin: FluxcdPlugin) -> FluxcdPlugin {
@@ -2390,4 +2395,266 @@ async fn only_ready_resources_trigger_workload_lookups() {
         Some(ResourceState::new("Not ready", Some("build failed")))
     );
     assert!(workload_requests(&stub.recorded()).is_empty());
+}
+
+const FLEET: &str = "/apis/source.toolkit.fluxcd.io/v1/namespaces/ci/gitrepositories/fleet";
+const SHOP_PODS: &str = "/api/v1/namespaces/shop/pods";
+const SHOP_REPLICA_SETS: &str = "/apis/apps/v1/namespaces/shop/replicasets";
+const COMMIT: &str = "6b7aab8a1f0c4e5d9a3b2c1d0e9f8a7b6c5d4e3f";
+const DIGEST: &str = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
+
+fn shop_pod(name: &str, owner: Option<(&str, &str)>, containers: Value) -> Value {
+    let owners: Vec<Value> = owner
+        .map(|(kind, name)| json!({ "kind": kind, "name": name }))
+        .into_iter()
+        .collect();
+
+    json!({
+        "metadata": { "name": name, "namespace": "shop", "ownerReferences": owners },
+        "status": { "containerStatuses": containers },
+    })
+}
+
+fn shop_pods() -> Vec<Value> {
+    vec![
+        shop_pod(
+            "api-7f-a",
+            Some(("ReplicaSet", "api-7f")),
+            json!([{
+                "image": "registry.example.test/shop/api:1.4.2",
+                "imageID": format!("docker-pullable://registry.example.test/shop/api@{DIGEST}"),
+            }]),
+        ),
+        shop_pod("stranger", None, json!([])),
+    ]
+}
+
+fn shop_replica_sets() -> Vec<Value> {
+    vec![json!({
+        "metadata": {
+            "name": "api-7f",
+            "namespace": "shop",
+            "ownerReferences": [{ "kind": "Deployment", "name": "api" }],
+        },
+    })]
+}
+
+fn shop_kustomization(name: &str) -> Value {
+    let revision = format!("main@sha1:{COMMIT}");
+    let mut status = ready_status();
+    status["lastAppliedRevision"] = json!(revision);
+    status["inventory"] = json!({ "entries": [
+        { "id": "shop_api_apps_Deployment", "v": "v1" },
+        { "id": "shop_api__Service", "v": "v1" },
+    ] });
+    status["history"] = json!([{
+        "digest": "sha256:a",
+        "firstReconciled": "2026-10-21T10:00:00Z",
+        "lastReconciled": "2026-10-21T10:00:05Z",
+        "lastReconciledDuration": "5s",
+        "lastReconciledStatus": "ReconciliationSucceeded",
+        "metadata": { "revision": revision },
+    }]);
+
+    flux(
+        "Kustomization",
+        "ci",
+        name,
+        json!({
+            "path": "./apps/shop",
+            "sourceRef": { "kind": "GitRepository", "name": "fleet" },
+            "targetNamespace": "shop",
+            "dependsOn": [{ "name": "infra" }],
+        }),
+        status,
+    )
+}
+
+fn shop_release(name: &str) -> Value {
+    flux(
+        "HelmRelease",
+        "ci",
+        name,
+        json!({
+            "targetNamespace": "shop",
+            "chart": { "spec": {
+                "chart": "./charts/shop",
+                "sourceRef": { "kind": "GitRepository", "name": "fleet" },
+            } },
+        }),
+        ready_status(),
+    )
+}
+
+fn correlated(
+    kustomizations: Vec<Value>, helm_releases: Vec<Value>, identity_response: (u16, String),
+) -> Stub {
+    stub(
+        move |_, target, _| match target.split('?').next().unwrap_or_default() {
+            IDENTITY => identity_response.clone(),
+            FLEET => (
+                200,
+                json!({ "spec": { "url": "https://git.example.test/acme/fleet.git" } }).to_string(),
+            ),
+            SHOP_PODS => (200, list(shop_pods(), None)),
+            SHOP_REPLICA_SETS => (200, list(shop_replica_sets(), None)),
+            _ => serve(target, &kustomizations, &helm_releases),
+        },
+    )
+}
+
+fn identity() -> (u16, String) {
+    (
+        200,
+        json!({ "metadata": { "name": "kube-system", "uid": "5C1F9F1E" } }).to_string(),
+    )
+}
+
+fn hits(requests: &[Recorded], path: &str) -> usize {
+    requests
+        .iter()
+        .filter(|(_, target, _)| target.split('?').next() == Some(path))
+        .count()
+}
+
+#[tokio::test]
+async fn a_kustomization_reports_its_unit_source_target_and_running_images() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = correlated(vec![shop_kustomization("app")], vec![], identity());
+    let plugin = plugin(&stub.server, &dir, &[]);
+
+    let pipelines = plugin.fetch_pipelines().await.unwrap();
+
+    let correlation = &pipelines[0].correlation;
+    assert_eq!(correlation.unit, UnitId::new("Kustomization/ci/app"));
+    assert_eq!(
+        correlation.unit_depends_on,
+        vec![UnitId::new("Kustomization/ci/infra").unwrap()]
+    );
+    assert_eq!(
+        correlation.sources,
+        vec![SourceObservation {
+            repo: RepoId::from_host_path("git.example.test", "acme/fleet").unwrap(),
+            path_scopes: vec![PathScope::new("apps/shop")],
+            commit: CommitSha::parse(COMMIT),
+        }]
+    );
+    assert_eq!(
+        correlation.targets,
+        vec![TargetObservation {
+            cluster: ClusterId::from_uid("5c1f9f1e").unwrap(),
+            namespace: Some("shop".to_string()),
+            name: "shop".to_string(),
+            lifetime: TargetLifetime::Standing,
+        }]
+    );
+    assert_eq!(
+        correlation.consumed,
+        vec![ConsumedArtifact {
+            artifact: ArtifactObservation {
+                repository: ImageRef::parse("registry.example.test/shop/api")
+                    .unwrap()
+                    .repository,
+                digest: Digest::parse(DIGEST),
+                tag: Some("1.4.2".to_string()),
+            },
+            target: Some(0),
+        }]
+    );
+}
+
+#[tokio::test]
+async fn shared_sources_identity_and_namespaces_are_read_once_per_fetch() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = correlated(
+        vec![shop_kustomization("app"), shop_kustomization("other")],
+        vec![],
+        identity(),
+    );
+    let plugin = plugin(&stub.server, &dir, &[]);
+
+    let pipelines = plugin.fetch_pipelines().await.unwrap();
+    plugin.fetch_pipelines().await.unwrap();
+
+    assert!(pipelines
+        .iter()
+        .all(|pipeline| pipeline.correlation.consumed.len() == 1));
+    let requests = stub.recorded();
+    assert_eq!(hits(&requests, FLEET), 1);
+    assert_eq!(hits(&requests, IDENTITY), 1);
+}
+
+#[tokio::test]
+async fn a_helm_release_reads_the_pods_labelled_with_its_name_in_its_target_namespace() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = correlated(vec![], vec![shop_release("app")], identity());
+    let plugin = plugin(&stub.server, &dir, &[]);
+
+    let pipelines = plugin.fetch_pipelines().await.unwrap();
+
+    let correlation = &pipelines[0].correlation;
+    assert_eq!(correlation.unit, UnitId::new("HelmRelease/ci/app"));
+    assert_eq!(
+        correlation.sources[0].path_scopes,
+        vec![PathScope::new("charts/shop")]
+    );
+    assert_eq!(correlation.targets[0].namespace.as_deref(), Some("shop"));
+    assert_eq!(correlation.consumed.len(), 1);
+    assert_eq!(correlation.consumed[0].target, Some(0));
+    let requests = stub.recorded();
+    let selector = requests
+        .iter()
+        .find(|(_, target, _)| target.starts_with(SHOP_PODS))
+        .map(|(_, target, _)| {
+            target
+                .replace("%2F", "/")
+                .replace("%3D", "=")
+                .replace("%2C", ",")
+        })
+        .unwrap();
+    assert!(
+        selector.contains("helm.toolkit.fluxcd.io/name=app,helm.toolkit.fluxcd.io/namespace=ci"),
+        "{selector}"
+    );
+    assert_eq!(hits(&requests, SHOP_REPLICA_SETS), 0);
+}
+
+#[tokio::test]
+async fn an_unreadable_cluster_identity_drops_the_target_but_keeps_the_source() {
+    let dir = tempfile::tempdir().unwrap();
+    let denied = (403, status_json(403, "Forbidden", "cannot get namespace"));
+    let stub = correlated(vec![shop_kustomization("app")], vec![], denied);
+    let plugin = plugin(&stub.server, &dir, &[]);
+
+    let pipelines = plugin.fetch_pipelines().await.unwrap();
+
+    let correlation = &pipelines[0].correlation;
+    assert!(correlation.targets.is_empty());
+    assert!(correlation.consumed.is_empty());
+    assert_eq!(correlation.sources.len(), 1);
+    assert_eq!(hits(&stub.recorded(), SHOP_PODS), 0);
+}
+
+#[tokio::test]
+async fn runs_carry_the_commit_of_their_revision_from_the_git_source() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = correlated(vec![shop_kustomization("app")], vec![], identity());
+    let plugin = plugin(&stub.server, &dir, &[]);
+
+    let history = plugin.fetch_run_history(APP, 10).await.unwrap();
+    let details = plugin
+        .fetch_run_details(APP, history[0].run_number)
+        .await
+        .unwrap();
+
+    let expected = vec![SourceObservation {
+        repo: RepoId::from_host_path("git.example.test", "acme/fleet").unwrap(),
+        path_scopes: vec![PathScope::new("apps/shop")],
+        commit: CommitSha::parse(COMMIT),
+    }];
+    assert_eq!(history[0].correlation.sources, expected);
+    assert_eq!(details.correlation.sources, expected);
+    let requests = stub.recorded();
+    assert_eq!(hits(&requests, FLEET), 1);
+    assert_eq!(hits(&requests, SHOP_PODS), 0);
 }

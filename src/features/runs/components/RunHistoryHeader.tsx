@@ -1,10 +1,12 @@
-import { Button, Group, Tooltip } from '@mantine/core'
+import { Badge, Button, Group, Stack, Tooltip } from '@mantine/core'
 import { IconAdjustments } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { PageHeader } from '../../../components/common/PageHeader'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
 import type { Pipeline } from '../../../types/pipelines'
 import { triggerIcon } from '../../../utils/pipelineRowActions'
+import { usePipelineApplications } from '../../applications/queries/useApplicationQueries'
 import { PipelineNotifyMenu } from '../../notifications/components/PipelineNotifyMenu'
 import { useRunActions } from './RunActionsContext'
 
@@ -57,12 +59,32 @@ function HeaderActions({
 export function RunHistoryHeader(props: RunHistoryHeaderProps): ReactNode {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
+  const { data: applications = [] } = usePipelineApplications(props.pipeline.id)
 
   return (
-    <PageHeader
-      title={props.pipeline.name}
-      onBack={props.onBack}
-      actions={mobileShell ? undefined : <HeaderActions {...props} showCustomize={props.showCustomize && !isMobile} />}
-    />
+    <Stack gap="xs">
+      <PageHeader
+        title={props.pipeline.name}
+        onBack={props.onBack}
+        actions={
+          mobileShell ? undefined : <HeaderActions {...props} showCustomize={props.showCustomize && !isMobile} />
+        }
+      />
+      {applications.length > 0 && (
+        <Group gap="xs">
+          {applications.map((application) => (
+            <Badge
+              key={application.id}
+              component={Link}
+              to={`/applications/${application.id}`}
+              variant="light"
+              style={{ cursor: 'pointer' }}
+            >
+              {application.name}
+            </Badge>
+          ))}
+        </Group>
+      )}
+    </Stack>
   )
 }

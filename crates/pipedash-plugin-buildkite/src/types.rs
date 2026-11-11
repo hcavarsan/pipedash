@@ -21,6 +21,14 @@ pub(crate) struct Build {
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
     pub author: Option<Author>,
+    #[serde(default)]
+    pub pipeline: Option<BuildPipeline>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct BuildPipeline {
+    #[serde(default)]
+    pub repository: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

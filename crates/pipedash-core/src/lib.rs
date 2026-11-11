@@ -87,6 +87,8 @@ pub struct CoreContext {
 
     pub pipeline_view_service: Arc<application::PipelineViewService>,
 
+    pub correlation_service: Arc<application::CorrelationService>,
+
     config_watcher: Arc<application::ConfigWatcher>,
 
     alert_events: AlertEvents,
@@ -147,7 +149,9 @@ impl CoreContext {
         let providers = self.provider_service.list_providers().await?;
         let providers_removed = providers.len();
         for provider in providers {
-            self.provider_service.remove_provider(provider.id).await?;
+            self.provider_service
+                .remove_provider_keeping_applications(provider.id)
+                .await?;
         }
 
         for key in self.config_state.load_providers().await?.keys() {
@@ -158,6 +162,7 @@ impl CoreContext {
         }
         self.pipeline_service.clear_all_caches_atomic().await?;
         self.pipeline_view_service.reset().await?;
+        self.correlation_service.reset().await?;
         self.log_service.clear().await?;
         let metrics = MetricsRepository::new_from_pool(
             self.provider_service.repository().cache_pool().clone(),
@@ -230,8 +235,10 @@ impl CoreContext {
     }
 
     pub async fn shutdown(&self) {
+        self.provider_service.drain_reloads().await;
         self.alert_stop.cancel();
         self.pipeline_service.shutdown();
+        self.correlation_service.shutdown();
         self.log_service.shutdown().await;
         self.config_watcher.stop().await;
         self.refresh_manager.stop().await;

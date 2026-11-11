@@ -1,3 +1,13 @@
+use pipedash_plugin_api::{
+    ClusterId,
+    CommitSha,
+    Correlation,
+    RepoId,
+    TargetLifetime,
+    TargetObservation,
+    UnitId,
+};
+
 use super::*;
 
 fn stack(json: &str) -> StackListItem {
@@ -236,7 +246,7 @@ fn listed_update_maps_actor_status_start_and_link() {
             "username": "ada", "operator": "66usr", "target": {"type": "Stack", "id": "66a1"},
             "status": "Complete"}"#,
     );
-    let run = map_run("66a1", "https://komodo.test", &item, None);
+    let run = map_run("66a1", "https://komodo.test", &item, None, None);
 
     assert_eq!(run.id, "66a1__66u1");
     assert_eq!(run.run_number, 1761660000123);
@@ -262,7 +272,7 @@ fn detailed_update_adds_end_duration_commit_and_current_status() {
             "status": "Complete", "commit_hash": "abc1234"}"#,
     )
     .unwrap();
-    let run = map_run("66a1", "https://komodo.test", &item, Some(&detail));
+    let run = map_run("66a1", "https://komodo.test", &item, Some(&detail), None);
 
     assert_eq!(run.status, PipelineStatus::Failed);
     assert_eq!(run.actor.as_deref(), Some("Github"));
@@ -280,6 +290,7 @@ fn update_without_id_links_to_the_stack_page() {
         "66a1",
         "https://komodo.test",
         &update_item(r#"{"start_ts": 5}"#),
+        None,
         None,
     );
 
@@ -388,4 +399,151 @@ fn unnamed_stages_and_missing_times_get_plain_fallbacks() {
 fn an_update_without_logs_has_no_nodes() {
     assert!(log_nodes("Queued", "[]").is_empty());
     assert!(log_nodes("InProgress", "[]").is_empty());
+}
+
+const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+fn target(cluster: &str, name: &str) -> TargetObservation {
+    TargetObservation {
+        cluster: ClusterId::from_host(cluster).unwrap(),
+        namespace: None,
+        name: name.to_string(),
+        lifetime: TargetLifetime::Standing,
+    }
+}
+
+fn github_repo() -> Option<RepoId> {
+    RepoId::from_host_path("github.com", "acme/web")
+}
+
+fn detailed(commit_hash: &str) -> Update {
+    serde_json::from_value(json!({
+        "_id": "66u1", "start_ts": 1761660000000_i64, "end_ts": 1761660042500_i64,
+        "success": true, "status": "Complete", "commit_hash": commit_hash
+    }))
+    .unwrap()
+}
+
+#[test]
+fn a_stack_reports_its_unit_repo_without_the_branch_suffix_and_server_target() {
+    let pipeline = map_pipeline(&stack(MAIN_STACK), None);
+
+    assert_eq!(
+        pipeline.correlation,
+        Correlation {
+            unit: UnitId::new("66a1"),
+            targets: vec![target("prod-1", "prod-1")],
+            ..Correlation::single_source(github_repo(), None)
+        }
+    );
+}
+
+#[test]
+fn a_full_deployed_hash_becomes_the_source_commit_and_a_short_one_does_not() {
+    let full = stack(&format!(
+        r#"{{"id": "s2", "name": "api", "info": {{"server_id": "66s1", "repo": "acme/api",
+            "branch": "dev", "repo_link": "https://git.example.com/acme/api",
+            "state": "running", "deployed_hash": "{SHA}"}}}}"#
+    ));
+
+    assert_eq!(
+        map_pipeline(&full, None).correlation,
+        Correlation {
+            unit: UnitId::new("s2"),
+            targets: vec![target("66s1", "66s1")],
+            ..Correlation::single_source(
+                RepoId::from_host_path("git.example.com", "acme/api"),
+                CommitSha::parse(SHA),
+            )
+        }
+    );
+}
+
+#[test]
+fn a_stack_without_a_repo_or_server_has_only_a_unit() {
+    let files = map_pipeline(&stack(V1_STACK), None).correlation;
+    let bare = map_pipeline(&stack(r#"{"id": "x", "name": "bare"}"#), None).correlation;
+
+    assert_eq!(
+        files,
+        Correlation {
+            unit: UnitId::new("66a2"),
+            targets: vec![target("66s1", "66s1")],
+            ..Correlation::default()
+        }
+    );
+    assert_eq!(
+        bare,
+        Correlation {
+            unit: UnitId::new("x"),
+            ..Correlation::default()
+        }
+    );
+}
+
+#[test]
+fn a_listed_update_has_one_timestamp_so_its_timing_is_absent() {
+    let item = update_item(
+        r#"{"id": "66u1", "operation": "DeployStack", "start_ts": 1761660000123,
+            "success": true, "status": "Complete"}"#,
+    );
+    let info = stack(MAIN_STACK).info;
+
+    let run = map_run("66a1", "", &item, None, Some(&info));
+
+    assert_eq!(
+        run.correlation,
+        Correlation::single_source(github_repo(), None)
+    );
+    assert_eq!(run.duration_seconds, None);
+    assert_eq!(
+        run.evidence,
+        RunEvidence {
+            outcome: Observed::Recorded,
+            timing: Observed::Absent,
+            attempt: true,
+        }
+    );
+}
+
+#[test]
+fn a_detailed_update_carries_the_commit_when_it_is_a_full_hash() {
+    let item = update_item(r#"{"id": "66u1", "start_ts": 1761660000000}"#);
+    let info = stack(MAIN_STACK).info;
+
+    let full = map_run("66a1", "", &item, Some(&detailed(SHA)), Some(&info));
+    let short = map_run("66a1", "", &item, Some(&detailed("abc1234")), Some(&info));
+    let unknown = map_run("66a1", "", &item, Some(&detailed(SHA)), None);
+
+    assert_eq!(
+        full.correlation,
+        Correlation::single_source(github_repo(), CommitSha::parse(SHA))
+    );
+    assert_eq!(full.evidence, RunEvidence::default());
+    assert_eq!(
+        short.correlation,
+        Correlation::single_source(github_repo(), None)
+    );
+    assert_eq!(unknown.correlation, Correlation::default());
+}
+
+#[test]
+fn a_status_taken_from_live_health_is_not_a_recorded_outcome() {
+    let item = update_item(r#"{"id": "66u1", "start_ts": 1761660000000}"#);
+    let mut run = map_run("66a1", "", &item, Some(&detailed(SHA)), None);
+
+    apply_live_status(&mut run, PipelineStatus::Success);
+    assert_eq!(run.status, PipelineStatus::Success);
+    assert_eq!(run.evidence, RunEvidence::default());
+
+    apply_live_status(&mut run, PipelineStatus::Failed);
+    assert_eq!(run.status, PipelineStatus::Degraded);
+    assert_eq!(
+        run.evidence,
+        RunEvidence {
+            outcome: Observed::Absent,
+            timing: Observed::Recorded,
+            attempt: false,
+        }
+    );
 }

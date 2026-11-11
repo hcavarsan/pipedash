@@ -80,3 +80,62 @@ pub struct PipelineVariable {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub variable_type: Option<String>,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Deployment {
+    pub environment: DeploymentEnvironment,
+    #[serde(default)]
+    pub deployable: Option<Deployable>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DeploymentEnvironment {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Deployable {
+    #[serde(default)]
+    pub pipeline: Option<DeployablePipeline>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DeployablePipeline {
+    pub id: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Environment {
+    pub name: String,
+    #[serde(default)]
+    pub auto_stop_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Commit {
+    pub id: String,
+    #[serde(default)]
+    pub message: String,
+    pub authored_date: DateTime<Utc>,
+    pub committed_date: DateTime<Utc>,
+    #[serde(default)]
+    pub parent_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CommitRef {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Compare {
+    #[serde(default)]
+    pub commits: Vec<CommitRef>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileDiff {
+    pub new_path: String,
+    #[serde(default)]
+    pub diff: String,
+}

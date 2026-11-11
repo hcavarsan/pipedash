@@ -12,6 +12,7 @@ use futures::{
 };
 use pipedash_plugin_api::{
     AvailablePipeline,
+    Correlation,
     Pipeline,
     PipelineStatus,
     PluginError,
@@ -49,6 +50,7 @@ pub(super) fn missing_pipeline(target: &Target) -> Pipeline {
     );
 
     Pipeline {
+        correlation: Correlation::default(),
         id: target.selection_id(),
         name: format!("{}/{}", target.kind, target.name),
         status: PipelineStatus::Pending,

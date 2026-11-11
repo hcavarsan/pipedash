@@ -367,3 +367,77 @@ fn sidecars_have_separate_selectable_logs_under_their_task() {
         "2026-10-28T10:00:03+00:00"
     );
 }
+
+fn source(url: &str, commit: Option<&str>) -> pipedash_plugin_api::SourceObservation {
+    pipedash_plugin_api::SourceObservation {
+        repo: pipedash_plugin_api::RepoId::parse(url).unwrap(),
+        path_scopes: Vec::new(),
+        commit: commit.and_then(pipedash_plugin_api::CommitSha::parse),
+    }
+}
+
+fn artifact(image: &str, digest: &str) -> pipedash_plugin_api::ArtifactObservation {
+    pipedash_plugin_api::ImageRef {
+        digest: pipedash_plugin_api::Digest::parse(digest),
+        ..pipedash_plugin_api::ImageRef::parse(image).unwrap()
+    }
+    .into_observation()
+}
+
+#[test]
+fn pipelines_as_code_run_yields_source_and_produced_images_from_results() {
+    use crate::fixtures::{
+        correlation_fixtures,
+        DIGEST_A,
+        DIGEST_B,
+        SHA,
+    };
+
+    let (pipeline, runs) = correlation_fixtures().remove(0);
+    let source = source("https://git.test/shop/api", Some(SHA));
+
+    assert_eq!(pipeline.correlation.sources, vec![source.clone()]);
+    assert!(pipeline.correlation.produced.is_empty());
+    assert_eq!(runs[0].correlation.sources, vec![source]);
+    assert_eq!(
+        runs[0].correlation.produced,
+        vec![
+            artifact("reg.test/shop/api:v1", DIGEST_A),
+            artifact("reg.test/shop/web", DIGEST_B),
+        ]
+    );
+    assert_eq!(
+        runs[0].evidence,
+        pipedash_plugin_api::RunEvidence::default()
+    );
+}
+
+#[test]
+fn url_param_with_git_revision_label_is_a_source_otherwise_none() {
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    let run = |extra: &str| -> TektonPipelineRun {
+        serde_json::from_str(&format!(
+            r#"{{"apiVersion":"tekton.dev/v1","kind":"PipelineRun","metadata":{{"name":"r","namespace":"ci","labels":{{"tekton.dev/gitRevision":"{sha}"}}}},"spec":{{"params":[{extra}]}}}}"#
+        ))
+        .unwrap()
+    };
+
+    let with_param = run(r#"{"name":"git-url","value":"git@git.test:shop/api.git"}"#);
+    let other_param = run(r#"{"name":"revision","value":"git@git.test:shop/api.git"}"#);
+
+    assert_eq!(
+        runs::map_pipeline_run(&with_param, &[]).correlation.sources,
+        vec![source("https://git.test/shop/api", Some(sha))]
+    );
+    assert!(runs::map_pipeline_run(&other_param, &[])
+        .correlation
+        .is_empty());
+}
+
+#[test]
+fn run_without_start_time_has_no_timing_evidence() {
+    let run = runs::map_pipeline_run(&pipeline_run("{}"), &[]);
+
+    assert_eq!(run.evidence.timing, pipedash_plugin_api::Observed::Absent);
+    assert_eq!(run.duration_seconds, None);
+}

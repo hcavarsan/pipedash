@@ -164,3 +164,41 @@ fn invalid_custom_status_page_is_invalid_config() {
 
     assert!(matches!(error, PluginError::InvalidConfig(_)), "{error}");
 }
+
+fn config_of(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+    pairs
+        .iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect()
+}
+
+#[test]
+fn an_empty_config_has_no_source_hosts() {
+    assert!(source_hosts(&HashMap::new()).is_empty());
+}
+
+#[test]
+fn the_configured_base_url_host_is_the_source_host() {
+    let cases = [
+        (&[("base_url", "https://example.test")][..], "example.test"),
+        (&[("base_url", "https://Example.Test/")][..], "example.test"),
+        (
+            &[("base_url", "https://ghe.example.test:8443")][..],
+            "ghe.example.test:8443",
+        ),
+        (
+            &[("base_url", "http://127.0.0.1:9000")][..],
+            "127.0.0.1:9000",
+        ),
+        (&[("base_url", "https://www.github.com")][..], "github.com"),
+        (&[("token", "t")][..], "github.com"),
+    ];
+    for (pairs, host) in cases {
+        assert_eq!(source_hosts(&config_of(pairs)), [host], "{pairs:?}");
+    }
+}
+
+#[test]
+fn an_unparsable_base_url_has_no_source_hosts() {
+    assert!(source_hosts(&config_of(&[("base_url", "not a url")])).is_empty());
+}

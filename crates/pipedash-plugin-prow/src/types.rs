@@ -53,6 +53,8 @@ pub(crate) struct Refs {
     #[serde(default)]
     pub repo: String,
     #[serde(default)]
+    pub repo_link: Option<String>,
+    #[serde(default)]
     pub base_ref: String,
     #[serde(default)]
     pub base_sha: String,

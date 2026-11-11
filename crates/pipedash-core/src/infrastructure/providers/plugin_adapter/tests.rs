@@ -29,7 +29,10 @@ use pipedash_plugin_api::{
 };
 
 use super::*;
-use crate::domain::Provider;
+use crate::domain::{
+    DomainError,
+    Provider,
+};
 
 const TYPE: &str = "recorder";
 const PROVIDER: i64 = 3;
@@ -64,6 +67,8 @@ impl Recorder {
             actor: None,
             inputs: None,
             metadata: HashMap::new(),
+            correlation: Default::default(),
+            evidence: Default::default(),
         }
     }
 }
@@ -97,6 +102,7 @@ impl Plugin for Recorder {
             workflow_file: None,
             resource_state: None,
             metadata: HashMap::new(),
+            correlation: Default::default(),
         }])
     }
 

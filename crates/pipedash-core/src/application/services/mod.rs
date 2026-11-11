@@ -1,4 +1,5 @@
 pub mod cache_service;
+pub mod correlation_service;
 pub mod device_alerts;
 pub mod device_service;
 pub mod health_service;

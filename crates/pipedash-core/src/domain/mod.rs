@@ -1,3 +1,4 @@
+pub mod application;
 pub mod credential;
 pub mod date_range;
 pub mod device_alert;

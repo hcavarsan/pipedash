@@ -224,6 +224,26 @@ fn test_save_updates_an_existing_general_table_in_place() {
     );
 }
 
+const APPLICATIONS_CONFIG: &str = "[general]\ndefault_refresh_interval = 60\n\n[providers.ci]\ntype = \"stub\"\n\n[correlation]\nlog_evidence = false\n\n[[correlation.ignore]]\nprovider = \"ci\"\npipeline = \"sandbox-*\"\n\n[applications.shop]\nname = \"Shop\"\n\n[[applications.shop.members]]\nprovider = \"ci\"\npipeline = \"shop-*\"\nstage = \"build\"\n\n[applications.shop.targets.qa]\nname = \"QA\"\nnamespaces = [\"shop-qa\"]\n\n[applications.shop.targets.prod]\nname = \"Prod\"\nafter = [\"qa\"]\n";
+
+#[test]
+fn applications_and_correlation_tables_survive_a_general_settings_save() {
+    let temp_dir = TempDir::new().unwrap();
+    let path = temp_dir.path().join("config.toml");
+    std::fs::write(&path, APPLICATIONS_CONFIG).unwrap();
+    let mut config = ConfigLoader::load(&path).unwrap();
+    config.general.status_pages_enabled = false;
+
+    ConfigLoader::save(&config, &path).unwrap();
+
+    let saved = ConfigLoader::load(&path).unwrap();
+    assert!(!saved.general.status_pages_enabled);
+    assert_eq!(saved.applications, config.applications);
+    assert_eq!(saved.correlation, config.correlation);
+    assert_eq!(saved.applications["shop"].targets.len(), 2);
+    assert_eq!(saved.correlation.ignore.len(), 1);
+}
+
 const REFERENCED_CONFIG: &str = "[server]\nbind_addr = \"${PIPEDASH_TEST_BIND}\"\n\n[storage]\nbackend = \"postgres\"\ndata_dir = \"${PIPEDASH_TEST_DATA_DIR}\"\n\n[storage.postgres]\nconnection_string = \"${PIPEDASH_TEST_PG_URL}\"\n";
 
 fn referenced_env() -> EnvGuard {

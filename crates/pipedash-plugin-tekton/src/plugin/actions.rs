@@ -102,6 +102,7 @@ impl TektonPlugin {
                 completion_time: None,
                 task_runs: HashMap::new(),
                 child_references: vec![],
+                results: vec![],
             },
         };
 

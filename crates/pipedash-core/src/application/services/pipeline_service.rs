@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::sync::{
     Arc,
     Mutex as StdMutex,
+    OnceLock,
 };
 use std::time::Duration;
 
@@ -46,6 +47,7 @@ mod cache;
 mod cancellation;
 mod fetch;
 mod history;
+pub(crate) mod observer;
 pub(crate) mod overdue;
 mod refresh;
 mod run_watch;
@@ -99,6 +101,7 @@ pub struct PipelineService {
     metrics_inflight: Arc<StdMutex<HashSet<String>>>,
     metrics_permits: Arc<Semaphore>,
     presenter: Arc<Presenter>,
+    observer: OnceLock<Arc<dyn observer::FetchObserver>>,
 }
 
 impl PipelineService {
@@ -127,7 +130,12 @@ impl PipelineService {
             metrics_inflight: Arc::new(StdMutex::new(HashSet::new())),
             metrics_permits: Arc::new(Semaphore::new(METRICS_CONCURRENCY)),
             presenter,
+            observer: OnceLock::new(),
         }
+    }
+
+    pub(crate) fn set_observer(&self, observer: Arc<dyn observer::FetchObserver>) {
+        let _ = self.observer.set(observer);
     }
 
     async fn present_for_event(&self, pipelines: &mut [crate::domain::Pipeline]) {

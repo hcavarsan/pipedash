@@ -1,6 +1,9 @@
 pub(crate) mod plugins;
 
-use std::collections::HashMap;
+use std::collections::{
+    HashMap,
+    HashSet,
+};
 use std::sync::atomic::{
     AtomicBool,
     AtomicU64,
@@ -17,9 +20,15 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use chrono::Utc;
 use pipedash_plugin_api::{
+    ChangedFile,
+    CommitComparison,
+    CommitInfo,
+    CommitSha,
     ComponentHealth,
     PluginCapabilities,
+    Provenance,
     RateLimit,
+    RepoId,
     StatusSource,
     TriggerResult,
     WorkflowParameter,
@@ -37,8 +46,15 @@ use tokio::sync::{
 };
 use tokio::time::Instant;
 
+use super::services::correlation_service::{
+    CorrelationDeps,
+    CorrelationService,
+};
 use super::services::presenter::Presenter;
-use super::services::provider_service::ProviderDeps;
+use super::services::provider_service::{
+    ApplicationsConfig,
+    ProviderDeps,
+};
 use super::{
     FetchResult,
     FetchScheduler,
@@ -138,6 +154,7 @@ pub(crate) fn pipeline(provider_id: i64, name: &str, status: PipelineStatus) -> 
         overdue_run: None,
         typical_duration_seconds: None,
         actions: Default::default(),
+        correlation: Default::default(),
     }
 }
 
@@ -209,6 +226,16 @@ pub(crate) struct StubProvider {
     pub(crate) log_epoch: AtomicU64,
     pub(crate) log_requests: Mutex<Vec<Option<LogCursor>>>,
     pub(crate) history_policy: pipedash_plugin_api::RunHistoryPolicy,
+    pub(crate) hosts: Vec<String>,
+    pub(crate) commit: Mutex<Option<CommitInfo>>,
+    pub(crate) changes: Mutex<Vec<ChangedFile>>,
+    pub(crate) provenance: Mutex<Option<Provenance>>,
+    pub(crate) comparison: Mutex<Option<CommitComparison>>,
+    pub(crate) commit_calls: AtomicUsize,
+    pub(crate) change_calls: AtomicUsize,
+    pub(crate) provenance_calls: AtomicUsize,
+    pub(crate) source_gate: Option<Arc<Gate>>,
+    pub(crate) registry_login: Mutex<Option<pipedash_plugin_api::RegistryAuth>>,
 }
 
 impl StubProvider {
@@ -259,6 +286,16 @@ impl StubProvider {
             log_epoch: AtomicU64::new(0),
             log_requests: Mutex::new(Vec::new()),
             history_policy: pipedash_plugin_api::RunHistoryPolicy::default(),
+            hosts: Vec::new(),
+            commit: Mutex::new(None),
+            changes: Mutex::new(Vec::new()),
+            provenance: Mutex::new(None),
+            comparison: Mutex::new(None),
+            commit_calls: AtomicUsize::new(0),
+            change_calls: AtomicUsize::new(0),
+            provenance_calls: AtomicUsize::new(0),
+            source_gate: None,
+            registry_login: Mutex::new(None),
         }
     }
 
@@ -414,6 +451,41 @@ impl StubProvider {
 
     pub(crate) fn log_requests(&self) -> Vec<Option<LogCursor>> {
         self.log_requests.lock().unwrap().clone()
+    }
+
+    pub(crate) fn with_source_hosts(mut self, hosts: &[&str]) -> Self {
+        self.hosts = hosts.iter().map(|host| host.to_string()).collect();
+        self
+    }
+
+    pub(crate) fn with_commit(self, commit: CommitInfo) -> Self {
+        *self.commit.lock().unwrap() = Some(commit);
+        self
+    }
+
+    pub(crate) fn with_changes(self, changes: Vec<ChangedFile>) -> Self {
+        *self.changes.lock().unwrap() = changes;
+        self
+    }
+
+    pub(crate) fn with_provenance(self, provenance: Provenance) -> Self {
+        *self.provenance.lock().unwrap() = Some(provenance);
+        self
+    }
+
+    pub(crate) fn source_gated(mut self, gate: &Arc<Gate>) -> Self {
+        self.source_gate = Some(Arc::clone(gate));
+        self
+    }
+
+    pub(crate) fn with_registry_auth(self, auth: pipedash_plugin_api::RegistryAuth) -> Self {
+        *self.registry_login.lock().unwrap() = Some(auth);
+        self
+    }
+
+    pub(crate) fn with_comparison(self, comparison: CommitComparison) -> Self {
+        *self.comparison.lock().unwrap() = Some(comparison);
+        self
     }
 }
 
@@ -654,6 +726,56 @@ impl Provider for StubProvider {
             }
         }
     }
+
+    fn source_hosts(&self, _config: &HashMap<String, String>) -> Vec<String> {
+        self.hosts.clone()
+    }
+
+    async fn resolve_commit(&self, _repo: &RepoId, _rev: &str) -> DomainResult<CommitInfo> {
+        self.commit_calls.fetch_add(1, Ordering::SeqCst);
+        if let Some(gate) = &self.source_gate {
+            gate.pass().await;
+        }
+        self.commit
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| DomainError::NotSupported("stub".to_string()))
+    }
+
+    async fn compare_commits(
+        &self, _repo: &RepoId, _base: &CommitSha, _head: &CommitSha,
+    ) -> DomainResult<CommitComparison> {
+        self.comparison
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| DomainError::NotSupported("stub".to_string()))
+    }
+
+    async fn commit_changes(
+        &self, _repo: &RepoId, _sha: &CommitSha,
+    ) -> DomainResult<Vec<ChangedFile>> {
+        self.change_calls.fetch_add(1, Ordering::SeqCst);
+        if let Some(gate) = &self.source_gate {
+            gate.pass().await;
+        }
+        Ok(self.changes.lock().unwrap().clone())
+    }
+
+    async fn registry_auth(
+        &self, _host: &str,
+    ) -> DomainResult<Option<pipedash_plugin_api::RegistryAuth>> {
+        Ok(self.registry_login.lock().unwrap().clone())
+    }
+
+    async fn artifact_provenance(
+        &self, _repository: &pipedash_plugin_api::ArtifactRepository,
+        _digest: &pipedash_plugin_api::Digest,
+    ) -> DomainResult<Option<Provenance>> {
+        self.provenance_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(self.provenance.lock().unwrap().clone())
+    }
 }
 
 #[derive(Default)]
@@ -661,7 +783,8 @@ pub(crate) struct StubFactory {
     queued: Mutex<HashMap<i64, Vec<Arc<StubProvider>>>>,
     built: Mutex<HashMap<i64, usize>>,
     tokens: Mutex<HashMap<i64, String>>,
-    failure: Mutex<Option<DomainError>>,
+    reserved: Mutex<HashSet<String>>,
+    failure: Mutex<Option<(usize, DomainError)>>,
 }
 
 impl StubFactory {
@@ -676,13 +799,42 @@ impl StubFactory {
         provider
     }
 
+    pub(crate) fn reserve(&self, name: &str) {
+        self.reserved.lock().unwrap().insert(name.to_string());
+    }
+
+    pub(crate) fn release(&self, name: &str) {
+        self.reserved.lock().unwrap().remove(name);
+    }
+
     pub(crate) fn fail_next_build(&self, error: DomainError) {
-        *self.failure.lock().unwrap() = Some(error);
+        self.fail_build_after(0, error);
+    }
+
+    pub(crate) fn fail_build_after(&self, builds: usize, error: DomainError) {
+        *self.failure.lock().unwrap() = Some((builds, error));
     }
 
     pub(crate) fn provide(&self, config: &ProviderConfig) -> DomainResult<Arc<dyn Provider>> {
-        if let Some(error) = self.failure.lock().unwrap().take() {
+        let failing = {
+            let mut failure = self.failure.lock().unwrap();
+            match failure.take() {
+                Some((0, error)) => Some(error),
+                Some((builds, error)) => {
+                    *failure = Some((builds - 1, error));
+                    None
+                }
+                None => None,
+            }
+        };
+        if let Some(error) = failing {
             return Err(error);
+        }
+        if self.reserved.lock().unwrap().contains(&config.name) {
+            return Err(DomainError::ConcurrentModification(format!(
+                "Stub provider {} is still being registered",
+                config.name
+            )));
         }
         let id = config.id.unwrap_or(0);
         self.tokens.lock().unwrap().insert(id, config.token.clone());
@@ -796,6 +948,59 @@ impl EventBus for RecordingBus {
     }
 }
 
+#[derive(Default)]
+pub(crate) struct CommitHook {
+    gate: Mutex<Option<Arc<Gate>>>,
+    failure: Mutex<Option<DomainError>>,
+}
+
+impl CommitHook {
+    pub(crate) fn pause(&self, gate: Arc<Gate>) {
+        *self.gate.lock().unwrap() = Some(gate);
+    }
+
+    pub(crate) fn fail_after_pause(&self, error: DomainError) {
+        *self.failure.lock().unwrap() = Some(error);
+    }
+}
+
+struct HookedApplications {
+    inner: Arc<CorrelationService>,
+    hook: Arc<CommitHook>,
+}
+
+#[async_trait]
+impl ApplicationsConfig for HookedApplications {
+    async fn check(&self, loaded: &PipedashConfig) -> DomainResult<()> {
+        self.inner.check(loaded).await
+    }
+
+    async fn commit(&self, loaded: &PipedashConfig) -> DomainResult<()> {
+        let gate = self.hook.gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            gate.pass().await;
+        }
+        let failure = self.hook.failure.lock().unwrap().take();
+        if let Some(error) = failure {
+            return Err(error);
+        }
+
+        self.inner.commit(loaded).await
+    }
+
+    async fn announce(&self) {
+        self.inner.announce().await;
+    }
+
+    async fn failed(&self, message: String) {
+        self.inner.failed(message).await;
+    }
+
+    async fn provider_removed(&self, provider_id: i64) {
+        self.inner.provider_removed(provider_id).await;
+    }
+}
+
 pub(crate) struct Harness {
     pub(crate) _temp_dir: TempDir,
     pub(crate) token_store: Arc<FailOnceTokenStore>,
@@ -814,6 +1019,8 @@ pub(crate) struct Harness {
     pub(crate) metrics: Option<Arc<MetricsService>>,
     pub(crate) log_store: Arc<LogStore>,
     pub(crate) log_service: Arc<super::LogService>,
+    pub(crate) correlation_service: Arc<CorrelationService>,
+    pub(crate) commit_hook: Arc<CommitHook>,
     pub(crate) stubs: Arc<StubFactory>,
     clock: AtomicU64,
     names: AtomicU64,
@@ -862,6 +1069,7 @@ impl Harness {
         let (mode_tx, mode_rx) = watch::channel(RefreshMode::Active);
         let stubs = Arc::new(StubFactory::default());
         let http = Arc::new(HttpClientManager::new().unwrap());
+        let correlation_http = Arc::clone(&http);
         let plugin_registry = plugins::registry();
         let config_state = ConfigState::from_config(
             PipedashConfig::default(),
@@ -931,6 +1139,22 @@ impl Harness {
             bus.clone(),
             Arc::clone(&presenter),
         ));
+        let correlation_service = CorrelationService::new(CorrelationDeps {
+            repository: Arc::clone(&repository),
+            provider_service: Arc::clone(&provider_service),
+            pipeline_service: Arc::clone(&pipeline_service),
+            log_service: Arc::clone(&log_service),
+            config_state: Arc::clone(&config_state),
+            event_bus: bus.clone(),
+            presenter: Arc::clone(&presenter),
+            http: correlation_http,
+            event_interval: None,
+        });
+        let commit_hook = Arc::new(CommitHook::default());
+        provider_service.set_applications(Arc::new(HookedApplications {
+            inner: correlation_service.clone(),
+            hook: Arc::clone(&commit_hook),
+        }));
 
         Self {
             _temp_dir: temp_dir,
@@ -950,6 +1174,8 @@ impl Harness {
             metrics,
             log_store,
             log_service,
+            correlation_service,
+            commit_hook,
             stubs,
             clock: AtomicU64::new(0),
             names: AtomicU64::new(0),
@@ -989,13 +1215,16 @@ impl Harness {
         &self, refresh_interval: i64, build: impl FnOnce(i64) -> StubProvider,
     ) -> (i64, Arc<StubProvider>) {
         let name = format!("stub-{}", self.names.fetch_add(1, Ordering::SeqCst));
+        self.stubs.reserve(&name);
         let id = self
             .repository
             .add_provider(&self.config(&name, refresh_interval))
             .await
             .unwrap();
+        let stub = self.stubs.queue(build(id));
+        self.stubs.release(&name);
 
-        (id, self.stubs.queue(build(id)))
+        (id, stub)
     }
 
     pub(crate) async fn spawn_fetch(&self, id: i64) -> tokio::task::JoinHandle<FetchResult> {

@@ -111,3 +111,77 @@ fn script_jobs_of_the_latest_attempt_become_log_nodes() {
         chrono::Duration::seconds(90)
     );
 }
+
+const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+fn shop() -> RepoId {
+    RepoId::from_host_path("github.com", "acme/shop").unwrap()
+}
+
+fn observed(commit: Option<&str>) -> Correlation {
+    Correlation::single_source(Some(shop()), commit.and_then(CommitSha::parse))
+}
+
+fn build_json(commit: &str, repository: &str) -> types::Build {
+    serde_json::from_str(&format!(
+        r#"{{"id": "b1", "number": 7, "state": "passed", "web_url": "https://x/7",
+            "commit": "{commit}", "created_at": "2026-10-28T10:00:00Z",
+            "pipeline": {repository}}}"#
+    ))
+    .unwrap()
+}
+
+#[test]
+fn run_observes_the_build_repository_and_commit() {
+    let build = || build_json(SHA, r#"{"repository": "git@github.com:acme/shop.git"}"#);
+
+    let run = build_to_pipeline_run(build(), "acme__shop");
+
+    assert_eq!(run.correlation, observed(Some(SHA)));
+    assert_eq!(run.evidence, RunEvidence::default());
+    assert_eq!(
+        build_to_pipeline_run(build(), "acme__shop").correlation,
+        run.correlation
+    );
+}
+
+#[test]
+fn a_symbolic_commit_keeps_the_repository_without_a_commit() {
+    let run = build_to_pipeline_run(
+        build_json("HEAD", r#"{"repository": "https://github.com/acme/shop"}"#),
+        "acme__shop",
+    );
+    assert_eq!(run.correlation, observed(None));
+}
+
+#[test]
+fn a_build_without_a_pipeline_repository_observes_no_source() {
+    for repository in ["{}", r#"{"repository": "not a url"}"#, "null"] {
+        let run = build_to_pipeline_run(build_json(SHA, repository), "acme__shop");
+        assert!(run.correlation.is_empty(), "{repository}");
+    }
+}
+
+#[test]
+fn pipeline_observes_the_repository_of_its_definition() {
+    let pipeline = |repository: &str| types::Pipeline {
+        name: "Shop".to_string(),
+        repository: repository.to_string(),
+    };
+    let latest = build_json(SHA, "null");
+
+    let mapped = map_pipeline(
+        "acme",
+        "shop",
+        pipeline("git@github.com:acme/shop.git"),
+        Some(&latest),
+    );
+
+    assert_eq!(mapped.id, "acme__shop");
+    assert_eq!(mapped.status, PipelineStatus::Success);
+    assert_eq!(mapped.metadata["organization_slug"], "acme");
+    assert_eq!(mapped.correlation, observed(None));
+    assert!(map_pipeline("acme", "shop", pipeline("local-path"), None)
+        .correlation
+        .is_empty());
+}

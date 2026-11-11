@@ -50,13 +50,21 @@ impl GiteaPlugin {
         let workflow_ids: Vec<String> = workflows.iter().map(|w| w.id.clone()).collect();
         let latest_runs = client.latest_runs(owner, repo, &workflow_ids).await?;
 
+        let source = self.repo_id(owner, repo);
         Ok(workflows
             .iter()
             .map(|workflow| {
                 let latest_run = latest_runs.get(&workflow.id);
-                mapper::map_pipeline(owner, repo, workflow, latest_run)
+                mapper::map_pipeline(owner, repo, workflow, latest_run, source.clone())
             })
             .collect())
+    }
+
+    fn repo_id(&self, owner: &str, repo: &str) -> Option<RepoId> {
+        RepoId::from_host_path(
+            &config::source_host(&self.config)?,
+            &format!("{owner}/{repo}"),
+        )
     }
 
     async fn fetch_pipelines_impl(&self) -> PluginResult<Vec<Pipeline>> {
@@ -151,9 +159,10 @@ plugin_impl!(GiteaPlugin [metadata, status_source, available_from_filtered, fetc
             .client()?
             .workflow_runs(id.owner, id.repo, id.workflow, limit)
             .await?;
+        let source = self.repo_id(id.owner, id.repo);
         Ok(runs
             .iter()
-            .map(|run| mapper::map_run(run, pipeline_id, id.owner))
+            .map(|run| mapper::map_run(run, pipeline_id, id.owner, source.clone()))
             .collect())
     }
 
@@ -165,7 +174,8 @@ plugin_impl!(GiteaPlugin [metadata, status_source, available_from_filtered, fetc
             .client()?
             .find_run(id.owner, id.repo, id.workflow, run_number)
             .await?;
-        Ok(mapper::map_run(&run, pipeline_id, id.owner))
+        let source = self.repo_id(id.owner, id.repo);
+        Ok(mapper::map_run(&run, pipeline_id, id.owner, source))
     }
 
     async fn fetch_log_nodes(&self, run: RunRef<'_>) -> PluginResult<Vec<LogNode>> {
@@ -260,6 +270,35 @@ plugin_impl!(GiteaPlugin [metadata, status_source, available_from_filtered, fetc
             .find_run(id.owner, id.repo, id.workflow, run_number)
             .await?;
         client.cancel_run(id.owner, id.repo, run.id).await
+    }
+
+    fn source_hosts(&self, config: &HashMap<String, String>) -> Vec<String> {
+        config::source_hosts(config)
+    }
+
+    async fn resolve_commit(&self, repo: &RepoId, rev: &str) -> PluginResult<CommitInfo> {
+        let client = self.client()?;
+        let (owner, name) = config::parse_repo(repo.path())?;
+        mapper::commits::commit_info(&client.get_commit(owner, name, rev).await?)
+    }
+
+    async fn compare_commits(
+        &self, repo: &RepoId, base: &CommitSha, head: &CommitSha,
+    ) -> PluginResult<CommitComparison> {
+        let client = self.client()?;
+        let (owner, name) = config::parse_repo(repo.path())?;
+        let ahead = client.compare(owner, name, base, head).await?;
+        let behind = client.compare(owner, name, head, base).await?;
+        Ok(mapper::commits::comparison(&ahead, &behind))
+    }
+
+    async fn commit_changes(
+        &self, repo: &RepoId, sha: &CommitSha,
+    ) -> PluginResult<Vec<ChangedFile>> {
+        let client = self.client()?;
+        let (owner, name) = config::parse_repo(repo.path())?;
+        let commit = client.get_commit(owner, name, sha.as_str()).await?;
+        Ok(mapper::commits::changed_files(commit))
     }
 });
 

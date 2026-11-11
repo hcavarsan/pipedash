@@ -256,3 +256,74 @@ fn workflows_hold_their_jobs_and_only_jobs_with_numbers_have_logs() {
         Some("https://app.circleci.com/pipelines/github/org/repo/42/workflows/failed/jobs/11")
     );
 }
+
+const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+fn shop() -> RepoId {
+    RepoId::from_host_path("github.com", "acme/shop").unwrap()
+}
+
+fn run_of(pipeline: &CirclePipeline) -> PipelineRun {
+    to_run(
+        "gh/acme/shop",
+        pipeline,
+        &[workflow("success")],
+        "https://circleci.com",
+        "gh/acme/shop",
+    )
+}
+
+fn project(repository_url: &str) -> Project {
+    Project {
+        slug: "gh/acme/shop".into(),
+        id: None,
+        name: "shop".into(),
+        organization: "acme".into(),
+        repository_url: repository_url.into(),
+        default_branch: None,
+    }
+}
+
+#[test]
+fn run_observes_the_target_repository_and_revision() {
+    let mut source = pipeline("created");
+    let vcs = source.vcs.as_mut().unwrap();
+    vcs.revision = Some(SHA.into());
+    vcs.target_repository_url = Some("https://github.com/acme/shop".into());
+
+    let run = run_of(&source);
+
+    assert_eq!(
+        run.correlation,
+        Correlation::single_source(Some(shop()), CommitSha::parse(SHA))
+    );
+    assert_eq!(run.evidence, RunEvidence::default());
+    assert_eq!(run_of(&source).correlation, run.correlation);
+}
+
+#[test]
+fn run_without_a_valid_revision_or_repository_url_omits_those_observations() {
+    let mut source = pipeline("created");
+    source.vcs.as_mut().unwrap().target_repository_url =
+        Some("https://github.com/acme/shop".into());
+    assert_eq!(
+        run_of(&source).correlation,
+        Correlation::single_source(Some(shop()), None)
+    );
+
+    let unlinked = pipeline("created");
+    assert!(run_of(&unlinked).correlation.is_empty());
+
+    let mut no_vcs = pipeline("created");
+    no_vcs.vcs = None;
+    assert!(run_of(&no_vcs).correlation.is_empty());
+}
+
+#[test]
+fn pipeline_observes_the_project_repository() {
+    assert_eq!(
+        to_pipeline(&project("https://github.com/acme/shop"), None).correlation,
+        Correlation::single_source(Some(shop()), None)
+    );
+    assert!(to_pipeline(&project(""), None).correlation.is_empty());
+}

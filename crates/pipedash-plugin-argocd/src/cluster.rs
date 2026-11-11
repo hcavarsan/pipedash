@@ -60,6 +60,7 @@ fn applications_path(namespace: Option<&str>) -> String {
 pub(crate) struct ClusterClient {
     settings: ClusterSettings,
     client: OnceCell<kube::Client>,
+    uid: OnceCell<String>,
 }
 
 impl ClusterClient {
@@ -67,6 +68,7 @@ impl ClusterClient {
         Self {
             settings,
             client: OnceCell::new(),
+            uid: OnceCell::new(),
         }
     }
 
@@ -77,6 +79,23 @@ impl ClusterClient {
                 kubernetes::connect(move || source.load(), self.settings.context.clone(), true)
             })
             .await
+    }
+
+    pub async fn cluster_uid(&self) -> PluginResult<&str> {
+        self.uid
+            .get_or_try_init(|| async {
+                let request = Request::new("/api/v1/namespaces");
+                let namespace: pods::Owned = kubernetes::exec(
+                    self.client().await?,
+                    request.get("kube-system", &GetParams::default()),
+                    "get namespace kube-system",
+                )
+                .await?;
+
+                Ok::<_, PluginError>(namespace.metadata.uid)
+            })
+            .await
+            .map(String::as_str)
     }
 
     fn guard(&self, namespace: &str, name: &str) -> PluginResult<()> {
@@ -263,6 +282,7 @@ impl ClusterClient {
             .filter_map(|resource| resource.namespace.as_deref())
             .filter(|namespace| kubernetes::is_namespace(namespace))
             .collect();
+        let managed = pods::managed(&app.status.resources);
         let mut found = Vec::new();
         for namespace in namespaces {
             let (pods, replica_sets, jobs) = (
@@ -273,11 +293,15 @@ impl ClusterClient {
                 self.in_namespace::<pods::Owned>("/apis/batch/v1", "jobs", namespace)
                     .await?,
             );
-            found.extend(pods::owned_pods(
-                &app.status.resources,
+            found.extend(kubernetes::owned_by(
                 pods,
-                &replica_sets,
-                &jobs,
+                &kubernetes::Owners {
+                    managed: &managed,
+                    parents: &[
+                        ("ReplicaSet", replica_sets.as_slice()),
+                        ("Job", jobs.as_slice()),
+                    ],
+                },
             ));
         }
 

@@ -27,6 +27,10 @@ use crate::{
     types,
 };
 
+mod commits;
+
+const SOURCE_HOST: &str = "dev.azure.com";
+
 plugin_struct!(
     AzureDevOpsPlugin,
     client::AzureDevOpsClient,
@@ -207,6 +211,30 @@ plugin_impl!(AzureDevOpsPlugin [
         client
             .stream_build_log(id.project, run.run_number, log_id, attempt, from, sink)
             .await
+    }
+
+    fn source_hosts(&self, config: &HashMap<String, String>) -> Vec<String> {
+        if config.is_empty() {
+            Vec::new()
+        } else {
+            vec![SOURCE_HOST.to_string()]
+        }
+    }
+
+    async fn resolve_commit(&self, repo: &RepoId, rev: &str) -> PluginResult<CommitInfo> {
+        self.resolve_commit_impl(repo, rev).await
+    }
+
+    async fn compare_commits(
+        &self, repo: &RepoId, base: &CommitSha, head: &CommitSha,
+    ) -> PluginResult<CommitComparison> {
+        self.compare_commits_impl(repo, base, head).await
+    }
+
+    async fn commit_changes(
+        &self, repo: &RepoId, sha: &CommitSha,
+    ) -> PluginResult<Vec<ChangedFile>> {
+        self.commit_changes_impl(repo, sha).await
     }
 
     fn log_dialect(&self) -> &'static dyn LogDialect {

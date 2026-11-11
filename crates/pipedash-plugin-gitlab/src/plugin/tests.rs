@@ -5,6 +5,9 @@ use tokio::io::{
 
 use super::*;
 
+const STUB_COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+const STUB_PARENT: &str = "fedcba9876543210fedcba9876543210fedcba98";
+
 fn stub_pipeline(id: i64) -> serde_json::Value {
     serde_json::json!({
         "id": id, "project_id": 200, "status": "success", "ref": "main", "sha": "abc",
@@ -150,6 +153,37 @@ async fn stub_gitlab() -> (GitLabPlugin, tokio::task::JoinHandle<()>) {
                             .take(page_size)
                             .collect(),
                     )
+                }
+                "/api/v4/projects/200/deployments" => serde_json::json!([{
+                    "environment": {"name": "production"},
+                    "deployable": {"pipeline": {"id": 150}}
+                }]),
+                "/api/v4/projects/200/environments" => serde_json::json!([
+                    {"name": "production", "auto_stop_at": null}
+                ]),
+                "/api/v4/projects/team%2Fapp/repository/commits/main" => serde_json::json!({
+                    "id": STUB_COMMIT, "message": "ship it",
+                    "authored_date": "2026-10-01T10:00:00Z",
+                    "committed_date": "2026-10-01T10:05:00Z",
+                    "parent_ids": [STUB_PARENT]
+                }),
+                "/api/v4/projects/team%2Fapp/repository/compare" => {
+                    let from = query.get("from").map(String::as_str);
+                    serde_json::json!({
+                        "commits": if from == Some(STUB_PARENT) {
+                            vec![serde_json::json!({"id": STUB_COMMIT})]
+                        } else {
+                            Vec::new()
+                        }
+                    })
+                }
+                path if path.starts_with("/api/v4/projects/team%2Fapp/repository/commits/")
+                    && path.ends_with("/diff") =>
+                {
+                    serde_json::json!([
+                        {"new_path": "deploy/values.yaml", "diff": "@@ -1 +1 @@\n-tag: a\n+tag: b\n"},
+                        {"new_path": "logo.png", "diff": ""}
+                    ])
                 }
                 path => panic!("Unexpected stub path: {path}"),
             }
@@ -791,4 +825,130 @@ async fn unusable_cursors_restart_without_a_range_request() {
     server.abort();
 
     assert_eq!(ranges(&trace), [None, None]);
+}
+
+#[tokio::test]
+async fn run_history_carries_the_environments_a_pipeline_deployed_to() {
+    let (plugin, server) = stub_gitlab().await;
+    let runs = plugin.fetch_run_history("200", 3).await.unwrap();
+    let details = plugin.fetch_run_details("200", 150).await.unwrap();
+    server.abort();
+
+    let names = |run: &PipelineRun| {
+        run.correlation
+            .targets
+            .iter()
+            .map(|target| target.name.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names(&runs[0]), ["production"]);
+    assert_eq!(names(&details), ["production"]);
+    assert!(runs[1..]
+        .iter()
+        .all(|run| run.correlation.targets.is_empty()));
+}
+
+#[tokio::test]
+async fn commit_hooks_read_the_project_through_its_encoded_path() {
+    let (plugin, server) = stub_gitlab().await;
+    let repo = RepoId::from_host_path("example.test", "team/app").unwrap();
+    let commit = CommitSha::parse(STUB_COMMIT).unwrap();
+    let parent = CommitSha::parse(STUB_PARENT).unwrap();
+
+    let info = plugin.resolve_commit(&repo, "main").await.unwrap();
+    let comparison = plugin
+        .compare_commits(&repo, &parent, &commit)
+        .await
+        .unwrap();
+    let changes = plugin.commit_changes(&repo, &commit).await.unwrap();
+    server.abort();
+
+    assert_eq!(info.sha, commit);
+    assert_eq!(info.parents, [parent]);
+    assert_eq!(info.message, "ship it");
+    assert_eq!(
+        (comparison.ahead, comparison.behind, comparison.commits),
+        (1, 0, vec![commit])
+    );
+    assert_eq!(
+        changes,
+        [
+            ChangedFile {
+                path: "deploy/values.yaml".to_string(),
+                patch: Some("@@ -1 +1 @@\n-tag: a\n+tag: b\n".to_string()),
+            },
+            ChangedFile {
+                path: "logo.png".to_string(),
+                patch: None,
+            },
+        ]
+    );
+}
+
+#[tokio::test]
+async fn registry_credentials_are_only_given_to_the_instance_registry() {
+    let (plugin, server) = stub_gitlab().await;
+    let host = config::registry_host(&plugin.config).unwrap();
+
+    let auth = plugin
+        .registry_auth(&host.to_uppercase())
+        .await
+        .unwrap()
+        .unwrap();
+    let other = plugin.registry_auth("registry.other.test").await.unwrap();
+    server.abort();
+
+    assert_eq!(auth.username.as_deref(), Some("alice"));
+    assert_eq!(auth.secret, "stub-token");
+    assert!(!auth.bearer);
+    assert_eq!(
+        auth.token_hosts,
+        [host.strip_prefix("registry.").unwrap().to_string()]
+    );
+    assert_eq!(other, None);
+}
+
+#[tokio::test]
+async fn hooks_on_an_uninitialized_plugin_report_it_instead_of_unsupported() {
+    let plugin = GitLabPlugin::new();
+    let repo = RepoId::from_host_path("example.test", "team/app").unwrap();
+    let sha = CommitSha::parse(STUB_COMMIT).unwrap();
+
+    let errors = [
+        plugin.resolve_commit(&repo, "main").await.unwrap_err(),
+        plugin.compare_commits(&repo, &sha, &sha).await.unwrap_err(),
+        plugin.commit_changes(&repo, &sha).await.unwrap_err(),
+        plugin
+            .registry_auth("registry.example.test")
+            .await
+            .unwrap_err(),
+    ];
+
+    for error in errors {
+        assert!(matches!(error, PluginError::Internal(_)), "{error}");
+    }
+}
+
+#[test]
+fn source_hosts_follow_the_base_url_and_are_empty_without_configuration() {
+    let plugin = GitLabPlugin::new();
+    let host = |pairs: &[(&str, &str)]| {
+        plugin.source_hosts(
+            &pairs
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect(),
+        )
+    };
+
+    assert!(host(&[]).is_empty());
+    assert_eq!(
+        host(&[("base_url", "https://example.test")]),
+        ["example.test"]
+    );
+    assert_eq!(
+        host(&[("base_url", "https://Example.test:8443/gitlab/")]),
+        ["example.test:8443"]
+    );
+    assert_eq!(host(&[("token", "t")]), ["gitlab.com"]);
 }
