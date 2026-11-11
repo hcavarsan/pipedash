@@ -5,6 +5,7 @@ module StoreText
   PLAY_WHATS_NEW_LIMIT = 500
   PROMOTIONAL_LIMIT = 170
   DROPPED_ITEMS = /\A(bump version|update changelog)\b/i
+  CONVENTIONAL_PREFIX = /\A[a-z]+(?:\([^)]*\))?!?:\s+([a-z])?/
 
   # The file for the iOS version wins; otherwise the GitHub release of the tag.
   def self.whats_new(version:, tag:, dir:, limit: WHATS_NEW_LIMIT)
@@ -39,16 +40,17 @@ module StoreText
     blocks = []
     section = nil
     in_list = false
-    markdown.gsub(/<!--.*?-->/m, "").each_line do |raw|
+    markdown = markdown.gsub(/<!--.*?(?:-->|\z)/m, "") while markdown.include?("<!--")
+    markdown.each_line do |raw|
       line = raw.rstrip
-      next if line.strip.empty? || line.match?(/\A\s*!\[|\A\[[^\]]+\]:\s|\A##?\s/)
+      next if line.strip.empty? || line.match?(/\A\s*!\[|\A\[[^\]]+\]:\s|\A#\s/)
 
-      if (title = line[/\A###+\s*(.+)\z/, 1])
+      if (title = line[/\A##+\s*(.+)\z/, 1])
         section = inline(title)
         next
       end
       text = inline(line)
-      if (item = line[/\A[-*]\s+(.+)\z/, 1]&.then { |raw_item| inline(raw_item) })
+      if (item = line[/\A[-*]\s+(.+)\z/, 1]&.then { |raw_item| inline(raw_item).sub(CONVENTIONAL_PREFIX) { $1.to_s.upcase } })
         next if item.match?(DROPPED_ITEMS)
 
         if section || !in_list
@@ -68,7 +70,7 @@ module StoreText
   def self.inline(text)
     text.gsub(/!\[[^\]]*\]\([^)]*\)/, "")
         .gsub(/\[([^\]]+)\]\([^)]*\)/, '\1')
-        .gsub(/\s*\((?:#\d+|[0-9a-f]{7,40})(?:,\s*(?:#\d+|[0-9a-f]{7,40}))*\)/, "")
+        .gsub(/\s*\((?:@\S+\s+)?(?:#\d+|[0-9a-f]{7,40})(?:,\s*(?:#\d+|[0-9a-f]{7,40}))*\)/, "")
         .delete("`*")
         .rstrip
   end

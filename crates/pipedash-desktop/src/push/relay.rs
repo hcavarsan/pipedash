@@ -1,3 +1,4 @@
+use pipedash_core::infrastructure::OFFICIAL_PUSH_RELAY_URL;
 use serde::{
     Deserialize,
     Serialize,
@@ -6,17 +7,17 @@ use serde::{
 use super::{
     call,
     client,
-    Peer,
     PushError,
     Result,
 };
 
 const BUNDLE_ID: &str = "com.henrique.pipedash";
 
-pub fn base_url() -> Option<&'static str> {
+pub fn base_url() -> &'static str {
     option_env!("PIPEDASH_PUSH_RELAY_URL")
         .map(|url| url.trim().trim_end_matches('/'))
         .filter(|url| !url.is_empty())
+        .unwrap_or(OFFICIAL_PUSH_RELAY_URL)
 }
 
 fn environment() -> &'static str {
@@ -47,23 +48,23 @@ pub async fn create(base: &str, device_token: &str) -> Result<String> {
             environment: environment(),
             bundle_id: BUNDLE_ID,
         });
-    let response = call(&Peer::Relay, request, false).await?;
+    let response = call(request, false).await?;
     let status = response.status().as_u16();
     response
         .json::<Created>()
         .await
         .map(|created| created.subscription_id)
-        .map_err(|_| PushError::Unexpected(Peer::Relay.label(), status))
+        .map_err(|_| PushError::Unexpected(status))
 }
 
 pub async fn rotate(base: &str, subscription_id: &str, device_token: &str) -> Result<()> {
     let request = client()?
         .put(format!("{base}/v1/subscriptions/{subscription_id}"))
         .json(&serde_json::json!({ "device_token": device_token }));
-    call(&Peer::Relay, request, false).await.map(drop)
+    call(request, false).await.map(drop)
 }
 
 pub async fn delete(base: &str, subscription_id: &str) -> Result<()> {
     let request = client()?.delete(format!("{base}/v1/subscriptions/{subscription_id}"));
-    call(&Peer::Relay, request, true).await.map(drop)
+    call(request, true).await.map(drop)
 }

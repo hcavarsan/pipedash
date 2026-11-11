@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 
-import type { PipelineViewPage, ViewPipeline } from '../../../types/domain'
+import type { PipelineViewPage, ViewPipeline } from '../../../types/views'
 
 interface PipelineSelectionResult {
   selecting: boolean

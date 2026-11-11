@@ -1,7 +1,38 @@
-use tokio::sync::Notify;
-use tokio::time::sleep_until;
+use std::collections::HashMap;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::time::Duration;
 
-use super::*;
+use chrono::Utc;
+use dashmap::Entry;
+use tokio::sync::Notify;
+use tokio::time::{
+    sleep_until,
+    Instant,
+};
+use tokio_util::sync::CancellationToken;
+
+use super::{
+    Built,
+    LogService,
+    FAILURE_COOLDOWN,
+    INTEREST_TTL,
+    RESUMABLE_INTERVAL,
+    SNAPSHOT_INTERVAL,
+    TREE_BACKOFF_MAX,
+    TREE_INTERVAL,
+};
+use crate::application::services::provider_service::ProviderLease;
+use crate::application::Generation;
+use crate::domain::{
+    DomainResult,
+    LogAvailability,
+};
+use crate::event::CoreEvent;
+use crate::infrastructure::run_logs::{
+    CacheEpoch,
+    DocKey,
+};
 
 pub(super) type RunKey = (String, i64);
 
@@ -273,7 +304,7 @@ impl Watch {
                         .emit(CoreEvent::RunUpdated {
                             pipeline_id: pipeline_id.clone(),
                             run_number,
-                            run: PipelineRun::clone(&built.1),
+                            run: Box::new(service.present_run(&built.1).await),
                         })
                         .await;
                 }

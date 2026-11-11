@@ -74,7 +74,7 @@ export function useMobileRouteTransition({
 
     const mine = ++token.current
     const outgoing: BarSnapshot = {
-      title: nav.title ?? previous.title,
+      title: nav.titles[previous.key] ?? previous.title,
       backLabel: previous.backLabel,
       collapse: collapse.current,
     }

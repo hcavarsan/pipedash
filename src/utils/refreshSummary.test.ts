@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { providerSummaryFixture } from '../testing/fixtures'
-import type { RefreshResult } from '../types/domain'
+import type { RefreshResult } from '../types/health'
 
 import { describeRefreshResult, summarizeRefresh } from './refreshSummary'
 
@@ -40,6 +40,13 @@ test('names failures and counts providers that are still running', () => {
     message: 'Refreshed 3 of 5 · GitLab: rate limited · 1 still running',
     color: 'orange',
   })
+})
+
+test('a failed provider with a message shows the message instead of the label', () => {
+  assert.deepEqual(
+    summarizeRefresh([result(1, { state: 'failed', kind: null, message: 'boom' })], [provider(1, 'GitLab')]),
+    { message: 'Refreshed 0 of 1 · GitLab: boom', color: 'orange' }
+  )
 })
 
 test('a skipped provider whose last check failed counts as failed, not refreshed', () => {

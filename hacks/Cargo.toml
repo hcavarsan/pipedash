@@ -7,16 +7,20 @@ edition = "2021"
 
 [[bin]]
 name = "bump_version"
-path = "src/bump_version.rs"
+path = "src/bump_version/main.rs"
 
 [[bin]]
-name = "generate_icons"
-path = "src/generate_icons.rs"
+name = "new_plugin"
+path = "src/new_plugin/main.rs"
 
 [dependencies]
+clap = { version = "4.6", features = ["derive"] }
 glob = "0.3"
-ico = "0.6"
-image = "0.25"
+inquire = "0.9"
+minijinja = { version = "3.1", features = ["serde"] }
 regex = "1"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"

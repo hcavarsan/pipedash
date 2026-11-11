@@ -1,21 +1,21 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import type { PipelineSelection, TableRow } from '../../../components/common/PipelineRowParts'
 import type { VirtualTableSort } from '../../../components/common/VirtualTable'
 import { useDebounce } from '../../../hooks/useDebounce'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
 import { type PipelineFilters, usePipelineFilters, usePipelineViewQuery } from '../../../hooks/useUrlState'
+import type { PipelineSelection, TableRow } from '../../../types/pipelineRows'
+import type { PipelineTerminology } from '../../../types/presentation'
+import type { ProviderSummary } from '../../../types/providers'
 import type {
   PinnedBlock,
   PipelineView,
   PipelineViewPage,
   PipelineViewQuery,
-  ProviderSummary,
   ViewDisplay,
   ViewKind,
   ViewPipeline,
-} from '../../../types/domain'
-import { getPipelineLabels, type PipelineLabels } from '../../../utils/pipelinePresentation'
+} from '../../../types/views'
 import {
   buildPhoneRows,
   buildPipelineRows,
@@ -32,6 +32,7 @@ interface PipelineViewModelInput {
   providers: ProviderSummary[]
   loading: boolean
   error: unknown
+  retrying: boolean
 }
 
 export interface PipelineViewPageModel {
@@ -43,14 +44,14 @@ export interface PipelineViewPageModel {
   mobileTitle: string | null
   loading: boolean
   error: unknown
+  retrying: boolean
   query: PipelineViewQuery
   page: PipelineViewPage | undefined
   view: PipelineView | undefined
   display: ViewDisplay | undefined
   kind: ViewKind
   title: string
-  labels: PipelineLabels
-  isFluxView: boolean
+  terminology: PipelineTerminology | undefined
   filters: PipelineFilters
   setFilter: <K extends keyof PipelineFilters>(key: K, value: PipelineFilters[K]) => void
   selectStatus: (status: string, selected: boolean) => void
@@ -88,6 +89,7 @@ export function usePipelineViewModel({
   providers,
   loading: loadingProp,
   error: errorProp,
+  retrying: retryingProp,
 }: PipelineViewModelInput): PipelineViewPageModel {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
@@ -101,25 +103,22 @@ export function usePipelineViewModel({
   const {
     data: page,
     isLoading: pageLoading,
+    isFetching: pageFetching,
     error: pageError,
   } = usePipelineViewPage(query, providers.length > 0 && !loadingProp)
   const view = page?.view
   const display = view?.display
-  const kind = view?.kind ?? (query.view === 'all' ? 'all' : query.view === 'pinned' ? 'pinned' : 'custom')
+  const kind = view?.kind ?? (query.view === 'all' || query.view === 'pinned' ? query.view : 'custom')
   const showHidden = filters.hidden === 'show'
-  const activeProviders = filters.provider
-    ? providers.filter((provider) => String(provider.id) === filters.provider)
-    : providers
-  const isFluxView =
-    activeProviders.length > 0 && activeProviders.every((provider) => provider.provider_type === 'fluxcd')
-  const labels = getPipelineLabels(isFluxView ? 'fluxcd' : undefined)
-  const title = kind === 'all' ? (isFluxView ? 'FluxCD resources' : 'Pipelines') : (view?.name ?? 'Pipelines')
+  const presentation = page?.presentation
+  const title = kind === 'all' ? (presentation?.copy.title ?? '') : (view?.name ?? presentation?.copy.title ?? '')
   const groupSection = page?.sections.find((section) => section.id === group)
   const providerName = filters.provider
     ? providers.find((provider) => String(provider.id) === filters.provider)?.name
     : undefined
-  const listTitle = kind === 'all' ? (isFluxView ? 'FluxCD resources' : 'All pipelines') : (view?.name ?? null)
-  const mobileTitle = !mobileShell ? null : groupSection ? sectionTitle(groupSection) : (providerName ?? listTitle)
+  const listTitle = kind === 'all' ? (presentation?.copy.list_title ?? null) : (view?.name ?? null)
+  const sectionName = groupSection ? sectionTitle(groupSection) : (providerName ?? listTitle)
+  const mobileTitle = mobileShell ? sectionName : null
   const filtersActive = page?.filters_active ?? false
 
   const [expanded, setExpandedMap] = useState<ExpansionMap>(readExpansion)
@@ -134,7 +133,7 @@ export function usePipelineViewModel({
     toggle: toggleOpen,
     setAll,
   } = usePipelineExpansion(query.view, expanded, saveExpanded, JSON.stringify(query), filtersActive)
-  const toggleSection = (id: string) => toggleOpen(id, false)
+  const toggleSection = (id: string) => toggleOpen(id, true)
 
   const getProvider = useCallback(
     (providerId: number): ProviderSummary | undefined => providers.find((p) => p.id === providerId),
@@ -154,7 +153,6 @@ export function usePipelineViewModel({
         .sort((a, b) => collator.compare(a.label, b.label)),
     [page, getProvider]
   )
-  const collapsibleIds = page?.sections.filter((section) => section.kind !== 'none').map((section) => section.id) ?? []
 
   const {
     selecting,
@@ -182,12 +180,15 @@ export function usePipelineViewModel({
   const pinned = page?.pinned ?? []
   const pinnedBlocks =
     page?.pinned_blocks.filter((block) => block.kind === 'repository' && block.pipelines.length > 0) ?? []
-  const sectionsLabel = getSectionsLabel(display?.sections ?? 'none', labels, isFluxView)
-  const ownSections = page?.sections.filter((section) => section.kind !== 'view') ?? []
-  const sectionCount =
-    display?.sections === 'none'
-      ? ownSections.reduce((sum, section) => sum + section.pipelines.length, 0)
-      : ownSections.length
+  const hasPinnedArea = pinned.length > 0 || pinnedBlocks.length > 0
+  const collapsibleIds = [
+    ...(page?.sections.filter((section) => section.kind !== 'none').map((section) => section.id) ?? []),
+    ...(pinned.length > 0 ? ['__pinned'] : []),
+    ...pinnedBlocks.map((block) => `pin:${block.kind}:${block.ref}`),
+    ...(hasPinnedArea && rows.length > 0 ? ['__sections'] : []),
+  ]
+  const sectionsLabel = getSectionsLabel(display?.sections ?? 'none', presentation?.terminology)
+  const sectionCount = page?.section_count ?? 0
 
   return {
     providers,
@@ -198,14 +199,14 @@ export function usePipelineViewModel({
     mobileTitle,
     loading: loadingProp || pageLoading,
     error: errorProp ?? pageError,
+    retrying: retryingProp || pageFetching,
     query,
     page,
     view,
     display,
     kind,
     title,
-    labels,
-    isFluxView,
+    terminology: presentation?.terminology,
     filters,
     setFilter,
     selectStatus,
@@ -222,7 +223,7 @@ export function usePipelineViewModel({
     collapsibleIds,
     pinned,
     pinnedBlocks,
-    hasPinnedArea: pinned.length > 0 || pinnedBlocks.length > 0,
+    hasPinnedArea,
     sectionsLabel,
     sectionCount,
     selecting,

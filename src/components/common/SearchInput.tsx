@@ -1,4 +1,4 @@
-import { ActionIcon, Group, Loader, type MantineSize, TextInput, Tooltip } from '@mantine/core'
+import { ActionIcon, Group, Loader, TextInput, Tooltip } from '@mantine/core'
 import { IconSearch, IconX } from '@tabler/icons-react'
 import { type CSSProperties, type ReactNode, type Ref, useRef } from 'react'
 
@@ -11,10 +11,19 @@ interface SearchInputProps {
   loadingLabel?: string | undefined
   autoFocus?: boolean | undefined
   inputRef?: Ref<HTMLInputElement> | undefined
-  size?: MantineSize | undefined
   disabled?: boolean | undefined
   style?: CSSProperties | undefined
   className?: string | undefined
+}
+
+function ClearSearchButton({ onClear }: { onClear: () => void }): ReactNode {
+  return (
+    <Tooltip label="Clear search">
+      <ActionIcon type="button" size="sm" aria-label="Clear search" onClick={onClear}>
+        <IconX size={14} aria-hidden />
+      </ActionIcon>
+    </Tooltip>
+  )
 }
 
 export function SearchInput({
@@ -26,12 +35,15 @@ export function SearchInput({
   loadingLabel = 'Searching…',
   autoFocus = false,
   inputRef,
-  size,
   disabled,
   style,
   className,
 }: SearchInputProps): ReactNode {
   const localRef = useRef<HTMLInputElement | null>(null)
+  const handleClear = (): void => {
+    onChange('')
+    localRef.current?.focus()
+  }
 
   return (
     <TextInput
@@ -59,7 +71,6 @@ export function SearchInput({
       autoFocus={autoFocus}
       leftSection={<IconSearch size={16} aria-hidden />}
       disabled={disabled ?? false}
-      {...(size === undefined ? {} : { size })}
       {...(className === undefined ? {} : { className })}
       {...(style === undefined ? {} : { style })}
       {...(loading && value ? { rightSectionWidth: 64 } : {})}
@@ -67,21 +78,7 @@ export function SearchInput({
         (loading || value) && (
           <Group gap="3xs" wrap="nowrap">
             {loading && <Loader size="xs" role="status" aria-label={loadingLabel} />}
-            {value && (
-              <Tooltip label="Clear search">
-                <ActionIcon
-                  type="button"
-                  size="sm"
-                  aria-label="Clear search"
-                  onClick={() => {
-                    onChange('')
-                    localRef.current?.focus()
-                  }}
-                >
-                  <IconX size={14} aria-hidden />
-                </ActionIcon>
-              </Tooltip>
-            )}
+            {value && <ClearSearchButton onClear={handleClear} />}
           </Group>
         )
       }

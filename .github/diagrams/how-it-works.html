@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>How Pipedash works</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { display: flex; justify-content: center; padding: 3rem 2rem; }
+    .frame { max-width: 960px; width: 100%; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    svg { width: 100%; min-width: 960px; display: block; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <div class="diagram-container">
+      <svg viewBox="0 0 960 384" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="how-it-works-title how-it-works-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+        <title id="how-it-works-title">How Pipedash works</title>
+        <desc id="how-it-works-desc">Pipedash reads status and logs from CI/CD providers, sends run and cancel actions back to them, and shows everything on desktop, web and mobile.</desc>
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#828282"/></marker>
+        </defs>
+
+        <rect width="960" height="384" rx="12" fill="#242424"/>
+
+        <g stroke="#828282" stroke-width="1.5">
+          <line x1="340" y1="164" x2="479" y2="164" marker-end="url(#arrow)"/>
+          <line x1="480" y1="220" x2="341" y2="220" marker-end="url(#arrow)"/>
+          <line x1="640" y1="192" x2="779" y2="192" marker-end="url(#arrow)"/>
+        </g>
+
+        <g fill="#b8b8b8" font-size="11" font-weight="600" letter-spacing="0.08em" text-anchor="middle">
+          <rect x="355" y="138" width="110" height="18" rx="2" fill="#242424"/>
+          <text x="410" y="151">STATUS &amp; LOGS</text>
+          <rect x="355" y="228" width="110" height="18" rx="2" fill="#242424"/>
+          <text x="410" y="241">RUN &amp; CANCEL</text>
+        </g>
+
+        <rect x="32" y="32" width="308" height="320" rx="8" fill="#2e2e2e" stroke="#424242"/>
+        <text x="52" y="64" fill="#b8b8b8" font-size="11" font-weight="600" letter-spacing="0.08em">CI/CD PROVIDERS</text>
+        <image href="../../crates/pipedash-plugin-github/assets/icon.svg" x="52" y="128" width="44" height="44"/>
+        <image href="../../crates/pipedash-plugin-gitlab/assets/icon.svg" x="108" y="128" width="44" height="44"/>
+        <image href="../../crates/pipedash-plugin-gitea/assets/icon.svg" x="164" y="128" width="44" height="44"/>
+        <image href="../../crates/pipedash-plugin-bitbucket/assets/icon.svg" x="220" y="128" width="44" height="44"/>
+        <image href="../../crates/pipedash-plugin-azure-devops/assets/icon.svg" x="276" y="128" width="44" height="44"/>
+        <image href="../../crates/pipedash-plugin-circleci/assets/icon.svg" x="52" y="184" width="44" height="44"/>
+        <image href="../../crates/pipedash-plugin-buildkite/assets/icon.svg" x="108" y="184" width="44" height="44"/>
+        <image href="../../crates/pipedash-plugin-jenkins/assets/icon.svg" x="164" y="184" width="44" height="44"/>
+        <image href="../../crates/pipedash-plugin-woodpecker/assets/icon.svg" x="220" y="184" width="44" height="44"/>
+        <image href="../../crates/pipedash-plugin-tekton/assets/icon.svg" x="276" y="184" width="44" height="44"/>
+        <image href="../../crates/pipedash-plugin-argocd/assets/icon.svg" x="52" y="240" width="44" height="44"/>
+        <image href="../../crates/pipedash-plugin-fluxcd/assets/icon.svg" x="108" y="240" width="44" height="44"/>
+        <image href="../../crates/pipedash-plugin-prow/assets/icon.svg" x="164" y="240" width="44" height="44"/>
+        <image href="../../crates/pipedash-plugin-komodo/assets/icon.svg" x="220" y="240" width="44" height="44"/>
+        <image href="../../crates/pipedash-plugin-coolify/assets/icon.svg" x="276" y="240" width="44" height="44"/>
+
+        <rect x="480" y="112" width="160" height="160" rx="8" fill="#242424"/>
+        <rect x="480" y="112" width="160" height="160" rx="8" fill="rgba(91,158,255,0.10)" stroke="#5B9EFF"/>
+        <image href="../../public/app-logo/168.png" x="524" y="132" width="72" height="72"/>
+        <text x="560" y="244" fill="#C9C9C9" font-size="18" font-weight="600" text-anchor="middle">Pipedash</text>
+
+        <rect x="780" y="32" width="148" height="320" rx="8" fill="#2e2e2e" stroke="#424242"/>
+        <text x="804" y="64" fill="#b8b8b8" font-size="11" font-weight="600" letter-spacing="0.08em">DEVICES</text>
+        <g fill="none" stroke="#C9C9C9" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <g transform="translate(804 134) scale(1.3333)">
+            <path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"/>
+            <path d="M7 20h10"/>
+            <path d="M9 16v4"/>
+            <path d="M15 16v4"/>
+          </g>
+          <g transform="translate(804 190) scale(1.3333)">
+            <path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"/>
+            <path d="M3.6 9h16.8"/>
+            <path d="M3.6 15h16.8"/>
+            <path d="M11.5 3a17 17 0 0 0 0 18"/>
+            <path d="M12.5 3a17 17 0 0 1 0 18"/>
+          </g>
+          <g transform="translate(804 246) scale(1.3333)">
+            <path d="M6 5a2 2 0 0 1 2 -2h8a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-8a2 2 0 0 1 -2 -2v-14"/>
+            <path d="M11 4h2"/>
+            <path d="M12 17v.01"/>
+          </g>
+        </g>
+        <g fill="#C9C9C9" font-size="15" font-weight="600">
+          <text x="848" y="155">Desktop</text>
+          <text x="848" y="211">Web</text>
+          <text x="848" y="267">Mobile</text>
+        </g>
+      </svg>
+    </div>
+  </div>
+</body>
+</html>

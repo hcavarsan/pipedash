@@ -160,3 +160,19 @@ test('run history ignores page values that are not positive whole numbers', asyn
   await act(async () => cleanup())
   assert.equal(mountResult(useRunHistoryFilters, '/pipelines/1?page=3').value?.filters.page, 3)
 })
+
+test('changing a run history filter returns to the first page', async () => {
+  await act(async () => cleanup())
+  const filtered = mountResult(useRunHistoryFilters, '/pipelines/1?page=5')
+
+  act(() => filtered.value?.setFilter('branch', 'main'))
+
+  assert.equal(filtered.search, '?branch=main')
+
+  await act(async () => cleanup())
+  const toggled = mountResult(useRunHistoryFilters, '/pipelines/1?page=5')
+
+  act(() => toggled.value?.selectStatus('failed', true))
+
+  assert.equal(toggled.search, '?status=failed')
+})

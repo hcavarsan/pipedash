@@ -1,8 +1,25 @@
 use std::{
+    collections::VecDeque,
     marker::PhantomData,
     path::Path,
+    sync::{
+        Arc,
+        Mutex,
+        MutexGuard,
+        PoisonError,
+    },
+    time::{
+        SystemTime,
+        UNIX_EPOCH,
+    },
 };
 
+use pipedash_plugin_api::build_watch::{
+    BuildWatchMonitoring,
+    BuildWatchSnapshot,
+    BuildWatchStatus,
+    BuildWatchStopReason,
+};
 use serde::de::DeserializeOwned;
 use tauri::{
     plugin::PluginApi,
@@ -13,9 +30,6 @@ use tauri::{
 use crate::{
     Accessibility,
     Appearance,
-    BuildWatchSnapshot,
-    BuildWatchStatus,
-    BuildWatchStopReason,
     Error,
     HapticKind,
     LocalNotificationSettings,
@@ -29,12 +43,57 @@ use crate::{
 pub fn init<R: Runtime, C: DeserializeOwned>(
     _app: &AppHandle<R>, _api: PluginApi<R, C>,
 ) -> Result<PipedashNative<R>> {
-    Ok(PipedashNative(PhantomData))
+    Ok(PipedashNative {
+        watch: Mutex::new(WatchState::default()),
+        runtime: PhantomData,
+    })
 }
 
-pub struct PipedashNative<R: Runtime>(PhantomData<fn() -> R>);
+pub struct PipedashNative<R: Runtime> {
+    watch: Mutex<WatchState>,
+    runtime: PhantomData<fn() -> R>,
+}
+
+#[derive(Default)]
+struct WatchState {
+    watch: Option<BuildWatchSnapshot>,
+    reason: Option<String>,
+    cancelled_sessions: VecDeque<String>,
+    handlers: Vec<Arc<dyn Fn(BuildWatchStatus) + Send + Sync>>,
+}
+
+impl WatchState {
+    fn status(&self) -> BuildWatchStatus {
+        BuildWatchStatus {
+            supported: true,
+            available: true,
+            reason: self.reason.clone(),
+            watch: self.watch.clone(),
+        }
+    }
+}
 
 impl<R: Runtime> PipedashNative<R> {
+    fn watch_state(&self) -> MutexGuard<'_, WatchState> {
+        self.watch.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn change_watch(
+        &self, change: impl FnOnce(&mut WatchState) -> Result<bool>,
+    ) -> Result<BuildWatchStatus> {
+        let (status, handlers) = {
+            let mut state = self.watch_state();
+            if !change(&mut state)? {
+                return Ok(state.status());
+            }
+            (state.status(), state.handlers.clone())
+        };
+        for handler in handlers {
+            handler(status.clone());
+        }
+        Ok(status)
+    }
+
     pub async fn haptic(&self, _kind: HapticKind) -> Result<()> {
         Ok(())
     }
@@ -48,30 +107,101 @@ impl<R: Runtime> PipedashNative<R> {
     }
 
     pub async fn build_watch_status(&self) -> Result<BuildWatchStatus> {
-        Ok(BuildWatchStatus {
-            supported: false,
-            available: false,
-            reason: Some(
-                "Build watching requires a physical iOS device running iOS 26 or later".to_string(),
-            ),
-            watch: None,
+        Ok(self.watch_state().status())
+    }
+
+    pub async fn start_build_watch(&self, watch: &BuildWatchSnapshot) -> Result<BuildWatchStatus> {
+        watch.validate().map_err(Error::Native)?;
+        if watch.monitoring != BuildWatchMonitoring::Watching || watch.status.is_terminal() {
+            return Err(Error::Native(
+                "Only a queued or running build can be watched".to_string(),
+            ));
+        }
+        self.change_watch(|state| {
+            if state.cancelled_sessions.contains(&watch.session_id) {
+                return Err(Error::Native(
+                    "This build watch was already stopped".to_string(),
+                ));
+            }
+            if let Some(current) = &state.watch {
+                if current.monitoring == BuildWatchMonitoring::Watching {
+                    return Err(Error::Native(
+                        "Stop the current build watch before starting another".to_string(),
+                    ));
+                }
+                if current.session_id == watch.session_id {
+                    return Err(Error::Native(
+                        "This build watch already ended. Start a new watch session.".to_string(),
+                    ));
+                }
+            }
+            state.watch = Some(watch.clone());
+            state.reason = None;
+            Ok(true)
         })
     }
 
-    pub async fn start_build_watch(&self, _watch: &BuildWatchSnapshot) -> Result<BuildWatchStatus> {
-        Err(Error::Unsupported)
-    }
-
-    pub async fn update_build_watch(
-        &self, _watch: &BuildWatchSnapshot,
-    ) -> Result<BuildWatchStatus> {
-        Err(Error::Unsupported)
+    pub async fn update_build_watch(&self, watch: &BuildWatchSnapshot) -> Result<BuildWatchStatus> {
+        watch.validate().map_err(Error::Native)?;
+        self.change_watch(|state| {
+            let Some(current) = &state.watch else {
+                return Ok(false);
+            };
+            if current.monitoring != BuildWatchMonitoring::Watching
+                || current.session_id != watch.session_id
+                || current.pipeline_id != watch.pipeline_id
+                || current.run_number != watch.run_number
+                || current.provider_type != watch.provider_type
+                || current.url != watch.url
+                || watch.updated_at < current.updated_at
+            {
+                return Ok(false);
+            }
+            state.watch = Some(watch.clone());
+            state.reason = None;
+            Ok(true)
+        })
     }
 
     pub async fn stop_build_watch(
-        &self, _session_id: &str, _reason: BuildWatchStopReason,
+        &self, session_id: &str, reason: BuildWatchStopReason,
     ) -> Result<BuildWatchStatus> {
-        Err(Error::Unsupported)
+        if session_id.trim().is_empty() || session_id.len() > 128 {
+            return Err(Error::Native("Invalid build watch session".to_string()));
+        }
+        self.change_watch(|state| {
+            if !state.cancelled_sessions.iter().any(|id| id == session_id) {
+                state.cancelled_sessions.push_back(session_id.to_string());
+                if state.cancelled_sessions.len() > 32 {
+                    state.cancelled_sessions.pop_front();
+                }
+            }
+            let Some(current) = state.watch.as_mut().filter(|current| {
+                current.session_id == session_id
+                    && current.monitoring == BuildWatchMonitoring::Watching
+            }) else {
+                return Ok(false);
+            };
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |elapsed| {
+                    i64::try_from(elapsed.as_secs()).unwrap_or(i64::MAX)
+                });
+            current.updated_at = current.updated_at.max(now);
+            let (monitoring, message) = match reason {
+                BuildWatchStopReason::Stopped => (
+                    BuildWatchMonitoring::Stopped,
+                    "Monitoring stopped. The build continues on its provider.",
+                ),
+                BuildWatchStopReason::Interrupted => (
+                    BuildWatchMonitoring::Interrupted,
+                    "Monitoring was interrupted. Open Pipedash to start watching again.",
+                ),
+            };
+            current.monitoring = monitoring;
+            state.reason = Some(message.to_string());
+            Ok(true)
+        })
     }
 
     pub async fn open_settings(&self) -> Result<()> {
@@ -144,8 +274,9 @@ impl<R: Runtime> PipedashNative<R> {
     }
 
     pub fn on_build_watch_changed<F: Fn(BuildWatchStatus) + Send + Sync + 'static>(
-        &self, _handler: F,
+        &self, handler: F,
     ) -> Result<()> {
+        self.watch_state().handlers.push(Arc::new(handler));
         Ok(())
     }
 
@@ -155,46 +286,4 @@ impl<R: Runtime> PipedashNative<R> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn native() -> PipedashNative<tauri::Wry> {
-        PipedashNative(PhantomData)
-    }
-
-    #[test]
-    fn unsupported_platforms_report_notifications_off_and_unavailable() {
-        let settings =
-            tauri::async_runtime::block_on(native().local_notification_settings()).unwrap();
-        assert!(!settings.enabled);
-        assert!(!settings.available);
-        assert!(settings.reason.is_some());
-    }
-
-    #[test]
-    fn unsupported_platforms_reject_enabling_but_allow_idempotent_disabling() {
-        let native = native();
-        assert!(matches!(
-            tauri::async_runtime::block_on(native.configure_local_notifications(true)),
-            Err(Error::Unsupported)
-        ));
-        for _ in 0..2 {
-            let settings =
-                tauri::async_runtime::block_on(native.configure_local_notifications(false))
-                    .unwrap();
-            assert!(!settings.enabled);
-            assert!(!settings.available);
-        }
-    }
-
-    #[test]
-    fn unsupported_platforms_accept_readiness_and_completion_without_a_task() {
-        let native = native();
-        assert!(tauri::async_runtime::block_on(native.notification_refresh_ready()).is_ok());
-        assert!(
-            tauri::async_runtime::block_on(native.finish_notification_refresh("late", false))
-                .is_ok()
-        );
-        assert!(native.on_notification_refresh(|_| {}).is_ok());
-    }
-}
+mod tests;

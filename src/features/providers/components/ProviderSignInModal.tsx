@@ -1,16 +1,78 @@
-import { Anchor, Button, Group, Loader, Stack, Text, TextInput } from '@mantine/core'
+import { Anchor, Button, Group, Loader, Stack, Text } from '@mantine/core'
 import { useQueryClient } from '@tanstack/react-query'
-import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 
 import { StandardModal } from '../../../components/common/StandardModal'
+import type { ModalAction, StandardModalProps } from '../../../components/common/standardModalTypes'
+import { useMobileShell } from '../../../hooks/useIsMobile'
 import { type ProviderSignInSession, useProviderStore } from '../../../stores/providerStore'
+import type { SignInStatus } from '../../../types/providers'
 import { errorMessage } from '../../../utils/errorDisplay'
 import { openExternal } from '../../../utils/openExternal'
 import { cancelProviderSignIn, reconnectProviderSignIn, useProviderSignIn } from '../queries/useProviderSignIn'
 import { useCompleteSignIn, useSignInStatus } from '../queries/useSignInQueries'
+import { ShellSignIn, type SignInViewProps } from './AddProviderModal/SignInFieldViews'
+import { SignInPasteControls } from './SignInPasteControls'
+
+interface FailureInput {
+  sessionError: string | null | undefined
+  status: SignInStatus | undefined
+  terminal: boolean
+  statusError: unknown
+  openError: string | null
+}
+
+function resolveFailure({ sessionError, status, terminal, statusError, openError }: FailureInput) {
+  if (sessionError !== null && sessionError !== undefined) {
+    return sessionError
+  }
+
+  if (terminal) {
+    return status?.state === 'failed' ? status.message : 'The sign-in was cancelled or timed out. Start it again.'
+  }
+
+  if (statusError) {
+    return errorMessage(statusError, "Couldn't check the sign-in")
+  }
+
+  return openError
+}
+
+interface WaitingActionsProps {
+  showCheck: boolean
+  checking: boolean
+  showPasteLink: boolean
+  onOpenAgain: () => void
+  onCheck: () => void
+  onShowPaste: () => void
+}
+
+function WaitingActions(p: WaitingActionsProps): ReactNode {
+  return (
+    <>
+      <Group gap="xs">
+        <Button variant="default" onClick={p.onOpenAgain}>
+          Open the sign-in page again
+        </Button>
+        {p.showCheck && (
+          <Button variant="subtle" onClick={p.onCheck} loading={p.checking}>
+            Check again
+          </Button>
+        )}
+      </Group>
+      {p.showPasteLink && (
+        <Anchor component="button" type="button" size="sm" ta="left" onClick={p.onShowPaste}>
+          Browser didn't return to Pipedash?
+        </Anchor>
+      )}
+    </>
+  )
+}
 
 function ProviderSignInContent({ session }: { session: ProviderSignInSession }): ReactNode {
   const queryClient = useQueryClient()
+  const mobileShell = useMobileShell()
+  const fieldId = useId()
   const signIn = useProviderSignIn()
   const { data: status, error: statusError, refetch, isFetching } = useSignInStatus(session.flow?.id ?? null)
   const complete = useCompleteSignIn()
@@ -22,16 +84,9 @@ function ProviderSignInContent({ session }: { session: ProviderSignInSession }):
   const saveFailed = session.phase === 'save_failed'
   const terminal = status?.state === 'failed' || status?.state === 'expired'
   const waiting = session.phase === 'waiting' && !terminal && status?.state !== 'completed'
-  const pasteVisible = waiting && (session.flow?.manual || pasteOpen)
-  const failure =
-    session.error ??
-    (terminal
-      ? status.state === 'failed'
-        ? status.message
-        : 'The sign-in was cancelled or timed out. Start it again.'
-      : statusError
-        ? errorMessage(statusError, "Couldn't check the sign-in")
-        : openError)
+  const pasteVisible = Boolean(waiting && (session.flow?.manual || pasteOpen))
+  const failure = resolveFailure({ sessionError: session.error, status, terminal, statusError, openError })
+  const pasteError = complete.error ? errorMessage(complete.error, "Couldn't finish the sign-in") : undefined
 
   useEffect(() => {
     if (status?.state === 'completed' && session.phase === 'waiting') {
@@ -53,104 +108,154 @@ function ProviderSignInContent({ session }: { session: ProviderSignInSession }):
     }
   }
 
-  const finish = () => {
-    if (session.flow && pasted.trim() && !completing.current) {
-      completing.current = true
-      complete.mutate(
-        { id: session.flow.id, redirectUrl: pasted.trim() },
-        {
-          onSettled: () => {
-            completing.current = false
-          },
-        }
-      )
+  const changePasted = (value: string) => {
+    setPasted(value)
+    complete.reset()
+  }
+
+  const finish = async () => {
+    if (!session.flow || !pasted.trim() || completing.current) {
+      return
+    }
+
+    completing.current = true
+
+    try {
+      await complete.mutateAsync({ id: session.flow.id, redirectUrl: pasted.trim() }).catch(() => undefined)
+    } finally {
+      completing.current = false
     }
   }
 
-  const pasteKey = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') {
-      event.preventDefault()
-      finish()
-    }
+  let phaseText: string | null = null
+
+  if (session.phase === 'starting') {
+    phaseText = 'Opening the sign-in page…'
+  } else if (saving) {
+    phaseText = 'Saving your sign-in and reconnecting the provider…'
+  } else if (waiting) {
+    phaseText = `Waiting for you to sign in with ${session.flow?.label ?? 'SSO'}…`
   }
 
-  return (
-    <StandardModal opened onClose={() => cancelProviderSignIn()} title="Sign in" size="md" closable={!saving}>
+  let phaseLine: ReactNode = null
+
+  if (phaseText !== null) {
+    phaseLine = (
+      <Group gap="xs" wrap="nowrap">
+        <Loader size="xs" aria-hidden />
+        <Text size="sm">{phaseText}</Text>
+      </Group>
+    )
+  } else if (saveFailed) {
+    phaseLine = <Text size="sm">You are signed in. Retry saving to reconnect the provider.</Text>
+  }
+
+  let retryAction: ModalAction | undefined
+
+  if (saveFailed) {
+    retryAction = { label: 'Retry saving', onClick: () => reconnectProviderSignIn(queryClient, session.requestId) }
+  } else if (session.phase === 'failed' || terminal) {
+    retryAction = { label: 'Sign in again', onClick: retry }
+  }
+
+  const pasteControls = (
+    <SignInPasteControls
+      shell={mobileShell}
+      fieldId={`${fieldId}-paste`}
+      value={pasted}
+      error={pasteError}
+      pending={complete.isPending}
+      onChange={changePasted}
+      onSubmit={() => void finish()}
+    />
+  )
+
+  const shellView: SignInViewProps = {
+    id: fieldId,
+    phase: 'waiting',
+    description: '',
+    shownError: failure ?? undefined,
+    invalid: false,
+    signedIn: null,
+    waitingText: phaseText ?? '',
+    canOpenAgain: waiting && session.flow !== null,
+    pasteLinkVisible: waiting && !pasteVisible,
+    pasteVisible,
+    pasteControls,
+    pasteError,
+    continueDisabled: !pasted.trim() || complete.isPending,
+    blocked: false,
+    starting: false,
+    cancelling: false,
+    onStart: () => Promise.resolve(retry()),
+    onOpenAgain: openAgain,
+    onShowPaste: () => setPasteOpen(true),
+    onContinue: () => void finish(),
+  }
+
+  const footer = (
+    <Group justify="flex-end">
+      <Button variant="subtle" onClick={() => cancelProviderSignIn()} disabled={saving}>
+        Cancel
+      </Button>
+      {retryAction && <Button onClick={retryAction.onClick}>{retryAction.label}</Button>}
+    </Group>
+  )
+
+  const shellBody =
+    phaseText === null ? (
       <Stack gap="md">
-        <div role="status" aria-live="polite">
-          {session.phase === 'starting' || saving || waiting ? (
-            <Group gap="xs" wrap="nowrap">
-              <Loader size="xs" aria-hidden />
-              <Text size="sm">
-                {session.phase === 'starting'
-                  ? 'Opening the sign-in page…'
-                  : saving
-                    ? 'Saving your sign-in and reconnecting the provider…'
-                    : `Waiting for you to sign in with ${session.flow?.label ?? 'SSO'}…`}
-              </Text>
-            </Group>
-          ) : saveFailed ? (
-            <Text size="sm">You are signed in. Retry saving to reconnect the provider.</Text>
-          ) : null}
-        </div>
+        {phaseLine}
         {failure && (
           <Text size="sm" c="red" role="alert">
             {failure}
           </Text>
         )}
-        {waiting && (
-          <>
-            <Group gap="xs">
-              <Button variant="default" onClick={openAgain}>
-                Open the sign-in page again
-              </Button>
-              {statusError && (
-                <Button variant="subtle" onClick={() => void refetch()} loading={isFetching}>
-                  Check again
-                </Button>
-              )}
-            </Group>
-            {!pasteVisible && (
-              <Anchor component="button" type="button" size="sm" ta="left" onClick={() => setPasteOpen(true)}>
-                Browser didn't return to Pipedash?
-              </Anchor>
-            )}
-          </>
-        )}
-        {pasteVisible && (
-          <Stack gap="xs">
-            <TextInput
-              label="Address of the page after sign-in"
-              description="After you sign in, the browser opens a page that can't load. Copy its address from the address bar and paste it here."
-              value={pasted}
-              onChange={(event) => setPasted(event.currentTarget.value)}
-              onKeyDown={pasteKey}
-              error={complete.error ? errorMessage(complete.error, "Couldn't finish the sign-in") : undefined}
-              autoComplete="off"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              inputMode="url"
-              enterKeyHint="go"
-            />
-            <Group>
-              <Button onClick={finish} loading={complete.isPending} disabled={!pasted.trim()}>
-                Continue
-              </Button>
-            </Group>
-          </Stack>
-        )}
-        <Group justify="flex-end">
-          <Button variant="subtle" onClick={() => cancelProviderSignIn()} disabled={saving}>
-            Cancel
-          </Button>
-          {saveFailed ? (
-            <Button onClick={() => reconnectProviderSignIn(queryClient, session.requestId)}>Retry saving</Button>
-          ) : session.phase === 'failed' || terminal ? (
-            <Button onClick={retry}>Sign in again</Button>
-          ) : null}
-        </Group>
       </Stack>
+    ) : (
+      <ShellSignIn {...shellView} />
+    )
+
+  const desktopBody = (
+    <Stack gap="md">
+      <div role="status" aria-live="polite">
+        {phaseLine}
+      </div>
+      {failure && (
+        <Text size="sm" c="red" role="alert">
+          {failure}
+        </Text>
+      )}
+      {waiting && (
+        <WaitingActions
+          showCheck={Boolean(statusError)}
+          checking={isFetching}
+          showPasteLink={!pasteVisible}
+          onOpenAgain={openAgain}
+          onCheck={() => void refetch()}
+          onShowPaste={() => setPasteOpen(true)}
+        />
+      )}
+      {pasteVisible && pasteControls}
+    </Stack>
+  )
+
+  let chrome: Pick<StandardModalProps, 'footer' | 'primaryAction'> = { footer }
+
+  if (mobileShell) {
+    chrome = retryAction ? { primaryAction: retryAction } : {}
+  }
+
+  return (
+    <StandardModal
+      opened
+      onClose={() => cancelProviderSignIn()}
+      title="Sign in"
+      size="md"
+      closable={!saving}
+      {...chrome}
+    >
+      {mobileShell ? shellBody : desktopBody}
     </StandardModal>
   )
 }

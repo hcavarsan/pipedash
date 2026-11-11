@@ -1,10 +1,32 @@
 import { Button, FileButton, Group, Loader } from '@mantine/core'
 import { IconDownload, IconUpload } from '@tabler/icons-react'
-import { type ReactNode, useRef } from 'react'
+import { type ReactNode, type RefObject, useRef } from 'react'
 import { LiveStatus } from '../../../components/forms/LiveStatus'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useExportProviders, useImportProviders, useProviders } from '../../../queries/useProvidersQueries'
+
+interface ProviderImportRowProps {
+  resetRef: RefObject<(() => void) | null>
+  importing: boolean
+  disabled: boolean
+  onChange: (file: File | null) => void
+}
+
+function ProviderImportRow({ resetRef, importing, disabled, onChange }: ProviderImportRowProps): ReactNode {
+  return (
+    <FileButton accept=".toml" resetRef={resetRef} onChange={onChange}>
+      {(props) => (
+        <IosRow
+          title="Import providers"
+          disabled={disabled}
+          onClick={props.onClick}
+          accessory={importing ? <Loader size="xs" aria-hidden /> : <IconUpload size={16} aria-hidden />}
+        />
+      )}
+    </FileButton>
+  )
+}
 
 export const ProviderTransferActions = (): ReactNode => {
   const mobileShell = useMobileShell()
@@ -15,7 +37,13 @@ export const ProviderTransferActions = (): ReactNode => {
 
   const importing = importMutation.isPending
   const exporting = exportMutation.isPending
-  const status = importing ? 'Importing providers' : exporting ? 'Exporting providers' : ''
+  let status = ''
+
+  if (importing) {
+    status = 'Importing providers'
+  } else if (exporting) {
+    status = 'Exporting providers'
+  }
 
   const handleImport = (file: File | null) => {
     if (file) {
@@ -29,21 +57,17 @@ export const ProviderTransferActions = (): ReactNode => {
       <>
         <LiveStatus message={status} />
         <IosGroup>
-          <FileButton accept=".toml" resetRef={resetRef} onChange={handleImport}>
-            {(props) => (
-              <IosRow
-                title="Import providers"
-                disabled={loading || importing}
-                onClick={props.onClick}
-                accessory={importing ? <Loader size={18} aria-hidden /> : <IconUpload size={18} aria-hidden />}
-              />
-            )}
-          </FileButton>
+          <ProviderImportRow
+            resetRef={resetRef}
+            importing={importing}
+            disabled={loading || importing}
+            onChange={handleImport}
+          />
           <IosRow
             title="Export providers"
             disabled={loading || providers.length === 0 || exporting}
             onClick={() => exportMutation.mutate()}
-            accessory={exporting ? <Loader size={18} aria-hidden /> : <IconDownload size={18} aria-hidden />}
+            accessory={exporting ? <Loader size="xs" aria-hidden /> : <IconDownload size={16} aria-hidden />}
           />
         </IosGroup>
       </>

@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "app": {
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://*.github.com https://*.gitlab.com https://*.bitbucket.org https://*.circleci.com https://dev.azure.com"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'"
     },
     "windows": [
       {
@@ -32,6 +32,14 @@
     "targets": "all"
   },
   "identifier": "com.henrique.pipedash",
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/hcavarsan/pipedash/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDA5ODRCNjk3OThEQURBMUUKUldRZTJ0cVlsN2FFQ1lITDZKZk4rTCsza3BYeXA0czB3bUg3U3BBWHBTbS9ycml1cUhSWDFaTjYK"
+    }
+  },
   "productName": "pipedash",
-  "version": "0.8.0"
+  "version": "0.14.0"
 }

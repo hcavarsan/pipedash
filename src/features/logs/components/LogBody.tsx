@@ -13,7 +13,7 @@ import type { LogDocumentMeta, LogSection } from '../../../types/logs'
 import { PROBE_CHARS, useLogRowMeasurements } from '../hooks/useLogRowMeasurements'
 import { useLogScroll } from '../hooks/useLogScroll'
 import { type LogWindowController, useLogWindow } from '../hooks/useLogWindow'
-import type { LineState } from '../lib/lineCache'
+import type { LineState } from '../lib/lineCacheTypes'
 import { isOpen, lineOfItem, type RowModel, rowAt, rowOfSection, sectionAtLine } from '../lib/logRows'
 import type { LogBodyHandle } from '../lib/logWindowTypes'
 import { LogRow, type MatchTriple } from './LogRow'
@@ -44,6 +44,7 @@ export interface LogBodyProps {
   onToggle: (sectionId: number) => void
   onSelect: (line: number, extend: boolean) => void
   onFullLine: (line: number) => void
+  onRetry: () => void
   rowEvents: Pick<HTMLAttributes<HTMLDivElement>, 'onContextMenu' | 'onKeyDown'>
   onKeyDown: (event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'preventDefault'>) => void
   ref?: Ref<LogBodyHandle>
@@ -195,6 +196,7 @@ export function LogBody({ ref, ...props }: LogBodyProps): ReactNode {
             onToggle={props.onToggle}
             onSelect={props.onSelect}
             onFullLine={props.onFullLine}
+            onRetry={props.onRetry}
           />
         </div>
       )

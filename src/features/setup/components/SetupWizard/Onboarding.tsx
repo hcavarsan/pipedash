@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 
 import { AppLogo } from '../../../../components/atoms/AppLogo'
+import { WizardProgress } from '../../../../components/forms/WizardProgress'
 
 import classes from './Onboarding.module.css'
 
@@ -35,16 +36,7 @@ interface StepHeaderProps {
 export function StepHeader({ step, labels }: StepHeaderProps): ReactNode {
   return (
     <div className={classes.stepHeader}>
-      <div className={classes.dots} role="img" aria-label={`Step ${step + 1} of ${labels.length}`}>
-        {labels.map((label, index) => (
-          <span
-            key={label}
-            className={classes.dot}
-            data-active={index === step || undefined}
-            data-done={index < step || undefined}
-          />
-        ))}
-      </div>
+      <WizardProgress steps={labels.map((label) => ({ label, icon: null }))} active={step} />
       <div className={classes.stepCount}>
         Step {step + 1} of {labels.length}
       </div>

@@ -4,7 +4,8 @@ import { after, afterEach, beforeEach, type TestContext, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, Fragment, type ReactNode, useReducer } from 'react'
 
-import type { AvailablePipeline, PaginatedAvailablePipelines, ProviderConfig } from '../../../../types/domain'
+import type { AvailablePipeline, PaginatedAvailablePipelines } from '../../../../types/pipelines'
+import type { ProviderConfig } from '../../../../types/providers'
 
 import { pluginFixture } from './pluginFixture'
 
@@ -24,8 +25,8 @@ const view = () => within(document.body)
 let client = new QueryClient()
 
 const providerConfig: ProviderConfig = {
-  name: 'Prow',
-  provider_type: 'prow',
+  name: 'Stub',
+  provider_type: 'stub',
   token: '',
   config: {},
   refresh_interval: 300,
@@ -53,13 +54,19 @@ function Picker(): ReactNode {
     ...initialFormState,
     step: 'pipelines',
     authMode: 'none',
-    selectedPlugin: pluginFixture({ name: 'Prow', provider_type: 'prow' }),
+    selectedPlugin: pluginFixture(),
   })
 
   return createElement(
     Fragment,
     null,
-    state.step === 'pipelines' && createElement(PipelinesStep, { state, dispatch, providerConfig, isMobile: false }),
+    state.step === 'pipelines' &&
+      createElement(PipelinesStep, {
+        state,
+        dispatch,
+        providerConfig,
+        terms: pluginFixture().presentation.terminology,
+      }),
     createElement(
       'button',
       { type: 'button', onClick: () => dispatch({ type: 'SET_STEP', step: 'credentials' }) },
@@ -84,19 +91,20 @@ function mockDeck(context: TestContext): { releaseSecondPage: () => void; second
     if (search) {
       return page([], 1, false)
     }
-    if (pageNumber !== 2) {
-      return page([job('a'), job('b')], 1, true)
-    }
+    return pageNumber === 2 ? page([job('c'), job('d')], 2, false) : page([job('a'), job('b')], 1, true)
+  }
+  const matching = async (): Promise<string[]> => {
     requests += 1
     const { promise, resolve } = Promise.withResolvers<void>()
     waiting.push(resolve)
     await promise
-    return page([job('c'), job('d')], 2, false)
+    return ['a', 'b', 'c', 'd']
   }
 
   for (const service of [apiService, tauriService]) {
     context.mock.method(service, 'fetchProviderOrganizations', organizations)
     context.mock.method(service, 'previewProviderPipelines', preview)
+    context.mock.method(service, 'getMatchingPipelineIds', matching)
   }
 
   return {
@@ -128,7 +136,7 @@ after(async () => {
   await GlobalRegistrator.unregister()
 })
 
-test('select all loads the remaining pages and selects every matching pipeline', async (context) => {
+test('select all asks the backend for every matching pipeline', async (context) => {
   const user = userEvent.setup({ document })
   const deck = mockDeck(context)
   renderPicker()

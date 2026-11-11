@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, test } from 'node:test'
+import { after, afterEach, type TestContext, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement } from 'react'
@@ -9,22 +9,25 @@ GlobalRegistrator.register({ width: 393, height: 852, settings: { navigator: { u
 const { act, cleanup, render, waitFor, within } = await import('@testing-library/react')
 const { default: userEvent } = await import('@testing-library/user-event')
 const { MantineProvider } = await import('@mantine/core')
-const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 const { MemoryRouter } = await import('react-router-dom')
+const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 const { ProvidersSection } = await import('./ProvidersSection')
 const { apiService } = await import('../../../services/api')
 const { providerSummaryFixture } = await import('../../../testing/fixtures')
 const view = () => within(document.body)
 const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
 
-after(async () => {
+afterEach(async () => {
   await act(async () => cleanup())
   client.clear()
+})
+
+after(async () => {
   notifyManager.setNotifyFunction((callback) => callback())
   await GlobalRegistrator.unregister()
 })
 
-test('mobile refresh interval rejects empty and zero drafts and saves a valid value', async (context) => {
+async function openEditor(context: TestContext) {
   const user = userEvent.setup({ document })
   const saves: Array<[number, number]> = []
   context.mock.method(apiService, 'listProviders', async () => [providerSummaryFixture({ id: 7, name: 'Acme CI' })])
@@ -33,6 +36,9 @@ test('mobile refresh interval rejects empty and zero drafts and saves a valid va
     throw new Error('not needed')
   })
   context.mock.method(apiService, 'updateProviderRefreshInterval', async (id: number, interval: number) => {
+    if (!Number.isInteger(interval) || interval < 5 || interval > 300) {
+      throw new Error('Enter a whole number from 5 to 300 seconds.')
+    }
     saves.push([id, interval])
   })
   notifyManager.setNotifyFunction((callback) => act(callback))
@@ -58,21 +64,39 @@ test('mobile refresh interval rejects empty and zero drafts and saves a valid va
 
     return found
   }
+
+  return { user, saves, enabledField }
+}
+
+test('mobile refresh interval rejects blank and too small drafts without saving and saves a valid value on blur', async (context) => {
+  const { user, saves, enabledField } = await openEditor(context)
   const field = await enabledField()
 
   await user.clear(field)
-  await user.click(view().getByRole('button', { name: 'Save' }))
+  await user.tab()
+  assert.ok((await view().findAllByText('Enter a number')).length > 0)
   assert.deepEqual(saves, [])
-  assert.ok((await view().findAllByText(/whole number from 5 to 300/i)).length > 0)
 
   await user.type(await enabledField(), '0')
-  await user.click(view().getByRole('button', { name: 'Save' }))
+  await user.tab()
+  assert.ok((await view().findAllByText('Must be at least 5')).length > 0)
   assert.deepEqual(saves, [])
-  assert.ok(view().getAllByText(/whole number from 5 to 300/i).length > 0)
 
   const again = await enabledField()
   await user.clear(again)
   await user.type(again, '60')
-  await user.click(view().getByRole('button', { name: 'Save' }))
+  await user.tab()
   await waitFor(() => assert.deepEqual(saves, [[7, 60]]))
+})
+
+test('the interval error disappears when the interval changes', async (context) => {
+  const { user, saves, enabledField } = await openEditor(context)
+
+  await user.clear(await enabledField())
+  await user.tab()
+  assert.ok((await view().findAllByText('Enter a number')).length > 0)
+
+  await user.type(await enabledField(), '6')
+  await waitFor(() => assert.equal(view().queryAllByText('Enter a number').length, 0))
+  assert.deepEqual(saves, [])
 })

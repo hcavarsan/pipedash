@@ -1,7 +1,6 @@
-import { Button, Center, Code, ThemeIcon } from '@mantine/core'
+import { Button, Code, ThemeIcon } from '@mantine/core'
 import { IconAlertCircle } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
-import { ErrorState } from '../../../components/common/ErrorState'
 import { StatusScreen } from '../../../components/ErrorBoundary/StatusScreen'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useStoragePaths } from '../../../queries/useStorageQueries'
@@ -23,39 +22,23 @@ export function ConfigErrorScreen({ errors, onRetry, retrying }: ConfigErrorScre
     'Fix the errors in your Pipedash configuration file, then retry.'
   )
 
-  if (mobileShell) {
-    return (
-      <StatusScreen
-        icon={
-          <ThemeIcon variant="transparent" color="red" size={48}>
-            <IconAlertCircle size={40} aria-hidden />
-          </ThemeIcon>
-        }
-        title="Configuration file has errors"
-        headingOrder={1}
-        message={errors.join(', ') || 'Unknown error'}
-        hint={hint}
-        minHeight="100dvh"
-        actions={
-          <Button size="md" fullWidth loading={retrying} onClick={onRetry}>
-            Retry
-          </Button>
-        }
-      />
-    )
-  }
-
   return (
-    <Center h="100%" p="xl">
-      <Center maw={560} w="100%">
-        <ErrorState
-          title="Configuration file has errors"
-          error={errors.join(', ') || 'Unknown error'}
-          hint={hint}
-          onRetry={onRetry}
-          retrying={retrying}
-        />
-      </Center>
-    </Center>
+    <StatusScreen
+      icon={
+        <ThemeIcon variant="transparent" color="red" size={48}>
+          <IconAlertCircle size={24} aria-hidden />
+        </ThemeIcon>
+      }
+      title="Couldn't load configuration"
+      headingOrder={1}
+      message={errors.join(', ') || 'Unknown error'}
+      hint={hint}
+      minHeight={mobileShell ? '100dvh' : '100%'}
+      actions={
+        <Button size={mobileShell ? 'md' : 'sm'} fullWidth loading={retrying} onClick={onRetry}>
+          Retry
+        </Button>
+      }
+    />
   )
 }

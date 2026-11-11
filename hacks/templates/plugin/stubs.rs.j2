@@ -1,0 +1,52 @@
+    async fn fetch_pipelines(&self) -> PluginResult<Vec<Pipeline>> {
+        let selected = selected_items(&self.config).unwrap_or_default();
+        todo!("fetch the selected pipelines {selected:?}")
+    }
+
+    async fn fetch_run_history(&self, pipeline_id: &str, limit: usize) -> PluginResult<Vec<PipelineRun>> {
+        let id = config::parse_pipeline_id(pipeline_id)?;
+        todo!("fetch the latest {limit} runs of {id:?}")
+    }
+
+    async fn fetch_run_details(&self, pipeline_id: &str, run_number: i64) -> PluginResult<PipelineRun> {
+        let id = config::parse_pipeline_id(pipeline_id)?;
+        todo!("fetch run {run_number} of {id:?}")
+    }
+
+{% if capabilities.trigger %}
+    async fn trigger_pipeline(&self, params: TriggerParams) -> PluginResult<TriggerResult> {
+        let id = config::parse_pipeline_id(&params.workflow_id)?;
+        todo!("start a run of {id:?}")
+    }
+{% else %}
+    async fn trigger_pipeline(&self, _params: TriggerParams) -> PluginResult<TriggerResult> {
+        Err(PluginError::NotSupported(
+            "{{ name }} runs can't be started from Pipedash".to_string(),
+        ))
+    }
+{% endif %}
+{% if capabilities.cancel %}
+
+    async fn cancel_run(&self, pipeline_id: &str, run_number: i64) -> PluginResult<()> {
+        let id = config::parse_pipeline_id(pipeline_id)?;
+        todo!("cancel run {run_number} of {id:?}")
+    }
+{% endif %}
+{% if capabilities.logs %}
+
+    async fn fetch_log_nodes(&self, run: RunRef<'_>) -> PluginResult<Vec<LogNode>> {
+        let id = config::parse_pipeline_id(run.pipeline_id)?;
+        todo!("list the jobs and steps of run {} of {id:?}", run.run_number)
+    }
+
+    async fn read_log(
+        &self, run: RunRef<'_>, node_id: &str, from: Option<&LogCursor>, _sink: &mut LogSink,
+    ) -> PluginResult<LogRead> {
+        let id = config::parse_pipeline_id(run.pipeline_id)?;
+        todo!(
+            "read the log of {node_id} in run {} of {id:?}, resuming: {}",
+            run.run_number,
+            from.is_some()
+        )
+    }
+{% endif %}

@@ -1,6 +1,5 @@
 import {
   ActionIcon,
-  Alert,
   Button,
   Card,
   Group,
@@ -13,18 +12,78 @@ import {
 } from '@mantine/core'
 import { IconDots, IconEye } from '@tabler/icons-react'
 import { type ReactNode, useId } from 'react'
+import { Link, type NavigateFunction, useNavigate } from 'react-router-dom'
+
+import { useDesktopStatus } from '../../features/settings/queries/useDesktopQueries'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useBuildWatch } from '../../queries/useBuildWatchQueries'
 import { mobileService } from '../../services/mobile'
 import { STATUS_META } from '../../theme/status'
-import type { PipelineStatus } from '../../types/domain'
-import { displayErrorNotification, errorMessage } from '../../utils/errorDisplay'
+import type { BuildWatchSnapshot } from '../../types/notifications'
+import type { PipelineStatus } from '../../types/pipelines'
+import { displayErrorNotification } from '../../utils/errorDisplay'
+import { isDesktopTauri } from '../../utils/platform'
 import { StatusIcon } from '../atoms/StatusBadge'
 import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 import { IosGroup } from '../ios/IosList'
+import { ErrorState } from './ErrorState'
 import { IosPipelineRow } from './IosPipelineList'
-import { SectionHeading } from './PipelineRowParts'
+import { SectionHeading } from './SectionHeading'
+
+function openWatchSettings(navigate: NavigateFunction): void {
+  if (isDesktopTauri()) {
+    void navigate('/settings/general')
+    return
+  }
+  mobileService.openAppSettings().catch((error: unknown) => displayErrorNotification(error, "Couldn't open Settings"))
+}
+
+function BackgroundWatchGuidance({ watching }: { watching: boolean }): ReactNode {
+  const desktop = useDesktopStatus()
+  if (!isDesktopTauri() || !watching || desktop.data?.settings.keep_running_on_close !== false) {
+    return null
+  }
+
+  return (
+    <Text size="xs" c="dimmed">
+      Background mode is off. Keep Pipedash open to watch this run, or turn on background mode in{' '}
+      <Link to="/settings/general">General settings</Link>.
+    </Text>
+  )
+}
+
+function watchHint(watching: boolean, sameRun: boolean, available: boolean, reason: string | null): string {
+  if (watching && !sameRun) {
+    return 'Stop the current watch before watching another run.'
+  }
+  if (!available) {
+    return reason ?? 'Background monitoring is unavailable on this device.'
+  }
+  if (isDesktopTauri()) {
+    return 'Watch this run while Pipedash is running. Closing the window keeps watching only when background mode is on. Stopping a watch does not cancel the run.'
+  }
+  return 'Watch on this device without a server. iOS may interrupt monitoring. Stopping a watch does not cancel the run.'
+}
+
+interface WatchSummaryProps {
+  watch: BuildWatchSnapshot
+  state: string | null
+}
+
+function WatchSummary({ watch, state }: WatchSummaryProps): ReactNode {
+  return (
+    <>
+      <Text size="sm" fw={600} truncate>
+        {watch.pipelineName} #{watch.runNumber}
+      </Text>
+      <Text size="xs" c="dimmed" truncate>
+        {STATUS_META[watch.status].label}
+        {state && ` · ${state}`}
+      </Text>
+    </>
+  )
+}
 
 interface BuildWatchControlsProps {
   pipelineId: string
@@ -34,6 +93,7 @@ interface BuildWatchControlsProps {
 
 export function BuildWatchControls({ pipelineId, runNumber, status }: BuildWatchControlsProps): ReactNode {
   const watch = useBuildWatch()
+  const navigate = useNavigate()
   if (!watch.data?.supported || (status !== 'pending' && status !== 'running')) {
     return null
   }
@@ -54,26 +114,14 @@ export function BuildWatchControls({ pipelineId, runNumber, status }: BuildWatch
         {sameRun ? 'Stop watching' : 'Watch run'}
       </Button>
       <Text size="xs" c="dimmed">
-        {watching && !sameRun
-          ? 'Stop the current watch before watching another run.'
-          : !watch.data.available
-            ? (watch.data.reason ?? 'Background monitoring is unavailable on this device.')
-            : 'Watch on this device without a server. iOS may interrupt monitoring. Stopping a watch does not cancel the run.'}
+        {watchHint(watching, sameRun, watch.data.available, watch.data.reason)}
       </Text>
       {!watch.data.available && (
-        <Button
-          variant="subtle"
-          size="xs"
-          mih={44}
-          onClick={() => {
-            mobileService
-              .openAppSettings()
-              .catch((error: unknown) => displayErrorNotification(error, "Couldn't open Settings"))
-          }}
-        >
+        <Button variant="subtle" size="xs" mih={44} onClick={() => openWatchSettings(navigate)}>
           Open Settings
         </Button>
       )}
+      <BackgroundWatchGuidance watching={watching} />
     </Stack>
   )
 }
@@ -85,12 +133,13 @@ interface BuildWatchSectionProps {
 export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps): ReactNode {
   const watch = useBuildWatch()
   const mobileShell = useMobileShell()
+  const navigate = useNavigate()
   const titleId = useId()
   if (!watch.enabled || (watch.data && !watch.data.supported)) {
     return null
   }
   const current = watch.data?.watch
-  if (!current && !watch.isError) {
+  if (!current && !watch.isError && !watch.listenerError) {
     return null
   }
   const state = current
@@ -105,7 +154,7 @@ export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps): ReactN
     <Menu position="bottom">
       <Menu.Target>
         <ActionIcon size={44} data-row-menu aria-label="Watched run actions">
-          <IconDots size={22} aria-hidden />
+          <IconDots size={20} aria-hidden />
         </ActionIcon>
       </Menu.Target>
       <Menu.Dropdown>
@@ -118,15 +167,7 @@ export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps): ReactN
           </Menu.Item>
         )}
         {watch.data && !watch.data.available && (
-          <Menu.Item
-            onClick={() => {
-              mobileService
-                .openAppSettings()
-                .catch((error: unknown) => displayErrorNotification(error, "Couldn't open Settings"))
-            }}
-          >
-            Open Settings
-          </Menu.Item>
+          <Menu.Item onClick={() => openWatchSettings(navigate)}>Open Settings</Menu.Item>
         )}
         <ActionSheetCancel />
       </Menu.Dropdown>
@@ -156,15 +197,9 @@ export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps): ReactN
               aria-label={`View run #${current.runNumber}`}
               onClick={() => onViewRun(current.pipelineId, current.runNumber)}
             >
-              <Text size="sm" fw={600} truncate>
-                {current.pipelineName} #{current.runNumber}
-              </Text>
-              <Text size="xs" c="dimmed" truncate>
-                {STATUS_META[current.status].label}
-                {state && ` · ${state}`}
-              </Text>
+              <WatchSummary watch={current} state={state} />
             </UnstyledButton>
-            <StatusIcon status={current.status} />
+            <StatusIcon focusable status={current.status} />
           </Group>
           <Group justify="space-between" wrap="nowrap" gap="sm">
             <Text size="xs" c="dimmed" truncate>
@@ -175,13 +210,25 @@ export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps): ReactN
         </Stack>
       </Card>
     ))
-  const recovery = watch.isError && (
-    <Alert color="gray" title="Couldn't refresh Watch">
-      <Text size="sm">{errorMessage(watch.error, 'Try refreshing the current watch.')}</Text>
-      <Button variant="subtle" size="xs" mih={44} loading={watch.isFetching} onClick={() => void watch.refetch()}>
-        Refresh Watch
-      </Button>
-    </Alert>
+  const recovery = (
+    <>
+      {watch.isError && (
+        <ErrorState
+          title="Couldn't refresh watch"
+          error={watch.error}
+          onRetry={() => void watch.refetch()}
+          retrying={watch.isFetching}
+        />
+      )}
+      {watch.listenerError && (
+        <ErrorState
+          title="Couldn't follow watch updates"
+          error={watch.listenerError}
+          hint="The watch still refreshes when you return to Pipedash."
+          onRetry={watch.retryListener}
+        />
+      )}
+    </>
   )
 
   const live = (
@@ -212,6 +259,7 @@ export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps): ReactN
         </SimpleGrid>
       )}
       {recovery}
+      <BackgroundWatchGuidance watching={current?.monitoring === 'watching'} />
       {live}
     </Stack>
   )

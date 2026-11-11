@@ -3,8 +3,7 @@ import { FormErrorDisplay } from '../../../../components/common/FormErrorDisplay
 import { LiveStatus, useErrorAnnouncement } from '../../../../components/forms/LiveStatus'
 import { StepRegion } from '../../../../components/forms/StepRegion'
 import { IosGroup, IosRow } from '../../../../components/ios/IosList'
-import type { PluginMetadata } from '../../../../types/domain'
-import { getPipelineLabels } from '../../../../utils/pipelinePresentation'
+import type { PluginMetadata } from '../../../../types/plugins'
 
 import { CredentialsStep } from './CredentialsStep'
 import { PipelinesStep } from './PipelinesStep'
@@ -15,7 +14,6 @@ import type { ProviderFormModel } from './useProviderFormAction'
 interface ProviderWizardFormProps {
   model: ProviderFormModel
   plugins: PluginMetadata[]
-  pluginsLoading: boolean
   editMode: boolean
   isMobile: boolean
   mobileShell: boolean
@@ -34,7 +32,6 @@ const FORM_STYLE = {
 export function ProviderWizardForm({
   model,
   plugins,
-  pluginsLoading,
   editMode,
   isMobile,
   mobileShell,
@@ -44,29 +41,77 @@ export function ProviderWizardForm({
 }: ProviderWizardFormProps): ReactNode {
   const { state, dispatch, formAction, submitIntent, isPending, providerConfig, selectionNeedsRefresh, saveOnly } =
     model
-  const { step, selectedPlugin, error, fieldErrors } = state
-  const labels = getPipelineLabels(selectedPlugin?.provider_type)
+  const missingLabels = model.check?.missing_field_labels ?? []
+  const { step, selectedPlugin, fieldErrors } = state
+  const items = selectedPlugin?.presentation.terminology.items ?? 'items'
   const announcement = useErrorAnnouncement(fieldErrors)
   const position = `Step ${STEP_ORDER.indexOf(step) + 1} of ${STEP_ORDER.length}`
-  const title = step === 'provider' ? 'Provider' : step === 'credentials' ? 'Credentials' : `Select ${labels.items}`
+  const titles: Record<typeof step, string> = {
+    provider: 'Provider',
+    credentials: 'Credentials',
+    pipelines: `Select ${items}`,
+  }
+  const title = titles[step]
 
   const secondaryRow =
     mobileShell && saveOnly && step === 'credentials' ? (
       <IosGroup>
-        <IosRow
-          title={`Next: select ${labels.items}`}
-          chevron
-          onClick={() => submitIntent('continue')}
-          disabled={isPending}
-        />
+        <IosRow title="Continue" chevron onClick={() => submitIntent('continue')} disabled={isPending} />
       </IosGroup>
     ) : undefined
+
+  const failureTitle = editMode ? "Couldn't update provider" : "Couldn't add provider"
+
+  const renderStep = (): ReactNode => {
+    if (step === 'provider') {
+      return (
+        <ProviderStep
+          state={state}
+          dispatch={dispatch}
+          plugins={plugins}
+          editMode={editMode}
+          isMobile={isMobile}
+          submitting={isPending}
+          formRef={formRef}
+          formId={formId}
+          validateKey={model.validateKey}
+        />
+      )
+    }
+
+    if (step === 'credentials') {
+      return (
+        <CredentialsStep
+          state={state}
+          dispatch={dispatch}
+          isMobile={isMobile}
+          submitting={isPending}
+          formRef={formRef}
+          formId={formId}
+          validateKey={model.validateKey}
+          missingLabels={missingLabels}
+          permissionRow={permissionRow}
+          secondaryRow={secondaryRow}
+          scopeNote={selectionNeedsRefresh ? `Select ${items} again after changing connection scope.` : undefined}
+        />
+      )
+    }
+
+    return selectedPlugin ? (
+      <PipelinesStep
+        state={state}
+        dispatch={dispatch}
+        providerConfig={providerConfig}
+        terms={selectedPlugin.presentation.terminology}
+      />
+    ) : null
+  }
 
   return (
     <form ref={formRef} id={formId} action={formAction} noValidate style={FORM_STYLE}>
       <FormErrorDisplay
-        title={mobileShell ? "Couldn't save" : editMode ? "Couldn't update provider" : "Couldn't add provider"}
-        globalError={error}
+        title={failureTitle}
+        globalError={model.submitError}
         onDismiss={() => dispatch({ type: 'SET_ERROR', error: null })}
       />
 
@@ -77,35 +122,7 @@ export function ProviderWizardForm({
         hiddenHeading={!mobileShell}
         style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
-        {step === 'provider' ? (
-          <ProviderStep
-            state={state}
-            dispatch={dispatch}
-            plugins={plugins}
-            pluginsLoading={pluginsLoading}
-            editMode={editMode}
-            isMobile={isMobile}
-            submitting={isPending}
-            formRef={formRef}
-            formId={formId}
-          />
-        ) : step === 'credentials' ? (
-          <CredentialsStep
-            state={state}
-            dispatch={dispatch}
-            isMobile={isMobile}
-            submitting={isPending}
-            formRef={formRef}
-            formId={formId}
-            permissionRow={permissionRow}
-            secondaryRow={secondaryRow}
-            scopeNote={
-              selectionNeedsRefresh ? `Select ${labels.items} again after changing connection scope.` : undefined
-            }
-          />
-        ) : (
-          <PipelinesStep state={state} dispatch={dispatch} providerConfig={providerConfig} isMobile={isMobile} />
-        )}
+        {renderStep()}
       </StepRegion>
       <LiveStatus message={announcement} />
     </form>

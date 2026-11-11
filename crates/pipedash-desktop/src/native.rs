@@ -7,6 +7,7 @@ use std::{
     },
 };
 
+use pipedash_core::domain::pairing::parse_pairing_link;
 use serde::{
     Deserialize,
     Serialize,
@@ -32,11 +33,12 @@ use tauri_plugin_pipedash_native::{
 
 use crate::{
     app_lock::AppLockSettings,
-    commands::ErrorResponse,
+    error::ErrorResponse,
 };
 
 pub const INTENT_EVENT: &str = "native-intent";
 pub const STATUS_BAR_TAP_EVENT: &str = "native-status-bar-tap";
+#[cfg(mobile)]
 pub const FAILURE_CATEGORY: &str = "pipedash-failure";
 
 const DEEP_LINK_SCHEME: &str = "pipedash";
@@ -93,6 +95,13 @@ impl NotificationTarget {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NativeUiAction {
+    ManagePins,
+    ManageViews,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum NativeIntent {
@@ -108,22 +117,54 @@ pub enum NativeIntent {
         #[serde(skip_serializing_if = "Option::is_none")]
         run_number: Option<u64>,
     },
+    Ui {
+        action: NativeUiAction,
+    },
+    Pair {
+        link: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PendingNativeIntent {
+    pub id: u64,
+    pub intent: NativeIntent,
 }
 
 #[derive(Default)]
-pub struct PendingIntent(Mutex<Option<NativeIntent>>);
+struct PendingIntentState {
+    last_id: u64,
+    pending: Option<PendingNativeIntent>,
+}
+
+#[derive(Default)]
+pub struct PendingIntent(Mutex<PendingIntentState>);
 
 impl PendingIntent {
-    fn slot(&self) -> MutexGuard<'_, Option<NativeIntent>> {
+    fn slot(&self) -> MutexGuard<'_, PendingIntentState> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     pub fn set(&self, intent: NativeIntent) {
-        *self.slot() = Some(intent);
+        let mut state = self.slot();
+        state.last_id += 1;
+        let id = state.last_id;
+        state.pending = Some(PendingNativeIntent { id, intent });
     }
 
-    pub fn take(&self) -> Option<NativeIntent> {
-        self.slot().take()
+    pub fn peek(&self) -> Option<PendingNativeIntent> {
+        self.slot().pending.clone()
+    }
+
+    pub fn ack(&self, id: u64) {
+        let mut state = self.slot();
+        if state
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.id == id)
+        {
+            state.pending = None;
+        }
     }
 }
 
@@ -184,6 +225,9 @@ pub fn parse_deep_link(url: &Url) -> Option<NativeIntent> {
         ("settings", [section]) if is_section(section) => {
             link(format!("/settings/{section}"), None)
         }
+        ("pair", _) if parse_pairing_link(url.as_str()).is_some() => Some(NativeIntent::Pair {
+            link: url.to_string(),
+        }),
         _ => None,
     }
 }
@@ -323,169 +367,16 @@ pub async fn native_release_privacy_cover(app: AppHandle) -> Result<(), ErrorRes
 }
 
 #[tauri::command]
-pub fn native_take_pending_intent(pending: State<'_, PendingIntent>) -> Option<NativeIntent> {
-    pending.take()
+pub fn native_peek_pending_intent(
+    pending: State<'_, PendingIntent>,
+) -> Option<PendingNativeIntent> {
+    pending.peek()
+}
+
+#[tauri::command]
+pub fn native_ack_pending_intent(pending: State<'_, PendingIntent>, id: u64) {
+    pending.ack(id);
 }
 
 #[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-
-    fn link(raw: &str) -> Option<NativeIntent> {
-        parse_deep_link(&Url::parse(raw).unwrap())
-    }
-
-    fn to(path: &str, run_number: Option<u64>) -> Option<NativeIntent> {
-        Some(NativeIntent::Link {
-            path: path.to_string(),
-            run_number,
-        })
-    }
-
-    #[test]
-    fn app_pages_open_from_custom_scheme_links() {
-        assert_eq!(link("pipedash://pipelines"), to("/pipelines", None));
-        assert_eq!(
-            link("pipedash://Notifications/"),
-            to("/notifications", None)
-        );
-        assert_eq!(link("pipedash://providers"), to("/providers", None));
-        assert_eq!(link("pipedash://settings"), to("/settings", None));
-        assert_eq!(
-            link("pipedash://settings/app-lock"),
-            to("/settings/app-lock", None)
-        );
-    }
-
-    #[test]
-    fn a_pipeline_link_keeps_its_encoded_id_and_an_optional_run() {
-        assert_eq!(
-            link("pipedash://pipelines/github__1__acme%2Fapp%2Fci.yml"),
-            to("/pipelines/github__1__acme%2Fapp%2Fci.yml", None)
-        );
-        assert_eq!(
-            link("pipedash://pipelines/jenkins__2__build/runs/41"),
-            to("/pipelines/jenkins__2__build", Some(41))
-        );
-    }
-
-    #[test]
-    fn links_the_app_cannot_route_are_ignored() {
-        for raw in [
-            "https://pipelines/abc",
-            "pipedash://unknown",
-            "pipedash://pipelines/a/b",
-            "pipedash://pipelines/bad%zz",
-            "pipedash://pipelines/abc/runs/not-a-number",
-            "pipedash://pipelines/abc/runs/-1",
-            "pipedash://settings/Bad_Section",
-            "pipedash://settings/a/b",
-        ] {
-            assert_eq!(link(raw), None, "{raw}");
-        }
-    }
-
-    #[test]
-    fn the_pending_intent_keeps_only_the_latest_and_is_consumed_once() {
-        let pending = PendingIntent::default();
-        assert_eq!(pending.take(), None);
-
-        pending.set(NativeIntent::Link {
-            path: "/providers".to_string(),
-            run_number: None,
-        });
-        pending.set(NativeIntent::Notification {
-            action: "tap".to_string(),
-            target: NotificationTarget {
-                key: Some("pipeline:p1".to_string()),
-                ..Default::default()
-            },
-        });
-
-        assert!(matches!(
-            pending.take(),
-            Some(NativeIntent::Notification { .. })
-        ));
-        assert_eq!(pending.take(), None);
-    }
-
-    #[test]
-    fn intents_serialize_flat_with_a_type_tag() {
-        let notification = NativeIntent::Notification {
-            action: "open-run".to_string(),
-            target: NotificationTarget {
-                key: Some("pipeline:p1".to_string()),
-                pipeline_id: Some("p1".to_string()),
-                provider_id: Some(3),
-                run_number: Some(12),
-            },
-        };
-        assert_eq!(
-            serde_json::to_value(notification).unwrap(),
-            json!({
-                "type": "notification",
-                "action": "open-run",
-                "key": "pipeline:p1",
-                "pipelineId": "p1",
-                "providerId": 3,
-                "runNumber": 12,
-            })
-        );
-        assert_eq!(
-            serde_json::to_value(to("/pipelines", None).unwrap()).unwrap(),
-            json!({ "type": "link", "path": "/pipelines" })
-        );
-    }
-
-    #[test]
-    fn a_local_notification_target_survives_the_extra_round_trip() {
-        let target = NotificationTarget {
-            key: Some("pipeline:p1".to_string()),
-            pipeline_id: Some("p1".to_string()),
-            provider_id: Some(3),
-            run_number: None,
-        };
-        let extra: HashMap<String, Value> = target
-            .extra()
-            .into_iter()
-            .map(|(name, value)| (name.to_string(), Value::String(value)))
-            .collect();
-
-        assert_eq!(extra.len(), 3);
-        assert_eq!(NotificationTarget::from_extra(&extra), target);
-    }
-
-    #[test]
-    fn a_native_response_parses_numbers_and_drops_bad_ones() {
-        let response = NotificationResponse {
-            action_id: "tap".to_string(),
-            key: Some("k".to_string()),
-            pipeline_id: Some("p".to_string()),
-            provider_id: Some("4".to_string()),
-            run_number: Some("seven".to_string()),
-        };
-
-        assert_eq!(
-            NotificationTarget::from_response(&response),
-            NotificationTarget {
-                key: Some("k".to_string()),
-                pipeline_id: Some("p".to_string()),
-                provider_id: Some(4),
-                run_number: None,
-            }
-        );
-    }
-
-    #[test]
-    fn the_privacy_cover_follows_the_app_lock_settings() {
-        let cover = privacy_cover_for(AppLockSettings {
-            enabled: true,
-            lock_on_background: false,
-        });
-        assert!(cover.armed);
-        assert!(!cover.hold_for_frontend);
-        assert!(!privacy_cover_for(AppLockSettings::default()).armed);
-    }
-}
+mod tests;

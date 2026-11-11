@@ -1,12 +1,21 @@
 use std::future::Future;
 use std::task::Poll;
 
-use pipedash_plugin_api::ComponentFilter;
+use pipedash_plugin_api::{
+    ComponentFilter,
+    ComponentHealth,
+};
 use serde_json::{
     json,
     Value,
 };
+use tokio::time::Instant;
 
+use super::feed::{
+    FEED_INVALID,
+    FEED_UNREACHABLE,
+};
+use super::state::FeedState;
 use super::*;
 use crate::application::test_support::{
     statuspage_body,
@@ -17,6 +26,10 @@ use crate::application::test_support::{
     StubProvider,
 };
 use crate::application::RefreshMode;
+use crate::domain::{
+    DomainError,
+    EvidenceView,
+};
 use crate::event::{
     AlertLink,
     AlertLinkKind,
@@ -318,8 +331,26 @@ impl World {
     }
 
     async fn first_poll(&self) {
-        until("the first feed request", || self.feed.request_count() >= 1).await;
-        quiesce().await;
+        until("the first feed result", || {
+            self.h
+                .health
+                .snapshot()
+                .providers
+                .values()
+                .filter_map(|state| state.status_page.as_ref())
+                .any(|page| page.checked_at.is_some() || page.error.is_some())
+        })
+        .await;
+    }
+
+    async fn set_mode(&self, mode: RefreshMode) {
+        let mut snapshot = self.h.health.snapshot.clone();
+        snapshot.borrow_and_update();
+        self.h.refresh_manager.set_mode(mode);
+        until("the health service to handle the mode change", || {
+            snapshot.has_changed().unwrap()
+        })
+        .await;
     }
 
     async fn next_poll(&self) {
@@ -328,9 +359,19 @@ impl World {
 
     async fn poll_after(&self, seconds: u64) {
         let expected = self.feed.request_count() + 1;
+        let gate = Gate::new();
+        self.feed.set_gate(Some(&gate));
         advance(seconds).await;
         until("the next feed request", || {
             self.feed.request_count() == expected
+        })
+        .await;
+        let mut snapshot = self.h.health.snapshot.clone();
+        snapshot.borrow_and_update();
+        self.feed.set_gate(None);
+        gate.open();
+        until("the health service to handle the feed response", || {
+            snapshot.has_changed().unwrap()
         })
         .await;
         quiesce().await;
@@ -379,26 +420,59 @@ async fn feeds_are_polled_every_two_minutes_and_every_minute_while_a_provider_fa
 #[tokio::test]
 async fn feeds_are_not_polled_while_idle_and_refresh_when_active_again() {
     let w = World::new().await;
-    w.provider(ComponentFilter::All).await;
+    let p = w.provider(ComponentFilter::All).await;
     w.start().await;
     w.first_poll().await;
+    let first_check = w.state(p.id).unwrap().status_page.unwrap().checked_at;
 
-    w.h.refresh_manager.set_mode(RefreshMode::Idle);
-    quiesce().await;
+    w.set_mode(RefreshMode::Idle).await;
     advance(120).await;
-    quiesce().await;
     advance(600).await;
-    quiesce().await;
     assert_eq!(w.feed.request_count(), 1);
 
-    w.h.refresh_manager.set_mode(RefreshMode::Active);
-    until("a refresh on activation", || w.feed.request_count() == 2).await;
-    quiesce().await;
-    w.h.refresh_manager.set_mode(RefreshMode::Idle);
-    quiesce().await;
-    w.h.refresh_manager.set_mode(RefreshMode::Active);
-    quiesce().await;
+    w.set_mode(RefreshMode::Active).await;
+    until("a completed refresh on activation", || {
+        w.state(p.id).unwrap().status_page.unwrap().checked_at > first_check
+    })
+    .await;
     assert_eq!(w.feed.request_count(), 2);
+    w.set_mode(RefreshMode::Idle).await;
+    w.set_mode(RefreshMode::Active).await;
+    assert_eq!(w.feed.request_count(), 2);
+}
+
+#[tokio::test]
+async fn activation_preserves_backoff_after_a_feed_times_out_while_idle() {
+    let w = World::new().await;
+    let gate = Gate::new();
+    w.feed.set_gate(Some(&gate));
+    let p = w.provider(ComponentFilter::All).await;
+    w.start().await;
+    until("the held feed request", || w.feed.request_count() == 1).await;
+
+    w.set_mode(RefreshMode::Idle).await;
+    advance(10).await;
+    w.first_poll().await;
+    assert_eq!(
+        w.state(p.id).unwrap().status_page.unwrap().error.as_deref(),
+        Some(FEED_UNREACHABLE)
+    );
+    w.set_mode(RefreshMode::Active).await;
+    gate.open();
+    advance(59).await;
+    assert_eq!(w.feed.request_count(), 1);
+    advance(1).await;
+    until("the feed to recover after backoff", || {
+        w.state(p.id)
+            .unwrap()
+            .status_page
+            .unwrap()
+            .checked_at
+            .is_some()
+    })
+    .await;
+    assert_eq!(w.feed.request_count(), 2);
+    assert_eq!(w.state(p.id).unwrap().status_page.unwrap().error, None);
 }
 
 #[tokio::test]
@@ -811,7 +885,7 @@ async fn alert_links_follow_what_the_alert_is_about() {
             kind: AlertLinkKind::Incident,
         })
     );
-    assert_eq!(alerts[0].title, "Incident inc1");
+    assert_eq!(alerts[0].title, "Example: Incident inc1");
     assert_eq!(
         alerts[1].link,
         Some(AlertLink {
@@ -1064,6 +1138,22 @@ async fn a_feed_that_keeps_failing_triggers_no_recovery_fetch() {
     }
 
     assert_eq!(p.stub.fetch_count(), 0);
+}
+
+#[tokio::test]
+async fn a_slow_failing_feed_is_polled_once_per_backoff_window() {
+    let w = World::new().await;
+    w.provider(ComponentFilter::All).await;
+    w.h.start().await;
+    w.start().await;
+    w.first_poll().await;
+    w.feed.respond(500, "down");
+    w.feed.delay_responses(Duration::from_millis(150));
+    for _ in 0..3 {
+        w.poll_after(1800).await;
+    }
+
+    assert_eq!(w.feed.request_count(), 4);
 }
 
 #[tokio::test]

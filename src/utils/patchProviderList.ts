@@ -1,4 +1,4 @@
-import type { ProviderSummary } from '../types/domain'
+import type { ProviderSummary } from '../types/providers'
 
 export function patchProviderList(
   list: ProviderSummary[] | undefined,

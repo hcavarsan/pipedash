@@ -1,5 +1,4 @@
-import { Paper, Stack, Text } from '@mantine/core'
-import type { KeyboardEvent, ReactNode, SyntheticEvent } from 'react'
+import type { ReactNode } from 'react'
 import {
   Area,
   AreaChart,
@@ -13,44 +12,10 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-
 import { SPACING_PX } from '../../../theme/theme'
-import type { MetricType } from '../../../types/domain'
 import { formatMetricValue } from '../lib/metricsUtils'
-import classes from './metrics.module.css'
-
-export interface ChartPoint {
-  date: string
-  value: number | null
-  index: number
-  isSelected: boolean
-  label: string
-}
-
-interface CustomTooltipProps {
-  label?: string | number | undefined
-  payload?: readonly { payload?: ChartPoint | undefined }[] | undefined
-  metricType: MetricType
-}
-
-interface CustomDotProps {
-  cx?: number | undefined
-  cy?: number | undefined
-  payload?: ChartPoint | undefined
-  color: string
-  onSelect?: ((index: number) => void) | undefined
-  small?: boolean | undefined
-  shell?: boolean | undefined
-}
-
-interface BarShapeProps {
-  fill?: string | undefined
-  x?: number | undefined
-  y?: number | undefined
-  width?: number | undefined
-  height?: number | undefined
-  payload?: ChartPoint | undefined
-}
+import { CustomDot, CustomTooltip, MetricBarShape } from './MetricPlotMarks'
+import type { BarShapeProps, CustomDotProps, MetricsPlotProps } from './metricPlotTypes'
 
 const AXIS_STYLE = {
   axisLine: { stroke: 'var(--mantine-color-default-border)' },
@@ -64,91 +29,24 @@ const SHELL_AXIS_STYLE = {
   tick: { fill: 'var(--ios-secondary-label)', fontSize: 'var(--ios-fs-footnote)' },
 }
 
-export const SHELL_MARGIN = { top: 8, right: 12, left: 0, bottom: 0 }
+interface ChartMargin {
+  top: number
+  right: number
+  left: number
+  bottom: number
+}
+
+export const SHELL_MARGIN: ChartMargin = { top: SPACING_PX.xs, right: SPACING_PX.sm, left: 0, bottom: 0 }
 export const SHELL_Y_WIDTH = 56
 const SHELL_X_HEIGHT = 28
 
-const getSelectProps = (onSelect: (() => void) | undefined, label: string, isSelected: boolean, shell: boolean) => {
-  if (!onSelect) {
-    return {}
+function getChartMargin(mobileShell: boolean, compact: boolean): ChartMargin {
+  if (!mobileShell) {
+    return { top: SPACING_PX['3xs'], right: SPACING_PX['3xs'], left: SPACING_PX['3xs'], bottom: SPACING_PX['3xs'] }
   }
-
-  const handleSelect = (event: SyntheticEvent) => {
-    event.stopPropagation()
-    onSelect()
-  }
-
-  return {
-    role: 'button',
-    tabIndex: 0,
-    'aria-label': label,
-    'aria-pressed': isSelected,
-    className: shell ? classes.point : classes.desktopPoint,
-    onClick: handleSelect,
-    onKeyDown: (event: KeyboardEvent) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault()
-        handleSelect(event)
-      }
-    },
-    style: { cursor: 'pointer' },
-  }
-}
-
-const CustomDot = ({ cx, cy, payload, color, onSelect, small = false, shell = false }: CustomDotProps) => {
-  if (typeof cx !== 'number' || typeof cy !== 'number' || !payload || payload.value === null) {
-    return null
-  }
-
-  const { isSelected, index, label } = payload
-
-  return (
-    <g {...getSelectProps(onSelect && (() => onSelect(index)), label, isSelected, shell)}>
-      {onSelect && <circle className={shell ? classes.ring : classes.desktopRing} cx={cx} cy={cy} r={15} fill="none" />}
-      {isSelected && <circle cx={cx} cy={cy} r={10} fill={color} fillOpacity={0.2} stroke="none" />}
-      <circle
-        cx={cx}
-        cy={cy}
-        r={isSelected ? 6 : small ? 2 : 4}
-        fill={isSelected ? color : 'var(--mantine-color-body)'}
-        stroke={color}
-        strokeWidth={isSelected ? 3 : 2}
-      />
-    </g>
-  )
-}
-
-const CustomTooltip = ({ label, payload, metricType }: CustomTooltipProps) => {
-  const point = payload?.[0]?.payload
-
-  if (!point) {
-    return null
-  }
-
-  return (
-    <Paper p="xs" withBorder shadow="md" miw={150}>
-      <Stack gap="3xs">
-        <Text size="xs" fw={600}>
-          {String(label)}
-        </Text>
-        <Text size="sm" fw={500}>
-          {point.value === null ? 'No runs in this period' : formatMetricValue(point.value, metricType)}
-        </Text>
-      </Stack>
-    </Paper>
-  )
-}
-
-interface MetricsPlotProps {
-  points: ChartPoint[]
-  metricType: MetricType
-  seriesColor: string
-  compact: boolean
-  mobileShell: boolean
-  chartHeight: number
-  yAxisWidth: number
-  textScale: number
-  onSelect: ((index: number) => void) | undefined
+  return compact
+    ? { top: SPACING_PX.xs, right: SPACING_PX.xs, left: SPACING_PX.xs, bottom: SPACING_PX['3xs'] }
+    : SHELL_MARGIN
 }
 
 export function MetricsPlot({
@@ -166,13 +64,11 @@ export function MetricsPlot({
     <CustomDot {...props} color={seriesColor} onSelect={onSelect} small={compact} shell={mobileShell} />
   )
 
+  const barShape = (props: BarShapeProps) => <MetricBarShape {...props} mobileShell={mobileShell} onSelect={onSelect} />
+
   const chartProps = {
     data: points,
-    margin: mobileShell
-      ? compact
-        ? { top: 8, right: 8, left: 8, bottom: 4 }
-        : SHELL_MARGIN
-      : { top: SPACING_PX['3xs'], right: SPACING_PX['3xs'], left: SPACING_PX['3xs'], bottom: SPACING_PX['3xs'] },
+    margin: getChartMargin(mobileShell, compact),
     accessibilityLayer: !compact,
   }
   const axisStyle = mobileShell ? SHELL_AXIS_STYLE : AXIS_STYLE
@@ -183,18 +79,21 @@ export function MetricsPlot({
       vertical={false}
     />
   )
-  const xAxis = compact ? null : mobileShell ? (
-    <XAxis
-      dataKey="date"
-      height={Math.round(SHELL_X_HEIGHT * textScale)}
-      tickMargin={6}
-      minTickGap={16}
-      interval="preserveStartEnd"
-      {...axisStyle}
-    />
-  ) : (
-    <XAxis dataKey="date" angle={-45} textAnchor="end" height={80} {...axisStyle} />
-  )
+  let xAxis: ReactNode = null
+  if (!compact) {
+    xAxis = mobileShell ? (
+      <XAxis
+        dataKey="date"
+        height={Math.round(SHELL_X_HEIGHT * textScale)}
+        tickMargin={6}
+        minTickGap={16}
+        interval="preserveStartEnd"
+        {...axisStyle}
+      />
+    ) : (
+      <XAxis dataKey="date" angle={-45} textAnchor="end" height={80} {...axisStyle} />
+    )
+  }
   const yAxis = compact ? null : (
     <YAxis
       tickFormatter={(value: number) => formatMetricValue(value, metricType)}
@@ -262,46 +161,7 @@ export function MetricsPlot({
             {xAxis}
             {yAxis}
             {tooltip}
-            <Bar
-              dataKey="value"
-              fill={seriesColor}
-              isAnimationActive={false}
-              shape={({ fill, x, y, width, height, payload }: BarShapeProps) => (
-                <g
-                  {...getSelectProps(
-                    onSelect && payload && (() => onSelect(payload.index)),
-                    payload?.label ?? '',
-                    !!payload?.isSelected,
-                    mobileShell
-                  )}
-                >
-                  {onSelect && (
-                    <rect
-                      className={mobileShell ? classes.ring : classes.desktopRing}
-                      x={(x ?? 0) - 3}
-                      y={(y ?? 0) - 3}
-                      width={(width ?? 0) + 6}
-                      height={(height ?? 0) + 6}
-                      rx={7}
-                      ry={7}
-                      fill="none"
-                    />
-                  )}
-                  <rect
-                    x={x}
-                    y={y}
-                    width={width}
-                    height={height}
-                    fill={fill}
-                    fillOpacity={payload?.isSelected ? 1 : 0.8}
-                    stroke={payload?.isSelected ? 'var(--mantine-color-text)' : 'none'}
-                    strokeWidth={payload?.isSelected ? 2 : 0}
-                    rx={4}
-                    ry={4}
-                  />
-                </g>
-              )}
-            />
+            <Bar dataKey="value" fill={seriesColor} isAnimationActive={false} shape={barShape} />
           </BarChart>
         )
     }

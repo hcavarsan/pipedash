@@ -4,7 +4,8 @@ import { after, beforeEach, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 
 import { pipelineViewPageFixture, viewPipelineFixture } from '../../../testing/fixtures'
-import type { PipelineViewPage } from '../../../types/domain'
+import { sectionPresentationFixture } from '../../../testing/presentation'
+import type { PipelineViewPage } from '../../../types/views'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 after(() => GlobalRegistrator.unregister())
@@ -26,7 +27,9 @@ const pageOf = (...ids: string[]) =>
         status_pipeline_id: null,
         last_run: null,
         pending_fetch: false,
+        presentation: sectionPresentationFixture(),
         pipelines: ids.map(pipeline),
+        freshness: { state: 'fresh', stale_at: null },
       },
     ],
   })

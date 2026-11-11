@@ -9,8 +9,11 @@ use chrono::{
 use pipedash_plugin_api::{
     Plugin as PluginTrait,
     RunRef,
+    TriggerResult,
 };
 
+use super::status::plugin_status;
+use crate::domain::pipeline_id;
 use crate::domain::{
     DomainError,
     DomainResult,
@@ -87,13 +90,23 @@ impl PluginAdapter {
         }
     }
 
-    fn convert_pipeline(
-        plugin_pipeline: pipedash_plugin_api::Pipeline, provider_id: i64, provider_type: &str,
-    ) -> Pipeline {
+    pub fn global_id(&self, local: &str) -> String {
+        pipeline_id::compose(&self.provider_type, self.provider_id, local)
+    }
+
+    pub fn local_id<'a>(&self, id: &'a str) -> DomainResult<&'a str> {
+        pipeline_id::strip(&self.provider_type, self.provider_id, id)
+    }
+
+    fn local_run_id<'a>(&self, id: &'a str) -> &'a str {
+        self.local_id(id).unwrap_or(id)
+    }
+
+    fn convert_pipeline(&self, plugin_pipeline: pipedash_plugin_api::Pipeline) -> Pipeline {
         Pipeline {
-            id: plugin_pipeline.id,
-            provider_id,
-            provider_type: provider_type.to_string(),
+            id: self.global_id(&plugin_pipeline.id),
+            provider_id: self.provider_id,
+            provider_type: self.provider_type.clone(),
             name: plugin_pipeline.name,
             status: Self::convert_status(plugin_pipeline.status),
             last_run: plugin_pipeline.last_run,
@@ -105,6 +118,7 @@ impl PluginAdapter {
             metadata: plugin_pipeline.metadata,
             overdue_run: None,
             typical_duration_seconds: None,
+            actions: Default::default(),
         }
     }
 
@@ -126,10 +140,10 @@ impl PluginAdapter {
         }
     }
 
-    fn convert_run(plugin_run: pipedash_plugin_api::PipelineRun) -> PipelineRun {
+    fn convert_run(&self, plugin_run: pipedash_plugin_api::PipelineRun) -> PipelineRun {
         PipelineRun {
-            id: plugin_run.id,
-            pipeline_id: plugin_run.pipeline_id,
+            id: self.global_id(&plugin_run.id),
+            pipeline_id: self.global_id(&plugin_run.pipeline_id),
             run_number: plugin_run.run_number,
             status: Self::convert_status(plugin_run.status),
             started_at: plugin_run.started_at,
@@ -142,16 +156,19 @@ impl PluginAdapter {
             actor: plugin_run.actor,
             inputs: plugin_run.inputs,
             metadata: plugin_run.metadata,
+            actions: Default::default(),
+            display: Default::default(),
+            pace: Default::default(),
         }
     }
 
-    fn run_ref(run: &PipelineRun) -> RunRef<'_> {
-        RunRef {
-            pipeline_id: &run.pipeline_id,
+    fn run_ref<'a>(&self, run: &'a PipelineRun) -> DomainResult<RunRef<'a>> {
+        Ok(RunRef {
+            pipeline_id: self.local_id(&run.pipeline_id)?,
             run_number: run.run_number,
-            run_id: &run.id,
+            run_id: self.local_run_id(&run.id),
             metadata: &run.metadata,
-        }
+        })
     }
 }
 
@@ -166,7 +183,7 @@ impl Provider for PluginAdapter {
 
         Ok(pipelines
             .into_iter()
-            .map(|p| Self::convert_pipeline(p, self.provider_id, &self.provider_type))
+            .map(|p| self.convert_pipeline(p))
             .collect())
     }
 
@@ -175,11 +192,11 @@ impl Provider for PluginAdapter {
     ) -> DomainResult<Vec<PipelineRun>> {
         let runs = self
             .plugin
-            .fetch_run_history(pipeline_id, limit)
+            .fetch_run_history(self.local_id(pipeline_id)?, limit)
             .await
             .map_err(Self::map_error)?;
 
-        Ok(runs.into_iter().map(Self::convert_run).collect())
+        Ok(runs.into_iter().map(|r| self.convert_run(r)).collect())
     }
 
     async fn fetch_run_details(
@@ -187,43 +204,63 @@ impl Provider for PluginAdapter {
     ) -> DomainResult<PipelineRun> {
         let run = self
             .plugin
-            .fetch_run_details(pipeline_id, run_number)
+            .fetch_run_details(self.local_id(pipeline_id)?, run_number)
             .await
             .map_err(Self::map_error)?;
 
-        Ok(Self::convert_run(run))
+        Ok(self.convert_run(run))
     }
 
     async fn fetch_recent_runs(
         &self, pipeline_ids: &[String], limit: usize,
     ) -> DomainResult<HashMap<String, Vec<PipelineRun>>> {
+        let local_ids = pipeline_ids
+            .iter()
+            .map(|id| self.local_id(id).map(str::to_string))
+            .collect::<DomainResult<Vec<_>>>()?;
         let runs = self
             .plugin
-            .fetch_recent_runs(pipeline_ids, limit)
+            .fetch_recent_runs(&local_ids, limit)
             .await
             .map_err(Self::map_error)?;
 
         Ok(runs
             .into_iter()
-            .map(|(id, runs)| (id, runs.into_iter().map(Self::convert_run).collect()))
+            .map(|(id, runs)| {
+                let runs = runs.into_iter().map(|r| self.convert_run(r)).collect();
+                (self.global_id(&id), runs)
+            })
             .collect())
     }
 
-    async fn trigger_pipeline(&self, params: TriggerParams) -> DomainResult<String> {
+    async fn trigger_pipeline(&self, params: TriggerParams) -> DomainResult<TriggerResult> {
         let trigger_params = pipedash_plugin_api::TriggerParams {
-            workflow_id: params.workflow_id,
+            workflow_id: self.local_id(&params.workflow_id)?.to_string(),
             inputs: params.inputs,
         };
 
-        self.plugin
+        let result = self
+            .plugin
             .trigger_pipeline(trigger_params)
             .await
-            .map_err(Self::map_error)
+            .map_err(Self::map_error)?;
+
+        Ok(TriggerResult {
+            run_id: result.run_id.map(|id| self.global_id(&id)),
+            run_number: result.run_number,
+        })
     }
 
     async fn cancel_run(&self, pipeline_id: &str, run_number: i64) -> DomainResult<()> {
         self.plugin
-            .cancel_run(pipeline_id, run_number)
+            .cancel_run(self.local_id(pipeline_id)?, run_number)
+            .await
+            .map_err(Self::map_error)
+    }
+
+    async fn force_cancel_run(&self, pipeline_id: &str, run_number: i64) -> DomainResult<()> {
+        self.plugin
+            .force_cancel_run(self.local_id(pipeline_id)?, run_number)
             .await
             .map_err(Self::map_error)
     }
@@ -232,28 +269,28 @@ impl Provider for PluginAdapter {
         &self, pipeline_id: &str, run_number: i64, decision: pipedash_plugin_api::ReviewDecision,
     ) -> DomainResult<()> {
         self.plugin
-            .review_run(pipeline_id, run_number, decision)
+            .review_run(self.local_id(pipeline_id)?, run_number, decision)
             .await
             .map_err(Self::map_error)
     }
 
     async fn rerun_failed_jobs(&self, pipeline_id: &str, run_number: i64) -> DomainResult<()> {
         self.plugin
-            .rerun_failed_jobs(pipeline_id, run_number)
+            .rerun_failed_jobs(self.local_id(pipeline_id)?, run_number)
             .await
             .map_err(Self::map_error)
     }
 
     async fn rerun_run(&self, pipeline_id: &str, run_number: i64) -> DomainResult<()> {
         self.plugin
-            .rerun_run(pipeline_id, run_number)
+            .rerun_run(self.local_id(pipeline_id)?, run_number)
             .await
             .map_err(Self::map_error)
     }
 
     async fn enable_pipeline(&self, pipeline_id: &str) -> DomainResult<()> {
         self.plugin
-            .enable_pipeline(pipeline_id)
+            .enable_pipeline(self.local_id(pipeline_id)?)
             .await
             .map_err(Self::map_error)
     }
@@ -262,7 +299,7 @@ impl Provider for PluginAdapter {
         &self, workflow_id: &str,
     ) -> DomainResult<Vec<pipedash_plugin_api::WorkflowParameter>> {
         self.plugin
-            .fetch_workflow_parameters(workflow_id)
+            .fetch_workflow_parameters(self.local_id(workflow_id)?)
             .await
             .map_err(Self::map_error)
     }
@@ -274,19 +311,20 @@ impl Provider for PluginAdapter {
             .map_err(Self::map_error)
     }
 
-    async fn validate_credentials(&self) -> DomainResult<bool> {
-        self.plugin
-            .validate_credentials()
-            .await
-            .map_err(Self::map_error)
-    }
-
-    fn provider_type(&self) -> &str {
-        &self.provider_type
-    }
-
     fn capabilities(&self) -> &pipedash_plugin_api::PluginCapabilities {
         &self.plugin.metadata().capabilities
+    }
+
+    fn run_history_policy(&self) -> pipedash_plugin_api::RunHistoryPolicy {
+        self.plugin.metadata().run_history
+    }
+
+    fn can_archive_run(&self, pipeline: &Pipeline, run: &PipelineRun) -> bool {
+        self.plugin.can_archive_run(
+            &pipeline.metadata,
+            &run.metadata,
+            plugin_status(&run.status),
+        )
     }
 
     fn renew_at(&self) -> Option<DateTime<Utc>> {
@@ -305,10 +343,14 @@ impl Provider for PluginAdapter {
         self.plugin.log_dialect()
     }
 
+    fn log_tree_version(&self) -> u32 {
+        self.plugin.log_tree_version()
+    }
+
     async fn fetch_log_nodes(&self, run: &PipelineRun) -> DomainResult<Vec<LogNode>> {
         let nodes = self
             .plugin
-            .fetch_log_nodes(Self::run_ref(run))
+            .fetch_log_nodes(self.run_ref(run)?)
             .await
             .map_err(Self::map_error)?;
         Ok(nodes
@@ -331,8 +373,11 @@ impl Provider for PluginAdapter {
         &self, run: &PipelineRun, node_id: &str, from: Option<&LogCursor>, sink: &mut LogSink,
     ) -> DomainResult<LogRead> {
         self.plugin
-            .read_log(Self::run_ref(run), node_id, from, sink)
+            .read_log(self.run_ref(run)?, node_id, from, sink)
             .await
             .map_err(Self::map_error)
     }
 }
+
+#[cfg(test)]
+mod tests;

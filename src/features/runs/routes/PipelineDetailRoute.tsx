@@ -1,23 +1,35 @@
-import { Button } from '@mantine/core'
+import { Button, Skeleton } from '@mantine/core'
 import type { ReactNode } from 'react'
 import { Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom'
 
 import { EmptyState } from '../../../components/common/EmptyState'
+import { ErrorState } from '../../../components/common/ErrorState'
+import { LoadingState } from '../../../components/common/LoadingState'
 import { PageContainer } from '../../../components/common/PageContainer'
 import { PageHeader } from '../../../components/common/PageHeader'
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import { useMobileShell } from '../../../hooks/useIsMobile'
-import type { Pipeline } from '../../../types/domain'
+import type { Pipeline } from '../../../types/pipelines'
 import { RunActionsProvider } from '../components/RunActionsContext'
 import { type DetailTab, RunHistoryPage } from '../components/RunHistoryPage'
 
 interface PipelineDetailRouteProps {
   pipelines: Pipeline[]
   loading: boolean
+  error: unknown
+  retrying: boolean
+  onRetry: () => void
   onBack: () => void
 }
 
-export function PipelineDetailRoute({ pipelines, loading, onBack }: PipelineDetailRouteProps): ReactNode {
+export function PipelineDetailRoute({
+  pipelines,
+  loading,
+  error,
+  retrying,
+  onRetry,
+  onBack,
+}: PipelineDetailRouteProps): ReactNode {
   const { pipelineId } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
   const { state, pathname } = useLocation()
@@ -45,28 +57,20 @@ export function PipelineDetailRoute({ pipelines, loading, onBack }: PipelineDeta
 
   const actualPipeline = pipelines.find((pipeline) => pipeline.id === pipelineId) ?? null
 
-  const pipeline: Pipeline | null =
-    actualPipeline ??
-    (loading && pipelineId
-      ? {
-          id: pipelineId,
-          name: pipelineId,
-          provider_id: 0,
-          repository: '',
-          branch: null,
-          status: 'pending' as const,
-          last_run: null,
-          last_updated: new Date().toISOString(),
-          workflow_file: null,
-          provider_type: 'github',
-        }
-      : null)
-
   if (rawTab !== null && rawTab !== 'metrics') {
     const params = new URLSearchParams(searchParams)
     params.delete('tab')
 
     return <Navigate replace state={state} to={{ pathname, search: params.toString() }} />
+  }
+
+  if (!actualPipeline && error) {
+    return (
+      <PageContainer>
+        <PageHeader title="Pipeline" onBack={onBack} />
+        <ErrorState title="Couldn't load this pipeline" error={error} onRetry={onRetry} retrying={retrying} />
+      </PageContainer>
+    )
   }
 
   if (!loading && !actualPipeline) {
@@ -90,16 +94,19 @@ export function PipelineDetailRoute({ pipelines, loading, onBack }: PipelineDeta
     )
   }
 
+  if (!actualPipeline) {
+    return (
+      <PageContainer>
+        <PageHeader title={<Skeleton height="1.5rem" width="min(250px, 60vw)" />} onBack={onBack} />
+        <LoadingState message="Loading pipeline…" />
+      </PageContainer>
+    )
+  }
+
   return (
     <ErrorBoundary scope="feature" name="Pipeline history" resetKeys={[pipelineId]}>
       <RunActionsProvider key={pipelineId} pipeline={actualPipeline}>
-        <RunHistoryPage
-          pipeline={pipeline}
-          tab={tab}
-          onTabChange={setTab}
-          onBack={onBack}
-          isLoadingPipeline={loading && !actualPipeline}
-        />
+        <RunHistoryPage pipeline={actualPipeline} tab={tab} onTabChange={setTab} onBack={onBack} />
       </RunActionsProvider>
     </ErrorBoundary>
   )

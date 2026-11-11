@@ -5,30 +5,23 @@ import { LiveStatus } from '../../../../components/forms/LiveStatus'
 import { IosGroup, IosRow } from '../../../../components/ios/IosList'
 import { STORAGE_BACKEND_LABELS } from '../../../../constants/storageLabels'
 import { useMobileShell } from '../../../../hooks/useIsMobile'
-import { isTauri } from '../../../../services/isTauri'
+import { hasLocalCore } from '../../../../services/connection'
 import { isAndroidPlatform, isMobilePlatform, secureStoreLabel } from '../../../../utils/platform'
 import { typedKeys } from '../../../../utils/typedKeys'
 
-import { validateSetupDraft } from './setupDraft'
 import type { StorageBackend, StorageStepProps } from './types'
 
-function analyzePasswordStrength(password: string): string[] {
-  const warnings: string[] = []
-
-  if (password.length < 16) {
-    warnings.push('Consider using 16+ characters')
-  }
-  if (!/\d/.test(password)) {
-    warnings.push('Consider adding numbers')
-  }
-  if (!/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password)) {
-    warnings.push('Consider adding special characters')
-  }
-  if (!/[A-Z]/.test(password) || !/[a-z]/.test(password)) {
-    warnings.push('Consider mixing uppercase and lowercase')
-  }
-
-  return warnings
+function PasswordWarnings({ warnings }: { warnings: string[] }): ReactNode {
+  return (
+    <>
+      {warnings.length > 0 && (
+        <Alert icon={<IconAlertTriangle size={14} aria-hidden />} color="orange" variant="light" p="xs">
+          <Text size="xs">{warnings.join(' · ')}</Text>
+        </Alert>
+      )}
+      <LiveStatus message={warnings.join('. ')} />
+    </>
+  )
 }
 
 export function StorageStep({
@@ -38,11 +31,12 @@ export function StorageStep({
   vaultStatus,
   error,
   fieldErrors,
+  validation,
+  passwordWarnings,
 }: StorageStepProps): ReactNode {
   const mobileShell = useMobileShell()
   const [blurred, setBlurred] = useState({ postgresUrl: false, password: false, confirmation: false })
   const vaultPasswordFromEnv = vaultStatus.is_set
-  const validation = validateSetupDraft(state, !vaultPasswordFromEnv)
   const urlError = blurred.postgresUrl || fieldErrors.postgresUrl !== undefined ? validation.postgresUrl : undefined
   const passwordError =
     blurred.password || fieldErrors.vaultPassword !== undefined ? validation.vaultPassword : undefined
@@ -51,9 +45,7 @@ export function StorageStep({
 
   const currentBackend = currentConfig?.config.storage.backend
 
-  const isFromKeyring = isTauri() && currentBackend === 'sqlite' && !vaultPasswordFromEnv
-
-  const passwordWarnings = state.vaultPassword.length < 12 ? [] : analyzePasswordStrength(state.vaultPassword)
+  const isFromKeyring = hasLocalCore() && currentBackend === 'sqlite' && !vaultPasswordFromEnv
 
   if (isMobilePlatform()) {
     if (mobileShell) {
@@ -185,12 +177,7 @@ export function StorageStep({
               error={confirmationError}
               required
             />
-            {passwordWarnings.length > 0 && (
-              <Alert icon={<IconAlertTriangle size={14} aria-hidden />} color="orange" variant="light" p="xs">
-                <Text size="xs">{passwordWarnings.join(' · ')}</Text>
-              </Alert>
-            )}
-            <LiveStatus message={passwordWarnings.join('. ')} />
+            <PasswordWarnings warnings={passwordWarnings} />
           </Stack>
         </Card>
       )}

@@ -1,14 +1,19 @@
+import type { UseQueryResult } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { useState } from 'react'
+import { ErrorState } from '../../../components/common/ErrorState'
+import { LoadingState } from '../../../components/common/LoadingState'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
-import { usePlugins } from '../../../queries/usePluginsQueries'
+import { usePluginPresentation, usePlugins } from '../../../queries/usePluginsQueries'
 import { useRunLogTree } from '../../../queries/useRunLogQueries'
-import type { Pipeline } from '../../../types/domain'
-import { getPipelineLabels } from '../../../utils/pipelinePresentation'
+import type { RunLogTree } from '../../../types/logs'
+import type { Pipeline } from '../../../types/pipelines'
 import { getPluginDisplayName } from '../../../utils/pluginHelpers'
+import { useRunDetailActionItems } from '../hooks/useRunDetailActionItems'
 import { useRunDetailActions } from '../hooks/useRunDetailActions'
+import { resolveLogGroups } from '../lib/logTree'
 import { useRunDetails } from '../queries/useRunDetailsQuery'
 import { MobileRunJobs } from './MobileRunJobs'
 import { MobileRunLogModal } from './MobileRunLogModal'
@@ -22,16 +27,39 @@ interface WorkflowLogsModalProps {
   onClose: () => void
   pipelineId: string
   runNumber: number
-  providerId?: number | undefined
-  providerType?: string | undefined
   pipeline: Pipeline | undefined
   canViewLogs: boolean
-  canTrigger: boolean
-  triggerBlockedReason?: string | undefined
-  canCancel: boolean
-  rerunInPlace?: boolean | undefined
   onRerunSuccess?: ((pipelineId: string, newRunNumber: number) => void) | undefined
   onCancelSuccess?: (() => void) | undefined
+}
+
+interface MobileJobsProps {
+  tree: UseQueryResult<RunLogTree, Error>
+  onSelect: (nodeId: string) => void
+}
+
+function MobileJobs({ tree, onSelect }: MobileJobsProps): ReactNode {
+  const failure = tree.isError ? (
+    <ErrorState
+      title="Couldn't load jobs"
+      error={tree.error}
+      onRetry={() => {
+        void tree.refetch()
+      }}
+      retrying={tree.isFetching}
+    />
+  ) : null
+
+  if (!tree.data) {
+    return failure ?? <LoadingState message="Loading jobs…" />
+  }
+
+  return (
+    <>
+      {failure}
+      <MobileRunJobs groups={resolveLogGroups(tree.data, true)} onSelect={onSelect} />
+    </>
+  )
 }
 
 export const WorkflowLogsModal = (props: WorkflowLogsModalProps): ReactNode => (
@@ -43,12 +71,6 @@ function WorkflowLogsSession({
   onClose,
   pipelineId,
   runNumber,
-  providerId,
-  providerType,
-  canTrigger,
-  triggerBlockedReason,
-  canCancel,
-  rerunInPlace,
   onRerunSuccess,
   onCancelSuccess,
   pipeline,
@@ -60,24 +82,19 @@ function WorkflowLogsSession({
   const [logNodeId, setLogNodeId] = useState<string | null>(null)
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
-  const labels = getPipelineLabels(providerType)
-  const isFlux = providerType === 'fluxcd'
+  const providerType = pipeline?.provider_type
+  const presentation = usePluginPresentation(providerType)
   const { data: plugins } = usePlugins()
   const providerName = providerType ? getPluginDisplayName(plugins, providerType) : 'provider'
-  const { data: logTree } = useRunLogTree(pipelineId, runNumber, canViewLogs && mobileShell && opened)
-  const {
-    data: run,
-    isLoading,
-    isFetching,
-    error,
-    refetch,
-  } = useRunDetails(pipelineId, runNumber, opened, cancellationRequested)
+  const logTree = useRunLogTree(pipelineId, runNumber, canViewLogs && mobileShell && opened)
+  const { data: run, isFetching, error, refetch } = useRunDetails(pipelineId, runNumber, opened, cancellationRequested)
   const actions = useRunDetailActions({
     pipelineId,
     runNumber,
     pipeline,
     run,
-    rerunInPlace: rerunInPlace === true,
+    forceConfirmation: presentation?.force_cancel_confirmation,
+    cancellationRequested,
     onClose,
     onRerunSuccess,
     onCancelSuccess,
@@ -85,55 +102,51 @@ function WorkflowLogsSession({
   })
 
   const requestRerun = () => {
-    if (isFlux) {
-      actions.rerun('all').catch(() => undefined)
-    } else {
+    if (pipeline?.actions.rerun_strategy === 'in_place') {
       setConfirmingRerun(true)
+    } else {
+      actions.rerun('all').catch(() => undefined)
     }
   }
 
+  const actionItems = useRunDetailActionItems({
+    pipeline,
+    presentation,
+    run,
+    actions,
+    cancellationRequested,
+    requestRerun,
+  })
   const runActionProps = run && {
     run,
     providerName,
     isMobile,
-    isFlux,
-    triggerLabel: labels.trigger,
     canViewLogs,
-    canTrigger,
-    canCancel,
-    triggerBlockedReason,
-    stopDisabled: !mobileShell && cancellationRequested,
-    rerunPending: actions.rerunPending,
-    cancelPending: actions.cancelPending,
-    onRerun: requestRerun,
-    onCancel: () => {
-      actions.cancel().catch(() => undefined)
-    },
+    note: run.actions.rerun.reason ?? presentation?.trigger.note,
+    actions: actionItems,
   }
-  const nodes = logTree?.nodes ?? []
+  const nodes = logTree.data?.nodes ?? []
 
   const details = (
     <ErrorBoundary scope="feature" name="Run details" resetKeys={[pipelineId, runNumber]}>
       <RunDetailsContent
         pipelineId={pipelineId}
         runNumber={runNumber}
-        providerId={providerId}
+        providerId={pipeline?.provider_id}
         run={run}
         error={error}
-        loading={isLoading}
         fetching={isFetching}
-        isFlux={isFlux}
+        presentation={presentation}
         isMobile={isMobile}
         mobileShell={mobileShell}
         cancellationRequested={cancellationRequested}
-        typicalSeconds={pipeline?.typical_duration_seconds}
         onRetry={() => {
           refetch().catch(() => undefined)
         }}
       >
         {mobileShell && runActionProps && (
           <>
-            {canViewLogs && <MobileRunJobs nodes={nodes} onSelect={setLogNodeId} />}
+            {canViewLogs && <MobileJobs tree={logTree} onSelect={setLogNodeId} />}
             <MobileRunActions {...runActionProps} />
           </>
         )}
@@ -141,7 +154,7 @@ function WorkflowLogsSession({
     </ErrorBoundary>
   )
 
-  const title = isFlux ? 'Reconciliation details' : 'Run details'
+  const title = presentation?.run_details_title
   const footer = runActionProps ? <RunActionsFooter {...runActionProps} /> : null
 
   return (
@@ -191,7 +204,6 @@ function WorkflowLogsSession({
       <RerunConfirmModal
         run={confirmingRerun && run ? run : null}
         pipeline={pipeline}
-        providerName={providerName}
         onClose={() => setConfirmingRerun(false)}
         onConfirm={actions.rerun}
       />

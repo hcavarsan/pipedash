@@ -4,13 +4,16 @@ import { after, afterEach, beforeEach, type TestContext, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, type ReactNode } from 'react'
 
-import type { PipelineRun } from '../../../types/domain'
+import { runPresentationFixture } from '../../../testing/presentation'
+import type { PipelineRun } from '../../../types/pipelines'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
 const { act, cleanup, renderHook } = await import('@testing-library/react')
 const { environmentManager, notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
-const { events } = await import('../../../services/service')
+const { logger } = await import('../../../lib/logger')
+const { queryKeys } = await import('../../../lib/queryKeys')
+const { wsClient } = await import('../../../services/websocket')
 const { apiService } = await import('../../../services/api')
 const { tauriService } = await import('../../../services/tauri')
 const { useRunDetails } = await import('./useRunDetailsQuery')
@@ -35,6 +38,7 @@ const run = (status: PipelineRun['status']): PipelineRun => ({
   commit_message: null,
   branch: null,
   actor: null,
+  ...runPresentationFixture(),
 })
 
 beforeEach(() => {
@@ -60,12 +64,16 @@ async function tick(context: TestContext, ms: number) {
 
 const handlers = new Map<string, (payload: unknown) => void>()
 
-function setup(context: TestContext, status: () => PipelineRun['status']) {
+function setup(
+  context: TestContext,
+  status: () => PipelineRun['status'],
+  fetcher: () => Promise<PipelineRun> = async () => run(status())
+) {
   context.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
-  const fetchDetails = context.mock.fn(async () => run(status()))
+  const fetchDetails = context.mock.fn(fetcher)
   context.mock.method(apiService, 'getWorkflowRunDetails', fetchDetails)
   context.mock.method(tauriService, 'getWorkflowRunDetails', fetchDetails)
-  context.mock.method(events, 'listen', async (name: string, callback: (payload: unknown) => void) => {
+  context.mock.method(wsClient, 'listen', async (name: string, callback: (payload: unknown) => void) => {
     handlers.set(name, callback)
 
     return () => handlers.delete(name)
@@ -162,4 +170,72 @@ test('the cancellation watch stops once the run is terminal', async (context) =>
 
   await tick(context, 30_000)
   assert.equal(fetchDetails.mock.callCount(), settled)
+})
+
+test('a heartbeat response that arrives after a terminal update does not bring the old status back', async (context) => {
+  const gates: Array<PromiseWithResolvers<PipelineRun>> = []
+  let calls = 0
+  setup(
+    context,
+    () => 'running',
+    async () => {
+      calls += 1
+
+      if (calls === 1) {
+        return run('running')
+      }
+
+      const gate = Promise.withResolvers<PipelineRun>()
+      gates.push(gate)
+
+      return gate.promise
+    }
+  )
+  const { result } = renderHook(() => useRunDetails('p1', 3, true), { wrapper })
+  await tick(context, 0)
+  await tick(context, 0)
+  await tick(context, 30_000)
+  assert.equal(gates.length, 1)
+
+  await emitRunUpdated(context, { pipelineId: 'p1', runNumber: 3, run: run('success') })
+  assert.equal(result.current.data?.status, 'success')
+
+  gates[0]?.resolve(run('running'))
+  await tick(context, 0)
+  await tick(context, 0)
+  assert.equal(client.getQueryData<PipelineRun>(queryKeys.runs.detail('p1', 3))?.status, 'success')
+  assert.equal(result.current.data?.status, 'success')
+})
+
+test('a run update still waiting for the cancel does not write after the view unmounts', async (context) => {
+  const release = Promise.withResolvers<void>()
+  setup(context, () => 'running')
+  const { result, unmount } = renderHook(() => useRunDetails('p1', 3, true), { wrapper })
+  await tick(context, 0)
+  await tick(context, 0)
+  assert.equal(result.current.data?.status, 'running')
+
+  context.mock.method(client, 'cancelQueries', () => release.promise)
+  await act(async () => handlers.get('run-updated')?.({ pipelineId: 'p1', runNumber: 3, run: run('success') }))
+  unmount()
+  release.resolve()
+  await tick(context, 0)
+
+  assert.equal(client.getQueryData<PipelineRun>(queryKeys.runs.detail('p1', 3))?.status, 'running')
+})
+
+test('a failed cancel is logged and leaves the details alone', async (context) => {
+  setup(context, () => 'running')
+  const logged = context.mock.method(logger, 'error', () => undefined)
+  const { result } = renderHook(() => useRunDetails('p1', 3, true), { wrapper })
+  await tick(context, 0)
+  await tick(context, 0)
+
+  context.mock.method(client, 'cancelQueries', async () => {
+    throw new Error('cancel failed')
+  })
+  await emitRunUpdated(context, { pipelineId: 'p1', runNumber: 3, run: run('success') })
+
+  assert.equal(logged.mock.callCount(), 1)
+  assert.equal(result.current.data?.status, 'running')
 })

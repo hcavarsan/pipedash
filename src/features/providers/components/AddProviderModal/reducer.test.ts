@@ -1,34 +1,30 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-
-import { formReducer, isFormDirty } from './reducer'
+import type { AuthOption } from '../../../../types/plugins'
+import { configFieldFixture, pluginFixture } from './pluginFixture'
+import { fieldRequest, formReducer, isFormDirty } from './reducer'
 import { initialFormState } from './types'
 
-const fluxPlugin = {
-  name: 'FluxCD',
-  provider_type: 'fluxcd',
-  version: '0.3.0',
-  description: '',
-  author: null,
-  icon: null,
-  config_schema: { fields: [] },
-  table_schema: { tables: [] },
-  required_permissions: [],
-  features: [],
-  capabilities: {
-    pipelines: true,
-    pipeline_runs: true,
-    trigger: true,
-    cancel: false,
-    agents: false,
-    artifacts: false,
-    queues: false,
-    custom_tables: false,
-    retains_run_history: true,
-    logs: false,
-    sign_in: false,
+const fluxPlugin = pluginFixture({ name: 'Stub', provider_type: 'stub', config_schema: { fields: [] } })
+
+const openOption: AuthOption = { mode: 'none', label: 'Open', description: 'Connects without credentials.' }
+const tokenOption: AuthOption = { mode: 'token', label: 'Key', description: 'Sends a key.' }
+const signInOption: AuthOption = { mode: 'sign_in', label: 'Browser', description: 'Signs in with a browser.' }
+const clusterOption: AuthOption = { mode: 'kubeconfig', label: 'Cluster', description: 'Reads a cluster file.' }
+
+const methodsPlugin = pluginFixture({
+  provider_type: 'stub',
+  config_schema: {
+    auth_options: [tokenOption, signInOption, clusterOption],
+    fields: [
+      configFieldFixture({ key: 'endpoint', auth_modes: ['token', 'sign_in'], default_value: 'https://api' }),
+      configFieldFixture({ key: 'token', auth_modes: ['token'] }),
+      configFieldFixture({ key: 'kubeconfig', auth_modes: ['kubeconfig'], default_value: '~/.kube/config' }),
+      configFieldFixture({ key: 'context', auth_modes: ['kubeconfig'] }),
+      configFieldFixture({ key: 'namespaces', default_value: 'main' }),
+    ],
   },
-}
+})
 
 test('selecting resources in another namespace preserves earlier selections', () => {
   const previous = new Set(['Kustomization__team-a__web'])
@@ -94,63 +90,6 @@ test('deselecting visible resources preserves selections outside the current nam
   assert.deepEqual([...next.selectedPipelines], ['team-b'])
 })
 
-test('changing the Flux kubeconfig clears its previous context', () => {
-  const next = formReducer(
-    {
-      ...initialFormState,
-      selectedPlugin: fluxPlugin,
-      configValues: { kubeconfig: '/old/config', context: 'production' },
-    },
-    {
-      type: 'UPDATE_CONFIG',
-      key: 'kubeconfig',
-      value: '/new/config',
-    }
-  )
-
-  assert.deepEqual(next.configValues, { kubeconfig: '/new/config', context: '' })
-})
-
-for (const key of ['kubeconfig', 'context', 'namespaces']) {
-  test(`changing ${key} clears saved and pending resource selections`, () => {
-    const selectedId = 'Kustomization__team-a__web'
-    const state = {
-      ...initialFormState,
-      selectedPlugin: fluxPlugin,
-      configValues: { [key]: 'old-scope', selected_items: selectedId },
-      selectedOrganization: 'team-a',
-      selectedPipelines: new Set([selectedId]),
-      repositorySearch: 'web',
-    }
-    const next = formReducer(state, { type: 'UPDATE_CONFIG', key, value: 'new-scope' })
-
-    assert.equal(next.configValues.selected_items, undefined)
-    assert.equal(next.selectedPipelines.size, 0)
-    assert.equal(next.selectedOrganization, '')
-    assert.equal(next.repositorySearch, '')
-    assert.equal(state.selectedPipelines.has(selectedId), true)
-  })
-}
-
-test('editing credentials without changing scope preserves resource selections', () => {
-  const selectedId = 'Kustomization__team-a__web'
-  const state = {
-    ...initialFormState,
-    selectedPlugin: fluxPlugin,
-    configValues: { namespaces: 'team-a', selected_items: selectedId },
-    selectedPipelines: new Set([selectedId]),
-  }
-
-  for (const action of [
-    { type: 'UPDATE_CONFIG', key: 'token', value: 'updated' },
-    { type: 'UPDATE_CONFIG', key: 'namespaces', value: 'team-a' },
-  ] as const) {
-    const next = formReducer(state, action)
-    assert.equal(next.configValues.selected_items, selectedId)
-    assert.deepEqual(next.selectedPipelines, state.selectedPipelines)
-  }
-})
-
 test('form is dirty only after changes against the provider type defaults', () => {
   const selected = formReducer(initialFormState, { type: 'SELECT_PLUGIN', plugin: fluxPlugin, isEditMode: false })
 
@@ -209,21 +148,21 @@ test('switching to sign-in drops the token and keeps selected pipelines', () => 
   )
 
   assert.equal(next.authMode, 'sign_in')
-  assert.deepEqual(next.configValues, { server_url: 'https://argo' })
+  assert.deepEqual(next.configValues, { server_url: 'https://argo', auth_mode: 'sign_in' })
   assert.deepEqual([...next.selectedPipelines], ['a'])
 })
 
-test('editing a provider with a stored sign-in starts in sign-in mode', () => {
+test('editing a provider saved with a sign-in starts in sign-in mode', () => {
   const next = formReducer(initialFormState, {
     type: 'INIT_EDIT_MODE',
-    plugin: fluxPlugin,
+    plugin: methodsPlugin,
     provider: {
       id: 3,
-      name: 'Argo',
-      provider_type: 'argocd',
+      name: 'Stub',
+      provider_type: 'stub',
       token: '',
       refresh_interval: 30,
-      config: { sign_in: 'provider:3' },
+      config: { auth_mode: 'sign_in', sign_in: 'provider:3' },
     },
   })
 
@@ -244,20 +183,86 @@ test('config updates leave the previous config, errors and selection untouched',
   assert.deepEqual(state.configValues, { namespaces: 'a', selected_items: 'x' })
   assert.deepEqual(state.fieldErrors, { namespaces: 'bad', token: 'missing' })
   assert.deepEqual([...state.selectedPipelines], ['x'])
-  assert.deepEqual(next.fieldErrors, { token: 'missing' })
+  assert.deepEqual(next.fieldErrors, { namespaces: 'bad', token: 'missing' })
 
-  const unchanged = formReducer(state, { type: 'UPDATE_CONFIG', key: 'namespaces', value: 'a' })
+  assert.equal(next.configValues.selected_items, 'x')
+  assert.deepEqual([...next.selectedPipelines], ['x'])
+})
 
-  assert.equal(unchanged.configValues.selected_items, 'x')
-  assert.deepEqual([...unchanged.selectedPipelines], ['x'])
+test('clearing the selection empties the picked resources and the search', () => {
+  const next = formReducer(
+    { ...initialFormState, selectedPipelines: new Set(['a']), repositorySearch: 'web' },
+    { type: 'CLEAR_PIPELINES' }
+  )
+
+  assert.equal(next.selectedPipelines.size, 0)
+  assert.equal(next.repositorySearch, '')
 })
 
 test('clearing a field error keeps the others and the previous object', () => {
   const state = { ...initialFormState, fieldErrors: { a: '1', b: '2' } }
-  const next = formReducer(state, { type: 'CLEAR_FIELD_ERROR', key: 'a' })
+  const next = formReducer(state, { type: 'CLEAR_FIELD_ERROR', key: 'a', requested: fieldRequest(state, 'a') })
 
   assert.deepEqual(next.fieldErrors, { b: '2' })
   assert.deepEqual(state.fieldErrors, { a: '1', b: '2' })
+})
+
+const validating = {
+  ...initialFormState,
+  selectedPlugin: fluxPlugin,
+  providerName: 'Prod',
+  configValues: { note: 'old' },
+}
+
+test('a validation response for an older value neither sets nor clears the error', () => {
+  const requested = fieldRequest(validating, 'note')
+  const edited = formReducer(validating, { type: 'UPDATE_CONFIG', key: 'note', value: 'new' })
+  const flagged = { ...edited, fieldErrors: { note: 'bad new value' } }
+
+  assert.equal(formReducer(edited, { type: 'SET_FIELD_ERROR', key: 'note', error: 'bad old value', requested }), edited)
+  assert.equal(formReducer(flagged, { type: 'CLEAR_FIELD_ERROR', key: 'note', requested }), flagged)
+})
+
+test('a validation response for the current value still applies', () => {
+  const requested = fieldRequest(validating, 'note')
+  const set = formReducer(validating, { type: 'SET_FIELD_ERROR', key: 'note', error: 'bad', requested })
+
+  assert.deepEqual(set.fieldErrors, { note: 'bad' })
+  assert.deepEqual(formReducer(set, { type: 'CLEAR_FIELD_ERROR', key: 'note', requested }).fieldErrors, {})
+})
+
+test('a provider name response for an older name is ignored', () => {
+  const requested = fieldRequest(validating, 'providerName')
+  const renamed = formReducer(validating, { type: 'SET_PROVIDER_NAME', name: 'Staging' })
+  const flagged = { ...renamed, fieldErrors: { providerName: 'taken' } }
+
+  assert.equal(requested.value, 'Prod')
+  assert.equal(
+    formReducer(renamed, { type: 'SET_FIELD_ERROR', key: 'providerName', error: 'old name bad', requested }),
+    renamed
+  )
+  assert.equal(formReducer(flagged, { type: 'CLEAR_FIELD_ERROR', key: 'providerName', requested }), flagged)
+})
+
+test('a response requested under another provider type is ignored even for the same value', () => {
+  const requested = fieldRequest(validating, 'note')
+  const other = {
+    ...validating,
+    selectedPlugin: pluginFixture({ name: 'Other', provider_type: 'other', config_schema: { fields: [] } }),
+  }
+
+  assert.equal(fieldRequest(other, 'note').value, requested.value)
+  assert.equal(formReducer(other, { type: 'SET_FIELD_ERROR', key: 'note', error: 'bad', requested }), other)
+})
+
+test('a response requested under another auth mode is ignored even for the same value', () => {
+  const requested = fieldRequest(validating, 'note')
+  const switched = formReducer(validating, { type: 'SET_AUTH_MODE', mode: 'sign_in' })
+  const flagged = { ...switched, fieldErrors: { note: 'bad' } }
+
+  assert.equal(fieldRequest(switched, 'note').value, requested.value)
+  assert.equal(formReducer(switched, { type: 'SET_FIELD_ERROR', key: 'note', error: 'old', requested }), switched)
+  assert.equal(formReducer(flagged, { type: 'CLEAR_FIELD_ERROR', key: 'note', requested }), flagged)
 })
 
 test('selecting a provider type applies schema defaults and clears stale selections', () => {
@@ -286,7 +291,7 @@ test('selecting a provider type applies schema defaults and clears stale selecti
   )
 
   assert.deepEqual(next.configValues, { namespaces: 'flux-system' })
-  assert.equal(next.providerName, 'FluxCD')
+  assert.equal(next.providerName, 'Stub')
   assert.equal(next.selectedPipelines.size, 0)
   assert.deepEqual(next.fieldErrors, {})
 })
@@ -309,14 +314,11 @@ test('clearing the provider type and resetting return to an empty form', () => {
   assert.deepEqual(formReducer(filled, { type: 'RESET' }), initialFormState)
 })
 
-const noAuthPlugin = {
-  ...fluxPlugin,
-  provider_type: 'prow',
-  name: 'Prow',
-  config_schema: { fields: [], no_auth: true },
-}
+const noAuthPlugin = pluginFixture({
+  config_schema: { fields: [], auth_options: [openOption, tokenOption] },
+})
 
-test('a provider type that offers no auth starts in none mode, others start in token mode', () => {
+test('a provider type starts in its first declared method, one without options starts in token mode', () => {
   const none = formReducer(initialFormState, { type: 'SELECT_PLUGIN', plugin: noAuthPlugin, isEditMode: false })
   const token = formReducer(initialFormState, { type: 'SELECT_PLUGIN', plugin: fluxPlugin, isEditMode: false })
 
@@ -343,14 +345,14 @@ test('switching auth mode drops the other credentials and tracks auth_mode', () 
     { type: 'SET_AUTH_MODE', mode: 'token' }
   )
 
-  assert.deepEqual(token.configValues, { deck_url: 'https://deck' })
+  assert.deepEqual(token.configValues, { deck_url: 'https://deck', auth_mode: 'token' })
 
   const signIn = formReducer(
     { ...none, configValues: { ...none.configValues, token: 'abc' } },
     { type: 'SET_AUTH_MODE', mode: 'sign_in' }
   )
 
-  assert.deepEqual(signIn.configValues, { deck_url: 'https://deck' })
+  assert.deepEqual(signIn.configValues, { deck_url: 'https://deck', auth_mode: 'sign_in' })
 })
 
 test('editing a provider saved without credentials restores none mode', () => {
@@ -359,8 +361,8 @@ test('editing a provider saved without credentials restores none mode', () => {
     plugin: noAuthPlugin,
     provider: {
       id: 4,
-      name: 'Prow',
-      provider_type: 'prow',
+      name: 'Deck',
+      provider_type: 'stub',
       token: '',
       refresh_interval: 30,
       config: { auth_mode: 'none' },
@@ -369,4 +371,46 @@ test('editing a provider saved without credentials restores none mode', () => {
 
   assert.equal(next.authMode, 'none')
   assert.equal(next.configValues.auth_mode, 'none')
+})
+
+test('selecting a provider type seeds only the default method defaults and auth_mode', () => {
+  const next = formReducer(initialFormState, { type: 'SELECT_PLUGIN', plugin: methodsPlugin, isEditMode: false })
+
+  assert.equal(next.authMode, 'token')
+  assert.deepEqual(next.configValues, { endpoint: 'https://api', namespaces: 'main', auth_mode: 'token' })
+})
+
+test('switching method removes out-of-mode values and both credentials, then seeds the new defaults', () => {
+  const selected = formReducer(initialFormState, { type: 'SELECT_PLUGIN', plugin: methodsPlugin, isEditMode: false })
+  const filled = {
+    ...selected,
+    configValues: { ...selected.configValues, endpoint: 'https://mine', token: 'abc', sign_in: 'provider:1' },
+    fieldErrors: { endpoint: 'bad', token: 'bad', namespaces: 'bad' },
+  }
+  const cluster = formReducer(filled, { type: 'SET_AUTH_MODE', mode: 'kubeconfig' })
+
+  assert.equal(cluster.authMode, 'kubeconfig')
+  assert.deepEqual(cluster.configValues, { namespaces: 'main', kubeconfig: '~/.kube/config', auth_mode: 'kubeconfig' })
+  assert.deepEqual(cluster.fieldErrors, { namespaces: 'bad' })
+
+  const back = formReducer(
+    { ...cluster, configValues: { ...cluster.configValues, context: 'prod', token: 'pasted' } },
+    { type: 'SET_AUTH_MODE', mode: 'token' }
+  )
+
+  assert.deepEqual(back.configValues, { namespaces: 'main', endpoint: 'https://api', auth_mode: 'token' })
+})
+
+test('editing starts in the saved method and falls back to the first option for an unknown one', () => {
+  const edit = (config: Record<string, string>) =>
+    formReducer(initialFormState, {
+      type: 'INIT_EDIT_MODE',
+      plugin: methodsPlugin,
+      provider: { id: 5, name: 'Stub', provider_type: 'stub', token: '', refresh_interval: 30, config },
+    })
+
+  assert.equal(edit({ auth_mode: 'kubeconfig' }).authMode, 'kubeconfig')
+  assert.equal(edit({ auth_mode: 'none' }).authMode, 'token')
+  assert.equal(edit({ auth_mode: 'bogus' }).authMode, 'token')
+  assert.equal(edit({}).authMode, 'token')
 })

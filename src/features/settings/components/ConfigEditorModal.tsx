@@ -1,17 +1,16 @@
-import { Button, Group, Stack, Text } from '@mantine/core'
+import { Button, Group, Text } from '@mantine/core'
 import { type ReactNode, useActionState, useId, useRef, useState } from 'react'
-import { parse } from 'smol-toml'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { useMobileShell } from '../../../hooks/useIsMobile'
-import { notifications } from '../../../lib/notifications'
 import { useMigrateAndSaveConfig, useSaveConfigContent } from '../../../queries/useStorageQueries'
-import type { ConfigAnalysisResponse, MigrationOptions, MigrationPlan } from '../../../types/domain'
+import { Z } from '../../../theme/zIndex'
+import type { ConfigAnalysisResponse, MigrationOptions, MigrationPlan } from '../../../types/storage'
 import { openConfirm } from '../../../utils/confirm'
-import { errorMessage } from '../../../utils/errorDisplay'
-import { formatCount } from '../../../utils/formatCount'
+import { displayErrorNotification, errorMessage } from '../../../utils/errorDisplay'
 import { useAnalyzeConfigNow, useConfigAnalysis } from '../hooks/useConfigAnalysis'
 import { ConfigAnalysisNotices } from './ConfigAnalysisNotices'
 import { ConfigEditorField } from './ConfigEditorField'
+import { ConfigWarningsList } from './ConfigWarningsList'
 import { MigrationConfirmModal } from './MigrationConfirmModal'
 
 interface ConfigEditorModalProps {
@@ -34,20 +33,6 @@ const IDLE_STATE: EditorActionState = { forContent: null, saveError: null, analy
 
 const FORM_STYLE = { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' } as const
 
-function validateConfigToml(content: string): string | null {
-  if (!content.trim()) {
-    return 'Config file cannot be empty'
-  }
-
-  try {
-    parse(content)
-
-    return null
-  } catch (error) {
-    return error instanceof Error ? error.message : 'Invalid TOML syntax'
-  }
-}
-
 export const ConfigEditorModal = ({ onClose, initialContent, onSaved }: ConfigEditorModalProps): ReactNode => {
   const mobileShell = useMobileShell()
   const formId = useId()
@@ -55,62 +40,43 @@ export const ConfigEditorModal = ({ onClose, initialContent, onSaved }: ConfigEd
   const [content, setContent] = useState(initialContent)
   const [submission, setSubmission] = useState<Submission | null>(null)
   const saveConfig = useSaveConfigContent()
-  const migrateAndSave = useMigrateAndSaveConfig()
+  const migrateAndSave = useMigrateAndSaveConfig({ toastErrors: false })
   const analyzeNow = useAnalyzeConfigNow()
 
   const hasChanges = content !== initialContent
-  const localError = validateConfigToml(content)
-  const background = useConfigAnalysis(content, hasChanges && localError === null)
+  const background = useConfigAnalysis(content, hasChanges)
   const analysis = background.data ?? null
-  const serverError = analysis && !analysis.valid ? (analysis.errors[0]?.message ?? null) : null
-  const validationError = localError ?? serverError
+  const validationError = analysis && !analysis.valid ? (analysis.errors[0]?.message ?? null) : null
 
   const persist = async (submitted: string): Promise<string | null> => {
     try {
       await saveConfig.mutateAsync(submitted)
-      notifications.show({
-        title: 'Configuration saved',
-        message: 'Your changes to config.toml were saved.',
-        color: 'green',
-      })
       onSaved?.()
       onClose()
 
       return null
     } catch (error) {
-      const message = errorMessage(error, 'Check the file for errors and try again.')
-
-      if (mobileShell) {
-        notifications.show({ title: "Couldn't save configuration", message, color: 'red' })
-      }
-
-      return message
+      return errorMessage(error, 'Check the file for errors and try again.')
     }
   }
 
   const [state, formAction, isPending] = useActionState(async (): Promise<EditorActionState> => {
     const submitted = content
-    let result: ConfigAnalysisResponse | null = null
+    let result: ConfigAnalysisResponse
 
-    if (validateConfigToml(submitted) === null) {
-      try {
-        result = await analyzeNow(submitted)
-      } catch (error) {
-        return {
-          forContent: submitted,
-          saveError: null,
-          analysisError: errorMessage(error, 'Check the TOML syntax and try again.'),
-        }
+    try {
+      result = await analyzeNow(submitted)
+    } catch (error) {
+      return {
+        forContent: submitted,
+        saveError: null,
+        analysisError: errorMessage(error, 'Check the TOML syntax and try again.'),
       }
     }
 
-    if (!result?.valid) {
+    if (!result.valid) {
       if (mobileShell) {
-        notifications.show({
-          title: 'Configuration is invalid',
-          message: 'Fix the validation errors before saving',
-          color: 'red',
-        })
+        displayErrorNotification(new Error('Fix the validation errors before saving'), 'Configuration is invalid')
       }
 
       return IDLE_STATE
@@ -125,17 +91,9 @@ export const ConfigEditorModal = ({ onClose, initialContent, onSaved }: ConfigEd
     if (mobileShell && result.warnings.length > 0) {
       setSubmission({ kind: 'warnings' })
       openConfirm({
-        zIndex: 400,
+        zIndex: Z.alert,
         title: 'Configuration warnings',
-        children: (
-          <Stack gap="xs">
-            {result.warnings.map((warning) => (
-              <Text key={`${warning.field}:${warning.message}`} size="sm">
-                • {warning.message}
-              </Text>
-            ))}
-          </Stack>
-        ),
+        children: <ConfigWarningsList warnings={result.warnings} />,
         labels: { confirm: 'Save anyway', cancel: 'Cancel' },
         confirmProps: { color: 'orange' },
         onConfirm: () => {
@@ -157,35 +115,19 @@ export const ConfigEditorModal = ({ onClose, initialContent, onSaved }: ConfigEd
       return
     }
 
-    try {
-      const result = await migrateAndSave.mutateAsync({
-        plan: submission.plan,
-        options,
-        content: submission.content,
-      })
-
-      notifications.show({
-        title: 'Migration complete',
-        message: `Migrated ${formatCount(result.stats.providers_migrated, 'provider')}`,
-        color: 'green',
-      })
-      setSubmission(null)
-      onSaved?.()
-      onClose()
-    } catch (error) {
-      notifications.show({
-        title: "Couldn't save configuration",
-        message: errorMessage(error, 'Check the file for errors and try again.'),
-        color: 'red',
-      })
-
-      throw error
-    }
+    await migrateAndSave.mutateAsync({
+      plan: submission.plan,
+      options,
+      content: submission.content,
+    })
+    setSubmission(null)
+    onSaved?.()
+    onClose()
   }
 
   const submitting = isPending || submission !== null || saveConfig.isPending || migrateAndSave.isPending
   const saveLoading = submitting || background.isFetching
-  const saveDisabled = validationError !== null || !hasChanges
+  const saveDisabled = validationError !== null || background.isError || !hasChanges
   const current = state.forContent === content ? state : IDLE_STATE
   const backgroundError = background.error
     ? errorMessage(background.error, 'Check the TOML syntax and try again.')

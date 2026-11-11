@@ -7,7 +7,7 @@ import { useLockVault, useVaultStatus } from '../../../queries/useVaultQueries'
 import { lockMeansSomething } from '../../../utils/appLock'
 
 const GROUPS: SettingsSection[][] = [
-  ['general', 'notifications', 'providers'],
+  ['general', 'notifications', 'providers', 'devices'],
   ['metrics', 'cache', 'storage'],
   ['about'],
 ]
@@ -36,7 +36,7 @@ export function SettingsMenu(): ReactNode {
         <IosGroup footer="Pipedash asks you to unlock it again before it shows your pipelines.">
           <IosRow
             title="Lock Pipedash"
-            icon={<IconLock size={18} />}
+            icon={<IconLock size={16} />}
             disabled={lockVault.isPending}
             onClick={() => lockVault.mutate()}
           />

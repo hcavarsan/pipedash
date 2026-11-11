@@ -1,4 +1,5 @@
 import type { LogDocumentMeta, LogSection } from '../../../types/logs'
+import { partitionPoint } from './binarySearch'
 
 export type RowMeta = Pick<LogDocumentMeta, 'line_count' | 'sections'>
 
@@ -27,51 +28,19 @@ export const isOpen = (section: LogSection, overrides: ReadonlySet<number>): boo
 
 const keyOf = (segment: Segment): number => (segment.kind === 'lines' ? segment.line : segment.section.start_line)
 
-const lastKeyAtMost = (segments: readonly Segment[], line: number): number => {
-  let low = 0
-  let high = segments.length
+const lastKeyAtMost = (segments: readonly Segment[], line: number): number =>
+  partitionPoint(segments.length, (index) => {
+    const segment = segments[index]
 
-  while (low < high) {
-    const mid = (low + high) >>> 1
+    return segment !== undefined && keyOf(segment) <= line
+  }) - 1
 
-    const segment = segments[mid]
+const lastRowAtMost = (segments: readonly Segment[], row: number): number =>
+  partitionPoint(segments.length, (index) => {
+    const segment = segments[index]
 
-    if (segment === undefined) {
-      break
-    }
-
-    if (keyOf(segment) <= line) {
-      low = mid + 1
-    } else {
-      high = mid
-    }
-  }
-
-  return low - 1
-}
-
-const lastRowAtMost = (segments: readonly Segment[], row: number): number => {
-  let low = 0
-  let high = segments.length
-
-  while (low < high) {
-    const mid = (low + high) >>> 1
-
-    const segment = segments[mid]
-
-    if (segment === undefined) {
-      break
-    }
-
-    if (segment.row <= row) {
-      low = mid + 1
-    } else {
-      high = mid
-    }
-  }
-
-  return low - 1
-}
+    return segment !== undefined && segment.row <= row
+  }) - 1
 
 export function buildRows(meta: RowMeta, overrides: ReadonlySet<number>): RowModel {
   const children = new Map<number | null, LogSection[]>()
@@ -230,24 +199,11 @@ export function rowNearLine(model: RowModel, line: number): number {
 export function rowOfSection(model: RowModel, section: LogSection): number | null {
   const { segments } = model
   const wanted = section.node_id ?? section.title
-  let low = 0
-  let high = segments.length
+  const low = partitionPoint(segments.length, (index) => {
+    const segment = segments[index]
 
-  while (low < high) {
-    const mid = (low + high) >>> 1
-
-    const segment = segments[mid]
-
-    if (segment === undefined) {
-      break
-    }
-
-    if (keyOf(segment) < section.start_line) {
-      low = mid + 1
-    } else {
-      high = mid
-    }
-  }
+    return segment !== undefined && keyOf(segment) < section.start_line
+  })
 
   for (let index = low; index < segments.length; index += 1) {
     const segment = segments[index]
@@ -300,25 +256,11 @@ export function sectionAtLine(meta: Pick<LogDocumentMeta, 'sections'>, line: num
     stepLists.set(meta.sections, steps)
   }
 
-  let low = 0
-  let high = steps.length
+  const low = partitionPoint(steps.length, (index) => {
+    const step = steps[index]
 
-  while (low < high) {
-    const mid = (low + high) >>> 1
-
-    const step = steps[mid]
-
-    if (step === undefined) {
-      break
-    }
-
-    if (step.start_line <= line) {
-      low = mid + 1
-    } else {
-      high = mid
-    }
-  }
-
+    return step !== undefined && step.start_line <= line
+  })
   const step = steps[low - 1]
 
   return step && line < step.end_line ? step : null

@@ -4,18 +4,26 @@ inputs:
   rust-targets:
     description: Space-separated Rust targets to install
     required: true
+  cache:
+    description: Restore and save the tool cache; keep it off in jobs that publish
+    required: false
+    default: "false"
+outputs:
+  ndk-home:
+    description: Android NDK directory
+    value: ${{ steps.sdk.outputs.ndk-home }}
+  bundletool-jar:
+    description: Downloaded bundletool jar
+    value: ${{ steps.bundletool.outputs.bundletool-jar }}
 runs:
   using: composite
   steps:
-    - name: Install mise
-      uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
-      with:
-        install: false
-        cache: false
-
     - name: Install mise tools
-      shell: bash
-      run: mise install
+      uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+      with:
+        cache: ${{ inputs.cache }}
+        cache_key_prefix: mise-all-v1
+        cache_restore_retry_budget: 60s
 
     - name: Install dependencies
       shell: bash
@@ -47,20 +55,23 @@ runs:
         rustup target add "${targets[@]}"
 
     - name: Cache Rust build
+      if: ${{ inputs.cache == 'true' }}
       uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       with:
         shared-key: android-${{ inputs.rust-targets }}
 
     - name: Install Android SDK
+      id: sdk
       shell: bash
       run: |
         (yes || true) | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
         "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platform-tools" "platforms;android-37.0" "build-tools;37.0.0" "ndk;30.0.16248370"
-        echo "NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_ENV"
+        echo "ndk-home=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_OUTPUT"
 
     - name: Install bundletool
+      id: bundletool
       shell: bash
       run: |
         curl -fsSL -o "$RUNNER_TEMP/bundletool.jar" https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar
         echo "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29  $RUNNER_TEMP/bundletool.jar" | sha256sum -c -
-        echo "BUNDLETOOL_JAR=$RUNNER_TEMP/bundletool.jar" >> "$GITHUB_ENV"
+        echo "bundletool-jar=$RUNNER_TEMP/bundletool.jar" >> "$GITHUB_OUTPUT"

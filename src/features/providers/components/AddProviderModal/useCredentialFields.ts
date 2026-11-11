@@ -4,11 +4,12 @@ import { type Dispatch, useMemo } from 'react'
 import { DEBOUNCE_DELAYS } from '../../../../constants/intervals'
 import { useDebounce } from '../../../../hooks/useDebounce'
 import { service } from '../../../../services/service'
-import type { ConfigField, PluginMetadata } from '../../../../types/domain'
+import type { AuthMode, ConfigField, PluginMetadata } from '../../../../types/plugins'
 import { type FieldAttributes, type FieldInputKind, fieldAttributes } from '../../../../utils/formFields'
 
-import type { FormAction } from './types'
-import { type FieldStep, STEP_SECTIONS, validateConfigField, validateProviderName } from './validation'
+import { fieldInMode } from '../../lib/authModes'
+import type { FormAction, ValidateKey } from './types'
+import { type FieldStep, STEP_SECTIONS } from './validation'
 
 const INPUT_KINDS: Partial<Record<ConfigField['field_type'], FieldInputKind>> = {
   Password: 'password',
@@ -26,11 +27,12 @@ export interface CredentialFieldModel {
 
 interface UseCredentialFieldsParams {
   selectedPlugin: PluginMetadata | null
-  providerName: string
   configValues: Record<string, string>
   fieldErrors: Record<string, string>
   dispatch: Dispatch<FormAction>
+  validateKey: ValidateKey
   step: FieldStep
+  authMode: AuthMode
 }
 
 interface UseCredentialFieldsResult {
@@ -47,17 +49,21 @@ const NO_FIELDS: ConfigField[] = []
 
 export function useCredentialFields({
   selectedPlugin,
-  providerName,
   configValues,
   fieldErrors,
   dispatch,
+  validateKey,
   step,
+  authMode,
 }: UseCredentialFieldsParams): UseCredentialFieldsResult {
   const debouncedConfigValues = useDebounce(configValues, DEBOUNCE_DELAYS.FILTER)
   const schemaFields = selectedPlugin?.config_schema.fields ?? NO_FIELDS
   const fields = useMemo(
-    () => STEP_SECTIONS[step].flatMap((section) => schemaFields.filter((field) => field.section === section)),
-    [schemaFields, step]
+    () =>
+      STEP_SECTIONS[step].flatMap((section) =>
+        schemaFields.filter((field) => field.section === section && fieldInMode(field, authMode))
+      ),
+    [schemaFields, step, authMode]
   )
   const lastTextKey = fields.findLast((field) => field.field_type !== 'Boolean')?.key
   const dynamicFields = fields.filter(
@@ -77,44 +83,24 @@ export function useCredentialFields({
     dispatch({ type: 'UPDATE_CONFIG', key: field.key, value })
 
     if (fieldErrors[field.key]) {
-      const error = validateConfigField(field, value)
-
-      if (error) {
-        dispatch({ type: 'SET_FIELD_ERROR', key: field.key, error })
-      }
+      void validateKey(field.key, { configValues: { ...configValues, [field.key]: value } })
     }
   }
 
   const handleConfigBlur = (field: ConfigField): void => {
-    const error = validateConfigField(field, configValues[field.key] || '')
-
-    if (error) {
-      dispatch({ type: 'SET_FIELD_ERROR', key: field.key, error })
-    } else if (fieldErrors[field.key]) {
-      dispatch({ type: 'CLEAR_FIELD_ERROR', key: field.key })
-    }
+    void validateKey(field.key)
   }
 
   const handleNameChange = (name: string): void => {
     dispatch({ type: 'SET_PROVIDER_NAME', name })
 
     if (fieldErrors.providerName) {
-      const error = validateProviderName(name)
-
-      if (error) {
-        dispatch({ type: 'SET_FIELD_ERROR', key: 'providerName', error })
-      }
+      void validateKey('providerName', { providerName: name })
     }
   }
 
   const handleNameBlur = (): void => {
-    const error = validateProviderName(providerName)
-
-    if (error) {
-      dispatch({ type: 'SET_FIELD_ERROR', key: 'providerName', error })
-    } else if (fieldErrors.providerName) {
-      dispatch({ type: 'CLEAR_FIELD_ERROR', key: 'providerName' })
-    }
+    void validateKey('providerName')
   }
 
   const fieldStateFor = (field: ConfigField): CredentialFieldModel => {

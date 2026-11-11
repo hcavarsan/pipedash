@@ -3,12 +3,12 @@ import { type ReactNode, useActionState, useRef, useState } from 'react'
 
 import { useFormEnterNavigation } from '@/hooks/useFormEnterNavigation'
 import { errorMessage } from '@/utils/errorDisplay'
-import { isHttpUrl } from '@/utils/openExternal'
 
 import { LiveStatus } from '../../../components/forms/LiveStatus'
 import { SubmitButton } from '../../../components/forms/SubmitButton'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { AccentText, FieldRow, RowTextInput } from '../../../components/ios/mobileParts'
+import { usePlugins } from '../../../queries/usePluginsQueries'
 
 interface ProxySettingsFormProps {
   savedProxy: string
@@ -19,24 +19,17 @@ interface ProxySettingsFormProps {
 
 interface ProxyActionState {
   error: string | null
+  forValue: string | null
 }
 
-const PROXY_DESCRIPTION =
-  "Sends provider requests through this HTTP proxy, except Tekton and Flux. Leave it empty to connect directly or through HTTPS_PROXY. Proxies that need a password aren't supported."
-
-function validateProxyUrl(value: string): string | null {
-  if (!value) {
-    return null
-  }
-
-  if (!isHttpUrl(value)) {
-    return 'Enter a URL that starts with http:// or https://'
-  }
-
-  const { username, password } = new URL(value)
-
-  return username || password ? 'Proxy URLs with credentials are not supported.' : null
-}
+const proxyDescription = (direct: string[]): string =>
+  [
+    'Sends requests from providers that support HTTP proxies through this proxy.',
+    direct.length > 0 ? `${direct.join(' and ')} always connect directly.` : null,
+    "Leave it empty to connect directly or through HTTPS_PROXY. Proxies that need a password aren't supported.",
+  ]
+    .filter(Boolean)
+    .join(' ')
 
 export function ProxySettingsForm({ savedProxy, mobileShell, pending, onSave }: ProxySettingsFormProps): ReactNode {
   const formRef = useRef<HTMLFormElement>(null)
@@ -44,67 +37,65 @@ export function ProxySettingsForm({ savedProxy, mobileShell, pending, onSave }: 
   const [draft, setDraft] = useState<string | null>(null)
   const value = draft ?? savedProxy
   const trimmed = value.trim()
-  const validationError = validateProxyUrl(trimmed)
+  const { data: plugins } = usePlugins()
+  const description = proxyDescription(
+    (plugins ?? []).filter((plugin) => !plugin.capabilities.uses_http_proxy).map((plugin) => plugin.name)
+  )
 
   const [state, formAction, isPending] = useActionState(
     async (_previous: ProxyActionState, formData: FormData): Promise<ProxyActionState> => {
       const submitted = formData.get('proxy_url')
       const raw = typeof submitted === 'string' ? submitted : value
       const next = raw.trim()
-      const invalid = validateProxyUrl(next)
-
-      if (invalid) {
-        return { error: invalid }
-      }
 
       if (next === savedProxy) {
-        return { error: null }
+        return { error: null, forValue: raw }
       }
 
       try {
         await onSave(next)
         setDraft((current) => (current === raw ? null : current))
 
-        return { error: null }
+        return { error: null, forValue: raw }
       } catch (error) {
-        return { error: errorMessage(error, "Couldn't save the proxy URL.") }
+        return { error: errorMessage(error, "Couldn't save the proxy URL."), forValue: raw }
       }
     },
-    { error: null }
+    { error: null, forValue: null }
   )
 
   const busy = pending || isPending
-  const canSave = !busy && !validationError && trimmed !== savedProxy
-  const error = validationError ?? state.error ?? undefined
+  const canSave = !busy && trimmed !== savedProxy
+  const error = state.forValue === value ? (state.error ?? undefined) : undefined
 
   if (mobileShell) {
+    const renderInput = (id: string): ReactNode => (
+      <RowTextInput
+        id={id}
+        name="proxy_url"
+        placeholder="None"
+        type="url"
+        inputMode="url"
+        autoComplete="off"
+        enterKeyHint="done"
+        value={value}
+        onChange={(event) => setDraft(event.currentTarget.value)}
+        error={error}
+        disabled={busy}
+      />
+    )
+
     return (
       <form ref={formRef} action={formAction} noValidate>
         <LiveStatus message={error ?? (busy ? 'Saving proxy URL' : '')} />
         <Stack gap="lg">
-          <IosGroup footer={PROXY_DESCRIPTION}>
-            <FieldRow title="Proxy URL">
-              {(id) => (
-                <RowTextInput
-                  id={id}
-                  name="proxy_url"
-                  placeholder="None"
-                  type="url"
-                  inputMode="url"
-                  autoComplete="off"
-                  enterKeyHint="done"
-                  value={value}
-                  onChange={(event) => setDraft(event.currentTarget.value)}
-                  error={error}
-                  disabled={busy}
-                />
-              )}
-            </FieldRow>
+          <IosGroup footer={description}>
+            <FieldRow title="Proxy URL">{renderInput}</FieldRow>
           </IosGroup>
 
           <IosGroup>
             <IosRow
-              title={<AccentText>{busy ? 'Saving...' : 'Save proxy'}</AccentText>}
+              title={<AccentText>{busy ? 'Saving…' : 'Save proxy'}</AccentText>}
               disabled={!canSave}
               onClick={() => formRef.current?.requestSubmit()}
             />
@@ -120,7 +111,7 @@ export function ProxySettingsForm({ savedProxy, mobileShell, pending, onSave }: 
         <TextInput
           name="proxy_url"
           label="Proxy URL"
-          description={PROXY_DESCRIPTION}
+          description={description}
           placeholder="http://proxy.example.com:3128"
           type="url"
           inputMode="url"

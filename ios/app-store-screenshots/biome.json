@@ -1,0 +1,1 @@
+{ "root": false, "extends": "//", "css": { "parser": { "tailwindDirectives": true } } }

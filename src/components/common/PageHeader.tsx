@@ -13,6 +13,22 @@ interface PageHeaderProps {
   actions?: React.ReactNode
 }
 
+interface PageHeaderBackButtonProps {
+  label: string
+  mobile: boolean
+  onClick: () => void
+}
+
+function PageHeaderBackButton({ label, mobile, onClick }: PageHeaderBackButtonProps): ReactNode {
+  return (
+    <Tooltip label={label}>
+      <ActionIcon size={mobile ? 'sm' : 'md'} onClick={onClick} aria-label={label}>
+        <IconArrowLeft size={16} aria-hidden />
+      </ActionIcon>
+    </Tooltip>
+  )
+}
+
 export const PageHeader = ({ title, subtitle, onBack, backLabel = 'Back', actions }: PageHeaderProps): ReactNode => {
   const headingId = useId()
   const { isMobile } = useIsMobile()
@@ -31,17 +47,17 @@ export const PageHeader = ({ title, subtitle, onBack, backLabel = 'Back', action
     ) : null
   }
 
+  const subtitleText = subtitle && (
+    <Text size="xs" c="dimmed">
+      {subtitle}
+    </Text>
+  )
+
   return (
     <Box mih={isMobile ? 32 : 40}>
-      <Group gap="xs" align="center" h={isMobile ? 32 : 40} justify="space-between" wrap="nowrap">
+      <Group gap="xs" align="center" mih={isMobile ? 32 : 40} justify="space-between" wrap="nowrap">
         <Group gap="xs" align="center" flex={1} miw={0}>
-          {onBack && (
-            <Tooltip label={backLabel}>
-              <ActionIcon size={isMobile ? 'sm' : 'md'} onClick={onBack} aria-label={backLabel}>
-                <IconArrowLeft size={16} aria-hidden />
-              </ActionIcon>
-            </Tooltip>
-          )}
+          {onBack && <PageHeaderBackButton label={backLabel} mobile={isMobile} onClick={onBack} />}
           <Stack gap="4xs" flex={1} miw={0}>
             <Title
               order={1}
@@ -55,11 +71,7 @@ export const PageHeader = ({ title, subtitle, onBack, backLabel = 'Back', action
             >
               {title}
             </Title>
-            {subtitle && (
-              <Text size="xs" c="dimmed">
-                {subtitle}
-              </Text>
-            )}
+            {subtitleText}
           </Stack>
         </Group>
         {actions && <Box style={{ flexShrink: 0 }}>{actions}</Box>}

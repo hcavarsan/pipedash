@@ -1,0 +1,58 @@
+use std::collections::HashMap;
+
+use pipedash_plugin_api::config::{
+{% if kubernetes %}
+    value,
+{% else %}
+    http_base_url,
+{% endif %}
+    invalid_pipeline_id,
+{% if id_shape == "namespaced" %}
+    PIPELINE_ID_SEPARATOR,
+{% endif %}
+};
+use pipedash_plugin_api::PluginResult;
+
+{% if kubernetes %}
+pub(crate) const KUBECONFIG_PATH_KEY: &str = "kubeconfig_path";
+pub(crate) const CONTEXT_KEY: &str = "context";
+
+pub(crate) fn context(config: &HashMap<String, String>) -> Option<String> {
+    value(config, CONTEXT_KEY).map(str::to_string)
+}
+{% else %}
+pub(crate) fn get_base_url(config: &HashMap<String, String>) -> PluginResult<String> {
+    let (url, _) = http_base_url(config, "base_url", "Missing {{ name }} base URL", "{{ name }}")?;
+    Ok(url.to_string())
+}
+{% endif %}
+
+{% if id_shape == "numeric" %}
+pub(crate) fn parse_pipeline_id(id: &str) -> PluginResult<i64> {
+    id.parse().map_err(|_| invalid_pipeline_id(id))
+}
+{% elif id_shape == "path" %}
+pub(crate) fn parse_pipeline_id(id: &str) -> PluginResult<(&str, &str, &str)> {
+    let mut parts = id.splitn(3, '/');
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some(owner), Some(repo), Some(workflow))
+            if !owner.is_empty() && !repo.is_empty() && !workflow.is_empty() =>
+        {
+            Ok((owner, repo, workflow))
+        }
+        _ => Err(invalid_pipeline_id(id)),
+    }
+}
+{% else %}
+pub(crate) fn parse_pipeline_id(id: &str) -> PluginResult<(&str, &str)> {
+    match id.split_once(PIPELINE_ID_SEPARATOR) {
+        Some((namespace, name)) if !namespace.is_empty() && !name.is_empty() => {
+            Ok((namespace, name))
+        }
+        _ => Err(invalid_pipeline_id(id)),
+    }
+}
+{% endif %}
+
+#[cfg(test)]
+mod tests;

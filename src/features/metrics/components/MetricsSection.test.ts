@@ -6,7 +6,7 @@ import type { UserEvent } from '@testing-library/user-event'
 import { createElement } from 'react'
 import { installRequestSubmitShim } from '../../../testing/requestSubmitShim'
 
-import type { GlobalMetricsConfig } from '../../../types/domain'
+import type { GlobalMetricsConfig } from '../../../types/metrics'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
@@ -140,25 +140,36 @@ test('a failed retention save does not overwrite a newer draft', async (context)
   assert.equal(backend.config.default_retention_days, 7)
 })
 
-test('custom retention outside 1 to 90 is not saved', async (context) => {
+test('a retention below one is rejected without saving', async (context) => {
   const user = userEvent.setup({ document })
   const backend = mockBackend(context)
   await renderMetrics()
   const days = await openCustomDays(user)
 
-  for (const value of ['0', '91']) {
-    await user.clear(days)
-    await user.type(days, value)
-    await user.tab()
-    await waitFor(() => assert.equal(days.getAttribute('aria-invalid'), 'true'))
-  }
-
   await user.clear(days)
+  await user.type(days, '0')
   await user.tab()
-  await waitFor(() => assert.equal(days.getAttribute('aria-invalid'), 'true'))
+
+  assert.ok((await view().findAllByText(/must be at least 1/i)).length > 0)
   assert.deepEqual(backend.saves, [])
+  assert.equal(backend.config.default_retention_days, 7)
 })
 
+test('a retention the backend rejects shows its message and is not applied', async (context) => {
+  const user = userEvent.setup({ document })
+  const backend = mockBackend(context)
+  backend.failNext = true
+  await renderMetrics()
+  const days = await openCustomDays(user)
+
+  await user.clear(days)
+  await user.type(days, '30')
+  await user.tab()
+
+  await waitFor(() => assert.deepEqual(backend.saves, [{ enabled: true, retentionDays: 30 }]))
+  assert.ok((await view().findAllByText(/backend unavailable/i)).length > 0)
+  assert.equal(backend.config.default_retention_days, 7)
+})
 test('turning metrics off shows the new value at once and restores it when saving fails', async (context) => {
   const user = userEvent.setup({ document })
   const backend = mockBackend(context)

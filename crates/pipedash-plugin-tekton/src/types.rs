@@ -4,6 +4,7 @@ use chrono::{
     DateTime,
     Utc,
 };
+use pipedash_plugin_api::utils;
 use serde::{
     Deserialize,
     Serialize,
@@ -193,9 +194,9 @@ impl StepState {
         parse_timestamp(&self.terminated.as_ref()?.finished_at)
     }
 
-    pub fn container_name(&self) -> String {
+    pub fn container_name(&self, prefix: &str) -> String {
         if self.container.is_empty() {
-            format!("step-{}", self.name)
+            format!("{prefix}-{}", self.name)
         } else {
             self.container.clone()
         }
@@ -214,6 +215,8 @@ pub struct TaskRunStatusFields {
     pub pod_name: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub steps: Vec<StepState>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sidecars: Vec<StepState>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -282,5 +285,5 @@ pub struct TaskRunList {
 }
 
 pub fn parse_timestamp(timestamp: &Option<String>) -> Option<DateTime<Utc>> {
-    timestamp.as_ref()?.parse::<DateTime<Utc>>().ok()
+    utils::parse_timestamp(timestamp.as_deref()?)
 }

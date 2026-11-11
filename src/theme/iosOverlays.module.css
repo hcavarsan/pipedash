@@ -63,9 +63,9 @@
   display: grid;
   grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr);
   align-items: center;
-  column-gap: 8px;
+  column-gap: var(--mantine-spacing-xs);
   min-height: 0;
-  padding: 20px 8px 0;
+  padding: var(--mantine-spacing-lg) var(--mantine-spacing-xs) 0;
   background: var(--ios-sheet);
 }
 
@@ -186,7 +186,8 @@
 }
 
 .sheetBody {
-  padding: 16px 16px calc(16px + var(--sheet-pb, var(--safe-bottom)));
+  padding: var(--mantine-spacing-md) var(--mantine-spacing-md)
+    calc(var(--mantine-spacing-md) + var(--sheet-pb, var(--safe-bottom)));
 }
 
 .sheetHeader,
@@ -348,8 +349,8 @@
 /* ---------- Banners (Notifications) ---------- */
 
 .toastRoot {
-  top: calc(var(--safe-top) + 6px);
-  width: calc(100% - 16px - var(--safe-left) - var(--safe-right));
+  top: calc(var(--safe-top) + 44px + var(--connection-banner-height, 0px) + var(--mantine-spacing-3xs));
+  width: calc(100% - var(--mantine-spacing-md) - var(--safe-left) - var(--safe-right));
   max-width: 440px;
   pointer-events: none;
 }
@@ -388,6 +389,14 @@
 
 .toast[data-with-icon]::before {
   display: none;
+}
+
+.toast[data-with-icon] :global(.mantine-Notification-icon) {
+  width: auto;
+  height: auto;
+  margin-inline-end: var(--mantine-spacing-xs);
+  background: transparent;
+  color: var(--notification-color);
 }
 
 .toastTitle {
@@ -526,7 +535,7 @@
 }
 
 .menuDivider {
-  height: 8px;
+  height: var(--mantine-spacing-xs);
   margin: 0;
   border: 0;
 }
@@ -534,7 +543,7 @@
 .menuItem.menuCancel {
   --corner-top: var(--ios-radius-grouped);
   --corner-bottom: var(--ios-radius-grouped);
-  margin-top: 8px;
+  margin-top: var(--mantine-spacing-xs);
   justify-content: center;
   color: var(--ios-tint);
   border-top: 0;

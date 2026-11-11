@@ -1,48 +1,24 @@
 use pipedash_plugin_api::*;
+use schema::ColumnDefinition;
 
 pub fn create_table_schema() -> schema::TableSchema {
-    schema::TableSchema::new()
-        .add_table(create_pipeline_runs_table())
-        .add_table(pipedash_plugin_api::defaults::default_pipelines_table())
-}
-
-fn create_pipeline_runs_table() -> schema::TableDefinition {
-    let mut table = pipedash_plugin_api::defaults::default_pipeline_runs_table();
-
-    table.columns.insert(1, create_workspace_column());
-    table.columns.push(create_selector_column());
-
-    table
-}
-
-fn create_workspace_column() -> schema::ColumnDefinition {
-    schema::ColumnDefinition {
-        id: "workspace".to_string(),
-        label: "Workspace".to_string(),
-        description: Some("Bitbucket workspace".to_string()),
-        field_path: "metadata.workspace".to_string(),
-        data_type: schema::ColumnDataType::String,
-        renderer: schema::CellRenderer::Badge,
-        visibility: schema::ColumnVisibility::Always,
-        default_visible: false,
-        width: Some(120),
-        sortable: true,
-        filterable: false,
-    }
-}
-
-fn create_selector_column() -> schema::ColumnDefinition {
-    schema::ColumnDefinition {
-        id: "selector_type".to_string(),
-        label: "Type".to_string(),
-        description: Some("Pipeline trigger type (custom, branches, default, tags)".to_string()),
-        field_path: "metadata.selector_type".to_string(),
-        data_type: schema::ColumnDataType::String,
-        renderer: schema::CellRenderer::Badge,
-        visibility: schema::ColumnVisibility::WhenPresent,
-        default_visible: false,
-        width: Some(100),
-        sortable: false,
-        filterable: false,
-    }
+    let mut runs = defaults::default_pipeline_runs_table();
+    runs.insert_after(
+        "run_number",
+        [
+            ColumnDefinition::badge("workspace", "Workspace", "metadata.workspace")
+                .described("Bitbucket workspace")
+                .hidden()
+                .with_width(120)
+                .sortable(),
+        ],
+    );
+    runs.columns.push(
+        ColumnDefinition::badge("selector_type", "Type", "metadata.selector_type")
+            .described("Pipeline trigger type (custom, branches, default, tags)")
+            .when_present()
+            .hidden()
+            .with_width(100),
+    );
+    defaults::table_schema(runs, defaults::default_pipelines_table())
 }

@@ -1,6 +1,7 @@
 import { withBasePath } from '../lib/basePath'
 import { logger } from '../lib/logger'
 import { getToken, useAuthStore } from '../stores/authStore'
+import { useNotificationStore } from '../stores/notificationStore'
 
 type EventCallback<T = unknown> = (payload: T) => void
 type UnlistenFn = () => void
@@ -45,16 +46,28 @@ class WebSocketClient {
   private shouldReconnect = true
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private unsubscribeAuth: (() => void) | null = null
-  // Prevents reconnection after auth failures exceed threshold
+  private unsubscribePreferences: (() => void) | null = null
+  private authenticated = false
+  private lastNotificationId: number | null = null
   private isLockedOut = false
-  // Track rapid disconnect cycles to detect server rejecting connections
   private connectionOpenedAt: number | null = null
-  private rapidDisconnectCount = 0
   private static readonly STABLE_CONNECTION_MS = 5000
-  private static readonly RAPID_DISCONNECT_THRESHOLD = 10
 
   constructor() {
     this.setupTokenChangeListener()
+    this.setupPreferencesListener()
+  }
+
+  private setupPreferencesListener(): void {
+    if (isTauriMode() || this.unsubscribePreferences) {
+      return
+    }
+
+    this.unsubscribePreferences = useNotificationStore.subscribe((state, previous) => {
+      if (state.preferences !== previous.preferences) {
+        this.sendPreferences()
+      }
+    })
   }
 
   private setupTokenChangeListener(): void {
@@ -62,11 +75,9 @@ class WebSocketClient {
       return
     }
 
-    // Subscribe to auth state changes - only react to actual transitions
     this.unsubscribeAuth = useAuthStore.subscribe(
       (state) => state.token !== null,
       (isAuthenticated, wasAuthenticated) => {
-        // User just authenticated (unlocked vault)
         if (isAuthenticated && !wasAuthenticated) {
           if (this.ws?.readyState === WebSocket.OPEN) {
             this.reauthenticate()
@@ -74,10 +85,8 @@ class WebSocketClient {
             this.manualReconnect()
           }
         } else if (!isAuthenticated && wasAuthenticated) {
-          // User just logged out (was authenticated, now isn't)
           this.disconnect()
         }
-        // Initial false state or same state = do nothing
       }
     )
   }
@@ -100,6 +109,7 @@ class WebSocketClient {
     }
 
     this.setupTokenChangeListener()
+    this.setupPreferencesListener()
     this.isConnecting = true
     this.shouldReconnect = true
 
@@ -110,13 +120,16 @@ class WebSocketClient {
         this.connectionOpenedAt = Date.now()
         const token = getToken()
 
+        this.authenticated = !token
         if (token && this.ws) {
           this.ws.send(JSON.stringify({ type: 'auth', token }))
         }
         logger.debug('WebSocket', 'Connected')
         this.isConnecting = false
-        // Don't reset reconnectAttempts here - only after stable connection
-        this.emitConnectionStatus('connected')
+        if (!token) {
+          this.sendPreferences()
+          this.emitConnectionStatus('connected')
+        }
       }
 
       this.ws.onmessage = (event) => {
@@ -129,7 +142,6 @@ class WebSocketClient {
             const wasCleared = useAuthStore.getState().incrementFailure()
 
             if (wasCleared) {
-              // Token was cleared due to repeated failures - lock out until manual reconnect
               this.isLockedOut = true
               this.disconnect()
             }
@@ -137,6 +149,14 @@ class WebSocketClient {
             this.emitConnectionStatus('disconnected')
 
             return
+          }
+
+          if (type === 'auth-ok') {
+            this.authenticated = true
+            this.sendPreferences()
+            this.emitConnectionStatus('connected')
+          } else if (type === 'notification' && typeof payload?.id === 'number') {
+            this.lastNotificationId = payload.id
           }
 
           if (type) {
@@ -151,30 +171,13 @@ class WebSocketClient {
         logger.debug('WebSocket', 'Disconnected', { code: event.code, reason: event.reason })
         this.isConnecting = false
         this.ws = null
+        this.authenticated = false
 
-        // Check if this was a rapid disconnect (connection closed too quickly)
-        const connectionDuration = this.connectionOpenedAt ? Date.now() - this.connectionOpenedAt : 0
-        const wasRapidDisconnect = connectionDuration < WebSocketClient.STABLE_CONNECTION_MS
+        const stable =
+          this.connectionOpenedAt !== null &&
+          Date.now() - this.connectionOpenedAt >= WebSocketClient.STABLE_CONNECTION_MS
 
-        if (wasRapidDisconnect) {
-          this.rapidDisconnectCount++
-          logger.warn(
-            'WebSocket',
-            `Rapid disconnect detected (${this.rapidDisconnectCount}/${WebSocketClient.RAPID_DISCONNECT_THRESHOLD})`
-          )
-
-          if (this.rapidDisconnectCount >= WebSocketClient.RAPID_DISCONNECT_THRESHOLD) {
-            logger.error('WebSocket', 'Too many rapid disconnects - locking out, clearing token')
-            this.isLockedOut = true
-            this.shouldReconnect = false
-            useAuthStore.getState().clearToken()
-            this.emitConnectionStatus('disconnected')
-
-            return
-          }
-        } else {
-          // Connection was stable, reset counters
-          this.rapidDisconnectCount = 0
+        if (stable) {
           this.reconnectAttempts = 0
           this.reconnectDelay = 1000
         }
@@ -231,6 +234,7 @@ class WebSocketClient {
 
   disconnect(): void {
     this.shouldReconnect = false
+    this.authenticated = false
     this.clearReconnectTimer()
     if (this.ws) {
       this.ws.close()
@@ -242,8 +246,25 @@ class WebSocketClient {
     this.disconnect()
     this.unsubscribeAuth?.()
     this.unsubscribeAuth = null
+    this.unsubscribePreferences?.()
+    this.unsubscribePreferences = null
+    this.lastNotificationId = null
     this.events = new EventTarget()
     this.listenerCounts.clear()
+  }
+
+  private sendPreferences(): void {
+    if (!this.authenticated || this.ws?.readyState !== WebSocket.OPEN) {
+      return
+    }
+
+    this.ws.send(
+      JSON.stringify({
+        type: 'notification-preferences',
+        preferences: useNotificationStore.getState().preferences,
+        ...(this.lastNotificationId !== null && { after: this.lastNotificationId }),
+      })
+    )
   }
 
   listen<T = unknown>(eventType: string, callback: EventCallback<T>): UnlistenFn {
@@ -291,7 +312,7 @@ class WebSocketClient {
   }
 
   isConnected(): boolean {
-    return this.ws?.readyState === WebSocket.OPEN
+    return this.ws?.readyState === WebSocket.OPEN && this.authenticated
   }
 
   private emitConnectionStatus(status: 'connected' | 'disconnected' | 'reconnecting'): void {
@@ -303,7 +324,6 @@ class WebSocketClient {
   manualReconnect(): void {
     this.clearReconnectTimer()
     this.isLockedOut = false
-    this.rapidDisconnectCount = 0
     this.reconnectAttempts = 0
     this.reconnectDelay = 1000
     this.shouldReconnect = true
@@ -330,8 +350,9 @@ export const WS_EVENTS = {
   PROVIDERS_CHANGED: 'providers-changed',
   REFRESH_STATUS: 'refresh-status',
   PROVIDER_STATUS_UPDATED: 'provider-status-updated',
-  PROVIDER_HEALTH_ALERT: 'provider-health-alert',
   PIPELINE_TRIGGERED: 'pipeline-triggered',
   RUN_CANCELLED: 'run-cancelled',
   CONNECTION_STATUS: 'connection-status',
+  DEVICE_PAIRED: 'device-paired',
+  DEVICE_REVOKED: 'device-revoked',
 } as const

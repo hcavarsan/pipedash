@@ -10,6 +10,7 @@ import { ProvidersSection } from '../../providers/components/ProvidersSection'
 import { ProviderTransferActions } from '../../providers/components/ProviderTransferActions'
 import { AboutSection } from './AboutSection'
 import { CacheSection } from './CacheSection'
+import { DevicesSection } from './DevicesSection'
 import { GeneralSection } from './GeneralSection'
 import { SettingsMobileTabs } from './SettingsMobileTabs'
 import { StorageSection } from './StorageSection'
@@ -19,16 +20,25 @@ interface SettingsPageProps {
   onRefresh?: () => Promise<void>
 }
 
-type SectionContent = (onRefresh?: () => Promise<void>) => ReactNode
-
-const SECTION_CONTENT: Record<SettingsSection, SectionContent> = {
-  general: (onRefresh) => <GeneralSection onRefresh={onRefresh} />,
-  notifications: () => <NotificationsSection />,
-  providers: () => <ProvidersSection />,
-  metrics: () => <MetricsSection />,
-  cache: (onRefresh) => <CacheSection onRefresh={onRefresh} />,
-  storage: () => <StorageSection />,
-  about: () => <AboutSection />,
+function sectionContent(section: SettingsSection, onRefresh?: () => Promise<void>): ReactNode {
+  switch (section) {
+    case 'general':
+      return <GeneralSection onRefresh={onRefresh} />
+    case 'notifications':
+      return <NotificationsSection />
+    case 'providers':
+      return <ProvidersSection />
+    case 'devices':
+      return <DevicesSection />
+    case 'metrics':
+      return <MetricsSection />
+    case 'cache':
+      return <CacheSection onRefresh={onRefresh} />
+    case 'storage':
+      return <StorageSection />
+    case 'about':
+      return <AboutSection />
+  }
 }
 
 export const SettingsPage = ({ activeSection, onRefresh }: SettingsPageProps): ReactNode => {
@@ -36,12 +46,18 @@ export const SettingsPage = ({ activeSection, onRefresh }: SettingsPageProps): R
   const mobileShell = useMobileShell()
   const sectionTitle = SETTINGS_SECTIONS.find((section) => section.id === activeSection)?.label
 
+  let padding: string | number = 'xl'
+  if (mobileShell) {
+    padding = 0
+  } else if (isMobile) {
+    padding = 'md'
+  }
   const content = (
     <ScrollArea flex={1}>
       <Box
-        p={mobileShell ? 0 : isMobile ? 'md' : 'xl'}
+        p={padding}
         {...(mobileShell ? { pt: 'sm', className: 'settings-pushed' } : {})}
-        {...(isMobile ? {} : { maw: 720 })}
+        {...(isMobile ? {} : { maw: 880 })}
       >
         {!mobileShell && (
           <Box mb="lg">
@@ -52,7 +68,7 @@ export const SettingsPage = ({ activeSection, onRefresh }: SettingsPageProps): R
           </Box>
         )}
         <ErrorBoundary key={activeSection} scope="feature" name={sectionTitle ?? 'Settings'}>
-          {SECTION_CONTENT[activeSection](onRefresh)}
+          {sectionContent(activeSection, onRefresh)}
         </ErrorBoundary>
       </Box>
     </ScrollArea>

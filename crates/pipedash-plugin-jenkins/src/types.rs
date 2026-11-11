@@ -30,9 +30,6 @@ pub(crate) struct Job {
 #[derive(Debug, Deserialize)]
 pub(crate) struct BuildRef {
     pub number: i64,
-    #[serde(default)]
-    #[allow(dead_code)]
-    pub url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,7 +56,6 @@ pub(crate) struct Build {
 pub(crate) struct BuildAction {
     #[serde(rename = "_class")]
     #[serde(default)]
-    #[allow(dead_code)]
     pub _class: Option<String>,
     #[serde(default)]
     pub causes: Vec<BuildCause>,
@@ -82,7 +78,6 @@ pub(crate) struct BuildParameter {
 pub(crate) struct BuildCause {
     #[serde(rename = "shortDescription")]
     #[serde(default)]
-    #[allow(dead_code)]
     pub short_description: Option<String>,
     #[serde(rename = "userName")]
     #[serde(default)]
@@ -91,10 +86,6 @@ pub(crate) struct BuildCause {
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct Revision {
-    #[serde(rename = "SHA1")]
-    #[serde(default)]
-    #[allow(dead_code)]
-    pub sha1: Option<String>,
     #[serde(default)]
     pub branch: Vec<Branch>,
 }

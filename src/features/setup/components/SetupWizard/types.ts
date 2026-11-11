@@ -1,8 +1,8 @@
-import type { MigrationResult, StorageConfigResponse } from '../../../../types/domain'
-
-import type { SetupFieldErrors } from './setupDraft'
+import type { MigrationResult, StorageConfigResponse } from '../../../../types/storage'
 
 export type StorageBackend = 'sqlite' | 'postgres'
+
+export type SetupFieldErrors = Partial<Record<'postgresUrl' | 'vaultPassword' | 'vaultPasswordConfirm', string>>
 
 export type WizardStep = 'storage' | 'transfer' | 'confirm' | 'success'
 
@@ -33,6 +33,8 @@ export interface StorageStepProps {
   vaultStatus: VaultPasswordStatus
   error: string | null
   fieldErrors: SetupFieldErrors
+  validation: SetupFieldErrors
+  passwordWarnings: string[]
 }
 
 export interface TransferStepProps {

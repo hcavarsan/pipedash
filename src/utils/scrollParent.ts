@@ -4,7 +4,7 @@ export function findScrollParent(node: HTMLElement): HTMLElement {
   let current = node.parentElement
 
   while (current) {
-    if (SCROLLABLE.includes(getComputedStyle(current).overflowY)) {
+    if (current.hasAttribute('data-scrollarea-viewport') || SCROLLABLE.includes(getComputedStyle(current).overflowY)) {
       return current
     }
     current = current.parentElement

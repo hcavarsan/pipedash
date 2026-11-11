@@ -1,5 +1,6 @@
 mod config_watcher;
 pub mod fetch_scheduler;
+mod lifecycle;
 pub mod services;
 #[cfg(test)]
 pub(crate) mod test_support;
@@ -8,28 +9,25 @@ use std::sync::Arc;
 
 pub use config_watcher::ConfigWatcher;
 pub use fetch_scheduler::{
-    AttemptHandle,
-    BackoffPolicy,
     ClaimKind,
-    FetchClaim,
     FetchResult,
     FetchScheduler,
     ForcedClaim,
     Generation,
     Outcome,
-    ScheduleView,
 };
+use pipedash_plugin_api::PluginRegistry;
+pub use services::device_alerts::recording_bus;
 pub use services::health_service::{
     refresh_notifications,
+    wanted_notifications,
     HealthHandle,
     HealthInput,
-    HealthReceivers,
-    HealthSnapshot,
     LocalNotification,
     NotificationState,
-    ProviderHealthInput,
+    ObservedNotification,
     ProviderHealthService,
-    ProviderHealthState,
+    ShownNotification,
 };
 pub use services::log_service::{
     LogExport,
@@ -37,15 +35,17 @@ pub use services::log_service::{
 };
 pub use services::metrics_service::MetricsService;
 pub use services::pipeline_service::{
+    validate_watch_selection,
+    watch_snapshot,
     PipelineService,
     RunWatch,
+    TriggerDraft,
     WatchedRun,
 };
 pub use services::pipeline_view_service::PipelineViewService;
-pub use services::provider_service::{
-    ProviderLease,
-    ProviderService,
-};
+use services::presenter::Presenter;
+use services::provider_service::ProviderDeps;
+pub use services::provider_service::ProviderService;
 use tokio::sync::watch;
 
 use crate::event::EventBus;
@@ -58,7 +58,6 @@ use crate::infrastructure::{
 
 mod refresh_manager;
 pub use refresh_manager::{
-    RefreshCommand,
     RefreshDispatcher,
     RefreshManager,
     RefreshMode,
@@ -79,6 +78,7 @@ impl Services {
         repository: Arc<Repository>, http_client_manager: Arc<HttpClientManager>,
         metrics_service: Option<Arc<MetricsService>>, event_bus: Arc<dyn EventBus>,
         config_state: Arc<ConfigState>, log_store: Arc<LogStore>,
+        plugin_registry: Arc<PluginRegistry>,
     ) -> Self {
         let (health, health_receivers) = HealthHandle::channel();
         let (dispatcher, commands) = RefreshDispatcher::channel();
@@ -89,14 +89,21 @@ impl Services {
         let view_event_bus = Arc::clone(&event_bus);
 
         let provider_service = Arc::new(ProviderService::new(
-            Arc::clone(&repository),
-            Arc::clone(&http_client_manager),
+            ProviderDeps {
+                repository: Arc::clone(&repository),
+                http_client_manager: Arc::clone(&http_client_manager),
+                config_state: Arc::clone(&config_state),
+                log_store: Arc::clone(&log_store),
+                plugin_registry: Arc::clone(&plugin_registry),
+            },
             Arc::clone(&event_bus),
             Arc::new(FetchScheduler::default()),
             health.clone(),
             dispatcher,
-            Arc::clone(&config_state),
-            Arc::clone(&log_store),
+        ));
+        let presenter = Arc::new(Presenter::new(
+            plugin_registry,
+            Arc::clone(&provider_service),
         ));
         let health_service = Arc::new(ProviderHealthService::new(
             health_receivers,
@@ -111,6 +118,7 @@ impl Services {
             Arc::clone(&provider_service),
             Arc::clone(&repository),
             Arc::clone(&event_bus),
+            Arc::clone(&presenter),
         ));
         let pipeline_service = Arc::new(PipelineService::new(
             repository,
@@ -118,6 +126,7 @@ impl Services {
             metrics_service.clone(),
             event_bus,
             mode_rx,
+            Arc::clone(&presenter),
         ));
         let refresh_manager = Arc::new(RefreshManager::new(
             Arc::clone(&pipeline_service),
@@ -131,6 +140,7 @@ impl Services {
             Arc::clone(&pipeline_service),
             view_config_state,
             view_event_bus,
+            presenter,
         ));
 
         Self {

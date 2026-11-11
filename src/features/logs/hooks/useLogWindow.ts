@@ -1,6 +1,6 @@
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import type { LogDocumentMeta } from '../../../types/logs'
-import type { LineState } from '../lib/lineCache'
+import type { LineState } from '../lib/lineCacheTypes'
 import { measureRenderedRows } from '../lib/logDomMeasurements'
 import { type RowModel, rowAt, rowNearLine, rowOfSection } from '../lib/logRows'
 import { OVERSCAN_ROWS, planWindow } from '../lib/logViewport'
@@ -19,6 +19,20 @@ import { visualLines } from '../lib/wrapEstimate'
 const STEP_EXTRA_PX = 8
 const TARGET_HOLD_MS = 400
 const TARGET_MAX_MS = 6000
+
+const rowAfterModelChange = (previous: RowModel, model: RowModel, row: number): number => {
+  const item = rowAt(previous, row)
+
+  if (!item) {
+    return 0
+  }
+
+  if (item.kind === 'line') {
+    return rowNearLine(model, item.line)
+  }
+
+  return rowOfSection(model, item.section) ?? rowNearLine(model, item.section.start_line)
+}
 
 interface LatestWindowState {
   model: RowModel
@@ -237,12 +251,7 @@ export function useLogWindow(options: LogWindowOptions): LogWindowController {
         if (modelChanged && atEnd && !previous.meta.complete && model.count > 0) {
           restore = { row: model.count - 1, offset: 0, end: true }
         } else if (modelChanged) {
-          const item = rowAt(previous.model, current.row)
-          const row = !item
-            ? 0
-            : item.kind === 'line'
-              ? rowNearLine(model, item.line)
-              : (rowOfSection(model, item.section) ?? rowNearLine(model, item.section.start_line))
+          const row = rowAfterModelChange(previous.model, model, current.row)
 
           restore = { row, offset: current.offset }
         } else {

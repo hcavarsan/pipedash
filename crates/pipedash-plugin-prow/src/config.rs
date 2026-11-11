@@ -1,6 +1,15 @@
 use std::collections::HashMap;
 
 use base64::Engine;
+use pipedash_plugin_api::config::{
+    comma_separated,
+    value,
+};
+use pipedash_plugin_api::http::{
+    parse_http_url,
+    sensitive_header,
+};
+use pipedash_plugin_api::kubernetes;
 use pipedash_plugin_api::{
     PluginError,
     PluginResult,
@@ -13,7 +22,6 @@ use reqwest::header::{
 };
 use reqwest::Url;
 
-pub(crate) const PROVIDER_TYPE: &str = "prow";
 pub(crate) const DEFAULT_DECK_URL: &str = "https://prow.k8s.io";
 pub(crate) const DEFAULT_REDIRECT_URI: &str = "http://localhost:8085/auth/callback";
 pub(crate) const DEFAULT_SCOPES: &str = "openid email profile";
@@ -35,31 +43,14 @@ pub(crate) const KUBECONFIG_PATH: &str = "kubeconfig_path";
 pub(crate) const KUBE_CONTEXT: &str = "kube_context";
 const SELECTED_ITEMS: &str = "selected_items";
 
-const PIPELINE_ID_SEPARATOR: &str = "__";
 const URL_SCHEMES: [&str; 2] = ["https://", "http://"];
 
-pub(crate) fn value<'a>(config: &'a HashMap<String, String>, key: &str) -> Option<&'a str> {
-    config
-        .get(key)
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-}
-
-fn http_url(raw: &str, label: &str) -> PluginResult<Url> {
-    let url = Url::parse(raw.trim_end_matches('/'))
-        .map_err(|e| PluginError::InvalidConfig(format!("Invalid {label}: {e}")))?;
-    if !matches!(url.scheme(), "http" | "https") {
-        return Err(PluginError::InvalidConfig(format!(
-            "The {label} must start with http:// or https://"
-        )));
-    }
-    Ok(url)
-}
-
 pub(crate) fn deck_url(config: &HashMap<String, String>) -> PluginResult<Url> {
-    http_url(
-        value(config, DECK_URL).unwrap_or(DEFAULT_DECK_URL),
-        "Deck URL",
+    parse_http_url(
+        value(config, DECK_URL)
+            .unwrap_or(DEFAULT_DECK_URL)
+            .trim_end_matches('/'),
+        "Deck",
     )
 }
 
@@ -103,12 +94,7 @@ pub(crate) fn auth_header(
         }
         AuthScheme::Cookie => (COOKIE, token.to_string()),
     };
-    let mut header = HeaderValue::from_str(&raw).map_err(|_| {
-        PluginError::InvalidConfig(
-            "The token contains characters that can't be sent in an HTTP header".to_string(),
-        )
-    })?;
-    header.set_sensitive(true);
+    let header = sensitive_header(&raw, "token")?;
     Ok(Some((name, header)))
 }
 
@@ -130,7 +116,7 @@ pub(crate) fn history_source(config: &HashMap<String, String>) -> PluginResult<H
 
 pub(crate) fn storage_url(config: &HashMap<String, String>) -> PluginResult<Option<Url>> {
     value(config, STORAGE_URL)
-        .map(|raw| http_url(raw, "artifact storage URL"))
+        .map(|raw| parse_http_url(raw.trim_end_matches('/'), "artifact storage"))
         .transpose()
 }
 
@@ -168,20 +154,8 @@ pub(crate) struct KubeSettings {
     pub context: Option<String>,
 }
 
-fn expand_path(path: &str) -> String {
-    shellexpand::full(path)
-        .map(|expanded| expanded.into_owned())
-        .unwrap_or_else(|_| path.to_string())
-}
-
 pub(crate) fn kube_settings(config: &HashMap<String, String>) -> Option<KubeSettings> {
-    let separator = if cfg!(windows) { ';' } else { ':' };
-    let paths: Vec<String> = value(config, KUBECONFIG_PATH)?
-        .split(separator)
-        .map(str::trim)
-        .filter(|path| !path.is_empty())
-        .map(expand_path)
-        .collect();
+    let paths = kubernetes::kubeconfig_paths(value(config, KUBECONFIG_PATH)?);
     if paths.is_empty() {
         return None;
     }
@@ -271,14 +245,12 @@ impl Selection {
 
 pub(crate) fn selections(config: &HashMap<String, String>) -> PluginResult<Vec<Selection>> {
     let mut selections: Vec<Selection> = Vec::new();
-    for token in config
-        .get(SELECTED_ITEMS)
-        .map(String::as_str)
-        .unwrap_or_default()
-        .split(',')
-        .map(str::trim)
-        .filter(|token| !token.is_empty())
-    {
+    for token in comma_separated(
+        config
+            .get(SELECTED_ITEMS)
+            .map(String::as_str)
+            .unwrap_or_default(),
+    ) {
         let selection = Selection::parse(token)?;
         if !selections.contains(&selection) {
             selections.push(selection);
@@ -287,99 +259,13 @@ pub(crate) fn selections(config: &HashMap<String, String>) -> PluginResult<Vec<S
     Ok(selections)
 }
 
-pub(crate) fn build_pipeline_id(provider_id: i64, selection: &Selection) -> String {
-    format!(
-        "{PROVIDER_TYPE}{PIPELINE_ID_SEPARATOR}{provider_id}{PIPELINE_ID_SEPARATOR}{}",
-        selection.token()
-    )
-}
-
 pub(crate) fn parse_pipeline_id(id: &str) -> PluginResult<Selection> {
-    let invalid = || {
+    Selection::parse(id).map_err(|_| {
         PluginError::InvalidConfig(format!(
-            "Invalid pipeline ID format: '{id}'. Expected format: 'prow__{{provider_id}}__{{org}}/{{repo}}/{{job}}'"
+            "Invalid pipeline ID format: '{id}'. Expected format: '{{org}}/{{repo}}/{{job}}'"
         ))
-    };
-    let mut parts = id.splitn(3, PIPELINE_ID_SEPARATOR);
-    let (Some(PROVIDER_TYPE), Some(provider_id), Some(token)) =
-        (parts.next(), parts.next(), parts.next())
-    else {
-        return Err(invalid());
-    };
-    provider_id.parse::<i64>().map_err(|_| invalid())?;
-    Selection::parse(token).map_err(|_| invalid())
+    })
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn config(pairs: &[(&str, &str)]) -> HashMap<String, String> {
-        pairs
-            .iter()
-            .map(|(key, value)| (key.to_string(), value.to_string()))
-            .collect()
-    }
-
-    #[test]
-    fn selection_tokens_round_trip_github_gerrit_and_refless_jobs() {
-        let github = Selection::parse("kubernetes/test-infra/ci-x").unwrap();
-        assert_eq!(
-            github.scope,
-            Some(Scope {
-                org: "kubernetes".into(),
-                repo: "test-infra".into()
-            })
-        );
-        assert_eq!(github.job, "ci-x");
-
-        let gerrit =
-            Selection::parse("https://gerrit.example.com/platform/build/pull-build").unwrap();
-        let scope = gerrit.scope.clone().unwrap();
-        assert_eq!(scope.org, "https://gerrit.example.com");
-        assert_eq!(scope.repo, "platform/build");
-        assert_eq!(scope.repository(), "gerrit.example.com/platform/build");
-        assert_eq!(gerrit.job, "pull-build");
-
-        let refless = Selection::parse("ci-noref").unwrap();
-        assert_eq!(refless.scope, None);
-
-        for selection in [github, gerrit, refless] {
-            let id = build_pipeline_id(7, &selection);
-            assert_eq!(parse_pipeline_id(&id).unwrap(), selection);
-            assert_eq!(Selection::parse(&selection.token()).unwrap(), selection);
-        }
-
-        assert!(Selection::parse("a/b").is_err());
-        assert!(Selection::parse("").is_err());
-        assert!(parse_pipeline_id("komodo__1__a/b/c").is_err());
-        assert!(parse_pipeline_id("prow__x__a/b/c").is_err());
-    }
-
-    #[test]
-    fn auth_header_supports_bearer_basic_and_cookie() {
-        let (name, value) = auth_header(&config(&[("token", "abc")])).unwrap().unwrap();
-        assert_eq!(name, AUTHORIZATION);
-        assert_eq!(value, "Bearer abc");
-        assert!(value.is_sensitive());
-
-        let (_, value) = auth_header(&config(&[("token", "user:pass"), ("auth_scheme", "basic")]))
-            .unwrap()
-            .unwrap();
-        assert_eq!(value, "Basic dXNlcjpwYXNz");
-
-        assert!(auth_header(&config(&[("token", "nopass"), ("auth_scheme", "basic")])).is_err());
-
-        let (name, value) = auth_header(&config(&[
-            ("token", "_oauth2_proxy=xyz"),
-            ("auth_scheme", "cookie"),
-        ]))
-        .unwrap()
-        .unwrap();
-        assert_eq!(name, COOKIE);
-        assert_eq!(value, "_oauth2_proxy=xyz");
-
-        assert!(auth_header(&config(&[("token", "  ")])).unwrap().is_none());
-        assert!(auth_header(&config(&[("token", "a"), ("auth_scheme", "digest")])).is_err());
-    }
-}
+mod tests;

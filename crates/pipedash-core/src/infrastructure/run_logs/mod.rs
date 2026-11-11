@@ -16,9 +16,9 @@ pub(crate) mod testing;
 use std::time::Duration;
 
 pub use checkpoint::Base;
+pub use document::cache::BlockCache;
+pub use document::search::search_regex;
 pub use document::{
-    search_regex,
-    BlockCache,
     DocError,
     Document,
 };

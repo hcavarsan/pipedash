@@ -14,6 +14,8 @@ use std::time::{
 };
 
 use anyhow::Context;
+use tokio::sync::watch;
+use tokio::task::JoinHandle;
 use tracing_subscriber::EnvFilter;
 
 use crate::apns::{
@@ -52,11 +54,14 @@ async fn shutdown_signal() {
     }
 }
 
-fn spawn_expiry(store: Store) {
+fn spawn_expiry(store: Store, mut stop: watch::Receiver<bool>) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(EXPIRY_SWEEP);
         loop {
-            tick.tick().await;
+            tokio::select! {
+                _ = tick.tick() => {}
+                _ = stop.changed() => break,
+            }
             let cutoff = unix_now().saturating_sub(INACTIVITY_LIMIT.as_secs());
             match store.delete_inactive_since(cutoff).await {
                 Ok(0) => {}
@@ -64,17 +69,20 @@ fn spawn_expiry(store: Store) {
                 Err(error) => tracing::warn!(%error, "Couldn't remove inactive subscriptions"),
             }
         }
-    });
+    })
 }
 
-fn spawn_limiter_sweep(state: AppState) {
+fn spawn_limiter_sweep(state: AppState, mut stop: watch::Receiver<bool>) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(LIMITER_SWEEP);
         loop {
-            tick.tick().await;
+            tokio::select! {
+                _ = tick.tick() => {}
+                _ = stop.changed() => break,
+            }
             state.prune_limiters(Instant::now());
         }
-    });
+    })
 }
 
 #[tokio::main]
@@ -85,7 +93,9 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let config = Config::from_env()?;
+    let config = tokio::task::spawn_blocking(Config::from_env)
+        .await
+        .context("Config loading was interrupted")??;
     let signer = Signer::new(&config.apns_key, &config.apns_key_id, &config.apns_team_id)
         .context("Invalid APNs key")?;
     let apns = Apns::new(signer, apns::PRODUCTION_URL, apns::SANDBOX_URL)
@@ -93,14 +103,15 @@ async fn main() -> anyhow::Result<()> {
     let store = Store::open(&config.database_path)
         .await
         .context("Couldn't open the database")?;
-    spawn_expiry(store.clone());
+    let (stop, stopped) = watch::channel(false);
+    let expiry = spawn_expiry(store.clone(), stopped.clone());
     let state = AppState::new(
         store,
         Arc::new(apns),
         config.allowed_bundle_ids,
         config.trusted_proxy,
     );
-    spawn_limiter_sweep(state.clone());
+    let sweep = spawn_limiter_sweep(state.clone(), stopped);
     let app = routes::router(state);
 
     let listener = tokio::net::TcpListener::bind(config.bind_addr)
@@ -114,6 +125,9 @@ async fn main() -> anyhow::Result<()> {
     )
     .with_graceful_shutdown(shutdown_signal())
     .await?;
+
+    let _ = stop.send(true);
+    let _ = tokio::join!(expiry, sweep);
 
     Ok(())
 }

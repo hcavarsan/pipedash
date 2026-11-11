@@ -1,4 +1,4 @@
-import { Card, NumberInput, Select, Stack, Switch, Text } from '@mantine/core'
+import { Card, Select, Stack, Switch, Text } from '@mantine/core'
 import type { ReactNode } from 'react'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { SwitchRow } from '../../../components/ios/mobileParts'
@@ -7,6 +7,7 @@ import type { MetricsConfigScope } from '../lib/metricsConfigScope'
 import { RETENTION_PRESETS } from '../lib/metricsRetention'
 import { MetricsPickerRow } from './MetricsPickerRow'
 import classes from './metrics.module.css'
+import { RetentionDaysInput } from './RetentionDaysInput'
 
 export type RetentionMode = 'preset' | 'custom'
 
@@ -18,8 +19,9 @@ interface MetricsCollectionFieldsProps {
   onRetentionChange: (value: string | number) => void
   retentionMode: RetentionMode
   onRetentionModeChange: (mode: RetentionMode) => void
-  retentionError: string | null
   disabled: boolean
+  retentionError: string | undefined
+  onRetentionCommit: () => void
 }
 
 export function MetricsCollectionFields({
@@ -30,8 +32,9 @@ export function MetricsCollectionFields({
   onRetentionChange,
   retentionMode,
   onRetentionModeChange,
-  retentionError,
   disabled,
+  retentionError,
+  onRetentionCommit,
 }: MetricsCollectionFieldsProps): ReactNode {
   const mobileShell = useMobileShell()
   const retentionLocked = !enabled || disabled
@@ -46,6 +49,21 @@ export function MetricsCollectionFields({
   }
 
   if (mobileShell) {
+    const daysInput = (
+      <RetentionDaysInput
+        variant="unstyled"
+        hideControls
+        aria-label="Custom retention (days)"
+        classNames={{ root: classes.numberRoot, input: classes.numberInput }}
+        value={retentionDraft}
+        onChange={onRetentionChange}
+        onBlur={onRetentionCommit}
+        onEnter={onRetentionCommit}
+        error={retentionError}
+        disabled={retentionLocked}
+      />
+    )
+
     return (
       <>
         <IosGroup
@@ -63,7 +81,7 @@ export function MetricsCollectionFields({
           />
         </IosGroup>
 
-        <IosGroup footer={retentionMode === 'custom' ? 'Enter 1 to 90 days.' : 'How long to keep metrics data.'}>
+        <IosGroup footer="How long to keep metrics data.">
           <MetricsPickerRow
             label="Retention period"
             value={retentionMode === 'preset' ? String(retentionDraft) : 'custom'}
@@ -71,28 +89,7 @@ export function MetricsCollectionFields({
             data={RETENTION_PRESETS}
             disabled={retentionLocked}
           />
-          {retentionMode === 'custom' && (
-            <IosRow
-              title="Days"
-              invalid={retentionError !== null}
-              accessory={
-                <NumberInput
-                  variant="unstyled"
-                  hideControls
-                  aria-label="Custom retention (days)"
-                  classNames={{ root: classes.numberRoot, input: classes.numberInput }}
-                  value={retentionDraft}
-                  onChange={onRetentionChange}
-                  error={retentionError}
-                  allowDecimal={false}
-                  clampBehavior="none"
-                  min={1}
-                  max={90}
-                  disabled={retentionLocked}
-                />
-              }
-            />
-          )}
+          {retentionMode === 'custom' && <IosRow title="Days" accessory={daysInput} />}
         </IosGroup>
       </>
     )
@@ -127,16 +124,14 @@ export function MetricsCollectionFields({
         />
 
         {retentionMode === 'custom' && (
-          <NumberInput
+          <RetentionDaysInput
             label="Custom retention (days)"
-            description="Enter 1 to 90 days"
+            description="Enter a number of days"
             value={retentionDraft}
             onChange={onRetentionChange}
+            onBlur={onRetentionCommit}
+            onEnter={onRetentionCommit}
             error={retentionError}
-            allowDecimal={false}
-            clampBehavior="none"
-            min={1}
-            max={90}
             disabled={retentionLocked}
           />
         )}

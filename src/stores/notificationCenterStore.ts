@@ -1,26 +1,8 @@
 import { create } from 'zustand'
-
-import type { HealthLevel } from '../types/domain'
-import type { EventPayloadMap } from '../types/events'
-
-export const MAX_CENTER_NOTIFICATIONS = 50
-
-type AlertLink = EventPayloadMap['provider-health-alert']['link']
-
-export type CenterNotificationTone = 'danger' | 'warning' | 'success'
-
-export interface CenterNotification {
-  key: string
-  at: number
-  read: boolean
-  tone: CenterNotificationTone
-  level: HealthLevel | null
-  title: string
-  body: string
-  providerIds: number[]
-  pipelineId: string | null
-  link: AlertLink
-}
+import { logger } from '../lib/logger'
+import { service } from '../services/service'
+import type { CenterNotification, NotificationCenterChange } from '../types/notifications'
+import { displayErrorNotification } from '../utils/errorDisplay'
 
 export type NotificationInput = Omit<CenterNotification, 'read'>
 
@@ -28,45 +10,75 @@ export type CenterSelection = { type: 'provider'; providerId: number } | { type:
 
 interface NotificationCenterState {
   items: CenterNotification[]
+  revision: number
+  unread: number
   selection: CenterSelection | null
-  push: (input: NotificationInput) => void
-  markAllRead: () => void
-  markRead: (key: string) => void
-  clear: () => void
+  pending: 'markAll' | 'clear' | null
+  push: (input: NotificationInput) => Promise<void>
+  insertMissed: (input: NotificationInput) => Promise<void>
+  markAllRead: () => Promise<void>
+  markRead: (key: string) => Promise<void>
+  clear: () => Promise<void>
   open: (selection: CenterSelection) => void
   close: () => void
 }
 
-export const useNotificationCenterStore = create<NotificationCenterState>()((set) => ({
-  items: [],
-  selection: null,
+let pending: Promise<void> = Promise.resolve()
 
-  push: (input) =>
-    set((state) => ({
-      items: [{ ...input, read: false }, ...state.items.filter((existing) => existing.key !== input.key)].slice(
-        0,
-        MAX_CENTER_NOTIFICATIONS
+export const useNotificationCenterStore = create<NotificationCenterState>()((set, get) => {
+  const update = (change: NotificationCenterChange): Promise<void> => {
+    const run = pending.then(async () => {
+      const { items, revision, unread } = get()
+      const next = await service.updateNotificationCenter({ items, revision, unread }, change)
+
+      set({ items: next.items, revision: next.revision, unread: next.unread })
+    })
+    pending = run.catch(() => undefined)
+
+    return run
+  }
+  const reportFailure = (change: NotificationCenterChange, title: string): Promise<void> =>
+    update(change).catch((error: unknown) => displayErrorNotification(error, title))
+  const runBulk = (kind: 'markAll' | 'clear', change: NotificationCenterChange, title: string): Promise<void> => {
+    if (get().pending !== null) {
+      return Promise.resolve()
+    }
+
+    set({ pending: kind })
+
+    return reportFailure(change, title).finally(() => set({ pending: null }))
+  }
+
+  return {
+    items: [],
+    revision: 0,
+    unread: 0,
+    selection: null,
+    pending: null,
+
+    push: (input) =>
+      update({ type: 'push', notice: { ...input, read: false } }).catch((error: unknown) =>
+        logger.warn('notificationCenterStore', "Couldn't update the notification center", error)
       ),
-    })),
 
-  markAllRead: () =>
-    set((state) =>
-      state.items.every((item) => item.read) ? state : { items: state.items.map((item) => ({ ...item, read: true })) }
-    ),
+    insertMissed: (input) =>
+      update({ type: 'insert_missed', notice: { ...input, read: false } }).catch((error: unknown) =>
+        logger.warn('notificationCenterStore', "Couldn't update the notification center", error)
+      ),
 
-  markRead: (key) =>
-    set((state) => ({ items: state.items.map((item) => (item.key === key ? { ...item, read: true } : item)) })),
+    markAllRead: () => runBulk('markAll', { type: 'read', key: null }, "Couldn't mark notifications as read"),
 
-  clear: () => set({ items: [] }),
+    markRead: (key) => reportFailure({ type: 'read', key }, "Couldn't mark the notification as read"),
 
-  open: (selection) =>
-    set((state) => ({
-      selection,
-      items:
-        selection.type === 'notification'
-          ? state.items.map((item) => (item.key === selection.key ? { ...item, read: true } : item))
-          : state.items,
-    })),
+    clear: () => runBulk('clear', { type: 'clear' }, "Couldn't clear notifications"),
 
-  close: () => set({ selection: null }),
-}))
+    open: (selection) => {
+      set({ selection })
+      if (selection.type === 'notification') {
+        void get().markRead(selection.key)
+      }
+    },
+
+    close: () => set({ selection: null }),
+  }
+})

@@ -1,109 +1,239 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
-import { after, afterEach, test } from 'node:test'
+import { after, afterEach, mock, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { mockIPC } from '@tauri-apps/api/mocks'
+import type { UserEvent } from '@testing-library/user-event'
 import { createElement } from 'react'
 
+import { installRequestSubmitShim } from '../../../testing/requestSubmitShim'
 import { isRecord } from '../../../utils/isRecord'
 
-if (process.env.PIPEDASH_METRICS_CONFIG_TEST !== '1') {
-  test('metrics settings validate retention on the mobile shell in an isolated runtime', () => {
-    const result = spawnSync(process.execPath, ['test', import.meta.filename], {
-      env: { ...process.env, PIPEDASH_METRICS_CONFIG_TEST: '1' },
-      encoding: 'utf8',
-      timeout: 30000,
-    })
-    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
-  })
-} else {
-  GlobalRegistrator.register({ width: 393, height: 852, settings: { navigator: { userAgent: 'iPhone' } } })
-  Object.assign(window, { __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'ios' } })
+GlobalRegistrator.register({ width: 393, height: 852, settings: { navigator: { userAgent: 'iPhone' } } })
+Object.assign(window, { __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'ios' } })
 
-  const saves: Array<Record<string, unknown>> = []
-  mockIPC((command, args) => {
-    switch (command) {
-      case 'get_pipeline_metrics_config':
-        return { pipeline_id: 'p1', enabled: true, retention_days: 30 }
-      case 'get_metrics_storage_stats':
-        return {
-          total_metrics_count: 0,
-          estimated_size_bytes: 0,
-          estimated_size_mb: 0,
-          last_cleanup_at: null,
-          by_pipeline: [],
-        }
-      case 'update_pipeline_metrics_config':
-        assert.ok(isRecord(args))
-        saves.push(args)
+const saves: Array<Record<string, unknown>> = []
+const flushes: Array<Record<string, unknown>> = []
+let saveFailure: string | null = null
+let flushFailure: string | null = null
 
-        return null
-      default:
-        return null
-    }
-  })
+mockIPC((command, args) => {
+  switch (command) {
+    case 'get_pipeline_metrics_config':
+      return { pipeline_id: 'p1', enabled: true, retention_days: 30 }
+    case 'get_metrics_storage_stats':
+      return {
+        total_metrics_count: 0,
+        estimated_size_bytes: 0,
+        estimated_size_mb: 0,
+        last_cleanup_at: null,
+        by_pipeline: [],
+      }
+    case 'update_pipeline_metrics_config':
+      assert.ok(isRecord(args))
+      saves.push(args)
+      if (saveFailure !== null) {
+        throw new Error(saveFailure)
+      }
+      if (Number(args.retentionDays) < 1) {
+        throw new Error('Retention days must be at least 1')
+      }
 
-  const { act, cleanup, render, waitFor, within } = await import('@testing-library/react')
-  const { userEvent } = await import('@testing-library/user-event')
-  const { MantineProvider } = await import('@mantine/core')
-  const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
-  const { MemoryRouter } = await import('react-router-dom')
-  const { iosTheme } = await import('../../../theme/ios')
-  const { MetricsConfigModal } = await import('./MetricsConfigModal')
-  const view = () => within(document.body)
+      return null
+    case 'flush_pipeline_metrics':
+      assert.ok(isRecord(args))
+      flushes.push(args)
+      if (flushFailure !== null) {
+        throw new Error(flushFailure)
+      }
 
-  afterEach(async () => {
-    await act(async () => cleanup())
-    saves.length = 0
-  })
+      return 3
+    default:
+      return null
+  }
+})
 
-  after(async () => {
-    await GlobalRegistrator.unregister()
-  })
+const { act, cleanup, render, waitFor, within } = await import('@testing-library/react')
+const { userEvent } = await import('@testing-library/user-event')
+const { MantineProvider } = await import('@mantine/core')
+const { ModalsProvider } = await import('@mantine/modals')
+const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
+const { MemoryRouter } = await import('react-router-dom')
+const { notifications } = await import('../../../lib/notifications')
+const { iosTheme } = await import('../../../theme/ios')
+const { MetricsConfigModal } = await import('./MetricsConfigModal')
+const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+const view = () => within(document.body)
+const restoreRequestSubmit = installRequestSubmitShim()
 
-  test('a blank or zero custom retention is rejected instead of being replaced by 7 days', async () => {
-    const user = userEvent.setup({ document })
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+afterEach(async () => {
+  await act(async () => cleanup())
+  client.clear()
+  saves.length = 0
+  flushes.length = 0
+  saveFailure = null
+  flushFailure = null
+  mock.restoreAll()
+})
 
-    render(
+after(async () => {
+  restoreRequestSubmit()
+  await GlobalRegistrator.unregister()
+})
+
+function renderModal(handlers: { onClose?: () => void; onConfigChange?: () => void } = {}) {
+  render(
+    createElement(
+      MantineProvider,
+      { theme: iosTheme, env: 'test' },
       createElement(
-        MantineProvider,
-        { theme: iosTheme, env: 'test' },
+        QueryClientProvider,
+        { client },
         createElement(
-          QueryClientProvider,
-          { client },
+          MemoryRouter,
+          null,
           createElement(
-            MemoryRouter,
+            ModalsProvider,
             null,
             createElement(MetricsConfigModal, {
               scope: 'pipeline',
               pipelineId: 'p1',
               pipelineName: 'Build',
               opened: true,
-              onClose: () => undefined,
+              onClose: handlers.onClose ?? (() => undefined),
+              ...(handlers.onConfigChange ? { onConfigChange: handlers.onConfigChange } : {}),
             })
           )
         )
       )
     )
-
-    await user.selectOptions(await view().findByRole('combobox', { name: 'Retention period' }), 'custom')
-    const days = await view().findByRole('textbox', { name: 'Custom retention (days)' })
-    const save = view().getByRole('button', { name: 'Save' })
-
-    await user.clear(days)
-    assert.ok(await view().findByText(/whole number from 1 to 90/i))
-    assert.equal(save.hasAttribute('disabled'), true)
-
-    await user.type(days, '0')
-    assert.ok(await view().findByText(/whole number from 1 to 90/i))
-    assert.equal(saves.length, 0)
-
-    await user.clear(days)
-    await user.type(days, '45')
-    await waitFor(() => assert.equal(save.hasAttribute('disabled'), false))
-    assert.equal(view().queryByText(/whole number from 1 to 90/i), null)
-    assert.equal(saves.length, 0)
-  })
+  )
 }
+
+function errorToastTitles(shown: { mock: { calls: Array<{ arguments: unknown[] }> } }): unknown[] {
+  return shown.mock.calls
+    .map((call) => call.arguments[0])
+    .filter((data) => isRecord(data) && data.color === 'red')
+    .map((data) => (isRecord(data) ? data.title : undefined))
+}
+
+async function disableAndSave(user: UserEvent): Promise<void> {
+  await user.click(await view().findByLabelText('Enable metrics'))
+  await user.click(view().getByRole('button', { name: 'Save' }))
+  await user.click(await view().findByRole('button', { name: 'Disable and delete data' }))
+}
+
+test('a blank custom retention is rejected before saving and a valid one is sent', async () => {
+  const user = userEvent.setup({ document })
+
+  renderModal()
+
+  await user.selectOptions(await view().findByRole('combobox', { name: 'Retention period' }), 'custom')
+  const days = await view().findByRole('textbox', { name: 'Custom retention (days)' })
+  const save = view().getByRole('button', { name: 'Save' })
+
+  await user.clear(days)
+  await user.click(save)
+  assert.ok((await view().findAllByText(/enter a number/i)).length > 0)
+  assert.equal(saves.length, 0)
+
+  await user.type(days, '45')
+  await user.click(save)
+  await waitFor(() =>
+    assert.deepEqual(
+      saves.map((call) => call.retentionDays),
+      [45]
+    )
+  )
+})
+
+test('disabling with a blank retention is blocked before saving or deleting', async () => {
+  const user = userEvent.setup({ document })
+
+  renderModal()
+
+  await user.selectOptions(await view().findByRole('combobox', { name: 'Retention period' }), 'custom')
+  await user.clear(await view().findByRole('textbox', { name: 'Custom retention (days)' }))
+  await user.click(await view().findByLabelText('Enable metrics'))
+  await user.click(view().getByRole('button', { name: 'Save' }))
+
+  assert.ok((await view().findAllByText(/enter a number/i)).length > 0)
+  assert.deepEqual(saves, [])
+  assert.deepEqual(flushes, [])
+})
+
+test('a failed save shows the inline error once and never deletes stored metrics', async () => {
+  const user = userEvent.setup({ document })
+  const shown = mock.method(notifications, 'show')
+  const onClose = mock.fn()
+
+  saveFailure = 'Disk is full'
+  renderModal({ onClose })
+  await disableAndSave(user)
+
+  assert.ok((await view().findAllByText(/disk is full/i)).length > 0)
+  assert.deepEqual(flushes, [])
+  assert.deepEqual(errorToastTitles(shown), [])
+  assert.equal(onClose.mock.callCount(), 0)
+})
+
+test('a failed delete after a saved disable stays open and retries only the delete', async () => {
+  const user = userEvent.setup({ document })
+  const shown = mock.method(notifications, 'show')
+  const onClose = mock.fn()
+  const onConfigChange = mock.fn()
+
+  flushFailure = 'Store is offline'
+  renderModal({ onClose, onConfigChange })
+  await disableAndSave(user)
+
+  assert.ok((await view().findAllByText(/store is offline/i)).length > 0)
+  assert.ok(view().getByText("Couldn't delete metrics"))
+  assert.equal(onClose.mock.callCount(), 0)
+  assert.equal(onConfigChange.mock.callCount(), 1)
+  assert.deepEqual(errorToastTitles(shown), [])
+
+  flushFailure = null
+  await user.click(view().getByRole('button', { name: 'Retry' }))
+
+  await waitFor(() => assert.equal(onClose.mock.callCount(), 1))
+  assert.equal(saves.length, 1)
+  assert.equal(flushes.length, 2)
+})
+
+test('a failed standalone delete shows its error with Retry and keeps the dialog open', async () => {
+  const user = userEvent.setup({ document })
+  const onClose = mock.fn()
+
+  flushFailure = 'Store is offline'
+  renderModal({ onClose })
+  await user.click(await view().findByRole('button', { name: 'Delete pipeline metrics' }))
+  await user.click(await view().findByRole('button', { name: 'Delete metrics' }))
+
+  assert.ok((await view().findAllByText(/store is offline/i)).length > 0)
+  assert.ok(view().getByText("Couldn't delete metrics"))
+
+  flushFailure = null
+  await user.click(view().getByRole('button', { name: 'Retry' }))
+
+  await waitFor(() => assert.equal(view().queryByText("Couldn't delete metrics"), null))
+  assert.equal(flushes.length, 2)
+  assert.equal(saves.length, 0)
+  assert.equal(onClose.mock.callCount(), 0)
+})
+
+test('a rejected save hides its error as soon as the draft changes, without a new submit', async () => {
+  const user = userEvent.setup({ document })
+
+  saveFailure = 'Disk is full'
+  renderModal()
+
+  await user.click(await view().findByRole('button', { name: 'Save' }))
+  assert.ok((await view().findAllByText(/disk is full/i)).length > 0)
+
+  await user.selectOptions(view().getByRole('combobox', { name: 'Retention period' }), 'custom')
+  await user.type(await view().findByRole('textbox', { name: 'Custom retention (days)' }), '5')
+
+  await waitFor(() => assert.equal(view().queryAllByText(/disk is full/i).length, 0))
+  assert.equal(saves.length, 1)
+})

@@ -7,14 +7,24 @@ description = "Plugin API for Pipedash - CI/CD pipeline dashboard"
 repository = "https://github.com/hcavarsan/pipedash"
 license = "GPL-3.0"
 
+[features]
+kubernetes = ["dep:kube", "dep:http", "dep:dirs", "dep:shellexpand"]
+
 [dependencies]
 async-trait.workspace = true
 bytes.workspace = true
 chrono.workspace = true
+dirs = { workspace = true, optional = true }
 futures.workspace = true
+http = { workspace = true, optional = true }
+kube = { workspace = true, optional = true }
 reqwest = { workspace = true, features = ["json"] }
 rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+shellexpand = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["time", "sync"] }
+
+[lints]
+workspace = true

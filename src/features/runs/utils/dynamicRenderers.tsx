@@ -1,8 +1,10 @@
 import { Anchor, Badge, Code, Text } from '@mantine/core'
 import { StatusBadge } from '../../../components/atoms/StatusBadge'
 import { RunDuration } from '../../../components/common/RunDuration'
+import { TABLE_NUMERIC } from '../../../components/common/tableStyles'
 import { STATUS_META } from '../../../theme/status'
-import type { CellRenderer, PipelineRun } from '../../../types/domain'
+import type { PipelineRun } from '../../../types/pipelines'
+import type { CellRenderer } from '../../../types/plugins'
 import { formatDateTime } from '../../../utils/formatDateTime'
 import { formatDuration } from '../../../utils/formatDuration'
 import { isOneOf } from '../../../utils/isOneOf'
@@ -10,7 +12,6 @@ import { isRecord } from '../../../utils/isRecord'
 import { isHttpUrl } from '../../../utils/openExternal'
 import { TableCells } from '../../../utils/tableCells'
 import { typedKeys } from '../../../utils/typedKeys'
-import { useRunActions } from '../components/RunActionsContext'
 
 export type CellValue = string | number | boolean | null | undefined | Record<string, unknown> | unknown[]
 
@@ -49,15 +50,19 @@ const renderDateTime = (value: CellValue): React.ReactNode => {
 const renderDuration = (value: CellValue): React.ReactNode => {
   const duration = typeof value === 'number' ? value : Number.parseInt(String(value), 10)
 
-  return Number.isNaN(duration) ? renderEmpty() : TableCells.text(formatDuration(duration))
+  return Number.isNaN(duration) ? (
+    renderEmpty()
+  ) : (
+    <Text size="sm" style={TABLE_NUMERIC}>
+      {formatDuration(duration)}
+    </Text>
+  )
 }
 
 function LiveRunDurationCell({ run }: { run: PipelineRun }): React.ReactNode {
-  const { pipeline } = useRunActions()
-
   return (
-    <Text size="sm">
-      <RunDuration run={run} typicalSeconds={pipeline?.typical_duration_seconds} />
+    <Text size="sm" style={TABLE_NUMERIC}>
+      <RunDuration run={run} />
     </Text>
   )
 }

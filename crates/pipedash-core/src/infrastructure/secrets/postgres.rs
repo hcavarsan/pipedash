@@ -1,239 +1,129 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
-use aes_gcm::{
-    aead::{
-        Aead,
-        KeyInit,
-    },
-    Aes256Gcm,
-    Nonce,
-};
 use async_trait::async_trait;
 use sqlx::{
     Pool,
     Postgres,
 };
-use tokio::sync::RwLock;
 
 use crate::domain::{
     DomainError,
     DomainResult,
 };
+use crate::infrastructure::secrets::vault::{
+    vault_error,
+    LegacyKdf,
+    TokenRow,
+    Vault,
+    VaultRows,
+    VerifierRow,
+};
+use crate::infrastructure::storage::postgres::{
+    connect,
+    pool_options,
+};
 use crate::infrastructure::TokenStore;
 
-const BACKUP_KDF_SALT: &[u8] = b"pipedash-backup-salt-v1";
-const VAULT_VERIFIER: &str = "pipedash-vault-verifier-v1";
+const LEGACY_KDF: LegacyKdf = LegacyKdf {
+    salt: b"pipedash-postgres-salt-v1",
+    memory_kib: 4096,
+    iterations: 1,
+};
+const SELECT_TOKENS: &str = "SELECT provider_id, nonce, ciphertext FROM encrypted_tokens";
 
 pub struct PostgresTokenStore {
     pool: Pool<Postgres>,
-    encryption_key: [u8; 32],
-    cache: Arc<RwLock<HashMap<i64, String>>>,
+    vault: Vault,
 }
 
 impl PostgresTokenStore {
     pub async fn new(
         connection_string: &str, vault_password: Option<String>,
     ) -> DomainResult<Self> {
-        use sqlx::postgres::PgPoolOptions;
-
-        let pool = PgPoolOptions::new()
-            .max_connections(20)
-            .min_connections(5)
-            .acquire_timeout(std::time::Duration::from_secs(30))
-            .after_connect(|conn, _meta| {
-                Box::pin(async move {
-                    sqlx::query("SET search_path TO public")
-                        .execute(conn)
-                        .await?;
-                    Ok(())
-                })
+        let options = pool_options().after_connect(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query("SET search_path TO public")
+                    .execute(conn)
+                    .await?;
+                Ok(())
             })
-            .connect(connection_string)
-            .await
-            .map_err(|e| {
-                DomainError::DatabaseError(format!("Failed to connect to PostgreSQL: {}", e))
-            })?;
+        });
+        let pool = connect(options, connection_string).await?;
 
-        let password = vault_password.or_else(|| std::env::var("PIPEDASH_VAULT_PASSWORD").ok());
-        let generated_key = password.is_none();
-        let password = password.unwrap_or_else(Self::generate_random_key);
-
-        let encryption_key = Self::derive_encryption_key(&password);
-
-        let store = Self {
-            pool,
-            encryption_key,
-            cache: Arc::new(RwLock::new(HashMap::new())),
+        let rows = PostgresRows(&pool);
+        let vault = match vault_password.or_else(|| std::env::var("PIPEDASH_VAULT_PASSWORD").ok()) {
+            Some(password) => Vault::open(&rows, &password, &LEGACY_KDF).await?,
+            None => Vault::ephemeral(&rows).await?,
         };
-
-        let has_verifier = store.check_verifier().await?;
-        store.load_to_cache().await?;
-        if !has_verifier && !generated_key {
-            store.store_verifier().await?;
-        }
 
         tracing::info!("PostgreSQL token store initialized");
 
-        Ok(store)
+        Ok(Self { pool, vault })
     }
+}
 
-    fn generate_random_key() -> String {
-        use rand::RngExt;
-        const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        let mut rng = rand::rng();
-        (0..64)
-            .map(|_| {
-                let idx = rng.random_range(0..CHARSET.len());
-                CHARSET[idx] as char
-            })
-            .collect()
-    }
+struct PostgresRows<'a>(&'a Pool<Postgres>);
 
-    fn derive_encryption_key(password: &str) -> [u8; 32] {
-        use argon2::{
-            Argon2,
-            ParamsBuilder,
-        };
-
-        let salt = b"pipedash-postgres-salt-v1";
-        let mut output = [0u8; 32];
-
-        let params = ParamsBuilder::new()
-            .m_cost(4096)
-            .t_cost(1)
-            .p_cost(1)
-            .output_len(32)
-            .build()
-            .expect("Invalid Argon2 parameters");
-
-        let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
-
-        argon2
-            .hash_password_into(password.as_bytes(), salt, &mut output)
-            .expect("Failed to derive encryption key");
-
-        output
-    }
-
-    async fn encrypt_token(&self, plaintext: &str) -> DomainResult<(Vec<u8>, Vec<u8>)> {
-        let cipher = Aes256Gcm::new_from_slice(&self.encryption_key)
-            .map_err(|e| DomainError::InternalError(format!("Failed to create cipher: {}", e)))?;
-
-        let nonce_bytes: [u8; 12] = rand::random();
-        let nonce = Nonce::from(nonce_bytes);
-
-        let ciphertext = cipher
-            .encrypt(&nonce, plaintext.as_bytes())
-            .map_err(|e| DomainError::InternalError(format!("Encryption failed: {}", e)))?;
-
-        Ok((nonce_bytes.to_vec(), ciphertext))
-    }
-
-    async fn decrypt_token(&self, nonce: &[u8], ciphertext: &[u8]) -> DomainResult<String> {
-        if nonce.len() != 12 {
-            return Err(DomainError::InvalidConfig("Invalid nonce length".into()));
-        }
-
-        let cipher = Aes256Gcm::new_from_slice(&self.encryption_key)
-            .map_err(|e| DomainError::InternalError(format!("Failed to create cipher: {}", e)))?;
-
-        let nonce_array: [u8; 12] = nonce
-            .try_into()
-            .map_err(|_| DomainError::InvalidConfig("Invalid nonce".into()))?;
-        let nonce = Nonce::from(nonce_array);
-
-        let plaintext = cipher
-            .decrypt(&nonce, ciphertext)
-            .map_err(|_| DomainError::AuthenticationFailed("Decryption failed".into()))?;
-
-        String::from_utf8(plaintext)
-            .map_err(|e| DomainError::DatabaseError(format!("Invalid UTF-8: {}", e)))
-    }
-
-    async fn check_verifier(&self) -> DomainResult<bool> {
-        let row = sqlx::query_as::<_, (Vec<u8>, Vec<u8>)>(
-            "SELECT nonce, ciphertext FROM vault_verifier WHERE id = 1",
-        )
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| DomainError::DatabaseError(format!("Failed to read vault verifier: {}", e)))?;
-
-        let Some((nonce, ciphertext)) = row else {
-            return Ok(false);
-        };
-
-        self.decrypt_token(&nonce, &ciphertext)
+#[async_trait]
+impl VaultRows for PostgresRows<'_> {
+    async fn verifier(&self) -> DomainResult<Option<VerifierRow>> {
+        sqlx::query_as("SELECT nonce, ciphertext, kdf_salt FROM vault_verifier WHERE id = 1")
+            .fetch_optional(self.0)
             .await
-            .map_err(|_| DomainError::AuthenticationFailed("Wrong vault password".into()))?;
+            .map_err(vault_error)
+    }
+
+    async fn tokens(&self) -> DomainResult<Vec<TokenRow>> {
+        sqlx::query_as(SELECT_TOKENS)
+            .fetch_all(self.0)
+            .await
+            .map_err(vault_error)
+    }
+
+    async fn rekey(&self, from: &Vault, to: &Vault, verifier: VerifierRow) -> DomainResult<bool> {
+        let mut tx = self.0.begin().await.map_err(vault_error)?;
+        sqlx::query("LOCK TABLE encrypted_tokens IN EXCLUSIVE MODE")
+            .execute(&mut *tx)
+            .await
+            .map_err(vault_error)?;
+        let claimed = sqlx::query(include_str!(
+            "../../../sql/secrets/upsert_verifier_postgres.sql"
+        ))
+        .bind(&verifier.nonce)
+        .bind(&verifier.ciphertext)
+        .bind(&verifier.kdf_salt)
+        .execute(&mut *tx)
+        .await
+        .map_err(vault_error)?
+        .rows_affected();
+        if claimed == 0 {
+            return Ok(false);
+        }
+
+        let rows = sqlx::query_as(SELECT_TOKENS)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(vault_error)?;
+        for (provider_id, nonce, ciphertext) in to.reseal(from, rows)? {
+            sqlx::query(
+                "UPDATE encrypted_tokens SET nonce = $1, ciphertext = $2 WHERE provider_id = $3",
+            )
+            .bind(&nonce)
+            .bind(&ciphertext)
+            .bind(provider_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(vault_error)?;
+        }
+        tx.commit().await.map_err(vault_error)?;
         Ok(true)
-    }
-
-    async fn store_verifier(&self) -> DomainResult<()> {
-        let (nonce, ciphertext) = self.encrypt_token(VAULT_VERIFIER).await?;
-
-        sqlx::query(
-            "INSERT INTO vault_verifier (id, nonce, ciphertext) VALUES (1, $1, $2)
-             ON CONFLICT (id) DO NOTHING",
-        )
-        .bind(&nonce)
-        .bind(&ciphertext)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| {
-            DomainError::DatabaseError(format!("Failed to store vault verifier: {}", e))
-        })?;
-
-        self.check_verifier().await?;
-        Ok(())
-    }
-
-    async fn load_to_cache(&self) -> DomainResult<()> {
-        let rows = sqlx::query_as::<_, (i64, Vec<u8>, Vec<u8>)>(
-            "SELECT provider_id, nonce, ciphertext FROM encrypted_tokens",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| DomainError::DatabaseError(format!("Failed to load tokens: {}", e)))?;
-
-        let mut cache = self.cache.write().await;
-        cache.clear();
-
-        let mut decryption_errors = Vec::new();
-
-        for (provider_id, nonce, ciphertext) in rows {
-            match self.decrypt_token(&nonce, &ciphertext).await {
-                Ok(token) => {
-                    cache.insert(provider_id, token);
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        provider_id = provider_id,
-                        error = %e,
-                        "Failed to decrypt token for provider"
-                    );
-                    decryption_errors.push((provider_id, e));
-                }
-            }
-        }
-
-        if !decryption_errors.is_empty() {
-            let failed_count = decryption_errors.len();
-            return Err(DomainError::AuthenticationFailed(format!(
-                "Failed to decrypt {} token(s) - wrong vault password",
-                failed_count
-            )));
-        }
-
-        tracing::debug!(count = cache.len(), "Loaded tokens to cache");
-        Ok(())
     }
 }
 
 #[async_trait]
 impl TokenStore for PostgresTokenStore {
     async fn store_token(&self, provider_id: i64, token: &str) -> DomainResult<()> {
-        let (nonce, ciphertext) = self.encrypt_token(token).await?;
+        let (nonce, ciphertext) = self.vault.encrypt(token)?;
 
         sqlx::query(
             "INSERT INTO encrypted_tokens (provider_id, nonce, ciphertext, created_at, updated_at)
@@ -248,39 +138,22 @@ impl TokenStore for PostgresTokenStore {
         .await
         .map_err(|e| DomainError::DatabaseError(format!("Failed to store token: {}", e)))?;
 
-        let mut cache = self.cache.write().await;
-        cache.insert(provider_id, token.to_string());
-
+        self.vault.remember(provider_id, token.to_string()).await;
         Ok(())
     }
 
     async fn get_token(&self, provider_id: i64) -> DomainResult<String> {
-        {
-            let cache = self.cache.read().await;
-            if let Some(token) = cache.get(&provider_id) {
-                return Ok(token.clone());
-            }
-        }
-
-        let row = sqlx::query_as::<_, (Vec<u8>, Vec<u8>)>(
-            "SELECT nonce, ciphertext FROM encrypted_tokens WHERE provider_id = $1",
-        )
-        .bind(provider_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| DomainError::DatabaseError(format!("Failed to get token: {}", e)))?
-        .ok_or_else(|| {
-            DomainError::NotFound(format!("Token not found for provider {}", provider_id))
-        })?;
-
-        let token = self.decrypt_token(&row.0, &row.1).await?;
-
-        {
-            let mut cache = self.cache.write().await;
-            cache.insert(provider_id, token.clone());
-        }
-
-        Ok(token)
+        self.vault
+            .get_or_load(provider_id, async {
+                sqlx::query_as::<_, (Vec<u8>, Vec<u8>)>(
+                    "SELECT nonce, ciphertext FROM encrypted_tokens WHERE provider_id = $1",
+                )
+                .bind(provider_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| DomainError::DatabaseError(format!("Failed to get token: {}", e)))
+            })
+            .await
     }
 
     async fn delete_token(&self, provider_id: i64) -> DomainResult<()> {
@@ -290,246 +163,25 @@ impl TokenStore for PostgresTokenStore {
             .await
             .map_err(|e| DomainError::DatabaseError(format!("Failed to delete token: {}", e)))?;
 
-        let mut cache = self.cache.write().await;
-        cache.remove(&provider_id);
-
+        self.vault.forget(provider_id).await;
         Ok(())
     }
 
     async fn get_all_tokens(&self) -> DomainResult<HashMap<i64, String>> {
-        let cache = self.cache.read().await;
-        Ok(cache.clone())
+        Ok(self.vault.all().await)
     }
 
     async fn export_encrypted(&self, password: &str) -> DomainResult<Vec<u8>> {
-        let tokens = self.get_all_tokens().await?;
-        let json = serde_json::to_vec(&tokens).map_err(|e| {
-            DomainError::DatabaseError(format!("Failed to serialize tokens: {}", e))
-        })?;
-
-        let backup_key = Self::derive_backup_key(password);
-        let cipher = Aes256Gcm::new_from_slice(&backup_key)
-            .map_err(|e| DomainError::InternalError(format!("Failed to create cipher: {}", e)))?;
-
-        let nonce_bytes: [u8; 12] = rand::random();
-        let nonce = Nonce::from(nonce_bytes);
-
-        let ciphertext = cipher
-            .encrypt(&nonce, json.as_ref())
-            .map_err(|e| DomainError::InternalError(format!("Encryption failed: {}", e)))?;
-
-        let mut result = nonce_bytes.to_vec();
-        result.extend(ciphertext);
-
-        Ok(result)
+        self.vault.export(password).await
     }
 
     async fn import_encrypted(&self, data: &[u8], password: &str) -> DomainResult<()> {
-        if data.len() < 12 {
-            return Err(DomainError::InvalidConfig("Invalid backup data".into()));
-        }
-
-        let nonce_bytes: [u8; 12] = data[..12]
-            .try_into()
-            .map_err(|_| DomainError::InvalidConfig("Invalid nonce".into()))?;
-        let ciphertext = &data[12..];
-
-        let backup_key = Self::derive_backup_key(password);
-        let cipher = Aes256Gcm::new_from_slice(&backup_key)
-            .map_err(|e| DomainError::InternalError(format!("Failed to create cipher: {}", e)))?;
-
-        let nonce = Nonce::from(nonce_bytes);
-
-        let plaintext = cipher.decrypt(&nonce, ciphertext).map_err(|_| {
-            DomainError::AuthenticationFailed("Decryption failed (wrong password?)".into())
-        })?;
-
-        let tokens: HashMap<i64, String> = serde_json::from_slice(&plaintext)
-            .map_err(|e| DomainError::DatabaseError(format!("Failed to parse tokens: {}", e)))?;
-
-        for (provider_id, token) in tokens {
+        for (provider_id, token) in self.vault.import(data, password).await? {
             self.store_token(provider_id, &token).await?;
         }
-
         Ok(())
     }
 }
 
-impl PostgresTokenStore {
-    fn derive_backup_key(password: &str) -> [u8; 32] {
-        use argon2::{
-            Argon2,
-            ParamsBuilder,
-        };
-
-        let mut output = [0u8; 32];
-
-        let params = ParamsBuilder::new()
-            .m_cost(4096)
-            .t_cost(1)
-            .p_cost(1)
-            .output_len(32)
-            .build()
-            .expect("Invalid Argon2 parameters");
-
-        let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
-
-        argon2
-            .hash_password_into(password.as_bytes(), BACKUP_KDF_SALT, &mut output)
-            .expect("Failed to derive backup key");
-
-        output
-    }
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const TEST_LOCK_ID: i64 = 0x7069_7065_6461_7368;
-
-    fn test_database_url() -> String {
-        std::env::var("TEST_DATABASE_URL")
-            .expect("TEST_DATABASE_URL must be set to run the PostgreSQL tests")
-    }
-
-    async fn create_test_pool() -> Pool<Postgres> {
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .connect(&test_database_url())
-            .await
-            .expect("Failed to connect to test database");
-
-        sqlx::query("SELECT pg_advisory_lock($1)")
-            .bind(TEST_LOCK_ID)
-            .execute(&pool)
-            .await
-            .expect("Failed to take test lock");
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS encrypted_tokens (
-                provider_id BIGINT PRIMARY KEY,
-                nonce BYTEA NOT NULL,
-                ciphertext BYTEA NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )",
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to create test table");
-
-        sqlx::query(include_str!(
-            "../../../migrations/postgres/20261020000002_vault_verifier.sql"
-        ))
-        .execute(&pool)
-        .await
-        .expect("Failed to create vault verifier table");
-
-        sqlx::query("TRUNCATE TABLE encrypted_tokens, vault_verifier")
-            .execute(&pool)
-            .await
-            .expect("Failed to truncate test tables");
-
-        pool
-    }
-
-    #[tokio::test]
-    #[ignore = "requires TEST_DATABASE_URL"]
-    async fn test_postgres_basic() {
-        let pool = create_test_pool().await;
-        let connection_string = test_database_url();
-
-        let store = PostgresTokenStore::new(&connection_string, Some("test-password".to_string()))
-            .await
-            .unwrap();
-
-        store.store_token(1, "test-token").await.unwrap();
-        let token = store.get_token(1).await.unwrap();
-        assert_eq!(token, "test-token");
-
-        pool.close().await;
-    }
-
-    #[tokio::test]
-    #[ignore = "requires TEST_DATABASE_URL"]
-    async fn test_postgres_persistence() {
-        let pool = create_test_pool().await;
-        let connection_string = test_database_url();
-
-        {
-            let store =
-                PostgresTokenStore::new(&connection_string, Some("test-password".to_string()))
-                    .await
-                    .unwrap();
-            store.store_token(1, "persistent-token").await.unwrap();
-        }
-
-        {
-            let store2 =
-                PostgresTokenStore::new(&connection_string, Some("test-password".to_string()))
-                    .await
-                    .unwrap();
-            let token = store2.get_token(1).await.unwrap();
-            assert_eq!(token, "persistent-token");
-        }
-
-        pool.close().await;
-    }
-
-    #[tokio::test]
-    #[ignore = "requires TEST_DATABASE_URL"]
-    async fn test_postgres_export_import() {
-        let pool = create_test_pool().await;
-        let connection_string = test_database_url();
-
-        let store = PostgresTokenStore::new(&connection_string, Some("test-password".to_string()))
-            .await
-            .unwrap();
-        store.store_token(1, "export-token").await.unwrap();
-        store.store_token(2, "export-token-2").await.unwrap();
-
-        let encrypted = store.export_encrypted("backup-password").await.unwrap();
-
-        sqlx::query("TRUNCATE TABLE encrypted_tokens, vault_verifier")
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let store2 = PostgresTokenStore::new(&connection_string, Some("test-password".to_string()))
-            .await
-            .unwrap();
-
-        store2
-            .import_encrypted(&encrypted, "backup-password")
-            .await
-            .unwrap();
-
-        assert_eq!(store2.get_token(1).await.unwrap(), "export-token");
-        assert_eq!(store2.get_token(2).await.unwrap(), "export-token-2");
-
-        pool.close().await;
-    }
-
-    #[tokio::test]
-    #[ignore = "requires TEST_DATABASE_URL"]
-    async fn test_postgres_empty_vault_rejects_another_password() {
-        let pool = create_test_pool().await;
-        let connection_string = test_database_url();
-
-        PostgresTokenStore::new(&connection_string, Some("operator-password".to_string()))
-            .await
-            .unwrap();
-
-        let result =
-            PostgresTokenStore::new(&connection_string, Some("attacker-password".to_string()))
-                .await;
-
-        assert!(matches!(result, Err(DomainError::AuthenticationFailed(_))));
-        PostgresTokenStore::new(&connection_string, Some("operator-password".to_string()))
-            .await
-            .unwrap();
-
-        pool.close().await;
-    }
-}
+mod tests;

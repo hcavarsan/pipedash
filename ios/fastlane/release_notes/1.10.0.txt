@@ -1,0 +1,6 @@
+- Choose alert types for each device in Settings > Notifications, and mute providers or individual pipelines.
+- Use Watch all runs or Notify when this run finishes from a pipeline menu.
+- Use Force cancel for a GitHub run that ignores normal cancellation, after confirming the run.
+- Get an alert when a failed pipeline passes again with Recoveries turned on.
+- Run history updates when another connected client finds new runs.
+- Pairing links open the connection screen during setup and after you lock Pipedash.

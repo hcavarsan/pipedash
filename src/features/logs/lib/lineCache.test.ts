@@ -4,7 +4,7 @@ import { after, type TestContext, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 
 import type { LogLinesPage } from '../../../types/logs'
-import type { DocRef, LineState } from './lineCache'
+import type { DocRef, LineState } from './lineCacheTypes'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
@@ -227,8 +227,8 @@ test('an empty page before the range is read leaves the lines retryable', async 
   reader.calls[0]?.release()
   await waitFor(() => assert.equal(cache.line(doc(), 5), 'error'))
 
-  context.mock.timers.tick(5000)
-  assert.equal(reader.calls.length, 2)
+  cache.retry(doc())
+  await waitFor(() => assert.equal(reader.calls.length, 2))
   reader.calls[1]?.release()
   await waitFor(() => assert.equal(textOf(cache.line(doc(), 5)), 'line 5'))
   cache.clear()
@@ -255,29 +255,50 @@ test('reading a line does not change which lines are evicted first', async (cont
   assert.equal(typeof cache.line(doc(3), 2), 'object')
 })
 
-test('a failed request is retried after 5 s while still needed, and not once released', async (context) => {
+test('a transient failure is retried once after 1 s, then stays failed until retried explicitly', async (context) => {
   context.mock.timers.enable({ apis: ['setTimeout'] })
   const reader = gatedReader(context)
   const cache = new LogLineCache()
   const owner = Symbol('a')
+  const offline = () => Object.assign(new Error('offline'), { code: 'NETWORK_ERROR' })
 
   cache.need(owner, doc(), [5])
   await waitFor(() => assert.equal(reader.calls.length, 1))
-  reader.calls[0]?.fail(new Error('boom'))
-  await waitFor(() => assert.equal(cache.line(doc(), 5), 'error'))
+  reader.calls[0]?.fail(offline())
+  await flush()
+  assert.equal(cache.line(doc(), 5), 'loading')
 
-  context.mock.timers.tick(4999)
+  context.mock.timers.tick(999)
   assert.equal(reader.calls.length, 1)
   context.mock.timers.tick(1)
   assert.equal(reader.calls.length, 2)
-  assert.equal(cache.line(doc(), 5), 'loading')
 
-  reader.calls[1]?.fail(new Error('boom'))
+  reader.calls[1]?.fail(offline())
   await waitFor(() => assert.equal(cache.line(doc(), 5), 'error'))
-  cache.release(owner)
   context.mock.timers.tick(5000)
   await flush()
   assert.equal(reader.calls.length, 2)
+
+  cache.retry(doc())
+  await waitFor(() => assert.equal(reader.calls.length, 3))
+  assert.equal(cache.line(doc(), 5), 'loading')
+  cache.release(owner)
+  cache.clear()
+})
+
+test('a non-transient failure is not retried automatically', async (context) => {
+  context.mock.timers.enable({ apis: ['setTimeout'] })
+  const reader = gatedReader(context)
+  const cache = new LogLineCache()
+
+  cache.need(Symbol('a'), doc(), [5])
+  await waitFor(() => assert.equal(reader.calls.length, 1))
+  reader.calls[0]?.fail(new Error('boom'))
+  await waitFor(() => assert.equal(cache.line(doc(), 5), 'error'))
+  context.mock.timers.tick(5000)
+  await flush()
+  assert.equal(reader.calls.length, 1)
+  cache.clear()
 })
 
 test('a NOT_FOUND error notifies onRevisionGone and other codes do not', async (context) => {
@@ -292,7 +313,8 @@ test('a NOT_FOUND error notifies onRevisionGone and other codes do not', async (
   reader.calls[0]?.fail(Object.assign(new Error('This log revision is no longer available'), { code: 'INTERNAL' }))
   await waitFor(() => assert.equal(cache.line(doc(), 0), 'error'))
   assert.deepEqual(gone, [])
-  context.mock.timers.tick(5000)
+  cache.retry(doc())
+  await waitFor(() => assert.equal(reader.calls.length, 2))
   assert.equal(reader.calls.length, 2)
   reader.calls[1]?.fail(Object.assign(new Error('x'), { code: 'NOT_FOUND' }))
   await waitFor(() => assert.deepEqual(gone, [doc()]))

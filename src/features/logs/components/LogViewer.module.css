@@ -251,7 +251,7 @@
   gap: 0.75ch;
   width: 100%;
   box-sizing: border-box;
-  padding: 4px 1ch;
+  padding: var(--mantine-spacing-3xs) 1ch;
   border: 0;
   background: transparent;
   color: var(--mantine-color-text);
@@ -311,14 +311,14 @@
 }
 
 .match {
-  border-radius: 3px;
+  border-radius: var(--mantine-radius-sm);
   background: color-mix(in srgb, var(--mantine-color-text) 22%, transparent);
 }
 
 .text .matchCurrent {
-  border-radius: 3px;
+  border-radius: var(--mantine-radius-sm);
   background: var(--mantine-primary-color-filled);
-  color: var(--mantine-primary-color-contrast, #fff);
+  color: var(--mantine-primary-color-contrast);
 }
 
 .bold {
@@ -456,19 +456,18 @@
   flex: none;
   align-items: center;
   justify-content: space-between;
-  gap: 2px;
-  margin: 0 16px 8px;
-  padding: 5px;
+  gap: var(--mantine-spacing-4xs);
+  margin: 0 var(--mantine-spacing-md) var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-3xs);
   border: 1px solid color-mix(in srgb, var(--ios-label) 14%, transparent);
   border-radius: 32px;
   background: var(--ios-material-bar);
   -webkit-backdrop-filter: var(--ios-material-filter);
   backdrop-filter: var(--ios-material-filter);
   box-shadow:
-    0 8px 28px rgb(0 0 0 / 0.28),
+    var(--mantine-shadow-md),
     inset 0 0 0 1px var(--ios-material-edge);
-  /* Bar chrome follows Dynamic Type only up to the chrome cap, like the tab bar, so it never overflows. */
-  font-size: calc(17px * var(--ios-chrome-scale, 1));
+  font-size: var(--ios-fs-body);
 }
 
 :global(html[data-increase-contrast]) .phoneBar {
@@ -478,7 +477,7 @@
 .phoneBarGroup {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--mantine-spacing-4xs);
   min-width: 0;
 }
 
@@ -492,8 +491,8 @@
   padding: 0.15em 0.25em 0.15em 0.4em;
   overflow: hidden;
   color: var(--ios-secondary-label);
-  font-size: 0.88em;
-  line-height: 1.33;
+  font-size: var(--ios-fs-footnote);
+  line-height: var(--ios-lh-footnote);
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -576,29 +575,9 @@
   line-height: var(--ios-lh-footnote);
 }
 
-.liveDot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--mantine-color-green-filled);
-  animation: live-pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes live-pulse {
-  50% {
-    opacity: 0.35;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .liveDot {
-    animation: none;
-  }
-}
-
 .jumpLatest {
   position: absolute;
-  bottom: 12px;
+  bottom: var(--mantine-spacing-sm);
   left: 50%;
   z-index: 4;
   display: inline-flex;

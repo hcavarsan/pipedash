@@ -1,9 +1,8 @@
-import { Button, Group, Text } from '@mantine/core'
+import { Text } from '@mantine/core'
 import type { ReactNode } from 'react'
 
-import type { PipelineLabels } from '../../../../utils/pipelinePresentation'
-
-import type { Step } from './types'
+import { DesktopFooter, type WizardAction } from '../../../../components/forms/WizardFooter'
+import type { ProviderSubmitIntent, Step } from './types'
 
 interface ProviderWizardFooterProps {
   step: Step
@@ -11,17 +10,17 @@ interface ProviderWizardFooterProps {
   editMode: boolean
   saveOnly: boolean
   selectionNeedsRefresh: boolean
-  isMobile: boolean
   providerSelected: boolean
   providerNameValid: boolean
   selectedCount: number
+  selectionRequired: boolean
   selectingAll: boolean
-  labels: PipelineLabels
+  items: string
   permissionRow: ReactNode
-  isPending: boolean
+  busy: boolean
+  pendingIntent: ProviderSubmitIntent | null
   onBack: () => void
   onCancel: () => void
-  onSaveCredentials: () => void
   onSaveSelection: () => void
 }
 
@@ -31,117 +30,83 @@ export function ProviderWizardFooter({
   editMode,
   saveOnly,
   selectionNeedsRefresh,
-  isMobile,
   providerSelected,
   providerNameValid,
   selectedCount,
+  selectionRequired,
   selectingAll,
-  labels,
+  items,
   permissionRow,
-  isPending,
+  busy,
+  pendingIntent,
   onBack,
   onCancel,
-  onSaveCredentials,
   onSaveSelection,
 }: ProviderWizardFooterProps): ReactNode {
-  const cancel = (
-    <Button variant="default" size="sm" onClick={onCancel} disabled={isPending}>
-      Cancel
-    </Button>
-  )
-  const back = (
-    <Button variant="default" size="sm" onClick={onBack} disabled={isPending}>
-      Back
-    </Button>
-  )
   const detailsBlocked = !providerSelected || !providerNameValid
+  const submitAction = (intent: ProviderSubmitIntent, label: string, disabled: boolean): WizardAction => ({
+    label,
+    submit: true,
+    intent,
+    disabled,
+    loading: pendingIntent === intent,
+  })
 
-  if (step === 'provider') {
+  if (step === 'pipelines') {
     return (
-      <Group justify="flex-end" gap="xs">
-        {cancel}
-        {editMode && (
-          <Button size="sm" onClick={onSaveCredentials} loading={isPending} disabled={detailsBlocked || !saveOnly}>
-            Save
-          </Button>
-        )}
-        <Button
-          variant={editMode ? 'default' : 'filled'}
-          size="sm"
-          type="submit"
-          form={formId}
-          name="intent"
-          value="continue"
-          loading={isPending && !editMode}
-          disabled={detailsBlocked || isPending}
-        >
-          {isMobile ? 'Next' : 'Next: credentials'}
-        </Button>
-      </Group>
-    )
-  }
-
-  if (step === 'credentials') {
-    return (
-      <Group justify="space-between" gap="xs">
-        <Group gap="xs">
-          {back}
-          {permissionRow}
-          {selectionNeedsRefresh && (
-            <Text size="xs" c="dimmed">
-              Select {labels.items} again after changing connection scope.
+      <DesktopFooter
+        primary={{
+          label: editMode ? 'Update provider' : 'Add provider',
+          onClick: onSaveSelection,
+          disabled: (selectionRequired && selectedCount === 0) || selectingAll,
+          loading: pendingIntent === 'save-selection',
+        }}
+        leading={
+          selectedCount > 0 && (
+            <Text size="sm" c="dimmed">
+              {selectedCount} selected
             </Text>
-          )}
-        </Group>
-
-        <Group gap="xs">
-          {cancel}
-          {editMode && (
-            <Button
-              size="sm"
-              type={saveOnly ? 'submit' : 'button'}
-              form={formId}
-              name="intent"
-              value="save-credentials"
-              loading={isPending}
-              disabled={detailsBlocked || selectionNeedsRefresh}
-            >
-              Save
-            </Button>
-          )}
-          <Button
-            variant={editMode ? 'default' : 'filled'}
-            size="sm"
-            type="submit"
-            form={formId}
-            name="intent"
-            value="continue"
-            loading={isPending && !editMode}
-            disabled={detailsBlocked || isPending}
-          >
-            {isMobile ? 'Next' : `Next: select ${labels.items}`}
-          </Button>
-        </Group>
-      </Group>
+          )
+        }
+        formId={formId}
+        busy={busy}
+        onCancel={onCancel}
+        onBack={onBack}
+        fullWidth={false}
+      />
     )
   }
+
+  const onCredentials = step === 'credentials'
+  const leading = onCredentials && (
+    <>
+      {permissionRow}
+      {selectionNeedsRefresh && (
+        <Text size="xs" c="dimmed">
+          Select {items} again after changing connection scope.
+        </Text>
+      )}
+    </>
+  )
 
   return (
-    <Group justify="space-between">
-      <Group gap="sm">
-        {back}
-        {selectedCount > 0 && (
-          <Text size="sm" c="dimmed">
-            {selectedCount} selected
-          </Text>
-        )}
-      </Group>
-      <Group gap="xs">
-        {cancel}
-        <Button size="sm" onClick={onSaveSelection} loading={isPending} disabled={selectedCount === 0 || selectingAll}>
-          {editMode ? (isMobile ? 'Update' : 'Update provider') : isMobile ? 'Add' : 'Add provider'}
-        </Button>
-      </Group>
-    </Group>
+    <DesktopFooter
+      primary={submitAction('continue', 'Continue', detailsBlocked)}
+      secondary={
+        editMode
+          ? submitAction(
+              'save-credentials',
+              'Save',
+              detailsBlocked || (onCredentials ? selectionNeedsRefresh : !saveOnly)
+            )
+          : undefined
+      }
+      leading={leading}
+      formId={formId}
+      busy={busy}
+      onCancel={onCancel}
+      onBack={onCredentials ? onBack : undefined}
+      fullWidth={false}
+    />
   )
 }

@@ -1,5 +1,4 @@
 pub mod analysis;
-pub mod encrypted_config;
 pub mod interpolation;
 pub mod loader;
 pub mod manager;
@@ -14,21 +13,14 @@ pub use analysis::{
     analyze_config,
     ConfigAnalysis,
 };
-pub use encrypted_config::{
-    is_encrypted_format,
-    EncryptedValue,
-};
-pub use interpolation::interpolate;
 pub use loader::{
     ConfigLoader,
     Platform,
     SetupStatus,
 };
 pub use manager::StorageManager;
-pub use migration::ConfigMigrator;
 pub use schema::{
     ConfigKey,
-    GeneralConfig,
     GeneralSettingsUpdate,
     PipedashConfig,
     PostgresConfig,
@@ -36,18 +28,15 @@ pub use schema::{
     ServerConfig,
     StorageBackend,
     StorageConfig,
-    ViewFileConfig,
+    OFFICIAL_PUSH_RELAY_URL,
 };
 pub use state::{
-    ConfigChangeEvent,
     ConfigState,
+    RemovedProvider,
 };
-pub use sync::{
-    ProviderSyncService,
-    SyncResult,
-};
+pub use sync::SyncResult;
 pub use token_ref::{
     TokenRefError,
     TokenReference,
 };
-pub use validation::ValidationResult;
+pub use validation::ConfigValidator;

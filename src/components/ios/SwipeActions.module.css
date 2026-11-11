@@ -37,7 +37,7 @@
   padding: 0 0.5em;
   border: 0;
   background: var(--ios-secondary-label);
-  color: #fff;
+  color: var(--ios-on-tint);
   font: inherit;
   font-size: var(--ios-fs-subheadline);
   line-height: var(--ios-lh-subheadline);
@@ -75,6 +75,11 @@
 .action:active,
 .primary:active {
   filter: brightness(0.85);
+}
+
+.action:disabled,
+.primary:disabled {
+  filter: saturate(0.4) brightness(0.8);
 }
 
 .underlay[data-tone="blue"] {

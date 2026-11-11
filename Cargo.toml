@@ -1,32 +1,15 @@
 [workspace]
 resolver = "2"
-members = [
-  "crates/pipedash-core",
-  "crates/pipedash-desktop",
-  "crates/pipedash-plugin-actions",
-  "crates/pipedash-plugin-api",
-  "crates/pipedash-plugin-argocd",
-  "crates/pipedash-plugin-azure-devops",
-  "crates/pipedash-plugin-bitbucket",
-  "crates/pipedash-plugin-buildkite",
-  "crates/pipedash-plugin-fluxcd",
-  "crates/pipedash-plugin-github",
-  "crates/pipedash-plugin-gitea",
-  "crates/pipedash-plugin-gitlab",
-  "crates/pipedash-plugin-jenkins",
-  "crates/pipedash-plugin-komodo",
-  "crates/pipedash-plugin-prow",
-  "crates/pipedash-plugin-tekton",
-  "crates/pipedash-push-relay",
-  "crates/pipedash-web",
-  "crates/tauri-plugin-pipedash-native",
-  "crates/tauri-plugin-pipedash-push",
-]
+members = ["crates/*"]
 
 [workspace.package]
-version = "0.8.0"
+version = "0.14.0"
 authors = ["Pipedash Team"]
 edition = "2021"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
 
 [workspace.dependencies]
 aes-gcm = "0.11"
@@ -43,7 +26,6 @@ flate2 = "1"
 futures = "0.3"
 futures-util = "0.3"
 glob = "0.3"
-hostname = "0.4"
 http = "1.5"
 indexmap = { version = "2", features = ["serde"] }
 keyring = "4"
@@ -59,28 +41,19 @@ memchr = "2"
 mime_guess = "2.0"
 octocrab = { version = "0.54.8", default-features = false, features = [
   "follow-redirect",
-  "jwt-rust-crypto",
   "reqwest",
   "retry",
   "timeout",
   "tracing",
 ] }
-pipedash-core = { version = "0.8.0", path = "crates/pipedash-core" }
-pipedash-plugin-actions = { version = "0.8.0", path = "crates/pipedash-plugin-actions" }
-pipedash-plugin-api = { version = "0.8.0", path = "crates/pipedash-plugin-api" }
-pipedash-plugin-argocd = { version = "0.8.0", path = "crates/pipedash-plugin-argocd" }
-pipedash-plugin-azure-devops = { version = "0.8.0", path = "crates/pipedash-plugin-azure-devops" }
-pipedash-plugin-bitbucket = { version = "0.8.0", path = "crates/pipedash-plugin-bitbucket" }
-pipedash-plugin-buildkite = { version = "0.8.0", path = "crates/pipedash-plugin-buildkite" }
-pipedash-plugin-fluxcd = { version = "0.8.0", path = "crates/pipedash-plugin-fluxcd" }
-pipedash-plugin-github = { version = "0.8.0", path = "crates/pipedash-plugin-github" }
-pipedash-plugin-gitea = { version = "0.8.0", path = "crates/pipedash-plugin-gitea" }
-pipedash-plugin-gitlab = { version = "0.8.0", path = "crates/pipedash-plugin-gitlab" }
-pipedash-plugin-jenkins = { version = "0.8.0", path = "crates/pipedash-plugin-jenkins" }
-pipedash-plugin-komodo = { version = "0.8.0", path = "crates/pipedash-plugin-komodo" }
-pipedash-plugin-prow = { version = "0.8.0", path = "crates/pipedash-plugin-prow" }
-pipedash-plugin-tekton = { version = "0.8.0", path = "crates/pipedash-plugin-tekton" }
+pipedash-core = { version = "0.14.0", path = "crates/pipedash-core" }
+pipedash-plugin-actions = { version = "0.14.0", path = "crates/pipedash-plugin-actions" }
+pipedash-plugin-api = { version = "0.14.0", path = "crates/pipedash-plugin-api" }
+pipedash-plugins = { version = "0.14.0", path = "crates/pipedash-plugins" }
+pipedash-web = { version = "0.14.0", path = "crates/pipedash-web", default-features = false }
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 rand = "0.10"
+rcgen = { version = "0.14", default-features = false, features = ["ring"] }
 regex = "1.13"
 reqwest = { version = "0.13", default-features = false, features = [
   "form",
@@ -90,6 +63,7 @@ reqwest = { version = "0.13", default-features = false, features = [
 ring = "0.17"
 rust-embed = "8.13"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+rustls-platform-verifier = "0.7"
 secrecy = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde-saphyr = "2.0.0"
@@ -106,6 +80,7 @@ sqlx = { version = "0.9", features = [
 subtle = "2.6"
 tauri = "2"
 tauri-build = "2"
+tauri-plugin-barcode-scanner = "2"
 tauri-plugin-biometric = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
@@ -114,9 +89,15 @@ tauri-plugin-opener = "2"
 tauri-plugin-os = "2"
 tauri-plugin-pipedash-native = { path = "crates/tauri-plugin-pipedash-native" }
 tauri-plugin-pipedash-push = { path = "crates/tauri-plugin-pipedash-push" }
+tauri-plugin-single-instance = "2.5.5"
+tauri-plugin-updater = "2"
 tempfile = "3.27"
 thiserror = "2.0"
 tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = [
+  "connect",
+  "rustls-tls-webpki-roots",
+] }
 tokio-util = "0.7"
 toml = "1.1"
 toml_edit = "0.25"
@@ -129,22 +110,11 @@ tower-http = { version = "0.7", features = [
 ] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = { version = "2", features = ["serde"] }
 urlencoding = "2.1"
-zeroize = "1.9"
 
 [patch.crates-io]
 pipedash-core = { path = "crates/pipedash-core" }
 pipedash-plugin-actions = { path = "crates/pipedash-plugin-actions" }
 pipedash-plugin-api = { path = "crates/pipedash-plugin-api" }
-pipedash-plugin-argocd = { path = "crates/pipedash-plugin-argocd" }
-pipedash-plugin-azure-devops = { path = "crates/pipedash-plugin-azure-devops" }
-pipedash-plugin-bitbucket = { path = "crates/pipedash-plugin-bitbucket" }
-pipedash-plugin-buildkite = { path = "crates/pipedash-plugin-buildkite" }
-pipedash-plugin-fluxcd = { path = "crates/pipedash-plugin-fluxcd" }
-pipedash-plugin-github = { path = "crates/pipedash-plugin-github" }
-pipedash-plugin-gitea = { path = "crates/pipedash-plugin-gitea" }
-pipedash-plugin-gitlab = { path = "crates/pipedash-plugin-gitlab" }
-pipedash-plugin-jenkins = { path = "crates/pipedash-plugin-jenkins" }
-pipedash-plugin-komodo = { path = "crates/pipedash-plugin-komodo" }
-pipedash-plugin-prow = { path = "crates/pipedash-plugin-prow" }
-pipedash-plugin-tekton = { path = "crates/pipedash-plugin-tekton" }
+pipedash-plugins = { path = "crates/pipedash-plugins" }

@@ -1,33 +1,20 @@
-import {
-  ActionIcon,
-  Box,
-  Button,
-  CloseButton,
-  Divider,
-  Group,
-  ScrollArea,
-  Stack,
-  Text,
-  TextInput,
-  Tooltip,
-} from '@mantine/core'
-import { useLocalStorage } from '@mantine/hooks'
-import { IconEdit, IconFolder, IconFolders, IconPlus, IconSearch, IconStack2, IconTrash } from '@tabler/icons-react'
+import { Box, Button, CloseButton, Divider, ScrollArea, Stack, TextInput } from '@mantine/core'
+import { IconFolder, IconFolders, IconPlus, IconSearch, IconStack2 } from '@tabler/icons-react'
 import { type ReactNode, useState } from 'react'
 import { EmptyState } from '../../../components/common/EmptyState'
 import { ErrorState } from '../../../components/common/ErrorState'
 import { LoadingState } from '../../../components/common/LoadingState'
-import type { PinnedItem, PipelineView, ProviderSummary } from '../../../types/domain'
+import { useDebounce } from '../../../hooks/useDebounce'
+import type { ProviderSummary } from '../../../types/providers'
+import type { PinnedItem, PipelineView } from '../../../types/views'
 import { formatCount } from '../../../utils/formatCount'
-import { ProviderAvatar, ProviderStatusLine } from '../../providers/components/ProviderPresentation'
-import { useProviderNavigation } from '../../providers/queries/useProviderNavigation'
-import { ancestorKeys, filterNavTree, matchesQuery, type NavNode, pinTo } from '../utils/navTree'
+import { PROVIDERS_KEY, useSidebarExpansion, VIEWS_COLLAPSED_KEY } from '../hooks/useSidebarExpansion'
+import { usePipelineNavigation } from '../queries/usePipelineViewQueries'
+import { ancestorKeys, type NavNode, pinTo } from '../utils/navTree'
+import { ProviderRows } from './NavbarProviderRows'
+import { NavbarReadFailures, type ReadFailure } from './NavbarReadFailures'
 import { ICON_TILE, type MenuProps, NavbarTreeRow, NavTile, PIN_ICONS, VIEW_ICONS } from './NavbarTreeRow'
 import { activeRootOf, flattenNavbarViewRows, PINNED_ID, viewNodesOf, viewTo } from './NavbarViewRows'
-
-const PROVIDERS_KEY = 'providers'
-
-const VIEWS_COLLAPSED_KEY = 'views:collapsed'
 
 interface NavbarTreeProps {
   providers: ProviderSummary[]
@@ -45,89 +32,20 @@ interface NavbarTreeProps {
   viewMenu: (view: PipelineView | undefined) => MenuProps | undefined
   pinMenu: (pin: PinnedItem) => MenuProps
   onEditProvider: (id: number) => void
-  onRemoveProvider: (id: number, name: string) => void
   onCreateView: () => void
+  readFailures: ReadFailure[]
 }
 
-interface ProviderRowsProps {
-  providers: ProviderSummary[]
-  visibleProviders: ProviderSummary[]
-  providerId: string | null
-  loading: boolean
-  error: unknown
-  retrying: boolean
-  onRetry: () => void
-  providerMenu: (provider: ProviderSummary) => MenuProps
-  onEditProvider: (id: number) => void
-  onRemoveProvider: (id: number, name: string) => void
-}
-
-const ProviderRows = ({
-  providers,
-  visibleProviders,
-  providerId,
-  loading,
-  error,
-  retrying,
-  onRetry,
-  providerMenu,
-  onEditProvider,
-  onRemoveProvider,
-}: ProviderRowsProps): ReactNode => {
-  const openProvider = useProviderNavigation()
-
-  if (loading) {
-    return <LoadingState message="Loading providers" />
-  }
-
-  if (error) {
-    return (
-      <ErrorState
-        title="Couldn't load providers"
-        error={error}
-        hint="Check your connection and provider credentials."
-        onRetry={onRetry}
-        retrying={retrying}
-      />
-    )
-  }
-
-  if (providers.length === 0) {
-    return <EmptyState title="No providers yet" description="Add a provider to see its pipelines here." />
-  }
-
-  return visibleProviders.map((provider) => (
-    <NavbarTreeRow
-      key={provider.id}
-      depth={1}
-      label={provider.name}
-      icon={<ProviderAvatar provider={provider} size={ICON_TILE.list} />}
-      description={<ProviderStatusLine provider={provider} />}
-      active={providerId === String(provider.id)}
-      menu={providerMenu(provider)}
-      to={`/pipelines?provider=${provider.id}`}
-      onClick={(event) => openProvider(provider, event)}
-      actions={
-        <Group gap="4xs" wrap="nowrap" className="nav-item-actions">
-          <Tooltip label={`Edit ${provider.name}`}>
-            <ActionIcon size="sm" aria-label={`Edit ${provider.name}`} onClick={() => onEditProvider(provider.id)}>
-              <IconEdit size={14} aria-hidden />
-            </ActionIcon>
-          </Tooltip>
-          <Tooltip label={`Remove ${provider.name}`}>
-            <ActionIcon
-              size="sm"
-              aria-label={`Remove ${provider.name}`}
-              onClick={() => onRemoveProvider(provider.id, provider.name)}
-            >
-              <IconTrash size={14} aria-hidden />
-            </ActionIcon>
-          </Tooltip>
-        </Group>
-      }
-    />
-  ))
-}
+const PinRow = ({ pin, active, menu }: { pin: PinnedItem; active: boolean; menu: MenuProps }): ReactNode => (
+  <NavbarTreeRow
+    depth={1}
+    label={pin.name}
+    icon={<NavTile icon={PIN_ICONS[pin.kind]} size={ICON_TILE.list} />}
+    active={active}
+    to={pinTo(pin)}
+    menu={menu}
+  />
+)
 
 export const NavbarTree = ({
   providers,
@@ -145,39 +63,37 @@ export const NavbarTree = ({
   viewMenu,
   pinMenu,
   onEditProvider,
-  onRemoveProvider,
   onCreateView,
+  readFailures,
 }: NavbarTreeProps): ReactNode => {
-  const [expanded, setExpanded] = useLocalStorage<string[]>({
-    key: 'pipedash-sidebar-expanded',
-    defaultValue: [PROVIDERS_KEY],
-  })
   const [query, setQuery] = useState('')
-  const searching = query.trim() !== ''
-  const viewNodes = viewNodesOf(views)
+  const trimmed = query.trim()
+  const searching = trimmed !== ''
+  const debounced = useDebounce(trimmed)
+  const search = usePipelineNavigation(debounced)
+  const navigation = searching || (debounced === '' && !search.isPlaceholderData) ? search.data : undefined
+  const searchFailed = searching && search.isError
+  const searchBusy = debounced !== trimmed || (searching && (search.isFetching || search.isPlaceholderData))
+  const navViews = navigation?.views ?? views
+  const viewNodes = viewNodesOf(navViews)
+  const baseNodes = viewNodesOf(views)
   const activeRootId = activeRootOf(views, viewId)
-  const activeKeys = viewId ? ancestorKeys(viewNodes, `view:${viewId}`) : null
-  const isOpen = (key: string) => searching || expanded.includes(key) || activeKeys?.includes(key) === true
-  const toggle = (key: string) =>
-    setExpanded((current) => (current.includes(key) ? current.filter((k) => k !== key) : [...current, key]))
-
-  const pinnedNodes = filterNavTree(
-    viewNodes.filter((node) => node.view?.kind === 'pinned' || !node.view),
-    query
-  )
-  const otherNodes = filterNavTree(
-    viewNodes.filter((node) => node.view && node.view.kind !== 'pinned'),
-    query
-  )
-  const viewsOpen =
-    searching ||
-    !expanded.includes(VIEWS_COLLAPSED_KEY) ||
-    otherNodes.some((node) => node.view && node.view.id === activeRootId)
-  const visiblePins = pins.filter((pin) => matchesQuery(pin.name, query))
-  const visibleProviders = providers.filter((provider) => matchesQuery(provider.name, query))
-  const showProviders = !searching || matchesQuery('All providers', query) || visibleProviders.length > 0
-  const totalPipelines = providers.reduce((sum, p) => sum + p.pipeline_count, 0)
+  const pinnedNodes = viewNodes.filter((node) => node.view?.kind === 'pinned' || !node.view)
+  const otherNodes = viewNodes.filter((node) => node.view && node.view.kind !== 'pinned')
+  const { isOpen, toggle, viewsOpen } = useSidebarExpansion({
+    searching,
+    viewId,
+    revealKeys: (viewId ? ancestorKeys(baseNodes, `view:${viewId}`) : null) ?? [],
+    revealViews: baseNodes.some((node) => !!node.view && node.view.kind !== 'pinned' && node.view.id === activeRootId),
+  })
+  const visiblePins = navigation?.pins ?? pins
+  const visibleProviders = navigation?.providers ?? providers
+  const showProviders = !searching || visibleProviders.length > 0
+  const totalPipelines = navigation?.total_pipelines
   const allActive = inPipelines && providerId === null && viewId === null
+
+  const isPinActive = (pin: PinnedItem) =>
+    pin.kind === 'view' ? viewId === pin.ref : viewId === null && providerId === null && repositorySearch === pin.ref
 
   const renderViewRows = (nodes: NavNode[], depth: number) =>
     flattenNavbarViewRows(nodes, depth, isOpen).map(({ key, node, depth: rowDepth }) => (
@@ -196,6 +112,96 @@ export const NavbarTree = ({
       />
     ))
 
+  const providersSection = showProviders && (
+    <>
+      <NavbarTreeRow
+        depth={0}
+        expandable
+        open={isOpen(PROVIDERS_KEY)}
+        onToggle={() => toggle(PROVIDERS_KEY)}
+        label="All providers"
+        icon={<NavTile icon={IconStack2} size={ICON_TILE.list} />}
+        description={
+          loading || error || totalPipelines === undefined
+            ? undefined
+            : `${formatCount(totalPipelines, 'pipeline')} total`
+        }
+        active={allActive}
+        to="/pipelines"
+      />
+      {isOpen(PROVIDERS_KEY) && (
+        <ProviderRows
+          {...{ providers, visibleProviders, providerId, loading, error, retrying, onRetry, providerMenu }}
+          onEditProvider={onEditProvider}
+        />
+      )}
+    </>
+  )
+
+  const tree = (
+    <>
+      {!searching && <NavbarReadFailures failures={readFailures} />}
+      {renderViewRows(pinnedNodes, 0)}
+      {visiblePins.map((pin) => (
+        <PinRow key={`pin:${pin.kind}:${pin.ref}`} pin={pin} active={isPinActive(pin)} menu={pinMenu(pin)} />
+      ))}
+      {providersSection}
+
+      <Divider my="2xs" />
+
+      {otherNodes.length > 0 && (
+        <NavbarTreeRow
+          depth={0}
+          expandable
+          open={viewsOpen}
+          onToggle={() => toggle(VIEWS_COLLAPSED_KEY)}
+          label="All views"
+          icon={<NavTile icon={IconFolders} size={ICON_TILE.list} />}
+          description={formatCount(otherNodes.length, 'view')}
+          active={false}
+        />
+      )}
+      {viewsOpen && renderViewRows(otherNodes, 1)}
+      {views && !searching && !views.some((view) => view.kind === 'custom') && (
+        <Button
+          leftSection={<IconPlus size={16} aria-hidden />}
+          variant="default"
+          size="xs"
+          fullWidth
+          onClick={onCreateView}
+        >
+          New view…
+        </Button>
+      )}
+      {searching && !showProviders && pinnedNodes.length + otherNodes.length + visiblePins.length === 0 && (
+        <EmptyState
+          title="No matches"
+          description="Nothing in the sidebar matches your search."
+          action={
+            <Button size="xs" variant="default" onClick={() => setQuery('')}>
+              Clear search
+            </Button>
+          }
+        />
+      )}
+    </>
+  )
+
+  const searchError = searchFailed ? (
+    <ErrorState
+      title="Couldn't search pipelines"
+      error={search.error}
+      onRetry={() => void search.refetch()}
+      retrying={search.isFetching}
+    />
+  ) : null
+  const results = (
+    <>
+      {searchError}
+      {searching && !navigation ? null : tree}
+    </>
+  )
+
   return (
     <>
       <Box px="sm" pt="sm">
@@ -211,84 +217,9 @@ export const NavbarTree = ({
         />
       </Box>
       <ScrollArea flex={1} px="sm" py="sm">
-        <Stack gap="4xs">
-          {renderViewRows(pinnedNodes, 0)}
-          {visiblePins.map((pin) => (
-            <NavbarTreeRow
-              key={`pin:${pin.kind}:${pin.ref}`}
-              depth={1}
-              label={pin.name}
-              icon={<NavTile icon={PIN_ICONS[pin.kind]} size={ICON_TILE.list} />}
-              active={
-                pin.kind === 'view'
-                  ? viewId === pin.ref
-                  : viewId === null && providerId === null && repositorySearch === pin.ref
-              }
-              to={pinTo(pin)}
-              menu={pinMenu(pin)}
-            />
-          ))}
-          {showProviders && (
-            <>
-              <NavbarTreeRow
-                depth={0}
-                expandable
-                open={isOpen(PROVIDERS_KEY)}
-                onToggle={() => toggle(PROVIDERS_KEY)}
-                label="All providers"
-                icon={<NavTile icon={IconStack2} size={ICON_TILE.list} />}
-                description={loading || error ? undefined : `${formatCount(totalPipelines, 'pipeline')} total`}
-                active={allActive}
-                to="/pipelines"
-              />
-              {isOpen(PROVIDERS_KEY) && (
-                <ProviderRows
-                  providers={providers}
-                  visibleProviders={visibleProviders}
-                  providerId={providerId}
-                  loading={loading}
-                  error={error}
-                  retrying={retrying}
-                  onRetry={onRetry}
-                  providerMenu={providerMenu}
-                  onEditProvider={onEditProvider}
-                  onRemoveProvider={onRemoveProvider}
-                />
-              )}
-            </>
-          )}
-
-          <Divider my="2xs" />
-
-          {otherNodes.length > 0 && (
-            <NavbarTreeRow
-              depth={0}
-              expandable
-              open={viewsOpen}
-              onToggle={() => toggle(VIEWS_COLLAPSED_KEY)}
-              label="All views"
-              icon={<NavTile icon={IconFolders} size={ICON_TILE.list} />}
-              description={formatCount(otherNodes.length, 'view')}
-              active={false}
-            />
-          )}
-          {viewsOpen && renderViewRows(otherNodes, 1)}
-          {views && !searching && !views.some((view) => view.kind === 'custom') && (
-            <Button
-              leftSection={<IconPlus size={16} aria-hidden />}
-              variant="default"
-              size="xs"
-              fullWidth
-              onClick={onCreateView}
-            >
-              Create view
-            </Button>
-          )}
-          {searching && !showProviders && pinnedNodes.length + otherNodes.length + visiblePins.length === 0 && (
-            <Text size="sm" c="dimmed" ta="center" py="sm">
-              No matches
-            </Text>
-          )}
+        <Stack gap="4xs" aria-busy={searchBusy}>
+          {searchBusy && <LoadingState variant="compact" message="Searching…" />}
+          {results}
         </Stack>
       </ScrollArea>
     </>

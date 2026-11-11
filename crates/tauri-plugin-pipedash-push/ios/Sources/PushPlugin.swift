@@ -9,7 +9,7 @@ private typealias DelegateIMP = @convention(c) (AnyObject, Selector, UIApplicati
 
 final class PushRegistry {
   static let shared = PushRegistry()
-  static let enabled = Bundle.main.object(forInfoDictionaryKey: "PipedashBuildWatchEnabled") as? Bool ?? false
+  static let enabled = Bundle.main.object(forInfoDictionaryKey: "PipedashRemotePushEnabled") as? Bool ?? false
 
   private var pending: [Invoke] = []
   private var installed = false

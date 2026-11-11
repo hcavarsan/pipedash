@@ -15,6 +15,8 @@ node_modules
 !.vscode/extensions.json
 .idea
 .DS_Store
+__pycache__/
+*.py[cod]
 *.suo
 *.ntvs*
 *.njsproj
@@ -31,6 +33,8 @@ build_rs*
 lcov.info
 lcov*
 llvm-cov*
+coverage/
+junit.xml
 **/*.snap
 **/snapshots/*
 TASKS.md

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { buildVaultExportCommand } from './vaultExportCommand'
+import { buildVaultExportCommand } from './VaultExportCommand'
 
 test('a plain password is single-quoted', () => {
   assert.equal(

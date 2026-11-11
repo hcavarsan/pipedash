@@ -1,10 +1,7 @@
-import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useEffectEvent } from 'react'
 
 import { logger } from '../../../lib/logger'
-import { events } from '../../../services/service'
-import { updateRunInHistory } from '../lib/runHistoryCache'
-import { useRunUpdatedEvent } from './useRunUpdatedEvent'
+import { listenEvent } from '../../../services/events'
 
 interface RunHistoryEventsOptions {
   pipelineId: string | undefined
@@ -13,10 +10,6 @@ interface RunHistoryEventsOptions {
 }
 
 export function useRunHistoryEvents({ pipelineId, resetPage, refetch }: RunHistoryEventsOptions): void {
-  const queryClient = useQueryClient()
-
-  useRunUpdatedEvent(pipelineId, true, (run) => updateRunInHistory(queryClient, run))
-
   const onTriggered = useEffectEvent(() => {
     resetPage()
     refetch()
@@ -34,7 +27,7 @@ export function useRunHistoryEvents({ pipelineId, resetPage, refetch }: RunHisto
     const unlisteners: Array<() => void> = []
 
     const register = async (name: string, handler: () => void): Promise<void> => {
-      const unlisten = await events.listen<string>(name, (payload) => {
+      const unlisten = await listenEvent<string>(name, (payload) => {
         if (mounted && payload === pipelineId) {
           handler()
         }

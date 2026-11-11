@@ -1,4 +1,4 @@
-import type { PipelineView } from '../../../types/domain'
+import type { PipelineView } from '../../../types/views'
 import { rootViewOf } from '../../../utils/viewTree'
 import { buildViewNodes, type NavNode } from '../utils/navTree'
 

@@ -11,7 +11,7 @@ export function NavBarMenu({ label, children }: { label: string; children: React
       <Menu>
         <Menu.Target>
           <ActionIcon color="blue" size={44} aria-label={label}>
-            <IconDotsCircleHorizontal size={26} stroke={1.6} aria-hidden />
+            <IconDotsCircleHorizontal size={24} stroke={1.6} aria-hidden />
           </ActionIcon>
         </Menu.Target>
         <Menu.Dropdown>

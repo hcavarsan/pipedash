@@ -1,17 +1,17 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
-use chrono::Utc;
 use octocrab::Octocrab;
+use pipedash_plugin_api::config::comma_separated;
+use pipedash_plugin_api::http::sensitive_header;
 use pipedash_plugin_api::{
     check_response,
     map_send_error,
-    Permission,
-    PermissionCheck,
     PermissionStatus,
     PluginError,
     PluginResult,
 };
+use reqwest::header::AUTHORIZATION;
 use reqwest::Url;
 use secrecy::{
     ExposeSecret,
@@ -21,6 +21,8 @@ use tracing::{
     debug,
     warn,
 };
+
+mod scopes;
 
 type ScopeSet = HashSet<String>;
 
@@ -33,36 +35,6 @@ pub(crate) struct PermissionChecker {
 
 impl PermissionChecker {
     const API_TIMEOUT_SECS: u64 = 5; // GitHub API responds in <1s normally
-
-    const SCOPE_HIERARCHIES: &'static [(&'static str, &'static [&'static str])] = &[
-        ("admin:org", &["admin:org"]),
-        ("write:org", &["write:org", "admin:org"]),
-        ("read:org", &["read:org", "write:org", "admin:org"]),
-        ("admin:repo_hook", &["admin:repo_hook"]),
-        ("write:repo_hook", &["write:repo_hook", "admin:repo_hook"]),
-        (
-            "read:repo_hook",
-            &["read:repo_hook", "write:repo_hook", "admin:repo_hook"],
-        ),
-        ("admin:public_key", &["admin:public_key"]),
-        (
-            "write:public_key",
-            &["write:public_key", "admin:public_key"],
-        ),
-        (
-            "read:public_key",
-            &["read:public_key", "write:public_key", "admin:public_key"],
-        ),
-        ("admin:gpg_key", &["admin:gpg_key"]),
-        ("write:gpg_key", &["write:gpg_key", "admin:gpg_key"]),
-        (
-            "read:gpg_key",
-            &["read:gpg_key", "write:gpg_key", "admin:gpg_key"],
-        ),
-        ("repo", &["repo", "public_repo"]),
-        ("public_repo", &["public_repo", "repo"]),
-        ("workflow", &["workflow"]),
-    ];
 
     pub fn new(
         octocrab: Octocrab, http_client: reqwest::Client, token: SecretString, api_url: &str,
@@ -79,139 +51,6 @@ impl PermissionChecker {
 
     fn api_timeout() -> Duration {
         Duration::from_secs(Self::API_TIMEOUT_SECS)
-    }
-
-    fn get_classic_pat_permissions() -> Vec<Permission> {
-        vec![
-            Permission {
-                name: "repo".to_string(),
-                description: "Repository access - 'repo' scope for private repositories, or 'public_repo' scope for public repositories only".to_string(),
-                required: true,
-            },
-            Permission {
-                name: "workflow".to_string(),
-                description: "Trigger workflow dispatches and cancel running workflows".to_string(),
-                required: false,
-            },
-            Permission {
-                name: "read:org".to_string(),
-                description: "List organizations and their repositories. Without this, only your personal repositories will be available.".to_string(),
-                required: false,
-            },
-        ]
-    }
-
-    fn get_fine_grained_permissions() -> Vec<Permission> {
-        vec![
-            Permission {
-                name: "Repository Metadata".to_string(),
-                description: "Read repository metadata (name, description, visibility). Required as a base permission to access repository data.".to_string(),
-                required: true,
-            },
-            Permission {
-                name: "Organization members and teams (Read)".to_string(),
-                description: "List organization members and teams. Required to access organization repositories. Without this, only your personal repositories will be available.".to_string(),
-                required: false,
-            },
-            Permission {
-                name: "Actions (Read)".to_string(),
-                description: "View workflow runs, logs, and workflow definitions".to_string(),
-                required: true,
-            },
-            Permission {
-                name: "Contents (Read)".to_string(),
-                description: "Read workflow files and dispatch inputs. Required for the Run and Rerun forms on private repositories.".to_string(),
-                required: true,
-            },
-            Permission {
-                name: "Actions (Write)".to_string(),
-                description: "Trigger workflow dispatches and cancel running workflows".to_string(),
-                required: false,
-            },
-        ]
-    }
-
-    fn get_acceptable_scopes(minimal_permission: &str) -> Vec<String> {
-        Self::SCOPE_HIERARCHIES
-            .iter()
-            .find(|(perm, _)| *perm == minimal_permission)
-            .map(|(_, scopes)| scopes.iter().map(|s| s.to_string()).collect())
-            .unwrap_or_else(|| vec![minimal_permission.to_string()])
-    }
-
-    fn has_permission(minimal_permission: &str, granted_scopes: &ScopeSet) -> bool {
-        let acceptable_scopes = Self::get_acceptable_scopes(minimal_permission);
-        acceptable_scopes
-            .iter()
-            .any(|scope| granted_scopes.contains(scope))
-    }
-
-    fn build_classic_pat_status(granted_scopes: &ScopeSet) -> PermissionStatus {
-        let required_perms = Self::get_classic_pat_permissions();
-        let permissions: Vec<PermissionCheck> = required_perms
-            .iter()
-            .map(|perm| {
-                let granted = Self::has_permission(&perm.name, granted_scopes);
-                debug!(
-                    "Permission '{}': {}",
-                    perm.name,
-                    if granted { "granted" } else { "denied" }
-                );
-                PermissionCheck {
-                    permission: perm.clone(),
-                    granted,
-                }
-            })
-            .collect();
-
-        let all_granted = permissions
-            .iter()
-            .filter(|p| p.permission.required)
-            .all(|p| p.granted);
-
-        let mut metadata = std::collections::HashMap::new();
-        metadata.insert("token_type".to_string(), "classic_pat".to_string());
-
-        PermissionStatus {
-            permissions,
-            all_granted,
-            checked_at: Utc::now(),
-            metadata,
-        }
-    }
-
-    fn build_fine_grained_status(capabilities: &ScopeSet) -> PermissionStatus {
-        let required_perms = Self::get_fine_grained_permissions();
-        let permissions: Vec<PermissionCheck> = required_perms
-            .iter()
-            .map(|perm| {
-                let granted = capabilities.contains(&perm.name);
-                debug!(
-                    "Permission '{}': {}",
-                    perm.name,
-                    if granted { "granted" } else { "denied" }
-                );
-                PermissionCheck {
-                    permission: perm.clone(),
-                    granted,
-                }
-            })
-            .collect();
-
-        let all_granted = permissions
-            .iter()
-            .filter(|p| p.permission.required)
-            .all(|p| p.granted);
-
-        let mut metadata = std::collections::HashMap::new();
-        metadata.insert("token_type".to_string(), "fine_grained".to_string());
-
-        PermissionStatus {
-            permissions,
-            all_granted,
-            checked_at: Utc::now(),
-            metadata,
-        }
     }
 
     pub async fn check_token_permissions(
@@ -236,8 +75,11 @@ impl PermissionChecker {
             .http_client
             .get(self.user_url.clone())
             .header(
-                "Authorization",
-                format!("token {}", self.token.expose_secret()),
+                AUTHORIZATION,
+                sensitive_header(
+                    &format!("token {}", self.token.expose_secret()),
+                    "GitHub authorization",
+                )?,
             )
             .timeout(Self::api_timeout())
             .send()
@@ -257,11 +99,7 @@ impl PermissionChecker {
                 )
             })?;
 
-        let granted_scopes: ScopeSet = scopes_header
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
+        let granted_scopes: ScopeSet = comma_separated(scopes_header).map(str::to_string).collect();
 
         debug!("Classic token scopes: {:?}", granted_scopes);
         Ok(Self::build_classic_pat_status(&granted_scopes))

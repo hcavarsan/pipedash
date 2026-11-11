@@ -1,4 +1,4 @@
-import { ActionIcon, Group, Menu, Text, TextInput, Tooltip } from '@mantine/core'
+import { Group, Text, TextInput } from '@mantine/core'
 import {
   IconArrowDown,
   IconArrowUp,
@@ -7,19 +7,13 @@ import {
   IconChevronUp,
   IconCircleX,
   IconCopy,
-  IconDots,
-  IconDownload,
-  IconExternalLink,
   IconFilter,
-  IconLetterCase,
-  IconRegex,
   IconSearch,
 } from '@tabler/icons-react'
 import type { KeyboardEvent, ReactNode, Ref } from 'react'
 
-import { shortcutLabel } from '../../../lib/shortcuts'
-
 import type { LogFilter } from '../lib/logRows'
+import { LogOptionsMenu, LogSearchOptions, ToolbarButton } from './LogToolbarControls'
 
 export interface LogToolbarProps {
   variant: 'desktop' | 'narrow'
@@ -47,40 +41,11 @@ export interface LogToolbarProps {
   selectionCount: number
   onCopySelection: () => void
   copied: boolean
-  onDownload: () => void
-  downloading: boolean
+  onExport: () => void
+  exporting: boolean
   jobUrl: string | null
   providerName: string
   onOpenJob: () => void
-}
-
-interface ToolbarButtonProps {
-  label: string
-  shortcut?: string | undefined
-  icon: ReactNode
-  onClick: () => void
-  disabled?: boolean
-  pressed?: boolean
-  loading?: boolean
-}
-
-function ToolbarButton({ label, shortcut, icon, onClick, disabled, pressed, loading }: ToolbarButtonProps) {
-  const text = shortcut ? `${label} (${shortcutLabel(shortcut)})` : label
-
-  return (
-    <Tooltip label={text}>
-      <ActionIcon
-        variant={pressed ? 'light' : 'subtle'}
-        color={pressed ? 'blue' : 'gray'}
-        aria-label={text}
-        loading={loading ?? false}
-        {...(pressed === undefined ? {} : { 'aria-pressed': pressed })}
-        {...(disabled ? { 'aria-disabled': true, 'data-disabled': true } : { onClick })}
-      >
-        {icon}
-      </ActionIcon>
-    </Tooltip>
-  )
 }
 
 export function LogToolbar(props: LogToolbarProps): ReactNode {
@@ -123,20 +88,12 @@ export function LogToolbar(props: LogToolbarProps): ReactNode {
           leftSection={<IconSearch size={14} aria-hidden />}
           rightSectionWidth={56}
           rightSection={
-            <Group gap={0} wrap="nowrap">
-              <ToolbarButton
-                label="Match case"
-                icon={<IconLetterCase size={16} aria-hidden />}
-                pressed={props.caseSensitive}
-                onClick={() => props.onCaseSensitiveChange(!props.caseSensitive)}
-              />
-              <ToolbarButton
-                label="Use regular expression"
-                icon={<IconRegex size={16} aria-hidden />}
-                pressed={props.regex}
-                onClick={() => props.onRegexChange(!props.regex)}
-              />
-            </Group>
+            <LogSearchOptions
+              caseSensitive={props.caseSensitive}
+              onCaseSensitiveChange={props.onCaseSensitiveChange}
+              regex={props.regex}
+              onRegexChange={props.onRegexChange}
+            />
           }
           onChange={(event) => props.onQueryChange(event.currentTarget.value)}
           onKeyDown={onKeyDown}
@@ -198,58 +155,20 @@ export function LogToolbar(props: LogToolbarProps): ReactNode {
             onClick={props.onCopySelection}
           />
         )}
-        <Menu position="bottom-end" withinPortal>
-          <Menu.Target>
-            <Tooltip label="Log options">
-              <ActionIcon aria-label="Log options">
-                <IconDots size={16} aria-hidden />
-              </ActionIcon>
-            </Tooltip>
-          </Menu.Target>
-          <Menu.Dropdown>
-            <Menu.Item
-              role="menuitemcheckbox"
-              aria-checked={props.wrap}
-              closeMenuOnClick={false}
-              rightSection={props.wrap ? <IconCheck size={14} aria-hidden /> : null}
-              onClick={() => props.onWrapChange(!props.wrap)}
-            >
-              Wrap lines
-            </Menu.Item>
-            <Menu.Item
-              role="menuitemcheckbox"
-              aria-checked={props.timestamps}
-              closeMenuOnClick={false}
-              rightSection={props.timestamps ? <IconCheck size={14} aria-hidden /> : null}
-              onClick={() => props.onTimestampsChange(!props.timestamps)}
-            >
-              Show timestamps
-            </Menu.Item>
-            <Menu.Item
-              role="menuitemcheckbox"
-              aria-checked={filter === 'errors'}
-              disabled={noErrors && filter !== 'errors'}
-              closeMenuOnClick={false}
-              rightSection={filter === 'errors' ? <IconCheck size={14} aria-hidden /> : null}
-              onClick={() => props.onFilterChange(filter === 'errors' ? 'none' : 'errors')}
-            >
-              Show error lines only
-            </Menu.Item>
-            <Menu.Divider />
-            <Menu.Item
-              leftSection={<IconDownload size={14} aria-hidden />}
-              disabled={props.downloading}
-              onClick={props.onDownload}
-            >
-              Download log
-            </Menu.Item>
-            {props.jobUrl && (
-              <Menu.Item leftSection={<IconExternalLink size={14} aria-hidden />} onClick={props.onOpenJob}>
-                Open job in {props.providerName}
-              </Menu.Item>
-            )}
-          </Menu.Dropdown>
-        </Menu>
+        <LogOptionsMenu
+          wrap={props.wrap}
+          onWrapChange={props.onWrapChange}
+          timestamps={props.timestamps}
+          onTimestampsChange={props.onTimestampsChange}
+          filter={filter}
+          onFilterChange={props.onFilterChange}
+          errorTotal={props.errorTotal}
+          exporting={props.exporting}
+          onExport={props.onExport}
+          jobUrl={props.jobUrl}
+          providerName={props.providerName}
+          onOpenJob={props.onOpenJob}
+        />
       </Group>
     </Group>
   )

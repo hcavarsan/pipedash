@@ -1,4 +1,14 @@
-import { ActionIcon, Box, Divider, Group, Kbd, Text, Tooltip, UnstyledButton } from '@mantine/core'
+import {
+  ActionIcon,
+  type ActionIconProps,
+  Box,
+  Divider,
+  Group,
+  Kbd,
+  Text,
+  Tooltip,
+  UnstyledButton,
+} from '@mantine/core'
 import {
   IconArrowLeft,
   IconLayoutSidebarLeftCollapse,
@@ -7,7 +17,7 @@ import {
   IconLockOpen,
   IconSettings,
 } from '@tabler/icons-react'
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ButtonHTMLAttributes, type ReactNode, useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { NotificationCenter } from '../../features/notifications/components/NotificationCenter'
 import { useAppShortcuts } from '../../hooks/useAppShortcuts'
@@ -28,6 +38,38 @@ interface HeaderProps {
   onToggleNavbar?: (() => void) | undefined
   navbarOpened?: boolean | undefined
   onOpenSettings?: (() => void) | undefined
+}
+
+type HeaderActionProps = ActionIconProps & ButtonHTMLAttributes<HTMLButtonElement> & { tooltip: ReactNode }
+
+const commandTooltip = (label: string, combo?: string): ReactNode => (
+  <Group gap="3xs" wrap="nowrap">
+    <span>{label}</span>
+    {combo && <Kbd size="xs">{shortcutLabel(combo)}</Kbd>}
+  </Group>
+)
+
+function HeaderAction({ tooltip, ...actionProps }: HeaderActionProps): ReactNode {
+  return (
+    <Tooltip label={tooltip} position="bottom">
+      <ActionIcon size="lg" {...actionProps} />
+    </Tooltip>
+  )
+}
+
+function HeaderBrand(): ReactNode {
+  const { isMobile } = useIsMobile()
+
+  return (
+    <UnstyledButton component={Link} to="/pipelines" aria-label="Pipedash home" className="interactive-surface">
+      <Group gap="xs" wrap="nowrap">
+        <AppLogo size={isMobile ? 26 : 28} />
+        <Text fw={600} lh={1} fz="var(--mantine-h3-font-size)">
+          Pipedash
+        </Text>
+      </Group>
+    </UnstyledButton>
+  )
 }
 
 export function Header({ onToggleNavbar, navbarOpened = false, onOpenSettings }: HeaderProps): ReactNode {
@@ -92,23 +134,43 @@ export function Header({ onToggleNavbar, navbarOpened = false, onOpenSettings }:
   const sidebarLabel = navbarOpened ? 'Collapse sidebar' : 'Expand sidebar'
   const lockLabel = canLock ? 'Lock vault' : 'Vault is locked'
   const settingsLabel = settingsOpen ? 'Back to Pipelines' : 'Settings'
-  const commandTooltip = (label: string, combo?: string) => (
-    <Group gap="3xs" wrap="nowrap">
-      <span>{label}</span>
-      {combo && <Kbd size="xs">{shortcutLabel(combo)}</Kbd>}
-    </Group>
+  const sidebarToggle = onToggleNavbar && (
+    <HeaderAction tooltip={commandTooltip(sidebarLabel, 'mod+\\')} onClick={onToggleNavbar} aria-label={sidebarLabel}>
+      {navbarOpened ? (
+        <IconLayoutSidebarLeftCollapse size={20} aria-hidden />
+      ) : (
+        <IconLayoutSidebarLeftExpand size={20} aria-hidden />
+      )}
+    </HeaderAction>
   )
 
-  const sidebarToggle = onToggleNavbar && (
-    <Tooltip label={commandTooltip(sidebarLabel, 'mod+\\')} position="bottom">
-      <ActionIcon onClick={onToggleNavbar} size="lg" aria-label={sidebarLabel}>
-        {navbarOpened ? (
-          <IconLayoutSidebarLeftCollapse size={20} aria-hidden />
-        ) : (
-          <IconLayoutSidebarLeftExpand size={20} aria-hidden />
-        )}
-      </ActionIcon>
+  const lockAction = showLock && (
+    <HeaderAction
+      tooltip={commandTooltip(lockLabel, showWindowChrome && canLock ? 'mod+L' : undefined)}
+      onClick={canLock ? handleLockVault : undefined}
+      disabled={!canLock}
+      aria-label={lockLabel}
+    >
+      {isVaultUnlocked ? <IconLockOpen size={20} aria-hidden /> : <IconLock size={20} aria-hidden />}
+    </HeaderAction>
+  )
+
+  const refreshAction = (
+    <Tooltip label={commandTooltip('Refresh all', showWindowChrome ? 'mod+R' : undefined)} position="bottom">
+      <RefreshButton
+        size="lg"
+        iconSize={20}
+        pending={refreshAll.isPending}
+        onClick={handleRefresh}
+        aria-label="Refresh all"
+      />
     </Tooltip>
+  )
+
+  const settingsAction = onOpenSettings && (
+    <HeaderAction tooltip={commandTooltip(settingsLabel, 'mod+,')} onClick={onOpenSettings} aria-label={settingsLabel}>
+      {settingsOpen ? <IconArrowLeft size={20} aria-hidden /> : <IconSettings size={20} aria-hidden />}
+    </HeaderAction>
   )
 
   return (
@@ -132,14 +194,7 @@ export function Header({ onToggleNavbar, navbarOpened = false, onOpenSettings }:
           <Group gap="xs" wrap="nowrap">
             {isMobile && sidebarToggle}
 
-            <UnstyledButton component={Link} to="/pipelines" aria-label="Pipedash home" className="interactive-surface">
-              <Group gap="xs" wrap="nowrap">
-                <AppLogo size={isMobile ? 26 : 28} />
-                <Text fw={600} lh={1} fz="var(--mantine-h3-font-size)">
-                  Pipedash
-                </Text>
-              </Group>
-            </UnstyledButton>
+            <HeaderBrand />
 
             {!isMobile && sidebarToggle}
           </Group>
@@ -151,41 +206,13 @@ export function Header({ onToggleNavbar, navbarOpened = false, onOpenSettings }:
           />
 
           <Group gap="sm" wrap="nowrap">
-            {showLock && (
-              <Tooltip
-                label={commandTooltip(lockLabel, showWindowChrome && canLock ? 'mod+L' : undefined)}
-                position="bottom"
-              >
-                <ActionIcon
-                  size="lg"
-                  onClick={canLock ? handleLockVault : undefined}
-                  disabled={!canLock}
-                  aria-label={lockLabel}
-                >
-                  {isVaultUnlocked ? <IconLockOpen size={20} aria-hidden /> : <IconLock size={20} aria-hidden />}
-                </ActionIcon>
-              </Tooltip>
-            )}
+            {lockAction}
 
             <NotificationCenter />
 
-            <Tooltip label={commandTooltip('Refresh all', showWindowChrome ? 'mod+R' : undefined)} position="bottom">
-              <RefreshButton
-                size="lg"
-                iconSize={20}
-                pending={refreshAll.isPending}
-                onClick={handleRefresh}
-                aria-label="Refresh all"
-              />
-            </Tooltip>
+            {refreshAction}
 
-            {onOpenSettings && (
-              <Tooltip label={commandTooltip(settingsLabel, 'mod+,')} position="bottom">
-                <ActionIcon size="lg" onClick={onOpenSettings} aria-label={settingsLabel}>
-                  {settingsOpen ? <IconArrowLeft size={20} aria-hidden /> : <IconSettings size={20} aria-hidden />}
-                </ActionIcon>
-              </Tooltip>
-            )}
+            {settingsAction}
           </Group>
         </Group>
 

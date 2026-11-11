@@ -9,6 +9,11 @@ pub use pipedash_plugin_api::{
     PaginationParams,
     ResourceState,
 };
+use pipedash_plugin_api::{
+    PipelineActionState,
+    RunActionState,
+    RunDisplay,
+};
 use serde::{
     Deserialize,
     Serialize,
@@ -75,6 +80,28 @@ pub struct Pipeline {
     pub overdue_run: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub typical_duration_seconds: Option<i64>,
+    #[serde(default)]
+    pub actions: PipelineActionState,
+}
+
+impl Pipeline {
+    pub fn finished_since(&self, status: &PipelineStatus, last_run: Option<DateTime<Utc>>) -> bool {
+        matches!(
+            self.status,
+            PipelineStatus::Success
+                | PipelineStatus::Failed
+                | PipelineStatus::Cancelled
+                | PipelineStatus::Skipped
+        ) && (!status.is_terminal() || last_run != self.last_run)
+    }
+}
+
+pub(crate) fn notice_title(name: &str, event: &str, repository: &str) -> String {
+    if repository.is_empty() {
+        format!("{name} {event}")
+    } else {
+        format!("{name} {event} · {repository}")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -95,21 +122,23 @@ pub struct PipelineRun {
     pub inputs: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub metadata: HashMap<String, serde_json::Value>,
+    #[serde(default)]
+    pub actions: RunActionState,
+    #[serde(default)]
+    pub display: RunDisplay,
+    #[serde(default)]
+    pub pace: RunPace,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunPace {
+    pub live: bool,
+    pub typical_duration_seconds: Option<i64>,
+    pub past_usual: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TriggerParams {
     pub workflow_id: String,
     pub inputs: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PaginatedRunHistory {
-    pub runs: Vec<PipelineRun>,
-    pub total_count: usize,
-    pub has_more: bool,
-    pub is_complete: bool,
-    pub page: usize,
-    pub page_size: usize,
-    pub total_pages: usize,
 }

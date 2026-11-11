@@ -21,7 +21,3 @@ pub fn init_with_default(default_filter: &str) {
         .with(fmt::layer().with_target(true).with_thread_ids(false))
         .init();
 }
-
-pub fn init_dev() {
-    init_with_default("pipedash=debug,pipedash_core=debug,pipedash_api=debug,tower_http=debug");
-}

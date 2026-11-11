@@ -3,6 +3,7 @@ import { after, afterEach, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, type ReactNode } from 'react'
+import { pluginPresentationFixture } from '../testing/presentation'
 
 GlobalRegistrator.register({ url: 'http://127.0.0.1:8080/', width: 1400, height: 900 })
 
@@ -11,6 +12,8 @@ const { notifyManager, QueryClientProvider } = await import('@tanstack/react-que
 const { queryClient } = await import('../lib/queryClient')
 const { useTriggerWorkflow } = await import('../features/runs/queries/useWorkflowQueries')
 const { apiService } = await import('./api')
+const { getErrorCode, isTransientError } = await import('../types/errors')
+const { HttpClient } = await import('./http')
 
 notifyManager.setNotifyFunction((callback) => act(callback))
 
@@ -40,22 +43,51 @@ test('one failed trigger click sends the trigger request once', async (context) 
   const { result } = renderHook(() => useTriggerWorkflow(), { wrapper })
 
   await act(async () => {
-    await result.current.mutateAsync({ workflow_id: 'jenkins__1__deploy', inputs: {} }).catch(() => undefined)
+    await result.current
+      .mutateAsync({
+        params: { workflow_id: 'jenkins__1__deploy', inputs: {} },
+        copy: pluginPresentationFixture().trigger,
+      })
+      .catch(() => undefined)
   })
 
   assert.deepEqual(sent, ['POST /api/v1/pipelines/jenkins__1__deploy/trigger'])
 })
 
-test('a read that hits a 5xx is sent again and returns the next answer', async (context) => {
+test('a failed read is sent once', async (context) => {
   let sent = 0
   context.mock.method(globalThis, 'fetch', async () => {
     sent += 1
 
-    return sent === 1 ? providerError() : new Response(JSON.stringify([]), { status: 200 })
+    return providerError()
   })
 
-  assert.deepEqual(await apiService.listProviders(), [])
-  assert.equal(sent, 2)
+  await assert.rejects(apiService.listProviders())
+  assert.equal(sent, 1)
+})
+
+test('a fetch that rejects with Load failed is a transient error', async (context) => {
+  context.mock.method(globalThis, 'fetch', async () => {
+    throw new TypeError('Load failed')
+  })
+
+  await assert.rejects(apiService.listProviders(), (error: unknown) => isTransientError(error))
+})
+
+test('a request that exceeds its timeout rejects with a transient TIMEOUT error', async (context) => {
+  context.mock.method(globalThis, 'fetch', (_url: string, init: RequestInit) => {
+    const pending = Promise.withResolvers<Response>()
+
+    init.signal?.addEventListener('abort', () => pending.reject(new DOMException('aborted', 'AbortError')))
+
+    return pending.promise
+  })
+
+  await assert.rejects(new HttpClient().request('GET', '/slow', undefined, { timeoutMs: 10 }), (error: unknown) => {
+    assert.equal(getErrorCode(error), 'TIMEOUT')
+
+    return isTransientError(error)
+  })
 })
 
 test('provider recovery opens a tab synchronously before starting the provider-bound flow', async (context) => {
@@ -66,10 +98,15 @@ test('provider recovery opens a tab synchronously before starting the provider-b
     label: 'GitHub',
     manual: false,
   }
+  const tab: Window = Object.create(window, {
+    opener: { value: window, writable: true },
+    location: { value: { href: '' } },
+  })
+
   context.mock.method(window, 'open', () => {
     events.push('open')
 
-    return null
+    return tab
   })
   context.mock.method(globalThis, 'fetch', async (url: string, init: RequestInit) => {
     events.push(`${init.method} ${url}`)
@@ -83,6 +120,16 @@ test('provider recovery opens a tab synchronously before starting the provider-b
   assert.equal(events[0], 'open')
   assert.deepEqual(await pending, start)
   assert.deepEqual(events, ['open', 'POST /api/v1/providers/7/sign-in'])
+  assert.equal(tab.location.href, start.authorize_url)
+})
+
+test('a blocked sign-in tab fails before the flow starts', async (context) => {
+  const fetched = context.mock.method(globalThis, 'fetch', async () => new Response('{}', { status: 200 }))
+
+  context.mock.method(window, 'open', () => null)
+
+  await assert.rejects(apiService.startProviderSignIn(7), /blocked the sign-in tab/)
+  assert.equal(fetched.mock.callCount(), 0)
 })
 
 test('reconnecting sends only the completed flow and never automatically retries a failed commit', async (context) => {

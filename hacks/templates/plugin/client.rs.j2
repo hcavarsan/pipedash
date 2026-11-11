@@ -1,0 +1,52 @@
+use std::sync::Arc;
+
+use pipedash_plugin_api::http::{
+    api_url,
+    bearer_request,
+    get_json,
+};
+use pipedash_plugin_api::{
+    PluginResult,
+    RetryPolicy,
+};
+use reqwest::{
+    Method,
+    Url,
+};
+use serde::de::{
+    DeserializeOwned,
+    IgnoredAny,
+};
+
+const PING_PATH: &str = "{{ ping_path }}";
+
+pub(crate) struct {{ pascal }}Client {
+    http_client: Arc<reqwest::Client>,
+    base_url: String,
+    token: String,
+    retry_policy: RetryPolicy,
+}
+
+impl {{ pascal }}Client {
+    pub fn new(http_client: Arc<reqwest::Client>, base_url: String, token: String) -> Self {
+        Self {
+            http_client,
+            base_url,
+            token,
+            retry_policy: RetryPolicy::default(),
+        }
+    }
+
+    pub async fn ping(&self) -> PluginResult<()> {
+        self.get::<IgnoredAny>(PING_PATH, &[]).await.map(drop)
+    }
+
+    async fn get<T: DeserializeOwned>(&self, path: &str, query: &[(&str, String)]) -> PluginResult<T> {
+        let url = api_url(&self.base_url, path, query, "{{ name }}")?;
+        get_json(&self.retry_policy, &url, "{{ name }} API response", || self.request(Method::GET, &url)).await
+    }
+
+    fn request(&self, method: Method, url: &Url) -> reqwest::RequestBuilder {
+        bearer_request(&self.http_client, method, url, &self.token)
+    }
+}

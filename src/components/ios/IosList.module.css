@@ -20,7 +20,7 @@
   font-size: var(--ios-fs-footnote);
   font-weight: 400;
   line-height: var(--ios-lh-footnote);
-  letter-spacing: 0.01em;
+  letter-spacing: normal;
   text-transform: uppercase;
   color: var(--ios-secondary-label);
 }
@@ -74,9 +74,14 @@
   transition: background-color 120ms ease;
 }
 
-.swipeRow {
+.menuRow {
   display: flex;
   overflow: hidden;
+}
+
+.row:has([data-row-menu]),
+.item:has([data-row-menu]) .row {
+  padding-inline-end: 44px;
 }
 
 .item {
@@ -103,6 +108,7 @@
 .row[data-pressing],
 .item[data-pressing] .row,
 .row:has([data-row-menu][aria-expanded="true"]),
+.item:has([data-row-menu]:active) .row,
 .item:has([data-row-menu][aria-expanded="true"]) .row {
   background: var(--ios-fill);
 }
@@ -176,4 +182,136 @@
 .row:focus-visible {
   outline: 2px solid var(--ios-tint);
   outline-offset: -2px;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.listRow {
+  --pad: 1em;
+  --glyph: 1.1em;
+  --gap: 0.75em;
+  --check: 22px;
+  --inset: var(--pad);
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  font-size: var(--ios-fs-body);
+  background: var(--ios-cell);
+  background-image: linear-gradient(var(--row-press, transparent), var(--row-press, transparent));
+}
+
+.listRow[data-glyph] {
+  --inset: calc(var(--pad) + var(--glyph) + var(--gap));
+}
+
+.listRow[data-selecting] {
+  --inset: calc(var(--pad) + var(--check) + var(--gap));
+}
+
+.listRow[data-selecting][data-glyph] {
+  --inset: calc(var(--pad) + var(--check) + var(--gap) + var(--glyph) + var(--gap));
+}
+
+.listRow[data-swipeable] {
+  overflow: hidden;
+}
+
+.listCell {
+  background: var(--ios-cell);
+}
+
+.listCell[data-first] {
+  overflow: hidden;
+  border-top-left-radius: var(--ios-radius-grouped);
+  border-top-right-radius: var(--ios-radius-grouped);
+}
+
+.listCell[data-last] {
+  overflow: hidden;
+  border-bottom-left-radius: var(--ios-radius-grouped);
+  border-bottom-right-radius: var(--ios-radius-grouped);
+}
+
+.listRow + .listRow::before,
+[data-virtual-item]:not([data-first]) > .listRow::before,
+.listCell:not([data-first]) > .listRow::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  z-index: 2;
+  pointer-events: none;
+  right: 0;
+  left: var(--inset);
+  height: 0.5px;
+  background: var(--ios-separator);
+}
+
+.listRow:has(.listMain:active),
+.listRow:has([data-row-menu]:active),
+.listRow[data-pressing],
+.listRow:has([data-row-menu][aria-expanded="true"]) {
+  --row-press: var(--ios-fill);
+}
+
+.listMain {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--gap);
+  min-width: 0;
+  min-height: 44px;
+  padding: 0.47em var(--pad);
+  box-sizing: border-box;
+  border: 0;
+  background: transparent;
+  color: var(--ios-label);
+  font-family: inherit;
+  font-size: var(--ios-fs-body);
+  font-weight: 400;
+  line-height: var(--ios-lh-body);
+  text-align: left;
+  text-decoration: none;
+  transition: background-color 120ms ease;
+}
+
+.listRow:has([data-row-menu]) .listMain {
+  padding-inline-end: 44px;
+}
+
+.listMain:focus-visible {
+  outline: 2px solid var(--ios-tint);
+  outline-offset: -2px;
+}
+
+.listMain:disabled {
+  pointer-events: none;
+}
+
+.listCheck {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: var(--check);
+  height: var(--check);
+  box-sizing: border-box;
+  border: 1.5px solid var(--ios-separator);
+  border-radius: 50%;
+  color: var(--ios-on-tint);
+  pointer-events: none;
+}
+
+.listCheck[data-selected] {
+  border-color: var(--ios-tint);
+  background: var(--ios-tint);
+}
+
+.listCheck svg {
+  display: block;
 }

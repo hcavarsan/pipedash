@@ -1,24 +1,25 @@
+use pipedash_plugin_api::kubernetes;
 use pipedash_plugin_api::{
     status_page_field,
     ConfigField,
-    ConfigFieldType,
     ConfigSchema,
     ConfigSection,
     Feature,
     Permission,
     PluginCapabilities,
     PluginMetadata,
+    RunHistoryOrder,
+    RunHistoryPolicy,
     CONTROLLER_HEALTH_FEATURE,
 };
 
 use crate::{
     config,
+    presentation,
     schema,
     types::Kind,
 };
 
-const NAMESPACE_LIST_REGEX: &str =
-    r"^$|^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(\s*,\s*[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)*$";
 const FLUX_NAMESPACE_REGEX: &str = r"^$|^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$";
 
 pub(crate) struct PermissionSpec {
@@ -34,11 +35,7 @@ pub(crate) struct PermissionSpec {
 
 impl PermissionSpec {
     pub fn permission(&self) -> Permission {
-        Permission {
-            name: self.name.to_string(),
-            description: self.description.to_string(),
-            required: self.required,
-        }
+        Permission::new(self.name, self.description, self.required)
     }
 }
 
@@ -125,167 +122,99 @@ pub(crate) const PERMISSIONS: [PermissionSpec; 7] = [
 
 pub fn create_metadata() -> PluginMetadata {
     PluginMetadata {
-        name: "FluxCD".to_string(),
-        provider_type: config::PROVIDER_TYPE.to_string(),
-        version: "0.1.0".to_string(),
-        description: "Monitor Flux Kustomizations and HelmReleases, inspect their status and history, and request reconciliation. Flux retains a limited history and groups repeated reconciliations. Connects with a kubeconfig file or pasted kubeconfig content.".to_string(),
-        author: Some("Pipedash Team".to_string()),
-        icon: Some("/provider-icons/fluxcd.svg".to_string()),
-        config_schema: create_config_schema(),
-        table_schema: schema::create_table_schema(),
-        capabilities: create_capabilities(),
-        required_permissions: PERMISSIONS.iter().map(PermissionSpec::permission).collect(),
-        features: create_features(),
+        presentation: presentation::presentation(),
+        run_history: RunHistoryPolicy {
+            bounded: true,
+            order: RunHistoryOrder::StartedAt,
+            tracks_overdue: false,
+        },
+        ..PluginMetadata::new(
+            "FluxCD",
+            create_config_schema(),
+            schema::create_table_schema(),
+            PluginCapabilities {
+                cancel: false,
+                retains_run_history: true,
+                uses_http_proxy: false,
+                async_trigger: true,
+                ..PluginCapabilities::standard()
+            },
+        )
+        .with_permissions(PERMISSIONS.iter().map(PermissionSpec::permission).collect())
+        .with_features(create_features())
     }
 }
 
 fn create_config_schema() -> ConfigSchema {
     ConfigSchema::new()
-        .add_field(ConfigField {
-            key: "kubeconfig".to_string(),
-            section: ConfigSection::Authentication,
-            label: "Kubeconfig".to_string(),
-            description: Some(
-                "Path on the machine running Pipedash, not in your browser. Defaults to $KUBECONFIG or ~/.kube/config. Separate files with ':' (';' on Windows). Ignored when Kubeconfig content is set. Monitoring needs get/list permissions. Reconciliation also needs patch permission. Run logs also need list on events in each monitored namespace."
-                    .to_string(),
+        .add_field(
+            ConfigField::text(config::KUBECONFIG_PATH_KEY, ConfigSection::Authentication, "Kubeconfig")
+                .description(
+                    "Path on the machine running Pipedash, not in your browser. Defaults to $KUBECONFIG or ~/.kube/config. Separate files with ':' (';' on Windows). Ignored when Kubeconfig content is set. Monitoring needs get/list permissions. Reconciliation also needs patch permission. Run logs also need list on events in each monitored namespace.",
+                )
+                .default_text(&kubernetes::default_kubeconfig_path()),
+        )
+        .add_field(ConfigField::kubeconfig_content(
+            kubernetes::KUBECONFIG_CONTENT_KEY,
+            "Kubeconfig content",
+        ))
+        .add_field(
+            ConfigField::select(
+                "context",
+                ConfigSection::Authentication,
+                "Kubernetes context",
+                &[],
+            )
+            .description(
+                "Context from the kubeconfig that points at the Flux cluster. Leave empty to use current-context.",
             ),
-            field_type: ConfigFieldType::Text,
-            required: false,
-            default_value: Some(serde_json::Value::String(config::default_kubeconfig())),
-            options: None,
-            validation_regex: None,
-            validation_message: None,
-        })
-        .add_field(ConfigField {
-            key: config::KUBECONFIG_CONTENT_KEY.to_string(),
-            section: ConfigSection::Authentication,
-            label: "Kubeconfig content".to_string(),
-            description: Some(
-                "Paste the kubeconfig YAML instead of using a file path, for example on iOS and Android where no kubeconfig file exists. When set, it is used instead of the path above and is stored with your other credentials. Use token or client certificate authentication: exec credential plugins (aws, gke-gcloud-auth-plugin, kubelogin) are not supported on iOS and Android."
-                    .to_string(),
-            ),
-            field_type: ConfigFieldType::TextArea,
-            required: false,
-            default_value: None,
-            options: None,
-            validation_regex: None,
-            validation_message: None,
-        })
-        .add_field(ConfigField {
-            key: "context".to_string(),
-            section: ConfigSection::Authentication,
-            label: "Kubernetes context".to_string(),
-            description: Some(
-                "Context from the kubeconfig that points at the Flux cluster. Leave empty to use current-context."
-                    .to_string(),
-            ),
-            field_type: ConfigFieldType::Select,
-            required: false,
-            default_value: None,
-            options: Some(Vec::new()),
-            validation_regex: None,
-            validation_message: None,
-        })
-        .add_field(ConfigField {
-            key: "namespaces".to_string(),
-            section: ConfigSection::Settings,
-            label: "Namespaces".to_string(),
-            description: Some(
-                "Comma-separated namespaces to monitor, for example flux-system,apps. Leave empty to monitor Kustomizations and HelmReleases in every namespace, which needs cluster-wide list permission. List your namespaces when your RBAC is namespace-scoped."
-                    .to_string(),
-            ),
-            field_type: ConfigFieldType::Text,
-            required: false,
-            default_value: None,
-            options: None,
-            validation_regex: Some(NAMESPACE_LIST_REGEX.to_string()),
-            validation_message: Some(
-                "Use comma-separated Kubernetes namespace names: lowercase letters, numbers and hyphens, starting and ending with a letter or number, up to 63 characters each."
-                    .to_string(),
-            ),
-        })
-        .add_field(ConfigField {
-            key: "flux_namespace".to_string(),
-            section: ConfigSection::Settings,
-            label: "Flux namespace".to_string(),
-            description: Some(
-                "Namespace where the Flux controllers run. Pipedash reads the source-controller, kustomize-controller and helm-controller deployments there to report controller health. Leave empty to use flux-system."
-                    .to_string(),
-            ),
-            field_type: ConfigFieldType::Text,
-            required: false,
-            default_value: Some(serde_json::Value::String(
-                config::DEFAULT_FLUX_NAMESPACE.to_string(),
-            )),
-            options: None,
-            validation_regex: Some(FLUX_NAMESPACE_REGEX.to_string()),
-            validation_message: Some(
-                "Use a Kubernetes namespace name: lowercase letters, numbers and hyphens, starting and ending with a letter or number, up to 63 characters."
-                    .to_string(),
-            ),
-        })
+        )
+        .add_field(
+            ConfigField::text("namespaces", ConfigSection::Settings, "Namespaces")
+                .description(
+                    "Comma-separated namespaces to monitor, for example flux-system,apps. Leave empty to monitor Kustomizations and HelmReleases in every namespace, which needs cluster-wide list permission. List your namespaces when your RBAC is namespace-scoped.",
+                )
+                .validation(kubernetes::NAMESPACE_LIST_REGEX, kubernetes::NAMESPACE_LIST_MESSAGE),
+        )
+        .add_field(
+            ConfigField::text("flux_namespace", ConfigSection::Settings, "Flux namespace")
+                .description(
+                    "Namespace where the Flux controllers run. Pipedash reads the source-controller, kustomize-controller and helm-controller deployments there to report controller health. Leave empty to use flux-system.",
+                )
+                .default_text(config::DEFAULT_FLUX_NAMESPACE)
+                .validation(
+                    FLUX_NAMESPACE_REGEX,
+                    "Use a Kubernetes namespace name: lowercase letters, numbers and hyphens, starting and ending with a letter or number, up to 63 characters.",
+                ),
+        )
         .add_field(status_page_field())
-}
-
-fn create_capabilities() -> PluginCapabilities {
-    PluginCapabilities {
-        pipelines: true,
-        pipeline_runs: true,
-        trigger: true,
-        cancel: false,
-        agents: false,
-        artifacts: false,
-        queues: false,
-        custom_tables: false,
-        retains_run_history: true,
-        logs: true,
-        sign_in: false,
-    }
 }
 
 fn create_features() -> Vec<Feature> {
     vec![
-        Feature {
-            id: "view_status".to_string(),
-            name: "View status and history".to_string(),
-            description:
-                "Show Flux conditions and the reconciliation history kept in status.history"
-                    .to_string(),
-            required_permissions: vec![
-                READ_KUSTOMIZATIONS.to_string(),
-                READ_HELMRELEASES.to_string(),
-            ],
-        },
-        Feature {
-            id: "request_reconcile".to_string(),
-            name: "Request reconciliation".to_string(),
-            description:
-                "Ask Flux to reconcile a resource now. Suspended resources are never resumed."
-                    .to_string(),
-            required_permissions: vec![
-                RECONCILE_KUSTOMIZATIONS.to_string(),
-                RECONCILE_HELMRELEASES.to_string(),
-            ],
-        },
-        Feature {
-            id: CONTROLLER_HEALTH_FEATURE.to_string(),
-            name: "Controller health".to_string(),
-            description:
-                "Report when the Flux controllers are scaled to zero, not running or only partly available"
-                    .to_string(),
-            required_permissions: vec![READ_CONTROLLERS.to_string()],
-        },
-        Feature {
-            id: "run_logs".to_string(),
-            name: "Run logs".to_string(),
-            description:
-                "Show the reconciliation record of a run and the Kubernetes events of the resource"
-                    .to_string(),
-            required_permissions: vec![
-                READ_KUSTOMIZATIONS.to_string(),
-                READ_HELMRELEASES.to_string(),
-                READ_EVENTS.to_string(),
-            ],
-        },
+        Feature::new(
+            "view_status",
+            "View status and history",
+            "Show Flux conditions and the reconciliation history kept in status.history",
+            &[READ_KUSTOMIZATIONS, READ_HELMRELEASES],
+        ),
+        Feature::new(
+            "request_reconcile",
+            "Request reconciliation",
+            "Ask Flux to reconcile a resource now. Suspended resources are never resumed.",
+            &[RECONCILE_KUSTOMIZATIONS, RECONCILE_HELMRELEASES],
+        ),
+        Feature::new(
+            CONTROLLER_HEALTH_FEATURE,
+            "Controller health",
+            "Report when the Flux controllers are scaled to zero, not running or only partly available",
+            &[READ_CONTROLLERS],
+        ),
+        Feature::new(
+            "run_logs",
+            "Run logs",
+            "Show the reconciliation record of a run and the Kubernetes events of the resource",
+            &[READ_KUSTOMIZATIONS, READ_HELMRELEASES, READ_EVENTS],
+        ),
     ]
 }

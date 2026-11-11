@@ -4,8 +4,16 @@ import { after, afterEach, beforeEach, type TestContext, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import type { RefObject } from 'react'
 
-import type { LogDocumentMeta, LogLinesPage, LogSearchQuery, LogSearchResult, RunLogNode } from '../../../types/logs'
-import type { LogViewerHandle } from './LogViewer'
+import { installLogViewerLayout } from '../../../testing/logViewerLayout'
+import type {
+  LogDocumentMeta,
+  LogLinesPage,
+  LogSearchQuery,
+  LogSearchResult,
+  RunLogDocument,
+  RunLogNode,
+} from '../../../types/logs'
+import type { LogViewerHandle } from '../lib/logViewerTypes'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
@@ -15,10 +23,11 @@ const { MantineProvider } = await import('@mantine/core')
 const { environmentManager, notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 const { MemoryRouter } = await import('react-router-dom')
 const { createElement, createRef } = await import('react')
-const { events } = await import('../../../services/service')
+const { wsClient } = await import('../../../services/websocket')
 const { apiService } = await import('../../../services/api')
 const { tauriService } = await import('../../../services/tauri')
 const { LogViewer } = await import('./LogViewer')
+const { notifications } = await import('../../../lib/notifications')
 
 const wasServer = environmentManager.isServer()
 
@@ -60,66 +69,22 @@ const meta: LogDocumentMeta = {
   updated_at_ms: 0,
   stable_lines: 0,
   previous_revision: null,
+  refresh_error: null,
 }
 
 const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 
-interface Layout {
-  restore: () => void
-}
-
-function installLayout(): Layout {
-  const saved = {
-    clientHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight'),
-    clientWidth: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth'),
-    rect: Object.getOwnPropertyDescriptor(Element.prototype, 'getBoundingClientRect'),
-    observer: Object.getOwnPropertyDescriptor(globalThis, 'ResizeObserver'),
-  }
-
-  Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 400 })
-  Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 800 })
-  Object.defineProperty(Element.prototype, 'getBoundingClientRect', {
-    configurable: true,
-    value: () => new DOMRect(0, 0, 100, 20),
-  })
-  Object.defineProperty(globalThis, 'ResizeObserver', {
-    configurable: true,
-    value: class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    },
-  })
-
-  const put = (target: object, name: string, descriptor: PropertyDescriptor | undefined) => {
-    if (descriptor) {
-      Object.defineProperty(target, name, descriptor)
-    } else {
-      Reflect.deleteProperty(target, name)
-    }
-  }
-
-  return {
-    restore: () => {
-      put(HTMLElement.prototype, 'clientHeight', saved.clientHeight)
-      put(HTMLElement.prototype, 'clientWidth', saved.clientWidth)
-      put(Element.prototype, 'getBoundingClientRect', saved.rect)
-      put(globalThis, 'ResizeObserver', saved.observer)
-    },
-  }
-}
-
-let layout: Layout | null = null
+let restoreLayout: (() => void) | null = null
 
 beforeEach(() => {
   client.clear()
-  layout = installLayout()
+  restoreLayout = installLogViewerLayout()
 })
 
 afterEach(async () => {
   await act(async () => cleanup())
-  layout?.restore()
-  layout = null
+  restoreLayout?.()
+  restoreLayout = null
 })
 
 after(async () => {
@@ -129,10 +94,13 @@ after(async () => {
   await GlobalRegistrator.unregister()
 })
 
-type Search = (text: string) => LogSearchResult
+type Search = (text: string) => LogSearchResult | Promise<LogSearchResult>
 
-function stubService(context: TestContext, search: Search) {
-  const open = async () => ({ state: 'ready' as const, ...meta })
+type Open = (pipelineId: string, runNumber: number, nodeId: string, retry?: boolean) => Promise<RunLogDocument>
+
+const readyDoc = async (): Promise<RunLogDocument> => ({ state: 'ready', ...meta })
+
+function stubService(context: TestContext, search: Search, open: Open = readyDoc) {
   const read = async (
     _p: string,
     _r: number,
@@ -158,7 +126,7 @@ function stubService(context: TestContext, search: Search) {
     context.mock.method(target, 'readRunLogLines', read)
     context.mock.method(target, 'searchRunLog', find)
   }
-  context.mock.method(events, 'listen', async () => () => undefined)
+  context.mock.method(wsClient, 'listen', async () => () => undefined)
 }
 
 function mount(ref: RefObject<LogViewerHandle | null>) {
@@ -256,4 +224,150 @@ test('a search changed during the debounce jumps to the new result, not the old 
   await user.click(await view().findByText('Show error lines only'))
 
   await waitFor(() => assert.ok(lineButton(180)), { timeout: 3000 })
+})
+
+test('Enter during a deferred search stays put, and the counter reads Searching… until it settles', async (context) => {
+  const gate = Promise.withResolvers<LogSearchResult>()
+  let asked = false
+  stubService(context, (text) => {
+    if (text === 'foo') {
+      return matches(80)
+    }
+    asked = true
+
+    return gate.promise
+  })
+  const ref = createRef<LogViewerHandle>()
+  const user = userEvent.setup({ document, delay: null })
+
+  mount(ref)
+  await waitFor(() => assert.ok(lineButton(0)))
+  const input = view().getByRole('textbox', { name: 'Search logs' })
+
+  await user.type(input, 'foo')
+  await waitFor(() => assert.ok(lineButton(80)), { timeout: 3000 })
+  act(() => ref.current?.scrollToStart())
+  await waitFor(() => assert.equal(lineButton(80), null))
+
+  await user.type(input, 'b{Enter}')
+  assert.ok(view().getAllByText('Searching…').length > 0)
+  assert.equal(lineButton(80), null)
+
+  await waitFor(() => assert.ok(asked), { timeout: 3000 })
+  await user.keyboard('{Enter}')
+  assert.ok(view().getAllByText('Searching…').length > 0)
+  assert.equal(lineButton(80), null)
+
+  await act(async () => gate.resolve(matches(180)))
+  await waitFor(() => assert.ok(lineButton(180)), { timeout: 3000 })
+  assert.ok(view().getAllByText('1 of 1').length > 0)
+  assert.equal(view().queryByText('Searching…'), null)
+})
+
+const failedRefresh = async (): Promise<RunLogDocument> => ({
+  state: 'ready',
+  ...meta,
+  complete: false,
+  updated_at_ms: Date.now(),
+  refresh_error: 'GitHub is unavailable',
+})
+
+test('a refresh failure keeps the lines and offers Retry instead of Live', async (context) => {
+  stubService(context, () => matches(), failedRefresh)
+  mount(createRef<LogViewerHandle>())
+
+  await view().findByText('GitHub is unavailable')
+  await waitFor(() => assert.ok(lineButton(199)))
+  assert.ok(view().getByRole('button', { name: 'Retry' }))
+  assert.equal(view().queryByText('Live'), null)
+})
+
+test('Retry asks the backend once and shows loading while it is pending', async (context) => {
+  const calls: boolean[] = []
+  const gate = Promise.withResolvers<RunLogDocument>()
+  const open: Open = async (_p, _r, _n, retry) => {
+    if (!retry) {
+      return failedRefresh()
+    }
+    calls.push(retry)
+
+    return gate.promise
+  }
+
+  stubService(context, () => matches(), open)
+  const user = userEvent.setup({ document })
+
+  mount(createRef<LogViewerHandle>())
+  await waitFor(() => assert.ok(lineButton(199)))
+  await user.click(view().getByRole('button', { name: 'Retry' }))
+
+  await waitFor(() => assert.equal(calls.length, 1))
+  assert.ok(view().getByRole('button', { name: 'Retry' }).hasAttribute('data-loading'))
+
+  await act(async () => gate.resolve({ state: 'ready', ...meta, complete: false, refresh_error: null }))
+  await waitFor(() => assert.ok(view().getByText('Live')))
+  assert.equal(calls.length, 1)
+})
+
+test('a rejected retry of an unavailable document shows the new error', async (context) => {
+  const open: Open = async (_p, _r, _n, retry) => {
+    if (retry) {
+      throw new Error('Still down')
+    }
+
+    return { state: 'unavailable', message: 'Original failure' }
+  }
+
+  stubService(context, () => matches(), open)
+  const user = userEvent.setup({ document })
+
+  mount(createRef<LogViewerHandle>())
+  await view().findByText(/Original failure/)
+  await user.click(view().getByRole('button', { name: 'Retry' }))
+
+  await view().findByText(/Still down/)
+  assert.equal(view().queryByText(/Original failure/), null)
+})
+
+async function downloadLog(context: TestContext, exportLog: () => Promise<boolean>) {
+  stubService(context, () => matches())
+  const exported = [apiService, tauriService].map((target) => context.mock.method(target, 'exportRunLog', exportLog))
+  const shown = context.mock.method(notifications, 'show', () => 'toast')
+  const user = userEvent.setup({ document })
+
+  mount(createRef<LogViewerHandle>())
+  await waitFor(() => assert.ok(lineButton(0)))
+  await user.click(view().getByRole('button', { name: 'Log options' }))
+  await user.click(await view().findByRole('menuitem', { name: 'Export log' }))
+  await waitFor(() =>
+    assert.equal(
+      exported.reduce((total, spy) => total + spy.mock.callCount(), 0),
+      1
+    )
+  )
+  await act(async () => undefined)
+
+  return shown.mock.calls.map((call) => call.arguments[0])
+}
+
+test('a saved log export shows one success toast', async (context) => {
+  const toasts = await downloadLog(context, async () => true)
+
+  assert.equal(toasts.length, 1)
+  assert.equal(toasts[0]?.title, 'Log exported')
+  assert.equal(toasts[0]?.color, 'green')
+})
+
+test('a cancelled log export shows no toast', async (context) => {
+  assert.deepEqual(await downloadLog(context, async () => false), [])
+})
+
+test('a failed log export shows one error toast', async (context) => {
+  const toasts = await downloadLog(context, async () => {
+    throw new Error('Disk full')
+  })
+
+  assert.equal(toasts.length, 1)
+  assert.equal(toasts[0]?.title, "Couldn't export the log")
+  assert.equal(toasts[0]?.color, 'red')
 })

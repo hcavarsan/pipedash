@@ -1,116 +1,131 @@
 import assert from 'node:assert/strict'
-import { beforeEach, test } from 'node:test'
+import { afterEach, beforeEach, mock, test } from 'node:test'
 
-import { MAX_CENTER_NOTIFICATIONS, type NotificationInput, useNotificationCenterStore } from './notificationCenterStore'
+import { GlobalRegistrator } from '@happy-dom/global-registrator'
 
-const input = (overrides: Partial<NotificationInput> = {}): NotificationInput => ({
-  key: 'status-page:github',
+import type { CenterNotification, NotificationCenterChange, NotificationCenterSnapshot } from '../types/notifications'
+
+GlobalRegistrator.register({ width: 1200, height: 800 })
+
+const { apiService } = await import('../services/api')
+const { notifications } = await import('../lib/notifications')
+const { useNotificationCenterStore } = await import('./notificationCenterStore')
+
+const notice = (key: string, read = false): CenterNotification => ({
+  key,
   at: 1,
+  read,
   tone: 'warning',
-  level: 'major_outage',
-  title: 'Actions is down',
-  body: 'Investigating',
+  level: null,
+  title: key,
+  body: '',
   providerIds: [1],
   pipelineId: null,
   link: null,
-  ...overrides,
 })
+
+const calls: { snapshot: NotificationCenterSnapshot; change: NotificationCenterChange }[] = []
+let reply: NotificationCenterSnapshot = { revision: 0, items: [], unread: 0 }
+let failure: Error | null = null
 
 beforeEach(() => {
-  useNotificationCenterStore.setState({ items: [], selection: null })
-})
+  calls.length = 0
+  failure = null
+  reply = { revision: 1, items: [notice('a')], unread: 1 }
+  useNotificationCenterStore.setState({ items: [], revision: 0, unread: 0, selection: null, pending: null })
+  mock.method(
+    apiService,
+    'updateNotificationCenter',
+    async (snapshot: NotificationCenterSnapshot, change: NotificationCenterChange) => {
+      calls.push({ snapshot, change })
 
-test('a notification with the same key replaces the earlier one and moves to the top', () => {
-  const { push } = useNotificationCenterStore.getState()
+      if (failure) {
+        throw failure
+      }
 
-  push(input())
-  push(input({ key: 'connection:2', title: "Can't reach Gitea" }))
-  push(input({ tone: 'success', title: 'GitHub is back to normal' }))
-
-  const { items } = useNotificationCenterStore.getState()
-
-  assert.deepEqual(
-    items.map((item) => item.title),
-    ['GitHub is back to normal', "Can't reach Gitea"]
-  )
-  assert.equal(items[0]?.read, false)
-})
-
-test('opening a replaced notification shows the current entry for its key', () => {
-  const { push, open } = useNotificationCenterStore.getState()
-  push(input())
-  push(input({ key: 'connection:2' }))
-  push(input({ tone: 'success', title: 'GitHub is back to normal' }))
-
-  open({ type: 'notification', key: 'status-page:github' })
-
-  const { items, selection } = useNotificationCenterStore.getState()
-
-  assert.deepEqual(selection, { type: 'notification', key: 'status-page:github' })
-  assert.deepEqual(
-    items.map((item) => [item.title, item.read]),
-    [
-      ['GitHub is back to normal', true],
-      ['Actions is down', false],
-    ]
+      return reply
+    }
   )
 })
 
-test('mark all read keeps the items and close clears the selection', () => {
-  const { push, markAllRead, open, close } = useNotificationCenterStore.getState()
-  push(input())
-  push(input({ key: 'connection:2' }))
+afterEach(() => mock.restoreAll())
 
-  markAllRead()
+test('a push sends the current snapshot and stores what the backend returns', async () => {
+  await useNotificationCenterStore.getState().push({ ...notice('a'), at: 5 })
+
+  const { items, revision, unread } = useNotificationCenterStore.getState()
+
+  assert.deepEqual(calls[0]?.snapshot, { revision: 0, items: [], unread: 0 })
+  assert.deepEqual(calls[0]?.change, { type: 'push', notice: { ...notice('a'), at: 5, read: false } })
+  assert.deepEqual({ items, revision, unread }, reply)
+})
+
+test('changes are applied one after another on the latest snapshot', async () => {
+  const { push, markAllRead } = useNotificationCenterStore.getState()
+
+  await Promise.all([push(notice('a')), markAllRead()])
+
+  assert.equal(calls.length, 2)
+  assert.deepEqual(calls[1]?.snapshot, { revision: 1, items: [notice('a')], unread: 1 })
+  assert.deepEqual(calls[1]?.change, { type: 'read', key: null })
+})
+
+test('opening a notification selects it and marks it read through the backend', async () => {
+  useNotificationCenterStore.getState().open({ type: 'notification', key: 'a' })
+
+  assert.deepEqual(useNotificationCenterStore.getState().selection, { type: 'notification', key: 'a' })
+  await useNotificationCenterStore.getState().clear()
+  assert.deepEqual(calls[0]?.change, { type: 'read', key: 'a' })
+})
+
+test('opening a provider only selects it and close clears the selection', () => {
+  const { open, close } = useNotificationCenterStore.getState()
+
   open({ type: 'provider', providerId: 1 })
+  assert.deepEqual(useNotificationCenterStore.getState().selection, { type: 'provider', providerId: 1 })
+  assert.equal(calls.length, 0)
+
   close()
-
-  const { items, selection } = useNotificationCenterStore.getState()
-
-  assert.equal(items.length, 2)
-  assert.ok(items.every((item) => item.read))
-  assert.equal(selection, null)
+  assert.equal(useNotificationCenterStore.getState().selection, null)
 })
 
-test('the list keeps only the newest notifications', () => {
-  const { push } = useNotificationCenterStore.getState()
+test('a rejected clear shows one error and the next action still runs', async () => {
+  const shown = mock.method(notifications, 'show')
+  const { clear, push } = useNotificationCenterStore.getState()
+  failure = new Error('Host unreachable')
 
-  for (let index = 0; index <= MAX_CENTER_NOTIFICATIONS; index += 1) {
-    push(input({ key: `pipeline:${index}`, title: `run ${index}` }))
-  }
-
-  const { items } = useNotificationCenterStore.getState()
-
-  assert.equal(items.length, MAX_CENTER_NOTIFICATIONS)
-  assert.equal(items[0]?.title, `run ${MAX_CENTER_NOTIFICATIONS}`)
-  assert.equal(items.at(-1)?.title, 'run 1')
-})
-
-test('mark read only affects the requested notification and unknown keys change nothing', () => {
-  const { push, markRead } = useNotificationCenterStore.getState()
-  push(input())
-  push(input({ key: 'connection:2' }))
-
-  markRead('connection:2')
-  markRead('missing')
+  await clear()
 
   assert.deepEqual(
-    useNotificationCenterStore.getState().items.map((item) => [item.key, item.read]),
-    [
-      ['connection:2', true],
-      ['status-page:github', false],
-    ]
+    shown.mock.calls.map((call) => call.arguments[0]?.title),
+    ["Couldn't clear notifications"]
   )
+  assert.equal(shown.mock.calls[0]?.arguments[0]?.message, 'Host unreachable')
+
+  failure = null
+  await push(notice('a'))
+
+  assert.deepEqual(
+    calls.map(({ change }) => change.type),
+    ['clear', 'push']
+  )
+  assert.deepEqual(useNotificationCenterStore.getState().items, reply.items)
+  assert.equal(shown.mock.callCount(), 1)
 })
 
-test('clear empties the list and every action is safe on an empty store', () => {
-  const { push, clear, markAllRead, markRead, close } = useNotificationCenterStore.getState()
+test('repeat mark all read and clear are ignored while one is pending', async () => {
+  const { markAllRead, clear } = useNotificationCenterStore.getState()
 
-  markAllRead()
-  markRead('x')
-  close()
-  push(input())
-  clear()
+  const first = markAllRead()
+  const repeat = markAllRead()
+  const other = clear()
 
-  assert.deepEqual(useNotificationCenterStore.getState().items, [])
+  assert.equal(useNotificationCenterStore.getState().pending, 'markAll')
+  await Promise.all([first, repeat, other])
+
+  assert.deepEqual(
+    calls.map(({ change }) => change.type),
+    ['read']
+  )
+  assert.equal(useNotificationCenterStore.getState().pending, null)
 })

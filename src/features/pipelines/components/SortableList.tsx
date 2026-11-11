@@ -36,6 +36,7 @@ interface SortableListProps<T> {
   onReorder: (nextIds: string[]) => void
   orientation: 'horizontal' | 'vertical'
   handle: boolean
+  disabled?: boolean | undefined
   children: (item: T, dragProps: SortableDragProps) => ReactNode
 }
 
@@ -43,16 +44,19 @@ function SortableItem<T>({
   id,
   item,
   handle,
+  disabled,
   children,
 }: {
   id: string
   item: T
   handle: boolean
+  disabled: boolean
   children: SortableListProps<T>['children']
 }) {
   const reducedMotion = useReducedMotion()
   const { setNodeRef, setActivatorNodeRef, transform, transition, attributes, listeners, isDragging } = useSortable({
     id,
+    disabled,
   })
 
   return children(item, {
@@ -71,6 +75,7 @@ export function SortableList<T>({
   onReorder,
   orientation,
   handle,
+  disabled = false,
   children,
 }: SortableListProps<T>): ReactNode {
   const pointer = useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
@@ -79,7 +84,7 @@ export function SortableList<T>({
   const ids = items.map(getId)
 
   const onDragEnd = ({ active, over }: DragEndEvent) => {
-    if (!over || active.id === over.id) {
+    if (disabled || !over || active.id === over.id) {
       return
     }
 
@@ -103,7 +108,7 @@ export function SortableList<T>({
           const id = getId(item)
 
           return (
-            <SortableItem key={id} id={id} item={item} handle={handle}>
+            <SortableItem key={id} id={id} item={item} handle={handle} disabled={disabled}>
               {children}
             </SortableItem>
           )

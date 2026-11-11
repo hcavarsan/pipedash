@@ -1,7 +1,26 @@
+use std::collections::HashSet;
+use std::io;
+use std::sync::atomic::Ordering;
+use std::sync::{
+    Arc,
+    PoisonError,
+};
+use std::time::Duration;
+
+use bytes::Bytes;
 use chrono::Utc;
 use futures::StreamExt;
+use tokio::time::Instant;
 
-use super::*;
+use super::tree::tree_from_nodes;
+use super::{
+    LogService,
+    INGEST_PERMITS,
+    PROVIDER_CHANGED,
+    PROVIDER_MISBEHAVED,
+    REVISION_GONE,
+    SEARCH_PERMITS,
+};
 use crate::application::test_support::{
     pipeline,
     stub_run,
@@ -10,13 +29,27 @@ use crate::application::test_support::{
     StubLogMode,
     StubProvider,
 };
+use crate::domain::DomainError;
 use crate::domain::{
+    LogAvailability,
     LogCursor,
     LogDocumentMeta,
+    LogLinesQuery,
+    LogNode,
+    LogNodeKind,
+    LogSearchQuery,
     PipelineStatus,
+    RunLogDocument,
 };
+use crate::event::CoreEvent;
 use crate::infrastructure::run_logs::testing as logs;
-use crate::infrastructure::run_logs::SEARCH_MAX_QUERY_CHARS;
+use crate::infrastructure::run_logs::{
+    BlockLimits,
+    DocKey,
+    LogStore,
+    StoredTree,
+    SEARCH_MAX_QUERY_CHARS,
+};
 
 const RUN: i64 = 7;
 
@@ -73,7 +106,7 @@ async fn until(what: &str, mut done: impl FnMut() -> bool) {
 
 fn meta_of(document: RunLogDocument) -> LogDocumentMeta {
     match document {
-        RunLogDocument::Ready(meta) => meta,
+        RunLogDocument::Ready(meta) => *meta,
         other => panic!("expected a ready document, got {other:?}"),
     }
 }
@@ -97,7 +130,7 @@ impl Fixture {
         let h = Harness::new().await;
         let (id, stub) = h
             .add_stub(|id| {
-                let pipeline_id = format!("github__{id}__web");
+                let pipeline_id = format!("stub__{id}__web");
                 build(
                     StubProvider::new(id)
                         .with_logs(nodes, chunks)
@@ -113,7 +146,7 @@ impl Fixture {
         Self {
             h,
             id,
-            pipeline_id: format!("github__{id}__web"),
+            pipeline_id: format!("stub__{id}__web"),
             stub,
             live: false,
         }
@@ -215,10 +248,7 @@ impl Fixture {
                 &self.pipeline_id,
                 RUN,
                 &meta.node_id,
-                meta.revision,
-                0,
-                100,
-                4096,
+                first_lines(meta.revision, 100),
             )
             .await
             .unwrap()
@@ -226,6 +256,15 @@ impl Fixture {
             .into_iter()
             .map(|line| line.text)
             .collect()
+    }
+}
+
+fn first_lines(revision: i64, count: u32) -> LogLinesQuery {
+    LogLinesQuery {
+        revision,
+        start: 0,
+        count,
+        max_line_units: 4096,
     }
 }
 
@@ -266,7 +305,7 @@ async fn open_downloads_once_then_serves_the_cached_document() {
     assert_eq!(ready, meta.revision);
     let page = f
         .svc()
-        .read_lines(&f.pipeline_id, RUN, "1", meta.revision, 0, 10, 4096)
+        .read_lines(&f.pipeline_id, RUN, "1", first_lines(meta.revision, 10))
         .await
         .unwrap();
     let text: Vec<_> = page.lines.iter().map(|line| line.text.as_str()).collect();
@@ -308,6 +347,325 @@ async fn progress_ticks_never_restart_the_read() {
     gate.open();
     f.ready(1).await;
     assert_eq!(f.stub.log_read_count(), 1);
+}
+
+#[tokio::test]
+async fn reopening_a_legacy_tree_refreshes_only_when_the_provider_version_changes() {
+    for version in [0, 1] {
+        let nodes = vec![
+            job("task", PipelineStatus::Success, LogAvailability::Ready),
+            log_node(
+                "task:sidecar:cache",
+                Some("task"),
+                LogNodeKind::Step,
+                PipelineStatus::Success,
+                Some(LogAvailability::Ready),
+            ),
+        ];
+        let f = Fixture::with_logs(nodes, &["sidecar log\n"], |mut stub| {
+            stub.log_tree_version = version;
+            stub
+        })
+        .await;
+        let (lease, epoch) = f.svc().lease_of(&f.pipeline_id).await.unwrap();
+        let current = f
+            .svc()
+            .build_tree(&lease, epoch, &f.pipeline_id, RUN)
+            .await
+            .unwrap();
+        let legacy: StoredTree = serde_json::from_value(serde_json::json!({
+            "run_status": current.1.status,
+            "run_concluded_at": current.1.concluded_at,
+            "tree": {
+                "nodes": [current.0.nodes[0]],
+                "default_node_id": "task",
+                "complete": true,
+            },
+        }))
+        .unwrap();
+        f.h.log_store
+            .write_tree(f.id, &f.pipeline_id, RUN, &legacy, epoch)
+            .await
+            .unwrap();
+        let reopened = LogService::new(
+            Arc::clone(&f.h.log_store),
+            Arc::clone(&f.h.provider_service),
+            Arc::clone(&f.h.repository),
+            f.h.bus.clone(),
+            Arc::clone(&f.h.presenter),
+        );
+        let tree = Arc::new(reopened)
+            .run_log_tree(&f.pipeline_id, RUN)
+            .await
+            .unwrap();
+        assert_eq!(
+            tree.nodes
+                .iter()
+                .any(|node| node.id == "task:sidecar:cache"),
+            version == 1
+        );
+        assert_eq!(
+            f.stub.log_node_fetch_count(),
+            if version == 0 { 1 } else { 2 }
+        );
+    }
+}
+
+#[tokio::test]
+async fn upgrading_a_tree_keeps_downloaded_logs_when_tasks_disappear() {
+    for partial_refresh in [false, true] {
+        let f = Fixture::with_logs(
+            vec![
+                job("gone", PipelineStatus::Success, LogAvailability::Ready),
+                step("gone:step", "gone"),
+                job("kept", PipelineStatus::Success, LogAvailability::Ready),
+            ],
+            &["downloaded task output\n"],
+            |mut stub| {
+                stub.log_tree_version = 1;
+                stub
+            },
+        )
+        .await;
+        let meta = f.ready_meta("gone").await;
+        let mut legacy =
+            f.h.log_store
+                .read_tree(f.id, &f.pipeline_id, RUN)
+                .await
+                .unwrap();
+        legacy.log_tree_version = 0;
+        let epoch = f.h.log_store.epoch(f.id);
+        f.h.log_store
+            .write_tree(f.id, &f.pipeline_id, RUN, &legacy, epoch)
+            .await
+            .unwrap();
+        let mut fresh = Vec::new();
+        if partial_refresh {
+            let mut kept = job("kept", PipelineStatus::Success, LogAvailability::Ready);
+            kept.name = "refreshed task".to_string();
+            fresh.push(kept);
+            fresh.push(log_node(
+                "kept:sidecar:cache",
+                Some("kept"),
+                LogNodeKind::Step,
+                PipelineStatus::Success,
+                Some(LogAvailability::Ready),
+            ));
+        }
+        *f.stub.log_nodes.lock().unwrap() = fresh;
+
+        for _ in 0..2 {
+            let reopened = Arc::new(LogService::new(
+                Arc::clone(&f.h.log_store),
+                Arc::clone(&f.h.provider_service),
+                Arc::clone(&f.h.repository),
+                f.h.bus.clone(),
+                Arc::clone(&f.h.presenter),
+            ));
+            let tree = reopened.run_log_tree(&f.pipeline_id, RUN).await.unwrap();
+            for saved in &legacy.tree.nodes {
+                let node = tree.nodes.iter().find(|node| node.id == saved.id).unwrap();
+                if partial_refresh && saved.id == "kept" {
+                    assert_eq!(node.name, "refreshed task");
+                } else {
+                    assert_eq!(node, saved);
+                }
+            }
+            if partial_refresh {
+                let sidecar = tree
+                    .nodes
+                    .iter()
+                    .find(|node| node.id == "kept:sidecar:cache")
+                    .unwrap();
+                assert_eq!(sidecar.parent_id.as_deref(), Some("kept"));
+                assert!(sidecar.navigable);
+            }
+            let document = meta_of(
+                reopened
+                    .open_document(&f.pipeline_id, RUN, "gone", false)
+                    .await
+                    .unwrap(),
+            );
+            assert_eq!(document.revision, meta.revision);
+            let page = reopened
+                .read_lines(
+                    &f.pipeline_id,
+                    RUN,
+                    "gone",
+                    first_lines(document.revision, 10),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                page.lines
+                    .iter()
+                    .map(|line| line.text.as_str())
+                    .collect::<Vec<_>>(),
+                ["downloaded task output"]
+            );
+            assert_eq!(
+                tree.nodes.iter().filter(|node| node.id == "kept").count(),
+                1
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn failed_tree_upgrades_keep_downloaded_logs_and_retry() {
+    let f = Fixture::new(|mut stub| {
+        stub.log_tree_version = 1;
+        stub
+    })
+    .await;
+    let meta = f.ready_meta("1").await;
+    let mut legacy =
+        f.h.log_store
+            .read_tree(f.id, &f.pipeline_id, RUN)
+            .await
+            .unwrap();
+    legacy.log_tree_version = 0;
+    let epoch = f.h.log_store.epoch(f.id);
+    f.h.log_store
+        .write_tree(f.id, &f.pipeline_id, RUN, &legacy, epoch)
+        .await
+        .unwrap();
+    *f.stub
+        .log_nodes_failure
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = Some(DomainError::ProviderError(
+        "TaskRun listing denied".to_string(),
+    ));
+    let reopened = Arc::new(LogService::new(
+        Arc::clone(&f.h.log_store),
+        Arc::clone(&f.h.provider_service),
+        Arc::clone(&f.h.repository),
+        f.h.bus.clone(),
+        Arc::clone(&f.h.presenter),
+    ));
+    let document = meta_of(
+        reopened
+            .open_document(&f.pipeline_id, RUN, "1", false)
+            .await
+            .unwrap(),
+    );
+    assert_eq!(document.revision, meta.revision);
+    let page = reopened
+        .read_lines(&f.pipeline_id, RUN, "1", first_lines(document.revision, 10))
+        .await
+        .unwrap();
+    assert_eq!(
+        page.lines
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>(),
+        ["line one", "line two"]
+    );
+    let saved =
+        f.h.log_store
+            .read_tree(f.id, &f.pipeline_id, RUN)
+            .await
+            .unwrap();
+    assert_eq!(saved.log_tree_version, 0);
+    assert_eq!(saved.tree, legacy.tree);
+
+    *f.stub
+        .log_nodes_failure
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = None;
+    f.stub
+        .log_nodes
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .push(log_node(
+            "1:sidecar:cache",
+            Some("1"),
+            LogNodeKind::Step,
+            PipelineStatus::Success,
+            Some(LogAvailability::Ready),
+        ));
+    let upgraded = reopened.run_log_tree(&f.pipeline_id, RUN).await.unwrap();
+    assert!(upgraded
+        .nodes
+        .iter()
+        .any(|node| node.id == "1:sidecar:cache"));
+    let saved =
+        f.h.log_store
+            .read_tree(f.id, &f.pipeline_id, RUN)
+            .await
+            .unwrap();
+    assert_eq!(saved.log_tree_version, 1);
+    assert_eq!(saved.tree, upgraded);
+}
+
+#[tokio::test]
+async fn a_failed_tree_fetch_without_a_saved_tree_returns_the_error() {
+    let f = Fixture::new(|mut stub| {
+        stub.log_tree_version = 1;
+        stub
+    })
+    .await;
+    *f.stub
+        .log_nodes_failure
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = Some(DomainError::ProviderError(
+        "TaskRun listing denied".to_string(),
+    ));
+    assert!(matches!(
+        f.svc().run_log_tree(&f.pipeline_id, RUN).await,
+        Err(DomainError::ProviderError(_))
+    ));
+}
+
+#[tokio::test]
+async fn upgrading_a_tree_does_not_restore_nodes_from_a_different_run_state() {
+    for changed_status in [false, true] {
+        let f = Fixture::new(|mut stub| {
+            stub.log_tree_version = 1;
+            stub
+        })
+        .await;
+        f.svc().run_log_tree(&f.pipeline_id, RUN).await.unwrap();
+        let mut legacy =
+            f.h.log_store
+                .read_tree(f.id, &f.pipeline_id, RUN)
+                .await
+                .unwrap();
+        legacy.log_tree_version = 0;
+        if changed_status {
+            legacy.run_status = PipelineStatus::Failed;
+        } else {
+            legacy.run_concluded_at = Some(Utc::now());
+        }
+        let epoch = f.h.log_store.epoch(f.id);
+        f.h.log_store
+            .write_tree(f.id, &f.pipeline_id, RUN, &legacy, epoch)
+            .await
+            .unwrap();
+        f.stub.log_nodes.lock().unwrap().clear();
+        let (lease, epoch) = f.svc().lease_of(&f.pipeline_id).await.unwrap();
+        let (tree, _) = f
+            .svc()
+            .build_tree(&lease, epoch, &f.pipeline_id, RUN)
+            .await
+            .unwrap();
+        assert!(tree.nodes.is_empty());
+        assert_eq!(tree.default_node_id, None);
+        f.h.log_store
+            .write_tree(f.id, &f.pipeline_id, RUN, &legacy, epoch)
+            .await
+            .unwrap();
+        *f.stub
+            .log_nodes_failure
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(DomainError::ProviderError(
+            "TaskRun listing denied".to_string(),
+        ));
+        assert!(matches!(
+            f.svc().build_tree(&lease, epoch, &f.pipeline_id, RUN).await,
+            Err(DomainError::ProviderError(_))
+        ));
+    }
 }
 
 #[tokio::test]
@@ -416,6 +774,7 @@ async fn an_old_core_shutting_down_leaves_the_new_one_working() {
         Arc::clone(&f.h.provider_service),
         Arc::clone(&f.h.repository),
         f.h.bus.clone(),
+        Arc::clone(&f.h.presenter),
     ));
 
     f.open("1").await;
@@ -650,8 +1009,10 @@ async fn expired_live_reads_release_permits_for_another_job() {
 
     f.tick(50).await;
     until("the live task to stop", || f.svc().lives.is_empty()).await;
+    until("the expired reads to leave", || f.svc().inflight.is_empty()).await;
     let permits_after_expiry = f.svc().ingest_permits.available_permits();
     f.open("3").await;
+    until("the third job to read", || f.stub.log_read_count() >= 3).await;
     f.settle().await;
     let reads_after_opening_third = f.stub.log_read_count();
     f.svc().shutdown().await;
@@ -762,6 +1123,70 @@ async fn a_failed_live_read_keeps_the_stored_log_and_backs_off() {
     }
     f.ready(2).await;
     assert_eq!(meta_of(f.open("1").await).line_count, 2);
+}
+
+async fn fail_live_refresh(f: &Fixture) -> String {
+    let error = DomainError::NetworkError("down".into());
+    let message = error.to_string();
+    *f.stub.log_failure.lock().unwrap() = Some(error);
+    f.tick(2).await;
+    f.failed(1).await;
+    message
+}
+
+#[tokio::test]
+async fn a_failed_live_refresh_exposes_its_message_without_losing_output() {
+    let f = Fixture::live(&["a\n"], resumable).await;
+    let first = f.ready_meta("1").await;
+    assert_eq!(first.refresh_error, None);
+
+    let message = fail_live_refresh(&f).await;
+
+    let meta = meta_of(f.open("1").await);
+    assert_eq!(meta.refresh_error, Some(message));
+    assert_eq!(meta.revision, first.revision);
+    assert_eq!(f.texts(&meta).await, ["a"]);
+}
+
+#[tokio::test]
+async fn retrying_a_partial_document_bypasses_failure_cooldown() {
+    let f = Fixture::live(&["a\n"], resumable).await;
+    f.ready_meta("1").await;
+    fail_live_refresh(&f).await;
+    let reads = f.stub.log_read_count();
+    *f.stub.log_failure.lock().unwrap() = None;
+    f.stub.append_log("b\n");
+    assert!(meta_of(f.open("1").await).refresh_error.is_some());
+
+    let retried = meta_of(f.open_with("1", true).await);
+
+    assert_eq!(retried.refresh_error, None);
+    until("the retry read", || f.stub.log_read_count() == reads + 1).await;
+    f.ready(2).await;
+    assert_eq!(meta_of(f.open("1").await).line_count, 2);
+}
+
+#[tokio::test]
+async fn retrying_a_partial_document_preserves_provider_quota_pause() {
+    let f = Fixture::live(&["a\n"], resumable).await;
+    f.ready_meta("1").await;
+    fail_live_refresh(&f).await;
+    let reads = f.stub.log_read_count();
+    *f.stub.log_failure.lock().unwrap() = None;
+    f.stub.append_log("b\n");
+    pause(&f).await;
+
+    let retried = meta_of(f.open_with("1", true).await);
+    f.tick(6).await;
+
+    assert_eq!(retried.refresh_error, None);
+    assert_eq!(f.stub.log_read_count(), reads);
+    let lease = f.h.provider_service.acquire(f.id).await.unwrap();
+    f.h.scheduler
+        .set_quota_pause(f.id, lease.generation, None, Instant::now(), Utc::now());
+    f.open_with("1", true).await;
+    f.tick(6).await;
+    until("polling to resume", || f.stub.log_read_count() > reads).await;
 }
 
 #[tokio::test]
@@ -903,10 +1328,14 @@ async fn a_node_that_turns_ready_gets_one_final_read_and_the_live_task_ends() {
     let last = meta_of(f.open("1").await);
     assert!(last.complete);
     assert_eq!(f.texts(&last).await, ["a", "b", "last"]);
-    assert_eq!(
-        (last.stable_lines, last.previous_revision),
-        (1, Some(first.revision))
-    );
+    match (last.stable_lines, last.previous_revision) {
+        (1, Some(previous)) => assert_eq!(previous, first.revision),
+        (2, Some(previous)) => assert!(previous > first.revision && previous < last.revision),
+        other => panic!(
+            "unexpected revision chain {other:?} after {}",
+            first.revision
+        ),
+    }
     assert!(f.stub.log_requests()[1].is_some());
     let reads = f.stub.log_read_count();
     f.tick(60).await;
@@ -1036,6 +1465,7 @@ async fn a_second_writer_on_the_same_store_cannot_replace_a_newer_revision() {
         Arc::clone(&f.h.provider_service),
         Arc::clone(&f.h.repository),
         f.h.bus.clone(),
+        Arc::clone(&f.h.presenter),
     ));
 
     f.open("1").await;
@@ -1199,7 +1629,7 @@ async fn reading_a_revision_that_is_gone_is_not_found() {
 
     let err = f
         .svc()
-        .read_lines(&f.pipeline_id, RUN, "1", meta.revision + 1, 0, 10, 4096)
+        .read_lines(&f.pipeline_id, RUN, "1", first_lines(meta.revision + 1, 10))
         .await
         .unwrap_err();
 
@@ -1301,7 +1731,7 @@ async fn providers_without_the_logs_capability_are_not_supported() {
 
     let err = h
         .log_service
-        .run_log_tree(&format!("github__{id}__web"), RUN)
+        .run_log_tree(&format!("stub__{id}__web"), RUN)
         .await
         .unwrap_err();
 
@@ -1314,7 +1744,7 @@ async fn an_unknown_pipeline_is_not_found() {
 
     let err = h
         .log_service
-        .run_log_tree("github__1__missing", RUN)
+        .run_log_tree("stub__1__missing", RUN)
         .await
         .unwrap_err();
 
@@ -1500,7 +1930,7 @@ fn live_run_events_carry_camel_case_payloads() {
     let updated = CoreEvent::RunUpdated {
         pipeline_id: "p".into(),
         run_number: 3,
-        run: run.clone(),
+        run: Box::new(run.clone()),
     };
     assert_eq!(updated.event_name(), "run-updated");
     assert_eq!(

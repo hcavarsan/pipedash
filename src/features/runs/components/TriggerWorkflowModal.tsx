@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
-import type { Pipeline } from '../../../types/domain'
+import type { Pipeline } from '../../../types/pipelines'
 import { TriggerWorkflowForm } from './TriggerWorkflowForm'
 
 interface TriggerWorkflowModalProps {
@@ -8,7 +8,7 @@ interface TriggerWorkflowModalProps {
   onClose: () => void
   pipeline: Pipeline
   onSuccess?: ((pipelineId: string, runNumber: number) => void) | undefined
-  initialInputs?: Record<string, unknown> | undefined
+  rerunOf?: number | undefined
 }
 
 export const TriggerWorkflowModal = ({
@@ -16,7 +16,7 @@ export const TriggerWorkflowModal = ({
   onClose,
   pipeline,
   onSuccess,
-  initialInputs,
+  rerunOf,
 }: TriggerWorkflowModalProps): ReactNode => {
   if (!opened) {
     return null
@@ -29,7 +29,7 @@ export const TriggerWorkflowModal = ({
         onClose={onClose}
         pipeline={pipeline}
         onSuccess={onSuccess}
-        initialInputs={initialInputs}
+        rerunOf={rerunOf}
       />
     </ErrorBoundary>
   )

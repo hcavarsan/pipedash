@@ -1,53 +1,59 @@
-import { Alert, Group, Radio, Stack, Text } from '@mantine/core'
-import { IconAlertCircle, IconCheck, IconDatabase, IconDatabaseOff } from '@tabler/icons-react'
+import { Alert, Radio, Stack, Text } from '@mantine/core'
+import { IconAlertCircle, IconDatabase, IconDatabaseOff, type TablerIcon } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
-import { IosGroup, IosRow } from '../../../../components/ios/IosList'
+import { IosGroup } from '../../../../components/ios/IosList'
 import { useMobileShell } from '../../../../hooks/useIsMobile'
 
+import { TransferMobileOption } from './TransferMobileOption'
+import { TransferOptionCard } from './TransferOptionCard'
 import type { TransferStepProps } from './types'
+
+interface TransferOption {
+  transfer: boolean
+  value: string
+  title: string
+  description: string
+  recommended: boolean
+  Icon: TablerIcon
+}
+
+const OPTIONS: TransferOption[] = [
+  {
+    transfer: true,
+    value: 'transfer',
+    title: 'Transfer data',
+    description: 'Migrate providers, tokens, and history to the new location.',
+    recommended: true,
+    Icon: IconDatabase,
+  },
+  {
+    transfer: false,
+    value: 'fresh',
+    title: 'Start fresh',
+    description:
+      'Start with an empty database. Existing providers and credentials stay behind in the previous location.',
+    recommended: false,
+    Icon: IconDatabaseOff,
+  },
+]
 
 export function TransferStep({ state, setState, error }: TransferStepProps): ReactNode {
   const mobileShell = useMobileShell()
 
   if (mobileShell) {
-    const options = [
-      {
-        transfer: true,
-        title: 'Transfer data',
-        subtitle: 'Recommended. Migrate providers, tokens, and history to the new location.',
-        icon: <IconDatabase size={18} aria-hidden />,
-      },
-      {
-        transfer: false,
-        title: 'Start fresh',
-        subtitle:
-          'Start with an empty database. Existing providers and credentials stay behind in the previous location.',
-        icon: <IconDatabaseOff size={18} aria-hidden />,
-      },
-    ]
-
     return (
       <Stack gap="md">
         <IosGroup header="Existing data">
-          {options.map((option) => {
-            const selected = state.transferData === option.transfer
-
-            return (
-              <IosRow
-                key={option.title}
-                icon={option.icon}
-                title={option.title}
-                subtitle={option.subtitle}
-                selected={selected}
-                accessory={
-                  selected ? (
-                    <IconCheck size={20} color="var(--mantine-color-blue-light-color)" aria-hidden />
-                  ) : undefined
-                }
-                onClick={() => setState({ ...state, transferData: option.transfer })}
-              />
-            )
-          })}
+          {OPTIONS.map((option) => (
+            <TransferMobileOption
+              key={option.title}
+              Icon={option.Icon}
+              title={option.title}
+              subtitle={option.recommended ? `Recommended. ${option.description}` : option.description}
+              selected={state.transferData === option.transfer}
+              onSelect={() => setState({ ...state, transferData: option.transfer })}
+            />
+          ))}
         </IosGroup>
 
         {error && (
@@ -67,42 +73,16 @@ export function TransferStep({ state, setState, error }: TransferStepProps): Rea
         onChange={(value) => setState({ ...state, transferData: value === 'transfer' })}
       >
         <Stack gap="sm" mt="xs">
-          <Radio.Card value="transfer" p="md" radius="md">
-            <Group gap="md" wrap="nowrap" align="flex-start">
-              <Radio.Indicator />
-              <Stack gap="3xs" style={{ flex: 1 }}>
-                <Group gap="xs" wrap="nowrap">
-                  <IconDatabase size={16} aria-hidden />
-                  <Text size="sm" fw={500}>
-                    Transfer data
-                  </Text>
-                  <Text size="xs" c="blue" fw={500}>
-                    Recommended
-                  </Text>
-                </Group>
-                <Text size="xs" c="dimmed">
-                  Migrate providers, tokens, and history to the new location.
-                </Text>
-              </Stack>
-            </Group>
-          </Radio.Card>
-
-          <Radio.Card value="fresh" p="md" radius="md">
-            <Group gap="md" wrap="nowrap" align="flex-start">
-              <Radio.Indicator />
-              <Stack gap="3xs" style={{ flex: 1 }}>
-                <Group gap="xs" wrap="nowrap">
-                  <IconDatabaseOff size={16} aria-hidden />
-                  <Text size="sm" fw={500}>
-                    Start fresh
-                  </Text>
-                </Group>
-                <Text size="xs" c="dimmed">
-                  Start with an empty database. Existing providers and credentials stay behind in the previous location.
-                </Text>
-              </Stack>
-            </Group>
-          </Radio.Card>
+          {OPTIONS.map((option) => (
+            <TransferOptionCard
+              key={option.value}
+              value={option.value}
+              Icon={option.Icon}
+              title={option.title}
+              description={option.description}
+              recommended={option.recommended}
+            />
+          ))}
         </Stack>
       </Radio.Group>
 

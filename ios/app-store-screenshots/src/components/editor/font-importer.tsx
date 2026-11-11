@@ -1,70 +1,94 @@
-"use client";
-import * as React from "react";
-import { toast } from "sonner";
-import { cleanFontName } from "@/lib/clean-imported-font";
-import type { ImportedFont } from "@/lib/types";
+'use client'
+import type { ReactNode, Ref } from 'react'
+import { useEffect, useImperativeHandle, useRef } from 'react'
+import { toast } from 'sonner'
+import { cleanFontName, cleanImportedFont } from '@/lib/clean-imported-font'
+import { isRecord } from '@/lib/project-validation'
+import type { ImportedFont } from '@/lib/types'
 
-export type FontImporterHandle = { open: () => void };
+export type FontImporterHandle = { open: () => void }
 
 type Props = {
-  onImported: (font: ImportedFont) => void;
-  onUploadingChange?: (uploading: boolean) => void;
-};
+  onImported: (font: ImportedFont) => void
+  onUploadingChange?: (uploading: boolean) => void
+}
 
-const MAX_FONT_BYTES = 16 * 1024 * 1024;
+const MAX_FONT_BYTES = 16 * 1024 * 1024
 
 async function fileToBase64(file: File): Promise<string> {
   const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-  return dataUrl.slice(dataUrl.indexOf(",") + 1);
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result)
+      } else {
+        reject(new Error('Unreadable file'))
+      }
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+  return dataUrl.slice(dataUrl.indexOf(',') + 1)
 }
 
 // Hidden file input behind the toolbar's "Import font…" menu item. The server
 // validates the file by its magic bytes and stores it under
 // public/fonts/imported/<hash>.<ext>.
-export const FontImporter = React.forwardRef<FontImporterHandle, Props>(function FontImporter(
-  { onImported, onUploadingChange },
+export function FontImporter({
+  onImported,
+  onUploadingChange,
   ref,
-) {
-  const inputRef = React.useRef<HTMLInputElement>(null);
-  const requestId = React.useRef(0);
-  React.useEffect(() => () => { requestId.current += 1; }, []);
-  React.useImperativeHandle(ref, () => ({ open: () => inputRef.current?.click() }), []);
+}: Props & { ref?: Ref<FontImporterHandle> }): ReactNode {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const requestId = useRef(0)
+  useEffect(
+    () => () => {
+      requestId.current += 1
+    },
+    []
+  )
+  useImperativeHandle(ref, () => ({ open: () => inputRef.current?.click() }), [])
 
   async function importFont(file: File) {
-    const request = ++requestId.current;
-    onUploadingChange?.(true);
+    const request = ++requestId.current
+    onUploadingChange?.(true)
     try {
-      if (file.size > MAX_FONT_BYTES) throw new Error("Font file is too large (16MB maximum).");
-      await new FontFace("Import validation", await file.arrayBuffer()).load();
-      if (request !== requestId.current) return;
-      const response = await fetch("/api/upload-font", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
+      if (file.size > MAX_FONT_BYTES) {
+        throw new Error('Font file is too large (16MB maximum).')
+      }
+      await new FontFace('Import validation', await file.arrayBuffer()).load()
+      if (request !== requestId.current) {
+        return
+      }
+      const response = await fetch('/api/upload-font', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ data: await fileToBase64(file) }),
         signal: AbortSignal.timeout(15000),
-      });
-      const data = (await response.json().catch(() => ({ ok: false }))) as {
-        ok: boolean;
-        error?: string;
-        font?: ImportedFont;
-      };
-      if (request !== requestId.current) return;
-      if (!response.ok || !data.ok || !data.font) throw new Error(data.error || "Could not import that font.");
-      const name = cleanFontName(file.name.replace(/\.[^.]+$/, ""));
-      onImported({ ...data.font, ...(name ? { name } : {}) });
-      toast.success(`Imported ${name ?? "font"}`);
+      })
+      const body: unknown = await response.json().catch(() => ({ ok: false }))
+      if (request !== requestId.current) {
+        return
+      }
+      const font = isRecord(body) && body.ok === true ? cleanImportedFont(body.font) : undefined
+      if (!response.ok || !font) {
+        const serverError = isRecord(body) && typeof body.error === 'string' ? body.error : ''
+        throw new Error(serverError || 'Could not import that font.')
+      }
+      const name = cleanFontName(file.name.replace(/\.[^.]+$/, ''))
+      onImported({ ...font, ...(name ? { name } : {}) })
+      toast.success(`Imported ${name ?? 'font'}`)
     } catch (caught) {
-      if (request !== requestId.current) return;
-      toast.error("Font import failed", {
-        description: caught instanceof Error ? caught.message : "Could not import that font.",
-      });
+      if (request !== requestId.current) {
+        return
+      }
+      toast.error('Font import failed', {
+        description: caught instanceof Error ? caught.message : 'Could not import that font.',
+      })
     } finally {
-      if (request === requestId.current) onUploadingChange?.(false);
+      if (request === requestId.current) {
+        onUploadingChange?.(false)
+      }
     }
   }
 
@@ -77,10 +101,12 @@ export const FontImporter = React.forwardRef<FontImporterHandle, Props>(function
       tabIndex={-1}
       aria-hidden
       onChange={(event) => {
-        const file = event.target.files?.[0];
-        if (file) void importFont(file);
-        event.target.value = "";
+        const file = event.target.files?.[0]
+        if (file) {
+          void importFont(file)
+        }
+        event.target.value = ''
       }}
     />
-  );
-});
+  )
+}

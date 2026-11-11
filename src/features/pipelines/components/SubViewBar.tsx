@@ -4,9 +4,33 @@ import type { ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { usePipelineViewQuery } from '../../../hooks/useUrlState'
-import { canAddSubView, childViews, viewAncestors } from '../../../utils/viewTree'
-import { usePipelineViews } from '../queries/usePipelineViewQueries'
+import { childViews, viewAncestors } from '../../../utils/viewTree'
+import { usePipelineViews, useViewEditorOptions } from '../queries/usePipelineViewQueries'
 import { usePipelineViewStore } from '../stores/pipelineViewStore'
+
+function SubViewLabel(p: { name: string; count: number }): ReactNode {
+  return (
+    <Group gap="3xs" wrap="nowrap">
+      <Text size="xs" fw={500} span>
+        {p.name}
+      </Text>
+      <Text size="xs" c="dimmed" span>
+        {p.count}
+      </Text>
+    </Group>
+  )
+}
+
+function NewSubViewLabel(): ReactNode {
+  return (
+    <Group gap="3xs" wrap="nowrap">
+      <IconPlus size={14} aria-hidden />
+      <Text size="xs" fw={500} span>
+        New sub-view
+      </Text>
+    </Group>
+  )
+}
 
 export function SubViewBar(): ReactNode {
   const query = usePipelineViewQuery()
@@ -14,6 +38,7 @@ export function SubViewBar(): ReactNode {
   const { data: views = [] } = usePipelineViews()
   const openEditor = usePipelineViewStore((s) => s.openEditor)
   const current = views.find((view) => view.id === query.view)
+  const { data: options } = useViewEditorOptions(query.view, current !== undefined)
 
   if (!current) {
     return null
@@ -22,7 +47,7 @@ export function SubViewBar(): ReactNode {
   const ancestors = viewAncestors(views, current.id)
   const children = childViews(views, current.id)
 
-  if (ancestors.length === 0 && children.length === 0) {
+  if (ancestors.length === 0 && children.length === 0 && !options?.can_add_sub_view) {
     return null
   }
 
@@ -42,7 +67,7 @@ export function SubViewBar(): ReactNode {
     >
       {ancestors.length > 0 && (
         <Breadcrumbs
-          separator={<IconChevronRight size={12} aria-hidden />}
+          separator={<IconChevronRight size={14} aria-hidden />}
           separatorMargin="3xs"
           style={{ flexWrap: 'nowrap', flex: '0 0 auto' }}
         >
@@ -69,17 +94,10 @@ export function SubViewBar(): ReactNode {
             px="sm"
             bd="1px solid var(--mantine-color-default-border)"
           >
-            <Group gap="3xs" wrap="nowrap">
-              <Text size="xs" fw={500} span>
-                {view.name}
-              </Text>
-              <Text size="xs" c="dimmed" span>
-                {view.count}
-              </Text>
-            </Group>
+            <SubViewLabel name={view.name} count={view.count} />
           </UnstyledButton>
         ))}
-        {canAddSubView(views, current) && (
+        {options?.can_add_sub_view && (
           <UnstyledButton
             className="interactive-surface"
             bdrs="sm"
@@ -88,12 +106,7 @@ export function SubViewBar(): ReactNode {
             c="dimmed"
             onClick={() => openEditor(null, [], current.id)}
           >
-            <Group gap="3xs" wrap="nowrap">
-              <IconPlus size={12} aria-hidden />
-              <Text size="xs" fw={500} span>
-                New sub-view
-              </Text>
-            </Group>
+            <NewSubViewLabel />
           </UnstyledButton>
         )}
       </Box>

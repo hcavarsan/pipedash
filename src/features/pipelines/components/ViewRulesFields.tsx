@@ -2,7 +2,9 @@ import { MultiSelect, Stack, TagsInput, Text, TextInput, Title } from '@mantine/
 import type { ReactNode } from 'react'
 
 import { STATUS_OPTIONS } from '../../../theme/status'
-import type { PipelineStatus, ProviderSummary, ViewRules } from '../../../types/domain'
+import type { PipelineStatus } from '../../../types/pipelines'
+import type { ProviderSummary } from '../../../types/providers'
+import type { ViewRules } from '../../../types/views'
 
 interface ViewRulesFieldsProps {
   rules: ViewRules

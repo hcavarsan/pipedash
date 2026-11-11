@@ -1,0 +1,26 @@
+[package]
+name = "pipedash-plugin-coolify"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "Monitor and deploy Coolify applications"
+repository = "https://github.com/hcavarsan/pipedash"
+license = "GPL-3.0"
+
+[dependencies]
+async-trait.workspace = true
+bytes.workspace = true
+chrono.workspace = true
+futures.workspace = true
+pipedash-plugin-api.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+rustls.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

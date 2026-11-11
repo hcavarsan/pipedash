@@ -1,11 +1,19 @@
+use std::collections::HashMap;
 use std::future::Future;
+use std::sync::OnceLock;
 use std::time::Duration;
 
+use chrono::{
+    DateTime,
+    Utc,
+};
 use futures::StreamExt;
 use reqwest::Url;
 
+use crate::config::comma_separated;
 use crate::http::map_send_error;
 use crate::{
+    PipelineStatus,
     PluginError,
     PluginResult,
 };
@@ -90,6 +98,30 @@ impl RetryPolicy {
     }
 }
 
+#[derive(Debug)]
+pub struct Cached<T>(OnceLock<T>);
+
+impl<T> Default for Cached<T> {
+    fn default() -> Self {
+        Self(OnceLock::new())
+    }
+}
+
+impl<T: Clone> Cached<T> {
+    pub async fn get_or_fetch<F, Fut>(&self, fetch: F) -> PluginResult<T>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = PluginResult<T>>,
+    {
+        if let Some(value) = self.0.get() {
+            return Ok(value.clone());
+        }
+        let value = fetch().await?;
+        let _ = self.0.set(value.clone());
+        Ok(value)
+    }
+}
+
 pub async fn retain_with_ci<F, Fut>(ids: Vec<String>, has_ci: F) -> Vec<String>
 where
     F: Fn(String) -> Fut,
@@ -106,185 +138,118 @@ where
         .await
 }
 
-#[cfg(test)]
-mod tests {
-    use std::io::{
-        Read,
-        Write,
-    };
-    use std::net::TcpListener;
-    use std::sync::atomic::{
-        AtomicUsize,
-        Ordering,
-    };
-    use std::sync::Arc;
-
-    use super::*;
-
-    fn fast_policy() -> RetryPolicy {
-        RetryPolicy::new(3, Duration::from_millis(5), false)
-    }
-
-    fn client(timeout: Duration) -> reqwest::Client {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        reqwest::Client::builder().timeout(timeout).build().unwrap()
-    }
-
-    async fn attempts_for(error: fn() -> PluginError) -> usize {
-        let attempts = AtomicUsize::new(0);
-        let result: PluginResult<()> = fast_policy()
-            .retry(|| async {
-                attempts.fetch_add(1, Ordering::SeqCst);
-                Err(error())
-            })
-            .await;
-        assert!(result.is_err());
-        attempts.load(Ordering::SeqCst)
-    }
-
-    #[tokio::test]
-    async fn test_retry_success() {
-        let policy = RetryPolicy::default();
-        let result = policy.retry(|| async { Ok::<_, PluginError>(42) }).await;
-        assert_eq!(result.unwrap(), 42);
-    }
-
-    #[tokio::test]
-    async fn test_retry_eventual_success() {
-        let policy = RetryPolicy::new(3, Duration::from_millis(10), false);
-        let attempts = std::cell::Cell::new(0);
-
-        let result = policy
-            .retry(|| async {
-                let count = attempts.get() + 1;
-                attempts.set(count);
-                if count < 2 {
-                    Err(PluginError::NetworkError("Temporary failure".to_string()))
-                } else {
-                    Ok(42)
-                }
-            })
-            .await;
-
-        assert_eq!(result.unwrap(), 42);
-    }
-
-    #[tokio::test]
-    async fn retries_network_and_short_hint_unavailable() {
-        assert_eq!(
-            attempts_for(|| PluginError::NetworkError("x".into())).await,
-            3
-        );
-        assert_eq!(
-            attempts_for(|| PluginError::ServiceUnavailable {
-                message: "x".into(),
-                retry_after: None,
-            })
-            .await,
-            3
-        );
-        assert_eq!(
-            attempts_for(|| PluginError::ServiceUnavailable {
-                message: "x".into(),
-                retry_after: Some(Duration::from_millis(1)),
-            })
-            .await,
-            3
-        );
-    }
-
-    #[tokio::test]
-    async fn does_not_retry_permanent_errors_or_long_hints() {
-        assert_eq!(
-            attempts_for(|| PluginError::AuthenticationFailed("x".into())).await,
-            1
-        );
-        assert_eq!(
-            attempts_for(|| PluginError::PipelineNotFound("x".into())).await,
-            1
-        );
-        assert_eq!(attempts_for(|| PluginError::ApiError("x".into())).await, 1);
-        assert_eq!(
-            attempts_for(|| PluginError::RateLimited {
-                message: "x".into(),
-                retry_after: Some(Duration::from_secs(120)),
-            })
-            .await,
-            1
-        );
-        assert_eq!(
-            attempts_for(|| PluginError::ServiceUnavailable {
-                message: "x".into(),
-                retry_after: Some(Duration::from_secs(120)),
-            })
-            .await,
-            1
-        );
-    }
-
-    #[tokio::test]
-    async fn retry_unsent_retries_connect_errors() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        drop(listener);
-        let url = Url::parse(&format!("http://{addr}/trigger")).unwrap();
-        let client = client(Duration::from_secs(5));
-        let attempts = AtomicUsize::new(0);
-
-        let result = fast_policy()
-            .retry_unsent(&url, || {
-                attempts.fetch_add(1, Ordering::SeqCst);
-                client.post(url.clone()).send()
-            })
-            .await;
-
-        assert!(matches!(result, Err(PluginError::NetworkError(_))));
-        assert_eq!(attempts.load(Ordering::SeqCst), 3);
-    }
-
-    #[tokio::test]
-    async fn retry_unsent_never_resends_after_timeout() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        let received = Arc::new(AtomicUsize::new(0));
-        let counter = received.clone();
-        std::thread::spawn(move || {
-            for mut stream in listener.incoming().flatten() {
-                let mut buf = [0u8; 1024];
-                if stream.read(&mut buf).unwrap_or(0) > 0 {
-                    counter.fetch_add(1, Ordering::SeqCst);
-                }
-                std::thread::sleep(Duration::from_millis(300));
-                let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
-            }
-        });
-        let url = Url::parse(&format!("http://{addr}/trigger")).unwrap();
-        let client = client(Duration::from_millis(50));
-
-        let result = fast_policy()
-            .retry_unsent(&url, || client.post(url.clone()).send())
-            .await;
-
-        assert!(matches!(result, Err(PluginError::NetworkError(_))));
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(received.load(Ordering::SeqCst), 1);
-    }
-
-    #[tokio::test]
-    async fn ids_without_ci_are_dropped_and_unchecked_ones_kept_in_order() {
-        let ids = ["empty", "ci", "unreachable", "ci-too"]
-            .map(String::from)
-            .to_vec();
-
-        let kept = retain_with_ci(ids, |id| async move {
-            match id.as_str() {
-                "empty" => Ok(false),
-                "unreachable" => Err(PluginError::NetworkError("reset".into())),
-                _ => Ok(true),
-            }
-        })
-        .await;
-
-        assert_eq!(kept, ["ci", "unreachable", "ci-too"]);
+pub fn status_from_conclusion(
+    status: &str, conclusion: Option<&str>, successful: &[&str], cancelled: &[&str],
+) -> PipelineStatus {
+    match (status, conclusion) {
+        ("completed", Some(c)) if successful.contains(&c) => PipelineStatus::Success,
+        ("completed", Some(c)) if cancelled.contains(&c) => PipelineStatus::Cancelled,
+        ("completed", Some("skipped")) => PipelineStatus::Skipped,
+        ("completed", _) => PipelineStatus::Failed,
+        ("in_progress", _) | ("queued", _) => PipelineStatus::Running,
+        _ => PipelineStatus::Pending,
     }
 }
+
+pub fn deployed_status(result: PipelineStatus, live: PipelineStatus) -> PipelineStatus {
+    match (result, live) {
+        (PipelineStatus::Success, PipelineStatus::Degraded | PipelineStatus::Failed) => {
+            PipelineStatus::Degraded
+        }
+        _ => result,
+    }
+}
+
+pub fn repository_name(repo_url: &str) -> String {
+    let cleaned = repo_url
+        .trim_end_matches('/')
+        .trim_end_matches(".git")
+        .trim_end_matches('/');
+
+    if !cleaned.contains("://") {
+        if let Some((_, path)) = cleaned.rsplit_once(':') {
+            if path.contains('/') {
+                return path.to_string();
+            }
+        }
+    }
+
+    let mut segments = cleaned.rsplit('/');
+    match (segments.next(), segments.next()) {
+        (Some(repo), Some(org)) => format!("{org}/{repo}"),
+        _ => repo_url.to_string(),
+    }
+}
+
+pub fn parse_timestamp(value: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|parsed| parsed.with_timezone(&Utc))
+}
+
+pub fn duration_seconds(
+    started: Option<DateTime<Utc>>, finished: Option<DateTime<Utc>>,
+) -> Option<i64> {
+    Some((finished? - started?).num_seconds())
+}
+
+pub fn collect_partial<T>(
+    results: impl IntoIterator<Item = PluginResult<T>>, mut skipped: impl FnMut(&PluginError),
+) -> PluginResult<Vec<T>> {
+    let mut items = Vec::new();
+    for result in results {
+        match result {
+            Ok(item) => items.push(item),
+            Err(error) if error.is_transient() => return Err(error),
+            Err(error) => skipped(&error),
+        }
+    }
+    Ok(items)
+}
+
+pub fn selected_items(config: &HashMap<String, String>) -> impl Iterator<Item = &str> {
+    config
+        .get("selected_items")
+        .into_iter()
+        .flat_map(|items| comma_separated(items))
+}
+
+pub const fn provider_type(package_name: &'static str) -> &'static str {
+    const PREFIX: &[u8] = b"pipedash-plugin-";
+    let name = package_name.as_bytes();
+    if name.len() < PREFIX.len() {
+        return package_name;
+    }
+    let (head, rest) = name.split_at(PREFIX.len());
+    let mut index = 0;
+    while index < PREFIX.len() {
+        if head[index] != PREFIX[index] {
+            return package_name;
+        }
+        index += 1;
+    }
+    match core::str::from_utf8(rest) {
+        Ok(stripped) => stripped,
+        Err(_) => package_name,
+    }
+}
+
+pub fn svg_data_url(svg: &str) -> String {
+    const PREFIX: &str = "data:image/svg+xml,";
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut url = String::with_capacity(PREFIX.len() + svg.len());
+    url.push_str(PREFIX);
+    for byte in svg.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~/:;,=!*'()".contains(&byte) {
+            url.push(char::from(byte));
+        } else {
+            url.push('%');
+            url.push(char::from(HEX[usize::from(byte >> 4)]));
+            url.push(char::from(HEX[usize::from(byte & 0x0F)]));
+        }
+    }
+    url
+}
+
+#[cfg(test)]
+mod tests;

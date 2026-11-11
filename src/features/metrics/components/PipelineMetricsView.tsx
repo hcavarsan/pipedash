@@ -1,6 +1,6 @@
-import { Button, Grid, Group, SegmentedControl, Select, Stack } from '@mantine/core'
+import { Button, Group, SegmentedControl, Select, Stack } from '@mantine/core'
 import { IconAdjustments, IconChartLine } from '@tabler/icons-react'
-import { Fragment, type ReactNode, useState } from 'react'
+import { type ReactNode, useState } from 'react'
 import { EmptyState } from '../../../components/common/EmptyState'
 import { ErrorState } from '../../../components/common/ErrorState'
 import { LoadingState } from '../../../components/common/LoadingState'
@@ -9,32 +9,30 @@ import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useMetricsFilters } from '../../../hooks/useUrlState'
+import { runHistoryQuery } from '../../../lib/runHistoryQuery'
 import { useRunHistory } from '../../../queries/useRunHistoryQueries'
 import { service } from '../../../services/service'
-import type { AggregationPeriod, MetricType } from '../../../types/domain'
+import type { AggregationPeriod, MetricType } from '../../../types/metrics'
 import { type DateRange, isDateRange } from '../../../utils/dateRange'
+import { displayErrorNotification } from '../../../utils/errorDisplay'
 import { formatCount } from '../../../utils/formatCount'
 import { useMetricsEventListeners } from '../hooks/useMetricsEventListeners'
 import {
   AGGREGATION_PERIOD_OPTIONS,
-  buildChartTitle,
   getDefaultAggregationType,
-  getRangeOptions,
   isAggregationPeriod,
   METRIC_CONFIG,
-  METRIC_TYPES,
-  useMetricsWindow,
+  toRangeOptions,
 } from '../lib/metricsUtils'
 import {
-  useAggregatedMetrics,
   useInvalidatePipelineMetrics,
+  useMetricsDashboard,
   usePipelineMetricsConfig,
 } from '../queries/useMetricsQueries'
-import { CompactMetricsCard } from './CompactMetricsCard'
 import { MetricsConfigModal } from './MetricsConfigModal'
 import { MetricsDetailPage } from './MetricsDetailPage'
-import { MetricsEmptyState } from './MetricsEmptyState'
 import { MetricsPickerRow } from './MetricsPickerRow'
+import { PipelineMetricCards } from './PipelineMetricCards'
 
 interface PipelineMetricsViewProps {
   pipelineId: string
@@ -57,20 +55,19 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository }: Pi
   const isMetricsEnabled = pipelineConfig.data?.enabled ?? false
   const retentionDays = pipelineConfig.data?.retention_days ?? 7
 
-  const { startDate, endDate } = useMetricsWindow(dateRange)
-  const queryParams = { aggregationPeriod, pipelineId, startDate, endDate, enabled: isMetricsEnabled }
+  const queryParams = { aggregationPeriod, pipelineId, dateRange, enabled: isMetricsEnabled }
 
-  const durationQuery = useAggregatedMetrics({
+  const durationQuery = useMetricsDashboard({
     ...queryParams,
     metricType: 'run_duration',
     aggregationType: getDefaultAggregationType('run_duration'),
   })
-  const successRateQuery = useAggregatedMetrics({
+  const successRateQuery = useMetricsDashboard({
     ...queryParams,
     metricType: 'success_rate',
     aggregationType: getDefaultAggregationType('success_rate'),
   })
-  const frequencyQuery = useAggregatedMetrics({
+  const frequencyQuery = useMetricsDashboard({
     ...queryParams,
     metricType: 'run_frequency',
     aggregationType: getDefaultAggregationType('run_frequency'),
@@ -81,20 +78,30 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository }: Pi
     success_rate: successRateQuery,
     run_frequency: frequencyQuery,
   }
-  const allQueries = METRIC_TYPES.map((type) => metricQueries[type])
 
+  const rangeSource = durationQuery.data?.ranges
   const refetchAll = useInvalidatePipelineMetrics(pipelineId)
 
-  useRunHistory(pipelineId, 1, 50, isMetricsEnabled)
+  useRunHistory(pipelineId, runHistoryQuery(1, 50), isMetricsEnabled)
 
-  const handleConfigSaved = async () => {
+  const refreshAfterConfigChange = async () => {
     const { data: freshConfig } = await refetchConfig()
 
-    if (freshConfig?.enabled) {
-      await service.fetchRunHistory(pipelineId, 1, 50)
+    if (!freshConfig?.enabled) {
+      return
+    }
 
+    try {
+      await service.fetchRunHistory(pipelineId, runHistoryQuery(1, 50))
+    } catch (error) {
+      displayErrorNotification(error, "Couldn't refresh metrics")
+    } finally {
       void refetchAll()
     }
+  }
+
+  const handleConfigSaved = () => {
+    void refreshAfterConfigChange()
   }
 
   const handleConfigChanged = () => {
@@ -112,84 +119,33 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository }: Pi
     setShowDetailPage(true)
   }
 
-  const isRefetching = allQueries.some((query) => query.isFetching)
-  const failedQuery = allQueries.find((query) => query.isError)
+  const cards = (
+    <PipelineMetricCards
+      queries={metricQueries}
+      dateRange={dateRange}
+      aggregationPeriod={aggregationPeriod}
+      onRangeChange={(range) => setFilter('dateRange', range)}
+      onRefresh={refetchAll}
+      onExpand={handleExpandMetric}
+    />
+  )
 
-  const renderMetrics = () => {
-    if (failedQuery) {
-      return (
-        <ErrorState
-          title="Couldn't load pipeline metrics"
-          error={failedQuery.error}
-          onRetry={refetchAll}
-          retrying={isRefetching}
-        />
-      )
-    }
-
-    if (allQueries.some((query) => query.isPending)) {
-      return <LoadingState message="Loading pipeline metrics..." />
-    }
-
-    if (!allQueries.some((query) => query.data && query.data.metrics.length > 0)) {
-      return (
-        <MetricsEmptyState
-          range={dateRange}
-          retentionDays={retentionDays}
-          onRangeChange={(range) => setFilter('dateRange', range)}
-          onRefresh={refetchAll}
-          refreshing={isRefetching}
-        />
-      )
-    }
-
-    const renderCard = (type: MetricType) => (
-      <ErrorBoundary scope="feature" name={METRIC_CONFIG[type].label}>
-        <CompactMetricsCard
-          metricType={type}
-          data={metricQueries[type].data}
-          title={buildChartTitle(type, getDefaultAggregationType(type), aggregationPeriod, dateRange)}
-          loading={metricQueries[type].isPending}
-          onExpand={() => handleExpandMetric(type)}
-        />
-      </ErrorBoundary>
-    )
-
-    if (mobileShell) {
-      return (
-        <Stack gap="md">
-          {METRIC_TYPES.map((type) => (
-            <Fragment key={type}>{renderCard(type)}</Fragment>
-          ))}
-        </Stack>
-      )
-    }
-
-    return (
-      <Grid gap="md">
-        {METRIC_TYPES.map((type) => (
-          <Grid.Col key={type} span={{ base: 12, md: 4 }}>
-            {renderCard(type)}
-          </Grid.Col>
-        ))}
-      </Grid>
-    )
-  }
+  const configError = pipelineConfig.isError ? (
+    <ErrorState
+      title="Couldn't load metrics settings"
+      error={pipelineConfig.error}
+      onRetry={() => refetchConfig()}
+      retrying={pipelineConfig.isFetching}
+    />
+  ) : null
 
   const renderContent = () => {
-    if (pipelineConfig.isError) {
-      return (
-        <ErrorState
-          title="Couldn't load metrics settings"
-          error={pipelineConfig.error}
-          onRetry={() => refetchConfig()}
-          retrying={pipelineConfig.isFetching}
-        />
-      )
+    if (configError && !pipelineConfig.data) {
+      return configError
     }
 
     if (pipelineConfig.isPending) {
-      return <LoadingState message="Loading metrics settings..." />
+      return <LoadingState message="Loading metrics settings…" />
     }
 
     if (!isMetricsEnabled) {
@@ -212,32 +168,36 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository }: Pi
     }
 
     if (mobileShell) {
+      const filters = (
+        <Stack gap="sm">
+          <IosGroup>
+            <MetricsPickerRow
+              label="Time range"
+              value={dateRange}
+              onChange={(value) => isDateRange(value) && setFilter('dateRange', value)}
+              data={toRangeOptions(rangeSource)}
+            />
+          </IosGroup>
+          <SegmentedControl
+            fullWidth
+            aria-label="Group by"
+            value={aggregationPeriod}
+            onChange={(value) => isAggregationPeriod(value) && setFilter('period', value)}
+            data={AGGREGATION_PERIOD_OPTIONS}
+          />
+        </Stack>
+      )
+
       return (
         <Stack gap="lg" pb="md">
-          <Stack gap="sm">
-            <IosGroup>
-              <MetricsPickerRow
-                label="Time range"
-                value={dateRange}
-                onChange={(value) => isDateRange(value) && setFilter('dateRange', value)}
-                data={getRangeOptions(retentionDays)}
-              />
-            </IosGroup>
-            <SegmentedControl
-              fullWidth
-              aria-label="Group by"
-              value={aggregationPeriod}
-              onChange={(value) => isAggregationPeriod(value) && setFilter('period', value)}
-              data={AGGREGATION_PERIOD_OPTIONS}
-            />
-          </Stack>
+          {filters}
 
-          {renderMetrics()}
+          {cards}
 
           <IosGroup footer={`Metrics are kept for ${formatCount(retentionDays, 'day')}.`}>
             <IosRow
               title="Configure metrics"
-              icon={<IconAdjustments size={18} aria-hidden />}
+              icon={<IconAdjustments size={16} aria-hidden />}
               chevron
               onClick={() => setConfigModalOpened(true)}
             />
@@ -254,7 +214,7 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository }: Pi
               label="Time range"
               value={dateRange}
               onChange={(value) => isDateRange(value) && setFilter('dateRange', value)}
-              data={getRangeOptions(retentionDays)}
+              data={toRangeOptions(rangeSource)}
               allowDeselect={false}
               w={220}
             />
@@ -277,15 +237,17 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository }: Pi
           </Button>
         </Group>
 
-        {renderMetrics()}
+        {cards}
       </Stack>
     )
   }
 
   return (
     <>
-      {renderContent()}
-
+      <Stack gap="md">
+        {pipelineConfig.data && configError}
+        {renderContent()}
+      </Stack>
       <StandardModal
         opened={showDetailPage}
         onClose={() => setShowDetailPage(false)}
@@ -304,7 +266,6 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository }: Pi
             metricType={selectedMetricType}
             initialDateRange={dateRange}
             initialAggregation={aggregationPeriod}
-            retentionDays={retentionDays}
           />
         </ErrorBoundary>
       </StandardModal>

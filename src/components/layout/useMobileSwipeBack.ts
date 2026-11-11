@@ -5,7 +5,7 @@ import { overlayOpen } from '../../lib/overlays'
 import { trackTouches } from '../../lib/touchTracker'
 import { type BarSnapshot, useMobileNavStore } from '../../stores/mobileNavStore'
 import classes from './MobilePage.module.css'
-import { type MobileTab, mobileChrome, routeKey, splitLocation } from './mobileChrome'
+import { locationKey, type MobileTab, mobileChrome, routeKey, splitLocation } from './mobileChrome'
 import { edgeOffset } from './navigation'
 import { mountSnapshot, snapshotCollapse } from './snapshots'
 import { springFor } from './springValue'
@@ -43,8 +43,8 @@ export function useMobileSwipeBack({ layers, motion, back, tab, goBack, swiped }
       const parent = splitLocation(target.to)
       const parentChrome = mobileChrome(parent.pathname, parent.search, { tab: currentTab() })
       const parentKey = routeKey(parent.pathname, parent.search, { tab: currentTab() })
-      const { pageTitles } = useMobileNavStore.getState()
-      const title = pageTitles[target.to] ?? parentChrome.title
+      const { titles } = useMobileNavStore.getState()
+      const title = titles[parentKey] ?? parentChrome.title
 
       if (underlay.current) {
         mountSnapshot(underlay.current, parentKey, title, classes.placeholder)
@@ -52,7 +52,9 @@ export function useMobileSwipeBack({ layers, motion, back, tab, goBack, swiped }
 
       return {
         title,
-        backLabel: parentChrome.back ? (pageTitles[parentChrome.back.to] ?? parentChrome.back.label) : null,
+        backLabel: parentChrome.back
+          ? (titles[locationKey(parentChrome.back.to, currentTab())] ?? parentChrome.back.label)
+          : null,
         collapse: snapshotCollapse(parentKey),
       }
     }

@@ -109,7 +109,13 @@ function ownChrome(pathname: string, search: string): MobileChrome {
         return { title: 'Pinned', back: null, tab: 'pinned' }
       }
 
-      const title = params.has('provider') ? 'Provider' : params.has('view') ? 'View' : 'All pipelines'
+      let title = 'All pipelines'
+
+      if (params.has('provider')) {
+        title = 'Provider'
+      } else if (params.has('view')) {
+        title = 'View'
+      }
 
       return { title, back: BROWSE_BACK, tab: 'pipelines' }
     }
@@ -153,5 +159,24 @@ export function pushState(pathname: string, search: string, state?: unknown): Na
 }
 
 export function routeKey(pathname: string, search: string, state?: unknown): string {
-  return `${mobileChrome(pathname, search, state).tab}|${pathname}`
+  const params = new URLSearchParams(search)
+  const screen = new URLSearchParams()
+
+  for (const key of ['view', 'provider']) {
+    const value = params.get(key)
+
+    if (value) {
+      screen.set(key, value)
+    }
+  }
+
+  const query = screen.toString()
+
+  return `${mobileChrome(pathname, search, state).tab}|${pathname}${query ? `?${query}` : ''}`
+}
+
+export function locationKey(location: string, tab: MobileTab): string {
+  const { pathname, search } = splitLocation(location)
+
+  return routeKey(pathname, search, { tab })
 }

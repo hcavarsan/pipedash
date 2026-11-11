@@ -1,219 +1,378 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
 import { after, afterEach, beforeEach, mock, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement } from 'react'
+import { pipelineActionsFixture, pluginPresentationFixture } from '../../../testing/presentation'
+import type { PreferenceChange } from '../../../types/notification_preferences'
+import type { Pipeline, WorkflowParameter } from '../../../types/pipelines'
+import { isRecord } from '../../../utils/isRecord'
 
-import type { Pipeline, WorkflowParameter } from '../../../types/domain'
+GlobalRegistrator.register({ width: 1400, height: 900 })
 
-if (process.env.PIPEDASH_TRIGGER_TEST !== '1') {
-  test('workflow trigger behavior runs in its own DOM process', () => {
-    const result = spawnSync(process.execPath, ['test', import.meta.filename], {
-      env: { ...process.env, PIPEDASH_TRIGGER_TEST: '1' },
-      encoding: 'utf8',
-      timeout: 60000,
-    })
-    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
-  })
-} else {
-  GlobalRegistrator.register({ width: 1400, height: 900 })
+const state: {
+  params: WorkflowParameter[]
+  values: Record<string, unknown>
+  paramsFailure: boolean
+  checkFailure: boolean
+  triggerFailure: boolean
+} = {
+  params: [],
+  values: {},
+  paramsFailure: false,
+  checkFailure: false,
+  triggerFailure: false,
+}
+const triggers: Record<string, unknown>[] = []
+Object.assign(window, {
+  __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'linux' },
+  __TAURI_INTERNALS__: {
+    invoke: async (command: string, args?: Record<string, unknown>) => {
+      switch (command) {
+        case 'get_available_plugins':
+          return []
+        case 'prepare_pipeline_trigger': {
+          if (state.paramsFailure) {
+            throw new Error('parameters unavailable')
+          }
 
-  const state: { params: WorkflowParameter[]; paramsFailure: boolean; triggerFailure: boolean } = {
-    params: [],
-    paramsFailure: false,
-    triggerFailure: false,
-  }
-  const triggers: Record<string, unknown>[] = []
-  Object.assign(window, {
-    __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'linux' },
-    __TAURI_INTERNALS__: {
-      invoke: async (command: string, args?: Record<string, unknown>) => {
-        switch (command) {
-          case 'get_workflow_parameters':
-            if (state.paramsFailure) {
-              throw new Error('parameters unavailable')
-            }
+          if (state.checkFailure && isRecord(args?.inputs)) {
+            throw new Error('inputs service unavailable')
+          }
 
-            return state.params
-          case 'trigger_pipeline':
-            triggers.push(args ?? {})
+          const values = isRecord(args?.inputs) ? args.inputs : state.values
 
-            if (state.triggerFailure) {
-              throw new Error('provider rejected the trigger')
-            }
-
-            return JSON.stringify({ run_number: 42 })
-          default:
-            throw new Error(`Unexpected command: ${command}`)
+          return {
+            parameters: state.params,
+            values,
+            fields: [],
+            errors: Object.fromEntries(
+              state.params
+                .filter((param) => param.required && (values[param.name] ?? '') === '')
+                .map((param) => [param.name, `${param.label} is required`])
+            ),
+            availability: { allowed: true, reason: null },
+            copy: { ...pluginPresentationFixture().trigger, label: 'Trigger workflow', compact_label: 'Trigger' },
+          }
         }
-      },
+        case 'trigger_pipeline':
+          triggers.push(args ?? {})
+
+          if (state.triggerFailure) {
+            throw new Error('provider rejected the trigger')
+          }
+
+          return { run_id: null, run_number: 42 }
+        default:
+          throw new Error(`Unexpected command: ${command}`)
+      }
     },
+  },
+})
+
+const { act, cleanup, render, waitFor, within } = await import('@testing-library/react')
+const { userEvent } = await import('@testing-library/user-event')
+const { MantineProvider } = await import('@mantine/core')
+const { notifications } = await import('@mantine/notifications')
+const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
+const { TriggerWorkflowModal } = await import('./TriggerWorkflowModal')
+const { apiService } = await import('../../../services/api')
+const { tauriService } = await import('../../../services/tauri')
+const { DEFAULT_NOTIFICATION_PREFERENCES, useNotificationStore } = await import('../../../stores/notificationStore')
+const preferenceChanges: PreferenceChange[] = []
+const view = () => within(document.body)
+
+const branchParam: WorkflowParameter = {
+  name: 'branch',
+  label: 'Branch',
+  description: null,
+  type: 'string',
+  required: true,
+}
+
+const pipeline: Pipeline = {
+  id: 'github__1__owner/repo/build.yml',
+  provider_id: 1,
+  provider_type: 'github',
+  name: 'Build',
+  status: 'success',
+  last_run: null,
+  last_updated: '2026-10-25T00:00:00Z',
+  repository: 'owner/repo',
+  branch: 'main',
+  workflow_file: 'build.yml',
+  actions: pipelineActionsFixture(),
+}
+
+let client = new QueryClient()
+
+beforeEach(() => {
+  client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  state.params = [branchParam]
+  state.values = {}
+  state.paramsFailure = false
+  state.checkFailure = false
+  state.triggerFailure = false
+  triggers.length = 0
+  preferenceChanges.length = 0
+  useNotificationStore.setState({
+    preferences: DEFAULT_NOTIFICATION_PREFERENCES,
+    pipelineStates: {},
+    notifyTriggeredRuns: true,
   })
-
-  const { act, cleanup, render, waitFor, within } = await import('@testing-library/react')
-  const { userEvent } = await import('@testing-library/user-event')
-  const { MantineProvider } = await import('@mantine/core')
-  const { notifications } = await import('@mantine/notifications')
-  const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
-  const { TriggerWorkflowModal } = await import('./TriggerWorkflowModal')
-  const { apiService } = await import('../../../services/api')
-  const { tauriService } = await import('../../../services/tauri')
-  const view = () => within(document.body)
-
-  const branchParam: WorkflowParameter = {
-    name: 'branch',
-    label: 'Branch',
-    description: null,
-    type: 'string',
-    required: true,
-  }
-
-  const pipeline: Pipeline = {
-    id: 'github__1__owner/repo/build.yml',
-    provider_id: 1,
-    provider_type: 'github',
-    name: 'Build',
-    status: 'success',
-    last_run: null,
-    last_updated: '2026-10-25T00:00:00Z',
-    repository: 'owner/repo',
-    branch: 'main',
-    workflow_file: 'build.yml',
-  }
-
-  let client = new QueryClient()
-
-  beforeEach(() => {
-    client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    state.params = [branchParam]
-    state.paramsFailure = false
-    state.triggerFailure = false
-    triggers.length = 0
-    mock.method(apiService, 'getWorkflowParameters', tauriService.getWorkflowParameters)
-    mock.method(apiService, 'triggerPipeline', tauriService.triggerPipeline)
-    notifyManager.setNotifyFunction((callback) => act(callback))
+  mock.method(apiService, 'preparePipelineTrigger', tauriService.preparePipelineTrigger)
+  mock.method(apiService, 'getAvailablePlugins', tauriService.getAvailablePlugins)
+  mock.method(apiService, 'triggerPipeline', tauriService.triggerPipeline)
+  mock.method(tauriService, 'changeNotificationPreference', async (change: PreferenceChange) => {
+    preferenceChanges.push(change)
+    return { preferences: DEFAULT_NOTIFICATION_PREFERENCES, pipeline_states: {} }
   })
+  notifyManager.setNotifyFunction((callback) => act(callback))
+})
 
-  afterEach(async () => {
-    await act(async () => cleanup())
-    client.clear()
-    notifications.clean()
-    mock.restoreAll()
-  })
+afterEach(async () => {
+  await act(async () => cleanup())
+  client.clear()
+  notifications.clean()
+  mock.restoreAll()
+})
 
-  after(async () => {
-    notifyManager.setNotifyFunction((callback) => callback())
-    await GlobalRegistrator.unregister()
-  })
+after(async () => {
+  notifyManager.setNotifyFunction((callback) => callback())
+  await GlobalRegistrator.unregister()
+})
 
-  function renderModal(options: { initialInputs?: Record<string, unknown> } = {}) {
-    const successes: Array<[string, number]> = []
-    const closed = { value: false }
+function renderModal(options: { rerunOf?: number } = {}) {
+  const successes: Array<[string, number]> = []
+  const closed = { value: false }
 
-    render(
+  render(
+    createElement(
+      MantineProvider,
+      null,
       createElement(
-        MantineProvider,
-        null,
-        createElement(
-          QueryClientProvider,
-          { client },
-          createElement(TriggerWorkflowModal, {
-            opened: true,
-            pipeline,
-            onClose: () => {
-              closed.value = true
-            },
-            onSuccess: (id, runNumber) => successes.push([id, runNumber]),
-            ...options,
-          })
-        )
+        QueryClientProvider,
+        { client },
+        createElement(TriggerWorkflowModal, {
+          opened: true,
+          pipeline,
+          onClose: () => {
+            closed.value = true
+          },
+          onSuccess: (id, runNumber) => successes.push([id, runNumber]),
+          ...options,
+        })
       )
     )
+  )
 
-    return { successes, closed }
-  }
-
-  test('clicking the footer button submits the typed parameters', async () => {
-    const user = userEvent.setup({ document })
-    const { successes, closed } = renderModal()
-
-    const input = await view().findByRole('textbox', { name: 'Branch' })
-    await user.type(input, 'release')
-    await user.click(view().getByRole('button', { name: 'Trigger workflow' }))
-
-    await waitFor(() => {
-      assert.deepEqual(triggers, [{ params: { workflow_id: pipeline.id, inputs: { branch: 'release' } } }])
-      assert.equal(closed.value, true)
-      assert.deepEqual(successes, [[pipeline.id, 42]])
-    })
-  })
-
-  test('a missing required value blocks the request and reports the field', async () => {
-    const user = userEvent.setup({ document })
-    const { closed } = renderModal()
-
-    await view().findByRole('textbox', { name: /Branch/ })
-    await user.click(view().getByRole('button', { name: 'Trigger workflow' }))
-
-    assert.ok((await view().findAllByText('Branch is required')).length > 0)
-    assert.equal(triggers.length, 0)
-    assert.equal(closed.value, false)
-  })
-
-  test('replayed zero is shown in text fields', async () => {
-    state.params = [{ name: 'retries', label: 'Retries', description: null, type: 'string', required: false }]
-    renderModal({ initialInputs: { retries: 0 } })
-
-    const input = await view().findByRole('textbox', { name: 'Retries' })
-    assert.ok(input instanceof HTMLInputElement)
-    assert.equal(input.value, '0')
-  })
-
-  test('a rejected trigger keeps the dialog open with the typed values', async () => {
-    const user = userEvent.setup({ document })
-    state.triggerFailure = true
-    const { closed } = renderModal()
-
-    const input = await view().findByRole('textbox', { name: 'Branch' })
-    await user.type(input, 'release')
-    await user.click(view().getByRole('button', { name: 'Trigger workflow' }))
-
-    await waitFor(() => assert.equal(triggers.length, 1))
-    assert.equal(closed.value, false)
-    assert.ok(input instanceof HTMLInputElement)
-    assert.equal(input.value, 'release')
-
-    state.triggerFailure = false
-    await user.click(view().getByRole('button', { name: 'Trigger workflow' }))
-    await waitFor(() => assert.equal(closed.value, true))
-  })
-
-  test('a failed parameter load offers a retry that recovers', async () => {
-    const user = userEvent.setup({ document })
-    state.paramsFailure = true
-    renderModal()
-
-    await view().findByText("Couldn't load workflow parameters")
-    state.paramsFailure = false
-    await user.click(view().getByRole('button', { name: /retry|try again/i }))
-
-    await view().findByRole('textbox', { name: 'Branch' })
-  })
-
-  test('a background parameter refetch does not overwrite a dirty draft', async () => {
-    const user = userEvent.setup({ document })
-    renderModal()
-
-    const input = await view().findByRole('textbox', { name: 'Branch' })
-    await user.type(input, 'release')
-
-    state.params = [{ ...branchParam, label: 'Ref name' }]
-    await act(async () => client.refetchQueries())
-
-    await view().findByRole('textbox', { name: 'Ref name' })
-    const refreshed = view().getByRole('textbox', { name: 'Ref name' })
-    assert.ok(refreshed instanceof HTMLInputElement)
-    assert.equal(refreshed.value, 'release')
-  })
+  return { successes, closed }
 }
+
+test('clicking the footer button submits the typed parameters', async () => {
+  const user = userEvent.setup({ document })
+  const { successes, closed } = renderModal()
+
+  const input = await view().findByRole('textbox', { name: 'Branch' })
+  await user.type(input, 'release')
+  await user.click(view().getByRole('button', { name: 'Trigger workflow' }))
+
+  await waitFor(() => {
+    assert.deepEqual(triggers, [{ params: { workflow_id: pipeline.id, inputs: { branch: 'release' } } }])
+    assert.equal(closed.value, true)
+    assert.deepEqual(successes, [[pipeline.id, 42]])
+  })
+})
+
+test('clearing a number submits null while cleared strings and zero keep their values', async () => {
+  const user = userEvent.setup({ document })
+
+  state.params = [
+    { name: 'message', label: 'Message', description: null, type: 'string', required: false, default: 'deploy' },
+    { name: 'retries', label: 'Retries', description: null, type: 'number', required: false, default: 2 },
+    { name: 'count', label: 'Count', description: null, type: 'number', required: false, default: 3 },
+  ]
+  state.values = { message: 'deploy', retries: 2, count: 3 }
+  renderModal()
+
+  await user.clear(await view().findByLabelText('Retries'))
+  await user.clear(view().getByLabelText('Message'))
+  const count = view().getByLabelText('Count')
+
+  await user.clear(count)
+  await user.type(count, '0')
+  await user.click(view().getByRole('button', { name: 'Trigger workflow' }))
+
+  await waitFor(() => {
+    assert.deepEqual(triggers, [
+      { params: { workflow_id: pipeline.id, inputs: { message: '', retries: null, count: 0 } } },
+    ])
+  })
+})
+
+test('a missing required value blocks the request and reports the field', async () => {
+  const user = userEvent.setup({ document })
+  const { closed } = renderModal()
+
+  await view().findByRole('textbox', { name: /Branch/ })
+  await user.click(view().getByRole('button', { name: 'Trigger workflow' }))
+
+  assert.ok((await view().findAllByText('Branch is required')).length > 0)
+  assert.equal(triggers.length, 0)
+  assert.equal(closed.value, false)
+})
+
+test('replayed zero is shown in text fields', async () => {
+  state.params = [{ name: 'retries', label: 'Retries', description: null, type: 'string', required: false }]
+  state.values = { retries: 0 }
+  renderModal({ rerunOf: 7 })
+
+  const input = await view().findByRole('textbox', { name: 'Retries' })
+  assert.ok(input instanceof HTMLInputElement)
+  assert.equal(input.value, '0')
+})
+
+test('a rejected trigger keeps the dialog open with the typed values', async () => {
+  const user = userEvent.setup({ document })
+  state.triggerFailure = true
+  const { closed } = renderModal()
+
+  const input = await view().findByRole('textbox', { name: 'Branch' })
+  await user.type(input, 'release')
+  await user.click(view().getByRole('button', { name: 'Trigger workflow' }))
+
+  await waitFor(() => assert.equal(triggers.length, 1))
+  assert.equal(closed.value, false)
+  assert.ok(input instanceof HTMLInputElement)
+  assert.equal(input.value, 'release')
+
+  state.triggerFailure = false
+  await user.click(view().getByRole('button', { name: 'Trigger workflow' }))
+  await waitFor(() => assert.equal(closed.value, true))
+})
+
+test('a failed submit-time check shows the error inline, keeps the typed values and sends no trigger', async () => {
+  const user = userEvent.setup({ document })
+  state.checkFailure = true
+  const { closed } = renderModal()
+
+  const input = await view().findByRole('textbox', { name: 'Branch' })
+  await user.type(input, 'release')
+  await user.click(view().getByRole('button', { name: 'Trigger workflow' }))
+
+  await view().findByText("Couldn't start the workflow")
+  await view().findByText(/inputs service unavailable/)
+  assert.equal(triggers.length, 0)
+  assert.equal(closed.value, false)
+  assert.ok(input instanceof HTMLInputElement)
+  assert.equal(input.value, 'release')
+
+  state.checkFailure = false
+  await user.click(view().getByRole('button', { name: 'Trigger workflow' }))
+  await waitFor(() => assert.equal(closed.value, true))
+  assert.deepEqual(triggers, [{ params: { workflow_id: pipeline.id, inputs: { branch: 'release' } } }])
+})
+
+test('a failed submit-time check hides its error once an input changes, without a new submit', async () => {
+  const user = userEvent.setup({ document })
+  state.checkFailure = true
+  renderModal()
+
+  const input = await view().findByRole('textbox', { name: 'Branch' })
+  await user.type(input, 'release')
+  await user.click(view().getByRole('button', { name: 'Trigger workflow' }))
+  await view().findByText(/inputs service unavailable/)
+
+  await user.type(input, '2')
+
+  await waitFor(() => assert.ok(!view().queryByText(/inputs service unavailable/)))
+  assert.ok(input instanceof HTMLInputElement)
+  assert.equal(input.value, 'release2')
+  assert.equal(triggers.length, 0)
+})
+
+test('a failed parameter load offers a retry that recovers', async () => {
+  const user = userEvent.setup({ document })
+  state.paramsFailure = true
+  renderModal()
+
+  await view().findByText("Couldn't load workflow parameters")
+  state.paramsFailure = false
+  await user.click(view().getByRole('button', { name: /retry|try again/i }))
+
+  await view().findByRole('textbox', { name: 'Branch' })
+})
+
+test('a background parameter refetch does not overwrite a dirty draft', async () => {
+  const user = userEvent.setup({ document })
+  renderModal()
+
+  const input = await view().findByRole('textbox', { name: 'Branch' })
+  await user.type(input, 'release')
+
+  state.params = [{ ...branchParam, label: 'Ref name' }]
+  await act(async () => client.refetchQueries())
+
+  await view().findByRole('textbox', { name: 'Ref name' })
+  const refreshed = view().getByRole('textbox', { name: 'Ref name' })
+  assert.ok(refreshed instanceof HTMLInputElement)
+  assert.equal(refreshed.value, 'release')
+})
+
+const pendingFinishes = () =>
+  preferenceChanges.flatMap((change) => (change.type === 'watch_next_finish' ? [change.pipeline_id] : []))
+
+async function triggerWithBranch() {
+  const user = userEvent.setup({ document })
+
+  await user.type(await view().findByRole('textbox', { name: 'Branch' }), 'release')
+  await user.click(view().getByRole('button', { name: 'Trigger workflow' }))
+}
+
+test('a triggered run asks to be notified when it finishes by default', async () => {
+  const { closed } = renderModal()
+
+  const box = await view().findByRole('checkbox', { name: 'Notify me when it finishes' })
+  assert.ok(box instanceof HTMLInputElement)
+  assert.equal(box.checked, true)
+  await triggerWithBranch()
+
+  await waitFor(() => assert.equal(closed.value, true))
+  assert.deepEqual(pendingFinishes(), [pipeline.id])
+})
+
+test('unchecking the box skips the request and is remembered for the next trigger', async () => {
+  const user = userEvent.setup({ document })
+  const { closed } = renderModal()
+
+  await user.click(await view().findByRole('checkbox', { name: 'Notify me when it finishes' }))
+  await triggerWithBranch()
+
+  await waitFor(() => assert.equal(closed.value, true))
+  assert.deepEqual(pendingFinishes(), [])
+  assert.equal(useNotificationStore.getState().notifyTriggeredRuns, false)
+})
+
+test('a rejected trigger leaves no pending finish notification', async () => {
+  state.triggerFailure = true
+  renderModal()
+
+  await triggerWithBranch()
+
+  await waitFor(() => assert.equal(triggers.length, 1))
+  assert.deepEqual(pendingFinishes(), [])
+})
+
+test('a watched pipeline needs no checkbox and gets no extra request', async () => {
+  useNotificationStore.setState({
+    pipelineStates: { [pipeline.id]: 'watching' },
+  })
+  const { closed } = renderModal()
+
+  await view().findByRole('textbox', { name: 'Branch' })
+  assert.equal(view().queryByRole('checkbox', { name: 'Notify me when it finishes' }), null)
+  await triggerWithBranch()
+
+  await waitFor(() => assert.equal(closed.value, true))
+  assert.deepEqual(pendingFinishes(), [])
+})

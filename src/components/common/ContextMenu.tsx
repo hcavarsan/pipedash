@@ -4,6 +4,7 @@ import { useLocation } from 'react-router-dom'
 import { create } from 'zustand'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
+import { Z } from '../../theme/zIndex'
 
 export type ContextMenuItem =
   | {
@@ -17,7 +18,7 @@ export type ContextMenuItem =
   | { divider: true }
 
 interface ContextMenuState {
-  menu: { x: number; y: number; items: ContextMenuItem[]; trigger: HTMLElement } | null
+  menu: { x: number; y: number; items: ContextMenuItem[]; returnFocus: HTMLElement } | null
   open: (menu: NonNullable<ContextMenuState['menu']>) => void
   close: () => void
 }
@@ -59,9 +60,13 @@ export function useContextMenu(): (items: () => ContextMenuItem[]) => {
         return
       }
 
+      const focused = document.activeElement
+      const returnFocus =
+        focused instanceof HTMLElement && event.currentTarget.contains(focused) ? focused : event.currentTarget
+
       event.preventDefault()
       event.stopPropagation()
-      useContextMenuStore.getState().open({ x, y, items: entries, trigger: event.currentTarget })
+      useContextMenuStore.getState().open({ x, y, items: entries, returnFocus })
     }
 
     return {
@@ -76,6 +81,14 @@ export function useContextMenu(): (items: () => ContextMenuItem[]) => {
       },
     }
   }
+}
+
+function MenuShortcut({ shortcut }: { shortcut: string }): ReactNode {
+  return (
+    <Text size="xs" c="dimmed">
+      {shortcut}
+    </Text>
+  )
 }
 
 export function ContextMenuHost(): ReactNode {
@@ -104,8 +117,11 @@ export function ContextMenuHost(): ReactNode {
       onClose={() => {
         const focus = document.activeElement
 
-        if (!focus || focus === document.body || dropdownRef.current?.contains(focus)) {
-          menu?.trigger.focus({ preventScroll: true })
+        if (
+          menu?.returnFocus.isConnected &&
+          (!focus || focus === document.body || dropdownRef.current?.contains(focus))
+        ) {
+          menu.returnFocus.focus({ preventScroll: true })
         }
         close()
       }}
@@ -113,7 +129,7 @@ export function ContextMenuHost(): ReactNode {
       position="bottom-start"
       offset={0}
       floatingStrategy="fixed"
-      zIndex={500}
+      zIndex={Z.contextMenu}
       withInitialFocusPlaceholder={false}
     >
       <Menu.Target>
@@ -133,13 +149,7 @@ export function ContextMenuHost(): ReactNode {
             <Menu.Item
               key={item.label}
               leftSection={item.icon}
-              rightSection={
-                item.shortcut ? (
-                  <Text size="xs" c="dimmed">
-                    {item.shortcut}
-                  </Text>
-                ) : null
-              }
+              rightSection={item.shortcut ? <MenuShortcut shortcut={item.shortcut} /> : null}
               disabled={item.disabled ?? false}
               {...(item.color === undefined ? {} : { color: item.color })}
               {...(item === firstItem ? { 'data-autofocus': true } : {})}

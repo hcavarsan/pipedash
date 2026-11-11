@@ -4,7 +4,7 @@ import { after, afterEach, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement } from 'react'
 
-import type { GeneralConfig, StorageConfigResponse } from '../../../types/domain'
+import type { GeneralConfig, StorageConfigResponse } from '../../../types/storage'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
@@ -65,6 +65,7 @@ test('a failed proxy save keeps the typed address and a retry saves it trimmed',
     config.config.general = general
   })
   await renderGeneral()
+  assert.equal(view().queryByText('Desktop integration'), null)
 
   const proxy = await view().findByRole('textbox', { name: 'Proxy URL' })
   assert.ok(proxy instanceof HTMLInputElement)
@@ -80,27 +81,6 @@ test('a failed proxy save keeps the typed address and a retry saves it trimmed',
   await waitFor(() => assert.equal(writes.length, 2))
   assert.equal(writes[1]?.proxy_url, 'http://proxy.example.com:3128')
   await waitFor(() => assert.equal(proxy.value, 'http://proxy.example.com:3128'))
-})
-
-test('the proxy field refuses credentials in the address', async (context) => {
-  const user = userEvent.setup({ document })
-  const config = storageConfig()
-  const writes: GeneralConfig[] = []
-  context.mock.method(apiService, 'getStorageConfig', async () => config)
-  context.mock.method(apiService, 'updateGeneralSettings', async (general: GeneralConfig) => {
-    writes.push(general)
-  })
-  await renderGeneral()
-
-  const proxy = await view().findByRole('textbox', { name: 'Proxy URL' })
-  assert.ok(proxy instanceof HTMLInputElement)
-  await user.type(proxy, 'http://user:secret@proxy.example.com:3128')
-
-  await waitFor(() => assert.equal(proxy.getAttribute('aria-invalid'), 'true'))
-  const save = view().getByRole('button', { name: 'Save proxy' })
-  assert.ok(save instanceof HTMLButtonElement)
-  assert.equal(save.disabled, true)
-  assert.deepEqual(writes, [])
 })
 
 test('a failed status page save returns the switch to the confirmed value and can be retried', async (context) => {

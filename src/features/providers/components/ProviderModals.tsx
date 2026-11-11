@@ -4,14 +4,8 @@ import { ErrorState } from '../../../components/common/ErrorState'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { logger } from '../../../lib/logger'
-import {
-  useAddProvider,
-  useProviders,
-  useRemoveProvider,
-  useUpdateProvider,
-} from '../../../queries/useProvidersQueries'
+import { useProviders, useRemoveProvider } from '../../../queries/useProvidersQueries'
 import { useProviderStore } from '../../../stores/providerStore'
-import type { ProviderConfig } from '../../../types/domain'
 import { openConfirm } from '../../../utils/confirm'
 import { useProviderDetails } from '../queries/useProviderDetailsQuery'
 
@@ -52,8 +46,6 @@ export function ProviderModals(): ReactNode {
   const closeEditProviderModal = useProviderStore((s) => s.closeEditProviderModal)
 
   const { refetch: refetchProviders } = useProviders()
-  const { mutateAsync: addProvider } = useAddProvider()
-  const { mutateAsync: updateProvider } = useUpdateProvider()
   const {
     data: providerDetails,
     error: providerDetailsError,
@@ -61,14 +53,6 @@ export function ProviderModals(): ReactNode {
     isFetching: fetchingProviderDetails,
     refetch: refetchProviderDetails,
   } = useProviderDetails(editProviderId)
-
-  const handleAdd = async (config: ProviderConfig) => {
-    await addProvider(config)
-  }
-
-  const handleUpdate = async (id: number, config: ProviderConfig) => {
-    await updateProvider({ id, config })
-  }
 
   const handleCloseAdd = () => {
     closeAddProviderModal()
@@ -78,7 +62,7 @@ export function ProviderModals(): ReactNode {
   return (
     <>
       <ProviderSignInModal />
-      {addProviderModal.open && <AddProviderModal opened onClose={handleCloseAdd} onAdd={handleAdd} />}
+      {addProviderModal.open && <AddProviderModal opened onClose={handleCloseAdd} />}
 
       <StandardModal
         opened={editProviderId !== null && !providerDetails}
@@ -94,7 +78,7 @@ export function ProviderModals(): ReactNode {
             retrying={fetchingProviderDetails}
           />
         ) : (
-          <LoadingState variant="section" message="Loading provider..." />
+          <LoadingState variant="section" message="Loading provider…" />
         )}
       </StandardModal>
 
@@ -104,7 +88,6 @@ export function ProviderModals(): ReactNode {
           opened
           onClose={closeEditProviderModal}
           editMode
-          onUpdate={handleUpdate}
           existingProvider={providerDetails}
         />
       )}

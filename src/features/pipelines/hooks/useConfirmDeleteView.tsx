@@ -2,7 +2,7 @@ import { Text } from '@mantine/core'
 import { useCallback } from 'react'
 
 import { logger } from '../../../lib/logger'
-import type { PipelineView } from '../../../types/domain'
+import type { PipelineView } from '../../../types/views'
 import { openConfirm } from '../../../utils/confirm'
 import { childViews } from '../../../utils/viewTree'
 import { useDeletePipelineView, usePipelineViews } from '../queries/usePipelineViewQueries'

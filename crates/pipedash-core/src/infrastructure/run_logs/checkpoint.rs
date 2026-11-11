@@ -6,6 +6,8 @@ use std::fs::{
 use std::io::{
     self,
     BufWriter,
+    Seek,
+    SeekFrom,
     Write,
 };
 use std::path::Path;
@@ -66,8 +68,9 @@ pub(super) fn steps_hash(steps: &[StepBound]) -> String {
 
 pub(super) fn copy_prefix(from: &Path, to: &Path, len: u64) -> io::Result<File> {
     fs::copy(from, to)?;
-    let file = OpenOptions::new().append(true).open(to)?;
+    let mut file = OpenOptions::new().write(true).open(to)?;
     file.set_len(len)?;
+    file.seek(SeekFrom::Start(len))?;
     Ok(file)
 }
 
@@ -131,3 +134,6 @@ impl Base {
         resume.outline.accepts(steps).then_some(&resume.cursor)
     }
 }
+
+#[cfg(test)]
+mod tests;

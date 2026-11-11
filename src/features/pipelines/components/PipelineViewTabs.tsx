@@ -3,17 +3,19 @@ import { IconAdjustments, IconPlus } from '@tabler/icons-react'
 import { Fragment, lazy, type ReactNode, Suspense } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useContextMenu } from '../../../components/common/ContextMenu'
-import { useNow } from '../../../hooks/useNow'
 import { usePipelineViewQuery } from '../../../hooks/useUrlState'
 import { useProviders } from '../../../queries/useProvidersQueries'
-import type { PipelineView, ProviderSummary } from '../../../types/domain'
-import { providerTone } from '../../../utils/fetchInfo'
+import type { ProviderSummary } from '../../../types/providers'
+import type { PipelineView } from '../../../types/views'
+import { formatCount } from '../../../utils/formatCount'
+import { useNotifyItems } from '../../notifications/hooks/useNotifyItems'
+import { ProviderAvatar, providerStatus } from '../../providers/components/ProviderPresentation'
 import { useProviderCancelItems } from '../hooks/useCancelActiveRuns'
 import { useViewMenuItems } from '../hooks/useViewMenuItems'
-import { usePipelineViews, useReorderPipelineViews } from '../queries/usePipelineViewQueries'
+import { usePipelineViews } from '../queries/usePipelineViewQueries'
+import { useReorderPipelineViews, useViewsReordering } from '../queries/useViewReorderQueries'
 import { usePipelineViewStore } from '../stores/pipelineViewStore'
 import { activeTabId, providerTabId, tabSearch } from '../utils/providerTabs'
-import { ToneDot } from './ToneDot'
 
 const SortableViewTabs = lazy(() => import('./SortableViewTabs').then((m) => ({ default: m.SortableViewTabs })))
 
@@ -22,9 +24,10 @@ export function PipelineViewTabs(): ReactNode {
   const [, setSearchParams] = useSearchParams()
   const { data: views = [] } = usePipelineViews()
   const { data: providers = [] } = useProviders()
-  const now = useNow(30_000)
   const { mutate: reorder } = useReorderPipelineViews()
+  const { reordering } = useViewsReordering()
   const { providerItems, dialog } = useProviderCancelItems(providers)
+  const { providerItem } = useNotifyItems()
   const openEditor = usePipelineViewStore((s) => s.openEditor)
   const openManage = usePipelineViewStore((s) => s.openManage)
   const contextMenu = useContextMenu()
@@ -46,10 +49,11 @@ export function PipelineViewTabs(): ReactNode {
       key={provider.id}
       value={providerTabId(provider.id)}
       className="interactive-surface"
-      {...contextMenu(() => providerItems(provider))}
+      aria-label={`${provider.name}, ${formatCount(provider.pipeline_count, 'pipeline')}, ${providerStatus(provider).text}`}
+      {...contextMenu(() => [...providerItems(provider), providerItem(provider)])}
     >
       <Group gap="3xs" wrap="nowrap">
-        <ToneDot tone={providerTone(provider, now)} />
+        <ProviderAvatar provider={provider} size={16} />
         <Text size="sm" span>
           {provider.name}
         </Text>
@@ -92,14 +96,15 @@ export function PipelineViewTabs(): ReactNode {
               providers={providers}
               renderTab={tab}
               renderProviderTab={providerTab}
+              disabled={reordering}
               onReorder={(order) => reorder(order)}
             />
           </Suspense>
           {trailing.map(tab)}
         </Tabs.List>
       </Tabs>
-      <Tooltip label="New view">
-        <ActionIcon variant="subtle" color="gray" aria-label="New view" onClick={() => openEditor(null)}>
+      <Tooltip label="New view…">
+        <ActionIcon variant="subtle" color="gray" aria-label="New view…" onClick={() => openEditor(null)}>
           <IconPlus size={16} aria-hidden />
         </ActionIcon>
       </Tooltip>

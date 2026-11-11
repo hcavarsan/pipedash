@@ -1,0 +1,106 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/setup-android
+      - /.github/actions/setup-frontend
+      - /.github/actions/setup-ios
+      - /.github/actions/setup-rust
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: cargo
+    directories:
+      - /
+      - /hacks
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      rust-non-major:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "kube"
+      - dependency-name: "k8s-openapi"
+      - dependency-name: "kube-runtime"
+      - dependency-name: "hyper"
+      - dependency-name: "tauri"
+      - dependency-name: "tauri-plugin-positioner"
+      - dependency-name: "tauri-build"
+      - dependency-name: "ratatui"
+      - dependency-name: "tui-logger"
+      - dependency-name: "ratatui-explorer"
+      - dependency-name: "crossterm"
+
+  - package-ecosystem: bun
+    directories:
+      - /
+      - /ios/app-store-screenshots
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      javascript-non-major:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "@tauri-apps/cli"
+      - dependency-name: "@tauri-apps/api"
+
+  - package-ecosystem: bundler
+    directories:
+      - /ios
+      - /android
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      ruby-non-major:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: gradle
+    directory: /crates/tauri-plugin-pipedash-native/android
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      android-non-major:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directories:
+      - /docker
+      - /examples/demo/jenkins
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      docker-images:
+        patterns: ["*"]
+
+  - package-ecosystem: docker-compose
+    directories:
+      - /examples/sqlite
+      - /examples/postgres
+      - /examples/demo
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      compose-images:
+        patterns: ["*"]

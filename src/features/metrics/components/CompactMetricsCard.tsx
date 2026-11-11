@@ -4,14 +4,14 @@ import type { ReactNode } from 'react'
 import { EmptyState } from '../../../components/common/EmptyState'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { useMobileShell } from '../../../hooks/useIsMobile'
-import type { AggregatedMetrics, MetricType } from '../../../types/domain'
-import { formatMetricValue, getMetricStats, METRIC_CONFIG } from '../lib/metricsUtils'
+import type { MetricsDashboard, MetricType } from '../../../types/metrics'
+import { formatMetricValue, METRIC_CONFIG } from '../lib/metricsUtils'
 import { LazyMetricsChart } from './LazyMetricsChart'
 import classes from './metrics.module.css'
 
 interface CompactMetricsCardProps {
   metricType: MetricType
-  data: AggregatedMetrics | undefined
+  data: MetricsDashboard | undefined
   title: string
   loading: boolean
   onExpand: () => void
@@ -34,6 +34,26 @@ const CardStat = ({ label, value, shell }: { label: string; value: string; shell
     </Stack>
   )
 
+const MetricTileHeading = ({ title, mobile }: { title: string; mobile: boolean }): ReactNode => {
+  if (mobile) {
+    return (
+      <div className={classes.tileHead}>
+        <span className={classes.tileTitle}>{title}</span>
+        <IconChevronRight size={16} className={classes.chevron} aria-hidden />
+      </div>
+    )
+  }
+
+  return (
+    <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xs">
+      <Text size="sm" fw={600} c="dimmed">
+        {title}
+      </Text>
+      <IconMaximize size={16} aria-hidden />
+    </Group>
+  )
+}
+
 export const CompactMetricsCard = ({
   metricType,
   data,
@@ -43,18 +63,18 @@ export const CompactMetricsCard = ({
 }: CompactMetricsCardProps): ReactNode => {
   const mobileShell = useMobileShell()
 
-  const hasData = !loading && !!data && data.metrics.length > 0
+  const hasData = !loading && !!data && data.data.metrics.length > 0
 
   const renderSummary = () => {
     if (loading) {
-      return <LoadingState message={`Loading ${METRIC_CONFIG[metricType].label.toLowerCase()}...`} />
+      return <LoadingState message={`Loading ${METRIC_CONFIG[metricType].label.toLowerCase()}…`} />
     }
 
-    if (!data || data.metrics.length === 0) {
+    if (!data || data.data.metrics.length === 0) {
       return <EmptyState title="No runs in this time range" description="Widen the time range to include older runs." />
     }
 
-    const stats = getMetricStats(data)
+    const { stats } = data
     const latest = <CardStat label="Latest" value={formatMetricValue(stats.latest, metricType)} shell={mobileShell} />
     const average = (
       <CardStat label="Average" value={formatMetricValue(stats.average, metricType)} shell={mobileShell} />
@@ -81,7 +101,7 @@ export const CompactMetricsCard = ({
     ) : null
 
   if (mobileShell) {
-    const stats = data && data.metrics.length > 0 ? getMetricStats(data) : null
+    const stats = data && data.data.metrics.length > 0 ? data.stats : null
     const expandLabel = stats
       ? `Expand ${title}. Latest ${formatMetricValue(stats.latest, metricType)}, average ${formatMetricValue(stats.average, metricType)}`
       : `Expand ${title}`
@@ -91,10 +111,7 @@ export const CompactMetricsCard = ({
         <Stack gap="sm">
           <UnstyledButton className={classes.expandButton} aria-label={expandLabel} onClick={onExpand}>
             <Stack gap="sm">
-              <div className={classes.tileHead}>
-                <span className={classes.tileTitle}>{title}</span>
-                <IconChevronRight size={18} className={classes.chevron} aria-hidden />
-              </div>
+              <MetricTileHeading title={title} mobile />
               {renderSummary()}
             </Stack>
           </UnstyledButton>
@@ -109,12 +126,7 @@ export const CompactMetricsCard = ({
       <Stack gap="md" p="md" h="100%" justify="flex-start">
         <UnstyledButton className={classes.expandButton} aria-label={`Expand ${title}`} onClick={onExpand}>
           <Stack gap="md">
-            <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xs">
-              <Text size="sm" fw={600} c="dimmed">
-                {title}
-              </Text>
-              <IconMaximize size={16} aria-hidden />
-            </Group>
+            <MetricTileHeading title={title} mobile={false} />
             {renderSummary()}
           </Stack>
         </UnstyledButton>

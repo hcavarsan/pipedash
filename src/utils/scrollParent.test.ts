@@ -30,6 +30,21 @@ test('the nearest scrollable ancestor wins over outer scrollers', () => {
   assert.equal(findScrollParent(node), inner)
 })
 
+test('a scroll area viewport counts before its scrollbar turns on', () => {
+  const outer = document.createElement('div')
+  const viewport = document.createElement('div')
+  const node = document.createElement('div')
+
+  outer.style.overflowY = 'auto'
+  viewport.style.overflowY = 'hidden'
+  viewport.setAttribute('data-scrollarea-viewport', 'true')
+  viewport.append(node)
+  outer.append(viewport)
+  document.body.append(outer)
+
+  assert.equal(findScrollParent(node), viewport)
+})
+
 test('the document scroller is used when no ancestor scrolls', () => {
   const node = document.createElement('div')
 

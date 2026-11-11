@@ -1,16 +1,6 @@
-import { useMemo } from 'react'
-
-import type {
-  AggregatedMetric,
-  AggregatedMetrics,
-  AggregationPeriod,
-  AggregationType,
-  MetricType,
-} from '../../../types/domain'
-import { DATE_RANGE_OPTIONS, type DateRange, getDateRangeLabel, getDateRangeStart } from '../../../utils/dateRange'
+import type { AggregationPeriod, AggregationType, MetricRangeOption, MetricType } from '../../../types/metrics'
+import { DATE_RANGE_OPTIONS, type DateRange } from '../../../utils/dateRange'
 import { formatDuration } from '../../../utils/formatDuration'
-
-const MS_PER_DAY = 24 * 60 * 60 * 1000
 
 export const METRIC_CONFIG: Record<
   MetricType,
@@ -58,12 +48,11 @@ export const getDefaultAggregationType = (metricType: MetricType): AggregationTy
 export const buildChartTitle = (
   metricType: MetricType,
   aggregationType: AggregationType,
-  period: AggregationPeriod,
-  range: DateRange
+  period: AggregationPeriod
 ): string => {
   const aggregation = AGGREGATION_TYPE_OPTIONS.find((option) => option.value === aggregationType)?.label
 
-  return `${aggregation} ${METRIC_CONFIG[metricType].subject} per ${PERIOD_UNIT[period]} · ${getDateRangeLabel(range)}`
+  return `${aggregation} ${METRIC_CONFIG[metricType].subject} per ${PERIOD_UNIT[period]}`
 }
 
 interface RangeOption {
@@ -72,38 +61,12 @@ interface RangeOption {
   disabled: boolean
 }
 
-export const getRangeOptions = (retentionDays: number): RangeOption[] => {
-  const now = new Date()
+export const toRangeOptions = (ranges: MetricRangeOption[] | undefined): RangeOption[] =>
+  DATE_RANGE_OPTIONS.map((option) => {
+    const disabled = ranges?.find((range) => range.value === option.value)?.enabled === false
 
-  return DATE_RANGE_OPTIONS.map((option) => {
-    const start = getDateRangeStart(option.value, now)
-    const disabled = start !== null && (now.getTime() - start.getTime()) / MS_PER_DAY > retentionDays
-
-    return {
-      value: option.value,
-      label: disabled ? `${option.label} (beyond retention)` : option.label,
-      disabled,
-    }
+    return { value: option.value, label: disabled ? `${option.label} (beyond retention)` : option.label, disabled }
   })
-}
-
-export const getWidestRange = (retentionDays: number): DateRange =>
-  getRangeOptions(retentionDays).findLast((option) => !option.disabled)?.value ?? '24h'
-
-interface MetricsWindowResult {
-  startDate: string | undefined
-  endDate: string
-}
-
-export const useMetricsWindow = (range: DateRange): MetricsWindowResult =>
-  useMemo(() => {
-    const now = new Date()
-
-    return { startDate: getDateRangeStart(range, now)?.toISOString(), endDate: now.toISOString() }
-  }, [range])
-
-export const hasObservation = (metric: AggregatedMetric, metricType: MetricType): boolean =>
-  metricType === 'run_frequency' || metric.count > 0
 
 const COUNT_FORMAT = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 })
 const PERCENT_FORMAT = new Intl.NumberFormat(undefined, {
@@ -122,34 +85,10 @@ export const formatMetricValue = (value: number | null, metricType: MetricType):
 
   switch (metricType) {
     case 'run_duration':
-      return value > 0 ? formatDuration(value) : '—'
+      return formatDuration(value)
     case 'success_rate':
       return PERCENT_FORMAT.format(value)
     case 'run_frequency':
       return COUNT_FORMAT.format(value)
-  }
-}
-
-interface MetricStats {
-  average: number | null
-  latest: number | null
-  max: number | null
-  observed: number
-  total: number
-}
-
-export const getMetricStats = ({ metrics, metric_type }: AggregatedMetrics): MetricStats => {
-  const values = metrics.filter((metric) => hasObservation(metric, metric_type)).map((metric) => metric.value)
-
-  if (values.length === 0) {
-    return { average: null, latest: null, max: null, observed: 0, total: metrics.length }
-  }
-
-  return {
-    average: values.reduce((sum, value) => sum + value, 0) / values.length,
-    latest: values.at(-1) ?? null,
-    max: Math.max(...values),
-    observed: values.length,
-    total: metrics.length,
   }
 }

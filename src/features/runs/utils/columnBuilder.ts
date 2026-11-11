@@ -1,13 +1,18 @@
 import type { DataTableColumn } from 'mantine-datatable'
 
+import { TABLE_NUMERIC } from '../../../components/common/tableStyles'
 import { logger } from '../../../lib/logger'
-import type { ColumnDefinition, PipelineRun } from '../../../types/domain'
+import type { PipelineRun } from '../../../types/pipelines'
+import type { ColumnDefinition } from '../../../types/plugins'
 import { getRunStatusLabel } from '../../../utils/pipelinePresentation'
 import { isLiveRun } from '../../../utils/runTiming'
 import { renderCellValue, renderLiveRunDuration } from './dynamicRenderers'
 import { getValueByPath } from './objectPath'
 
 const RIGHT_ALIGNED_TYPES: ColumnDefinition['data_type'][] = ['Number', 'Duration']
+
+export const isNumericColumn = (dataType: ColumnDefinition['data_type'] | undefined): boolean =>
+  dataType !== undefined && RIGHT_ALIGNED_TYPES.includes(dataType)
 
 export function buildColumnsFromSchema(
   columnDefs: ColumnDefinition[],
@@ -20,12 +25,14 @@ export function buildColumnsFromSchema(
   }
 
   const columns: DataTableColumn<PipelineRun>[] = columnDefs.map((def) => {
+    const numeric = isNumericColumn(def.data_type)
     const column: DataTableColumn<PipelineRun> = {
       accessor: def.id,
       title: def.label,
-      sortable: def.sortable,
+      sortable: def.sort !== 'none',
       ...(def.width == null ? {} : { width: def.width }),
-      textAlign: RIGHT_ALIGNED_TYPES.includes(def.data_type) ? 'right' : 'left',
+      textAlign: numeric ? 'right' : 'left',
+      ...(numeric ? { titleStyle: TABLE_NUMERIC, cellsStyle: () => TABLE_NUMERIC } : {}),
       resizable: true,
       toggleable: false,
       draggable: false,

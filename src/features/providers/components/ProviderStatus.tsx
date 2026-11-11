@@ -3,10 +3,10 @@ import { IconExternalLink } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { IosRow } from '../../../components/ios/IosList'
 import { HEALTH_META } from '../../../theme/status'
-import type { ProviderSummary } from '../../../types/domain'
+import type { ProviderSummary } from '../../../types/providers'
 import { formatDateTime } from '../../../utils/formatDateTime'
 import { formatRelativeTime } from '../../../utils/formatRelativeTime'
-import { openExternal } from '../../../utils/openExternal'
+import { openLink } from '../../../utils/openExternal'
 
 const CONNECTION_NOTE = 'Pipedash reports connection problems.'
 
@@ -16,7 +16,7 @@ interface ProviderStatusProps {
   now: number
 }
 
-type Maintenance = ProviderSummary['health']['signals'][number]['maintenances'][number]
+type Maintenance = ProviderSummary['attention']['scheduled_maintenances'][number]
 
 interface StatusDetails {
   page: ProviderSummary['health']['status_page']
@@ -31,12 +31,9 @@ export const getStatusDetails = (
 ): StatusDetails => {
   const { status_page: page, signals, level } = provider.health
   const upcoming = statusPagesEnabled
-    ? signals
-        .filter((signal) => signal.evidence === 'fresh')
-        .flatMap((signal) => signal.maintenances)
-        .flatMap((item) =>
-          !item.in_progress && item.starts_at ? [{ id: item.id, name: item.name, at: item.starts_at }] : []
-        )
+    ? provider.attention.scheduled_maintenances.flatMap((item) =>
+        item.starts_at ? [{ id: item.id, name: item.name, at: item.starts_at }] : []
+      )
     : []
   const reportedBy = signals.find((signal) => signal.kind === 'status_page')?.reported_by ?? page?.name
   const summary = page
@@ -70,7 +67,7 @@ export const ProviderStatusInfo = ({ provider, statusPagesEnabled, now }: Provid
             rightSection={<IconExternalLink size={14} aria-hidden />}
             aria-label={`Open ${page.name} status page`}
             onClick={() => {
-              void openExternal(page.url)
+              openLink(page.url)
             }}
           >
             Open status page
@@ -121,9 +118,9 @@ export const ProviderStatusRows = ({ provider, statusPagesEnabled, now }: Provid
         <IosRow
           title="Open status page"
           ariaLabel={`Open ${page.name} status page`}
-          accessory={<IconExternalLink size={18} aria-hidden />}
+          accessory={<IconExternalLink size={16} aria-hidden />}
           onClick={() => {
-            void openExternal(page.url)
+            openLink(page.url)
           }}
         />
       )}

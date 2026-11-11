@@ -1,5 +1,8 @@
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 
+import type { DesktopNotificationSnapshot } from '../../services/desktop'
+import type { DesktopSettingsPatch, DesktopStatus } from '../../types/native'
+import type { NotificationPreferences, WatchOnce } from '../../types/notifications'
 import { isRecord } from '../../utils/isRecord'
 
 GlobalRegistrator.register({ width: 390, height: 844 })
@@ -14,6 +17,9 @@ interface NativeState {
   settings: { enabled: boolean; available: boolean; reason: string | null }
   calls: Array<{ command: string; args: Record<string, unknown> }>
   failure: Error | null
+  fired: WatchOnce[]
+  sent: unknown[]
+  loaded: NotificationPreferences | null
 }
 
 export const callbacks = new Map<number, (event: unknown) => void>()
@@ -25,7 +31,36 @@ export const native: NativeState = {
   settings: { enabled: false, available: true, reason: null },
   calls: [],
   failure: null,
+  fired: [],
+  sent: [],
+  loaded: null,
 }
+export const desktop: {
+  status: DesktopStatus
+  snapshot: DesktopNotificationSnapshot
+  readGate: Promise<DesktopNotificationSnapshot> | null
+  statusGate: Promise<DesktopStatus> | null
+} = {
+  status: {
+    revision: 0,
+    settings: {
+      show_tray: false,
+      keep_running_on_close: false,
+      notifications_enabled: false,
+      auto_check_updates: true,
+    },
+    tray_state: 'off',
+    tray_status: 'idle',
+    unread: 0,
+    ready: true,
+    notification_preference_imported: false,
+    error: null,
+  },
+  snapshot: { revision: 0, items: [] },
+  readGate: null,
+  statusGate: null,
+}
+
 interface Registration {
   mode: 'immediate' | 'reject' | 'deferred'
   gates: Array<PromiseWithResolvers<unknown>>
@@ -44,7 +79,7 @@ Object.assign(window, {
       callbacks.set(id, callback)
       return id
     },
-    invoke: async (command: string, args: Record<string, unknown> = {}) => {
+    invoke: async (command: string, args: Record<string, unknown> & { patch?: DesktopSettingsPatch } = {}) => {
       if (command === 'plugin:event|listen') {
         if (registration.mode === 'reject') {
           throw new Error('listen refused')
@@ -100,6 +135,66 @@ Object.assign(window, {
         }
         native.settings = { ...native.settings, enabled: args.enabled === true }
         return { ...native.settings }
+      }
+      if (command === 'set_notification_preferences') {
+        native.sent.push(args.preferences)
+        return [...native.fired]
+      }
+      if (command === 'load_notification_preferences') {
+        return native.loaded
+      }
+      if (command === 'get_desktop_status') {
+        native.calls.push({ command, args })
+        if (!listeners.has('desktop-status-changed')) {
+          throw new Error('Desktop settings fetched before subscription')
+        }
+        return desktop.statusGate ?? structuredClone(desktop.status)
+      }
+      if (command === 'import_desktop_notification_preference' || command === 'update_desktop_settings') {
+        native.calls.push({ command, args })
+        if (native.failure) {
+          throw native.failure
+        }
+        if (command === 'import_desktop_notification_preference') {
+          if (!desktop.status.notification_preference_imported) {
+            desktop.status.settings.notifications_enabled = args.enabled === true
+            desktop.status.notification_preference_imported = true
+            desktop.status.revision += 1
+          }
+        } else {
+          const patch = args.patch ?? {}
+          desktop.status.settings = { ...desktop.status.settings, ...patch }
+          desktop.status.notification_preference_imported ||= patch.notifications_enabled !== undefined
+          desktop.status.revision += 1
+        }
+        return structuredClone(desktop.status)
+      }
+      if (command === 'get_desktop_notifications') {
+        native.calls.push({ command, args })
+        if (!listeners.has('desktop-notifications-changed')) {
+          throw new Error('Desktop history fetched before subscription')
+        }
+        return desktop.readGate ?? structuredClone(desktop.snapshot)
+      }
+      if (command === 'mark_desktop_notifications_read' || command === 'clear_desktop_notifications') {
+        native.calls.push({ command, args })
+        desktop.snapshot = {
+          revision: desktop.snapshot.revision + 1,
+          items:
+            command === 'clear_desktop_notifications'
+              ? []
+              : desktop.snapshot.items.map((item) =>
+                  args.key === null || item.key === args.key ? { ...item, read: true } : item
+                ),
+        }
+        return structuredClone(desktop.snapshot)
+      }
+      if (command === 'test_desktop_notification') {
+        native.calls.push({ command, args })
+        if (native.failure) {
+          throw native.failure
+        }
+        return
       }
       throw new Error(`Unexpected command: ${command}`)
     },

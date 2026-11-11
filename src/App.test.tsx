@@ -84,7 +84,7 @@ const renderApp = async (): Promise<void> => {
       </MantineProvider>
     )
   })
-  await waitFor(() => assert.ok(view().getByText('Configuration file has errors')))
+  await waitFor(() => assert.ok(view().getByText("Couldn't load configuration")))
 }
 
 test('retry after fixing a broken config restarts the app instead of opening it without a core', async () => {
@@ -95,7 +95,7 @@ test('retry after fixing a broken config restarts the app instead of opening it 
   await user.click(view().getByRole('button', { name: 'Retry' }))
 
   await waitFor(() => assert.ok(backend.calls.includes('restart_app')))
-  assert.ok(view().getByText('Configuration file has errors'))
+  assert.ok(view().getByText("Couldn't load configuration"))
 })
 
 test('retry on a config that is still broken shows the new errors and does not restart', async () => {

@@ -1,22 +1,17 @@
 import { Box, Card, Checkbox, Group, Stack, Text, UnstyledButton } from '@mantine/core'
 import { IconChevronDown, IconChevronRight, IconFolder, IconFolders, IconGitBranch } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
-import {
-  type PipelineActions,
-  type PipelineSelection,
-  PipelineStatusBadge,
-  RepositoryFetchIndicator,
-  RowFetchInfo,
-  rowMenuItems,
-  SectionActions,
-  type TableRow,
-  WorkflowActions,
-} from '../../../components/common/PipelineRowParts'
+import { useContextMenu } from '../../../components/common/ContextMenu'
+import { RepositoryFetchIndicator, RowFetchInfo } from '../../../components/common/PipelineFetchInfo'
+import { SectionActions, WorkflowActions } from '../../../components/common/PipelineRowActions'
+import { PipelineStatusBadge } from '../../../components/common/PipelineStatusBadge'
 import { VirtualList } from '../../../components/common/VirtualList'
 import { TYPOGRAPHY } from '../../../theme/typography'
-import type { ProviderSummary } from '../../../types/domain'
-import { getPipelineLabels } from '../../../utils/pipelinePresentation'
+import type { PipelineActions, PipelineSelection, TableRow } from '../../../types/pipelineRows'
+import type { ProviderSummary } from '../../../types/providers'
+import { historyLabel, rowMenuItems, workflowMenuItems } from '../../../utils/pipelineRowActions'
 import { ProviderStatusButton } from '../../notifications/components/ProviderStatusButton'
+import { PipelineCardMeta } from './PipelineCardMeta'
 
 type SectionTableRow = Extract<TableRow, { type: 'section' }>
 type WorkflowTableRow = Extract<TableRow, { type: 'workflow' }>
@@ -64,13 +59,36 @@ interface SectionCardProps {
   actions: PipelineActions
 }
 
-function SectionCard({ row, getProvider, onToggleRepo, actions }: SectionCardProps): ReactNode {
-  const isFluxGroup =
-    row.providerIds.size > 0 && Array.from(row.providerIds).every((id) => getProvider(id)?.provider_type === 'fluxcd')
+function SectionSummary({ row }: { row: SectionTableRow }): ReactNode {
+  const Chevron = row.expanded ? IconChevronDown : IconChevronRight
+  const Folder = row.kind === 'view' ? IconFolders : IconFolder
 
   return (
-    <Card padding="xs" className="interactive-surface stretched">
-      <Stack gap={4}>
+    <Stack gap="xs">
+      <Group justify="space-between" wrap="nowrap">
+        <Group gap="xs" wrap="nowrap" style={{ flex: 1, overflow: 'hidden' }}>
+          <Chevron size={16} style={{ flexShrink: 0 }} aria-hidden />
+          <Folder size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} aria-hidden />
+          <Text size={TYPOGRAPHY.ITEM_TITLE.size} fw={TYPOGRAPHY.ITEM_TITLE.weight} truncate>
+            {row.name}
+          </Text>
+        </Group>
+      </Group>
+
+      <Group gap="md" wrap="wrap">
+        {row.kind !== 'view' && <Field label={row.organizationLabel}>{row.organization}</Field>}
+        <Field label={row.countLabel}>{row.pipelineCount}</Field>
+      </Group>
+    </Stack>
+  )
+}
+
+function SectionCard({ row, getProvider, onToggleRepo, actions }: SectionCardProps): ReactNode {
+  const contextMenu = useContextMenu()
+
+  return (
+    <Card padding="xs" className="interactive-surface stretched" {...contextMenu(() => rowMenuItems(row, actions))}>
+      <Stack gap="3xs">
         <Group wrap="nowrap" align="flex-start" gap="xs">
           <UnstyledButton
             className="item-primary"
@@ -80,32 +98,7 @@ function SectionCard({ row, getProvider, onToggleRepo, actions }: SectionCardPro
             bdrs="sm"
             style={{ flex: 1, minWidth: 0 }}
           >
-            <Stack gap="xs">
-              <Group justify="space-between" wrap="nowrap">
-                <Group gap="xs" wrap="nowrap" style={{ flex: 1, overflow: 'hidden' }}>
-                  {row.expanded ? (
-                    <IconChevronDown size={16} style={{ flexShrink: 0 }} aria-hidden />
-                  ) : (
-                    <IconChevronRight size={16} style={{ flexShrink: 0 }} aria-hidden />
-                  )}
-                  {row.kind === 'view' ? (
-                    <IconFolders size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} aria-hidden />
-                  ) : (
-                    <IconFolder size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} aria-hidden />
-                  )}
-                  <Text size={TYPOGRAPHY.ITEM_TITLE.size} fw={TYPOGRAPHY.ITEM_TITLE.weight} truncate>
-                    {row.name}
-                  </Text>
-                </Group>
-              </Group>
-
-              <Group gap="md" wrap="wrap">
-                {row.kind !== 'view' && (
-                  <Field label={isFluxGroup ? 'Namespace' : 'Organization'}>{row.organization}</Field>
-                )}
-                <Field label={isFluxGroup ? 'Resources' : 'Workflows'}>{row.pipelineCount}</Field>
-              </Group>
-            </Stack>
+            <SectionSummary row={row} />
           </UnstyledButton>
           <RowFetchInfo row={row} getProvider={getProvider} />
           <RepositoryFetchIndicator row={row} />
@@ -129,46 +122,70 @@ interface WorkflowCardProps {
   selection?: PipelineSelection | undefined
 }
 
+function WorkflowSummary({ row, getProvider }: Pick<WorkflowCardProps, 'row' | 'getProvider'>): ReactNode {
+  const { pipeline } = row
+  const provider = getProvider(pipeline.provider_id)
+
+  return (
+    <Stack gap="xs">
+      <Group justify="space-between" wrap="nowrap">
+        <Group gap="xs" wrap="nowrap" style={{ flex: 1, overflow: 'hidden' }}>
+          <IconGitBranch size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} aria-hidden />
+          <Text size={TYPOGRAPHY.ITEM_TITLE.size} fw={TYPOGRAPHY.ITEM_TITLE.weight} truncate>
+            {row.name}
+          </Text>
+        </Group>
+        <PipelineStatusBadge pipeline={pipeline} provider={provider} />
+      </Group>
+
+      <PipelineCardMeta pipeline={pipeline} provider={provider} />
+    </Stack>
+  )
+}
+
+function SelectBox({
+  pipeline,
+  selection,
+}: {
+  pipeline: WorkflowTableRow['pipeline']
+  selection: PipelineSelection | undefined
+}): ReactNode {
+  return (
+    selection && (
+      <Checkbox
+        aria-label={`Select ${pipeline.name}`}
+        checked={selection.selected.has(pipeline.id)}
+        onChange={() => selection.onToggle(pipeline)}
+      />
+    )
+  )
+}
+
 function WorkflowCard({ row, getProvider, actions, selection }: WorkflowCardProps): ReactNode {
   const { pipeline } = row
+  const contextMenu = useContextMenu()
   const indent = row.depth ? `calc(var(--mantine-spacing-xl) * ${row.depth})` : undefined
 
   return (
-    <Card padding="xs" {...(indent === undefined ? {} : { ml: indent })} className="interactive-surface stretched">
+    <Card
+      padding="xs"
+      {...(indent === undefined ? {} : { ml: indent })}
+      className="interactive-surface stretched"
+      {...contextMenu(() => workflowMenuItems(pipeline, actions))}
+    >
       <Stack gap="xs">
         <UnstyledButton
           className="item-primary"
           onClick={() => actions.onViewHistory(pipeline)}
-          aria-label={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()} for ${row.name}`}
+          aria-label={`View ${historyLabel(actions, pipeline.provider_type)} for ${row.name}`}
           p="xs"
           bdrs="sm"
         >
-          <Stack gap="xs">
-            <Group justify="space-between" wrap="nowrap">
-              <Group gap="xs" wrap="nowrap" style={{ flex: 1, overflow: 'hidden' }}>
-                <IconGitBranch size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} aria-hidden />
-                <Text size={TYPOGRAPHY.ITEM_TITLE.size} fw={TYPOGRAPHY.ITEM_TITLE.weight} truncate>
-                  {row.name}
-                </Text>
-              </Group>
-              <PipelineStatusBadge pipeline={pipeline} provider={getProvider(pipeline.provider_id)} />
-            </Group>
-
-            <Group gap="md" wrap="wrap">
-              <Field label={getPipelineLabels(pipeline.provider_type).groupTitle}>{row.organization}</Field>
-              {pipeline.branch && <Field label="Branch">{pipeline.branch}</Field>}
-            </Group>
-          </Stack>
+          <WorkflowSummary row={row} getProvider={getProvider} />
         </UnstyledButton>
         <Group justify="space-between" wrap="nowrap">
           <Group gap="xs" wrap="nowrap">
-            {selection && (
-              <Checkbox
-                aria-label={`Select ${pipeline.name}`}
-                checked={selection.selected.has(pipeline.id)}
-                onChange={() => selection.onToggle(pipeline)}
-              />
-            )}
+            <SelectBox pipeline={pipeline} selection={selection} />
             <ProviderButtons row={row} getProvider={getProvider} />
           </Group>
           <WorkflowActions pipeline={pipeline} actions={actions} />

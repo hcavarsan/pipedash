@@ -1,14 +1,14 @@
 import { useEffect, useEffectEvent } from 'react'
 
 import { logger } from '../../../lib/logger'
-import { events } from '../../../services/service'
-import type { PipelineRun } from '../../../types/domain'
+import { listenEvent } from '../../../services/events'
 import type { EventPayloadMap } from '../../../types/events'
+import type { PipelineRun } from '../../../types/pipelines'
 
 export function useRunUpdatedEvent(
   pipelineId: string | undefined,
   enabled: boolean,
-  onUpdate: (run: PipelineRun) => void
+  onUpdate: (run: PipelineRun, isCurrent: () => boolean) => void | Promise<void>
 ): void {
   const handle = useEffectEvent(onUpdate)
 
@@ -20,12 +20,19 @@ export function useRunUpdatedEvent(
     let mounted = true
     let unlisten: (() => void) | undefined
 
-    events
-      .listen<EventPayloadMap['run-updated']>('run-updated', (payload) => {
-        if (mounted && payload?.pipelineId === pipelineId && payload.run) {
-          handle(payload.run)
-        }
-      })
+    const deliver = async (run: PipelineRun) => {
+      try {
+        await handle(run, () => mounted)
+      } catch (error) {
+        logger.error('RunUpdates', 'Failed to apply run-updated', error)
+      }
+    }
+
+    listenEvent<EventPayloadMap['run-updated']>('run-updated', (payload) => {
+      if (mounted && payload?.pipelineId === pipelineId && payload.run) {
+        void deliver(payload.run)
+      }
+    })
       .then((remove) => {
         if (mounted) {
           unlisten = remove

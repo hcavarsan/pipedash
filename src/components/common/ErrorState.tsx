@@ -3,7 +3,7 @@ import { IconAlertCircle, IconRefresh } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
-import { formatErrorMessage } from '../../types/errors'
+import { errorMessage } from '../../utils/errorDisplay'
 
 import { ContentUnavailable } from './ContentUnavailable'
 
@@ -16,6 +16,26 @@ interface ErrorStateProps {
   retrying?: boolean
 }
 
+interface RetryButtonProps {
+  onRetry: () => void
+  retrying: boolean
+  compact: boolean
+}
+
+function RetryButton({ onRetry, retrying, compact }: RetryButtonProps): ReactNode {
+  return (
+    <Button
+      {...(compact ? { size: 'xs' } : {})}
+      variant="default"
+      leftSection={<IconRefresh size={compact ? 14 : 16} aria-hidden />}
+      loading={retrying}
+      onClick={onRetry}
+    >
+      Retry
+    </Button>
+  )
+}
+
 export function ErrorState({ title, error, hint, actions, onRetry, retrying = false }: ErrorStateProps): ReactNode {
   const mobileShell = useMobileShell()
 
@@ -24,23 +44,14 @@ export function ErrorState({ title, error, hint, actions, onRetry, retrying = fa
       <ContentUnavailable
         role="alert"
         tone="error"
-        icon={<IconAlertCircle />}
+        icon={<IconAlertCircle size={24} aria-hidden />}
         title={title}
-        description={formatErrorMessage(error)}
+        description={errorMessage(error, 'Try again.')}
         hint={hint}
         actions={
           (onRetry || actions) && (
             <>
-              {onRetry && (
-                <Button
-                  variant="default"
-                  leftSection={<IconRefresh size={18} aria-hidden />}
-                  loading={retrying}
-                  onClick={onRetry}
-                >
-                  Retry
-                </Button>
-              )}
+              {onRetry && <RetryButton onRetry={onRetry} retrying={retrying} compact={false} />}
               {actions}
             </>
           )
@@ -52,7 +63,7 @@ export function ErrorState({ title, error, hint, actions, onRetry, retrying = fa
   return (
     <Alert color="red" variant="light" icon={<IconAlertCircle size={16} aria-hidden />} title={title}>
       <Stack gap="sm" align="flex-start">
-        <Text size="sm">{formatErrorMessage(error)}</Text>
+        <Text size="sm">{errorMessage(error, 'Try again.')}</Text>
         {hint && (
           <Text size="sm" c="dimmed">
             {hint}
@@ -60,17 +71,7 @@ export function ErrorState({ title, error, hint, actions, onRetry, retrying = fa
         )}
         {(onRetry || actions) && (
           <Group gap="xs">
-            {onRetry && (
-              <Button
-                size="xs"
-                variant="default"
-                leftSection={<IconRefresh size={14} aria-hidden />}
-                loading={retrying}
-                onClick={onRetry}
-              >
-                Retry
-              </Button>
-            )}
+            {onRetry && <RetryButton onRetry={onRetry} retrying={retrying} compact />}
             {actions}
           </Group>
         )}

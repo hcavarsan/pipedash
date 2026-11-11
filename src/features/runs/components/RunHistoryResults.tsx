@@ -21,19 +21,37 @@ interface RunHistoryResultsProps {
 }
 
 function RunHistoryEmpty({ data }: { data: RunHistoryPageData }): ReactNode {
-  const { isMobile } = useIsMobile()
-  const { labels, isFlux } = useRunActions()
+  const { labels, presentation } = useRunActions()
+  const notice = data.scanNotice
 
-  if (data.sourceRuns.length === 0) {
+  if (notice) {
+    return (
+      <EmptyState
+        icon={<IconHistory size={24} aria-hidden />}
+        title={notice.title}
+        description={notice.message}
+        action={
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            loading={data.isFetchingMore}
+            onClick={data.fetchMore}
+            style={{ pointerEvents: 'auto' }}
+          >
+            {notice.action_label}
+          </Button>
+        }
+      />
+    )
+  }
+
+  if (!data.filtered) {
     return (
       <EmptyState
         icon={<IconHistory size={24} aria-hidden />}
         title={`No ${labels.runs} yet`}
-        description={
-          isFlux
-            ? 'Flux has not recorded a reconciliation for this resource yet.'
-            : 'This workflow has no recorded runs.'
-        }
+        description={presentation.empty_history_description}
         action={
           <Button
             type="button"
@@ -62,7 +80,7 @@ function RunHistoryEmpty({ data }: { data: RunHistoryPageData }): ReactNode {
       }
       action={
         <Group gap="sm">
-          {data.hasMore && isMobile && (
+          {data.hasMore && (
             <Button type="button" variant="default" size="sm" onClick={data.fetchMore}>
               Load more {labels.runs}
             </Button>
@@ -87,21 +105,27 @@ export function RunHistoryResults({
   const mobileShell = useMobileShell()
   const { labels } = useRunActions()
 
-  if (data.isError) {
-    return (
-      <ErrorState
-        title={`Couldn't load ${labels.history.toLowerCase()}`}
-        error={data.error}
-        onRetry={() => {
+  const failure = data.isError ? (
+    <ErrorState
+      title={`Couldn't load ${labels.history.toLowerCase()}`}
+      error={data.error}
+      onRetry={() => {
+        if (data.isFetchNextPageError) {
+          data.retryNextPage()
+        } else {
           void data.refetch()
-        }}
-        retrying={data.isFetching}
-      />
-    )
+        }
+      }}
+      retrying={data.isFetching}
+    />
+  ) : null
+
+  if (failure && !data.hasData) {
+    return failure
   }
 
-  if (!isMobile && columns.error) {
-    return (
+  const columnsFailure =
+    !isMobile && columns.error ? (
       <ErrorState
         title="Couldn't load run table columns"
         error={columns.error}
@@ -110,7 +134,10 @@ export function RunHistoryResults({
         }}
         retrying={columns.loading}
       />
-    )
+    ) : null
+
+  if (columnsFailure && !columns.hasSchema) {
+    return columnsFailure
   }
 
   const empty = !data.isFetching && data.runs.length === 0 ? <RunHistoryEmpty data={data} /> : null
@@ -118,6 +145,7 @@ export function RunHistoryResults({
   if (isMobile) {
     return (
       <>
+        {failure}
         <RunHistoryMobile
           data={data}
           selection={selection}
@@ -140,5 +168,22 @@ export function RunHistoryResults({
     )
   }
 
-  return empty ?? <RunHistoryTable data={data} columns={columns} selection={selection} />
+  if (empty && !data.scanNotice && !failure && !columnsFailure) {
+    return empty
+  }
+
+  return (
+    <>
+      {failure}
+      {columnsFailure}
+      <RunHistoryTable data={data} columns={columns} selection={selection} emptyState={empty} />
+      {data.hasMore && !data.scanNotice && (
+        <Group justify="center" mt="sm">
+          <Button type="button" variant="default" size="sm" loading={data.isFetchingMore} onClick={data.fetchMore}>
+            Search older {labels.runs}
+          </Button>
+        </Group>
+      )}
+    </>
+  )
 }

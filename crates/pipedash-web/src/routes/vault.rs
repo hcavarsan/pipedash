@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::{
     extract::State,
     routing::{
@@ -7,12 +9,25 @@ use axum::{
     Json,
     Router,
 };
-use pipedash_core::infrastructure::StorageBackendType;
+use pipedash_core::application::services::session_service::prepare_session;
+use pipedash_core::application::services::storage_service::vault::{
+    PasswordSource,
+    UnlockVaultResponse,
+    VaultStatus,
+};
+use pipedash_core::domain::{
+    DomainError,
+    DomainResult,
+};
+use pipedash_core::event::CoreEvent;
+use pipedash_core::infrastructure::migration::VAULT_PASSWORD_ENV_VAR;
+use pipedash_core::infrastructure::StorageManager;
 use serde::{
     Deserialize,
     Serialize,
 };
 
+use super::storage::session::install_session;
 use crate::error::{
     ApiResult,
     AppError,
@@ -21,32 +36,15 @@ use crate::state::AppState;
 
 #[derive(Debug, Serialize)]
 pub struct VaultStatusResponse {
-    pub is_unlocked: bool,
-    pub password_source: PasswordSource,
-    pub backend: String,
-    pub requires_password: bool,
-    pub is_first_time: bool,
+    #[serde(flatten)]
+    pub status: VaultStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub demo_password: Option<String>,
-}
-
-#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum PasswordSource {
-    EnvVar,
-    Session,
-    None,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct UnlockVaultRequest {
     pub password: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct UnlockVaultResponse {
-    pub success: bool,
-    pub message: String,
 }
 
 pub fn router() -> Router<AppState> {
@@ -57,180 +55,163 @@ pub fn router() -> Router<AppState> {
 }
 
 async fn get_vault_status(State(state): State<AppState>) -> Json<VaultStatusResponse> {
-    let inner = state.inner.read().await;
+    if state.desktop_host.is_some() {
+        let config_state = state
+            .inner
+            .read()
+            .await
+            .core
+            .as_ref()
+            .map(|core| Arc::clone(&core.config_state));
+        let backend = match &config_state {
+            Some(config_state) => config_state.get().await.storage.backend.to_string(),
+            None => "unknown".to_string(),
+        };
 
-    let (backend, requires_password, is_first_time) =
-        if let Some(storage_manager) = &inner.storage_manager {
-            let config = storage_manager.config();
-            let requires = storage_manager.requires_vault_password();
+        return Json(VaultStatusResponse {
+            status: VaultStatus {
+                is_unlocked: config_state.is_some(),
+                password_source: PasswordSource::None,
+                backend,
+                requires_password: false,
+                is_first_time: false,
+            },
+            demo_password: None,
+        });
+    }
+
+    let (storage_manager, token_store_ready) = {
+        let inner = state.inner.read().await;
+        (inner.storage_manager.clone(), inner.token_store_ready)
+    };
+
+    let (backend, requires_password, is_first_time) = match &storage_manager {
+        Some(storage_manager) => {
             let first_time = storage_manager
                 .is_first_time_vault_setup()
                 .await
                 .unwrap_or(true);
-            (config.storage.backend.to_string(), requires, first_time)
-        } else {
             (
-                "unknown".to_string(),
-                true,
-                std::env::var("PIPEDASH_VAULT_PASSWORD").is_err(),
+                storage_manager.config().storage.backend.to_string(),
+                storage_manager.requires_vault_password(),
+                first_time,
             )
-        };
-
-    let password_source = determine_password_source(&inner);
-
-    let is_unlocked = inner.token_store_ready;
+        }
+        None => (
+            "unknown".to_string(),
+            true,
+            std::env::var(VAULT_PASSWORD_ENV_VAR).is_err(),
+        ),
+    };
 
     Json(VaultStatusResponse {
-        is_unlocked,
-        password_source,
-        backend,
-        requires_password,
-        is_first_time,
+        status: VaultStatus {
+            is_unlocked: token_store_ready,
+            password_source: determine_password_source(
+                storage_manager.is_some(),
+                token_store_ready,
+            ),
+            backend,
+            requires_password,
+            is_first_time,
+        },
         demo_password: crate::demo::enabled()
             .then(|| state.api_token().map(|token| token.to_string()))
             .flatten(),
     })
 }
 
-fn determine_password_source(inner: &crate::state::AppStateInner) -> PasswordSource {
-    if let Some(storage_manager) = &inner.storage_manager {
-        let backend = storage_manager.config().storage.backend;
-
-        match backend {
-            StorageBackendType::Sqlite | StorageBackendType::Postgres => {
-                if std::env::var("PIPEDASH_VAULT_PASSWORD").is_ok() {
-                    return PasswordSource::EnvVar;
-                }
-                if inner.token_store_ready {
-                    return PasswordSource::Session;
-                }
-                return PasswordSource::None;
-            }
-        }
+fn determine_password_source(has_storage: bool, token_store_ready: bool) -> PasswordSource {
+    if !has_storage {
+        return PasswordSource::None;
+    }
+    if std::env::var(VAULT_PASSWORD_ENV_VAR).is_ok() {
+        return PasswordSource::EnvVar;
+    }
+    if token_store_ready {
+        return PasswordSource::Session;
     }
 
     PasswordSource::None
 }
 
+fn unlock_response(success: bool, message: impl Into<String>) -> Json<UnlockVaultResponse> {
+    Json(if success {
+        UnlockVaultResponse::ok(message)
+    } else {
+        UnlockVaultResponse::failed(message)
+    })
+}
+
+async fn install_unlocked(
+    state: &AppState, new_manager: StorageManager, password: &str,
+) -> DomainResult<()> {
+    let session = prepare_session(
+        new_manager,
+        state.ws_event_bus.clone(),
+        Arc::clone(&state.plugin_registry),
+    )
+    .await?;
+    install_session(state, session).await?;
+    std::env::set_var(VAULT_PASSWORD_ENV_VAR, password);
+    state.set_api_token(password);
+
+    Ok(())
+}
+
 async fn unlock_vault(
     State(state): State<AppState>, Json(req): Json<UnlockVaultRequest>,
 ) -> ApiResult<Json<UnlockVaultResponse>> {
-    {
+    let (storage_manager, ready) = {
         let inner = state.inner.read().await;
-        if inner.token_store_ready {
-            return Ok(Json(UnlockVaultResponse {
-                success: true,
-                message: "Vault is already unlocked".to_string(),
-            }));
-        }
-    }
-
-    let mut config = {
-        let inner = state.inner.read().await;
-        inner
-            .storage_manager
-            .as_ref()
-            .ok_or_else(AppError::not_initialized)?
-            .config()
-            .clone()
+        (inner.storage_manager.clone(), inner.token_store_ready)
     };
+    if ready {
+        return Ok(unlock_response(true, "Vault is already unlocked"));
+    }
+    let storage_manager = storage_manager.ok_or_else(AppError::not_initialized)?;
+
+    let mut config = storage_manager.config().clone();
     config.storage.vault_password = Some(req.password.clone());
-    let is_desktop = false; // API server is never desktop mode
-
-    match pipedash_core::infrastructure::StorageManager::from_config(config, is_desktop).await {
-        Ok(new_manager) => {
-            let event_bus = {
-                let inner = state.inner.read().await;
-                inner
-                    .core
-                    .as_ref()
-                    .map(|c| c.event_bus.clone())
-                    .unwrap_or_else(|| std::sync::Arc::new(pipedash_core::NoOpEventBus))
-            };
-
-            match pipedash_core::CoreContext::with_storage_manager(&new_manager, event_bus.clone())
-                .await
-            {
-                Ok(new_core) => {
-                    let old_core = {
-                        let mut inner = state.inner.write().await;
-                        inner.storage_manager = Some(new_manager);
-                        inner.token_store_ready = true;
-                        inner.core.replace(new_core)
-                    };
-                    if let Some(old_core) = old_core {
-                        state.download_tickets.clear();
-                        old_core.shutdown().await;
-                    }
-                    std::env::set_var("PIPEDASH_VAULT_PASSWORD", &req.password);
-                    state.set_api_token(&req.password);
-
-                    {
-                        let inner = state.inner.read().await;
-                        if let Some(core) = inner.core.as_ref() {
-                            if let Err(e) = core.warmup_token_store().await {
-                                tracing::warn!(
-                                    "Token store warmup warning: {}. Providers may need manual refresh.",
-                                    e
-                                );
-                            }
-                            core.start_background_tasks().await;
-                        }
-                    }
-
-                    tracing::info!(
-                        "Vault unlocked successfully via session password - providers reloaded"
-                    );
-
-                    Ok(Json(UnlockVaultResponse {
-                        success: true,
-                        message: "Vault unlocked successfully".to_string(),
-                    }))
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to unlock vault: {}", e);
-
-                    Ok(Json(UnlockVaultResponse {
-                        success: false,
-                        message: format!("Failed to unlock vault: {}", e),
-                    }))
-                }
-            }
-        }
-        Err(pipedash_core::domain::DomainError::AuthenticationFailed(e)) => {
+    let outcome = match StorageManager::from_config(config, false).await {
+        Ok(new_manager) => install_unlocked(&state, new_manager, &req.password)
+            .await
+            .map(|()| "Vault unlocked successfully".to_string())
+            .map_err(|e| format!("Failed to unlock vault: {e}")),
+        Err(DomainError::AuthenticationFailed(e)) => {
             tracing::warn!("Vault unlock rejected: {}", e);
-
-            Ok(Json(UnlockVaultResponse {
-                success: false,
-                message: "Incorrect vault password".to_string(),
-            }))
+            Err("Incorrect vault password".to_string())
         }
         Err(e) => {
-            tracing::warn!(
-                "Failed to create storage manager with provided password: {}",
-                e
-            );
-
-            Ok(Json(UnlockVaultResponse {
-                success: false,
-                message: format!("Invalid password or storage error: {}", e),
-            }))
+            tracing::warn!("Failed to create storage manager with provided password: {e}");
+            Err(format!("Invalid password or storage error: {e}"))
         }
+    };
+    if let Err(message) = &outcome {
+        tracing::warn!("Vault unlock failed: {message}");
     }
+
+    Ok(match outcome {
+        Ok(message) => unlock_response(true, message),
+        Err(message) => unlock_response(false, message),
+    })
 }
 
 async fn lock_vault(State(state): State<AppState>) -> Json<UnlockVaultResponse> {
-    std::env::remove_var("PIPEDASH_VAULT_PASSWORD");
+    std::env::remove_var(VAULT_PASSWORD_ENV_VAR);
 
-    {
+    let old_core = {
         let mut inner = state.inner.write().await;
         inner.token_store_ready = false;
+        inner.core.take()
+    };
+    if let Some(old_core) = old_core {
+        state.download_tickets.clear();
+        old_core.event_bus.emit(CoreEvent::VaultLocked).await;
+        old_core.shutdown().await;
     }
 
-    tracing::info!("Vault locked - session password cleared");
+    tracing::info!("Vault locked - core shut down and session password cleared");
 
-    Json(UnlockVaultResponse {
-        success: true,
-        message: "Vault locked. Restart required to fully clear token cache.".to_string(),
-    })
+    Json(UnlockVaultResponse::ok("Vault locked"))
 }

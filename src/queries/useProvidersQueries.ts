@@ -7,13 +7,13 @@ import {
 } from '@tanstack/react-query'
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { logger } from '../lib/logger'
-import { notifications } from '../lib/notifications'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services/service'
-import type { PermissionCheckResult, ProviderConfig, ProviderImportResult, ProviderSummary } from '../types/domain'
-import { errorMessage } from '../utils/errorDisplay'
+import type { PermissionCheckResult } from '../types/plugins'
+import type { ProviderDraft } from '../types/provider_draft'
+import type { ProviderConfig, ProviderImportResult, ProviderSummary } from '../types/providers'
+import { displayErrorNotification, displaySuccessNotification, displayWarningNotification } from '../utils/errorDisplay'
 import { saveFile } from '../utils/saveFile'
-import { invalidateProviderPipelines } from './usePipelinesQueries'
 
 export function useProviders(options?: { enabled?: boolean }): UseQueryResult<ProviderSummary[], Error> {
   return useQuery({
@@ -32,111 +32,38 @@ export function useProviders(options?: { enabled?: boolean }): UseQueryResult<Pr
   })
 }
 
-export function useAddProvider(): UseMutationResult<number, Error, ProviderConfig, unknown> {
+export function useSaveProviderDraft({
+  toastErrors = true,
+}: {
+  toastErrors?: boolean
+} = {}): UseMutationResult<number, Error, ProviderDraft, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (config: ProviderConfig) => service.addProvider(config),
+    mutationFn: (draft: ProviderDraft) => service.saveProviderDraft(draft),
 
-    onSuccess: async (newProviderId, config) => {
-      queryClient.setQueryData<ProviderSummary[]>(queryKeys.providers.list(), (old = []) =>
-        old.some((provider) => provider.id === newProviderId)
-          ? old
-          : [
-              ...old,
-              {
-                id: newProviderId,
-                name: config.name || `${config.provider_type} Provider`,
-                provider_type: config.provider_type,
-                icon: null,
-                pipeline_count: 0,
-                last_updated: null,
-                refresh_interval: config.refresh_interval,
-                last_fetch_status: 'never',
-                last_fetch_error: null,
-                last_fetch_error_kind: null,
-                last_fetch_at: null,
-                last_success_at: null,
-                paused_until: null,
-                freshness: { state: 'never', stale_at: null },
-                recovery: null,
-                health: {
-                  level: 'operational',
-                  signals: [],
-                  next_attempt_at: null,
-                  in_flight: false,
-                  status_page: null,
-                },
-                configured_repositories: [],
-              },
-            ]
+    onSuccess: async (id, draft) => {
+      const updated = draft.provider_id !== null
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.providers.detail(id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all }),
+      ])
+
+      displaySuccessNotification(
+        updated ? 'Changes saved.' : 'Pipelines appear here when the first fetch finishes.',
+        updated ? 'Provider updated' : 'Provider added'
       )
-
-      void queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
-
-      notifications.show({
-        title: 'Provider added',
-        message: 'Fetching pipelines...',
-        color: 'green',
-      })
     },
 
-    onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't add provider",
-        message: errorMessage(error, 'Check the provider credentials and try again.'),
-        color: 'red',
-      })
-    },
-  })
-}
-
-export function useUpdateProvider(): UseMutationResult<
-  void,
-  Error,
-  { id: number; config: ProviderConfig },
-  { previousProviders: ProviderSummary[] | undefined }
-> {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: ({ id, config }: { id: number; config: ProviderConfig }) => service.updateProvider(id, config),
-
-    onMutate: async ({ id, config }) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.providers.list() })
-
-      const previousProviders = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list())
-
-      queryClient.setQueryData<ProviderSummary[]>(queryKeys.providers.list(), (old) =>
-        old?.map((p) => (p.id === id ? { ...p, name: config.name, refresh_interval: config.refresh_interval } : p))
-      )
-
-      return { previousProviders }
-    },
-
-    onError: (error: Error, _vars, context) => {
-      if (context?.previousProviders) {
-        queryClient.setQueryData(queryKeys.providers.list(), context.previousProviders)
+    onError: (error: Error, draft) => {
+      if (toastErrors) {
+        displayErrorNotification(
+          error,
+          draft.provider_id === null ? "Couldn't add provider" : "Couldn't update provider"
+        )
       }
-
-      notifications.show({
-        title: "Couldn't update provider",
-        message: errorMessage(error, 'Check the provider settings and try again.'),
-        color: 'red',
-      })
-    },
-
-    onSuccess: (_data, { id }) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.providers.detail(id) })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
-      invalidateProviderPipelines(queryClient, id)
-
-      notifications.show({
-        title: 'Provider updated',
-        message: 'Refreshing pipelines...',
-        color: 'green',
-      })
     },
   })
 }
@@ -147,7 +74,7 @@ export function useRemoveProvider(): UseMutationResult<void, Error, number, unkn
   return useMutation({
     mutationFn: (id: number) => service.removeProvider(id),
 
-    onSuccess: (_data, id) => {
+    onSuccess: async (_data, id) => {
       queryClient.removeQueries({ queryKey: queryKeys.providers.detail(id) })
       queryClient.removeQueries({ queryKey: queryKeys.providers.features(id) })
       queryClient.removeQueries({ queryKey: queryKeys.providers.permissions(id) })
@@ -160,22 +87,16 @@ export function useRemoveProvider(): UseMutationResult<void, Error, number, unkn
         predicate: (query) => query.queryKey[0] === 'tablePreferences' && query.queryKey[1] === id,
       })
 
-      void queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all }),
+      ])
 
-      notifications.show({
-        title: 'Provider removed',
-        message: 'All associated data cleared',
-        color: 'gray',
-      })
+      displaySuccessNotification('All associated data cleared', 'Provider removed')
     },
 
     onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't remove provider",
-        message: errorMessage(error, 'Try removing the provider again.'),
-        color: 'red',
-      })
+      displayErrorNotification(error, "Couldn't remove provider")
     },
   })
 }
@@ -191,25 +112,20 @@ export function useExportProviders(): UseMutationResult<boolean, Error, void, un
 
     onSuccess: (saved) => {
       if (saved) {
-        notifications.show({
-          title: 'Providers exported',
-          message: 'Tokens are not in the file. Set each token variable on the other machine.',
-          color: 'green',
-        })
+        displaySuccessNotification(
+          'Tokens are not in the file. Set each token variable on the other machine.',
+          'Providers exported'
+        )
       }
     },
 
     onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't export providers",
-        message: errorMessage(error, 'Try exporting the providers again.'),
-        color: 'red',
-      })
+      displayErrorNotification(error, "Couldn't export providers")
     },
   })
 }
 
-function importSummary({ added, skipped }: ProviderImportResult): string {
+function importSummary({ added, skipped, failed, not_attempted }: ProviderImportResult): string {
   const parts = []
 
   if (added.length > 0) {
@@ -218,8 +134,26 @@ function importSummary({ added, skipped }: ProviderImportResult): string {
   if (skipped.length > 0) {
     parts.push(`Skipped ${skipped.join(', ')}, already set up here.`)
   }
+  for (const { name, error } of failed) {
+    parts.push(`Couldn't add ${name}: ${error}.`)
+  }
+  if (not_attempted.length > 0) {
+    parts.push(`Not attempted: ${not_attempted.join(', ')}.`)
+  }
 
   return parts.join(' ')
+}
+
+function reportImport(result: ProviderImportResult): void {
+  const summary = importSummary(result)
+
+  if (result.failed.length === 0) {
+    displaySuccessNotification(summary, result.added.length > 0 ? 'Providers imported' : 'No providers imported')
+  } else if (result.added.length === 0) {
+    displayErrorNotification(summary, "Couldn't import providers")
+  } else {
+    displayWarningNotification(summary, "Couldn't import all providers")
+  }
 }
 
 export function useImportProviders(): UseMutationResult<ProviderImportResult, Error, File, unknown> {
@@ -228,31 +162,22 @@ export function useImportProviders(): UseMutationResult<ProviderImportResult, Er
   return useMutation({
     mutationFn: async (file: File) => service.importProviders(await file.text()),
 
-    onSuccess: (result) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
+    onSuccess: async (result) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all }),
+      ])
 
-      notifications.show({
-        title: result.added.length > 0 ? 'Providers imported' : 'No providers imported',
-        message: importSummary(result),
-        color: result.added.length > 0 ? 'green' : 'gray',
-        autoClose: 10_000,
-      })
+      reportImport(result)
     },
 
     onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't import providers",
-        message: errorMessage(error, 'Check the providers file and try again.'),
-        color: 'red',
-      })
+      displayErrorNotification(error, "Couldn't import providers")
     },
   })
 }
 
-export function useUpdateProviderRefreshInterval(
-  notify = true
-): UseMutationResult<
+export function useUpdateProviderRefreshInterval(): UseMutationResult<
   void,
   Error,
   { id: number; refreshInterval: number },
@@ -276,33 +201,19 @@ export function useUpdateProviderRefreshInterval(
       return { previousProviders }
     },
 
-    onError: (error: Error, _vars, context) => {
+    onError: (_error: Error, _vars, context) => {
       if (context?.previousProviders) {
         queryClient.setQueryData(queryKeys.providers.list(), context.previousProviders)
       }
-
-      if (!notify) {
-        return
-      }
-      notifications.show({
-        title: "Couldn't update refresh interval",
-        message: errorMessage(error, 'Try saving the refresh interval again.'),
-        color: 'red',
-      })
     },
 
-    onSuccess: (_data, { id }) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.providers.detail(id) })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.providers.refreshInterval(id) })
-      if (!notify) {
-        return
-      }
+    onSuccess: async (_data, { id }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.providers.detail(id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.providers.refreshInterval(id) }),
+      ])
 
-      notifications.show({
-        title: 'Refresh interval updated',
-        message: 'Provider will use the new refresh interval',
-        color: 'green',
-      })
+      displaySuccessNotification('Provider will use the new refresh interval', 'Refresh interval updated')
     },
   })
 }

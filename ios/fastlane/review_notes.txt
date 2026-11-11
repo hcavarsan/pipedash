@@ -1,20 +1,28 @@
 Pipedash is a dashboard for CI/CD pipelines. It shows runs from providers the user adds and can start or stop workflows. It has no Pipedash account, in-app purchases or tracking. On-device storage uses SQLite and the iOS Keychain for provider tokens.
 
 How to review the main features:
-1. Launch the app. If storage setup appears, keep the on-device SQLite and Device Keychain defaults and tap "Get started". The dashboard is empty until you add a provider.
+1. Launch the app. The first screen asks "Where should Pipedash run?". Tap "On this device". If storage setup appears, keep the on-device SQLite and Device Keychain defaults and tap "Get started". The dashboard is empty until you add a provider.
 2. Tap "Add provider" > "GitHub Actions". Enter a "Provider name" such as "Review demo" and paste this "API Token":
    %{demo_token}
 3. Tap "Next", choose the repository %{demo_repository} and tap "Add".
 4. On the dashboard, open "%{demo_workflow}" under the demo repository. Open an existing run to view its status, branch, commit and timing in the app. "View logs" is optional: it opens the run on GitHub in the default browser, and GitHub may require sign-in to show log text.
 5. To start a run, choose "Run workflow", keep the default branch and tap "Trigger". Open the running workflow and choose "Stop workflow" to cancel it. Use only the demo repository for these actions.
 
+New in this version: connect to a Pipedash server
+1. On a computer, open https://demo.pipedash.app. Its unlock screen shows the demo password (pipedash-demo). Enter it and tap "Unlock".
+2. Open Settings > Devices > "Add device". A QR code, the server address and an 8-character code appear. A code works once and expires after 5 minutes ("Create new code" makes another).
+3. On the device, open Settings > Devices > "Connect to a server" (or choose it on the first screen of a fresh install). Tap "Scan pairing code", or type the address and code, then tap "Connect".
+4. The app shows the demo's pipelines live. The demo is read-only. Settings > Devices > "Disconnect" returns to the first screen.
+5. Push: while connected, open Settings > Notifications, turn on "Notifications", allow them, then tap "Send test alert". A notification titled "Pipedash test alert" appears. When the app runs on its own, Settings > Notifications > "Connect a server" pairs the demo for alerts only.
+
 Other features:
-- Face ID: Settings > Storage > "Require Face ID". The app asks for Face ID or the device passcode before loading saved tokens.
-- Local network: a self-hosted provider on a local address may require Local Network permission. The GitHub demo does not need a local server.
-- Provider export: Settings > Providers > "Export providers" opens the native Files picker so you can choose a destination. Exports omit tokens.
-- Notifications: Settings > Notifications > "Notifications" (off by default). After a confirmation and the iOS permission prompt, the app uses Background App Refresh (BGAppRefreshTask, "fetch" mode) to check the user's providers and status pages and post local notifications for failed pipelines, long-running runs and outages. Remote push, background build watching and Live Activities are disabled in this build.
+- Face ID: Settings > Storage > "Require Face ID" asks for Face ID or the passcode before loading saved tokens.
+- Camera: used only after tapping "Scan pairing code", to read the QR code. No images are stored.
+- Local network: needed only for a provider or Pipedash server on a local address. The demos don't need it.
+- Provider export: Settings > Providers > "Export providers" opens the Files picker. Exports omit tokens.
+- Notifications (off by default): Background App Refresh ("fetch" mode) checks the user's providers and status pages and posts local notifications for failed pipelines, long runs and outages. With a Pipedash server, alerts come from that server, as push through Pipedash's relay (relay.pipedash.app) or through Background App Refresh. A notification service extension downloads each alert's text from the server; the relay receives only an alert ID. Build watching and Live Activities are disabled.
 
 The app connects to the providers the user adds and public status-page hosts: www.githubstatus.com, api.status.io, bitbucket.status.atlassian.com and www.buildkitestatus.com. Users can configure other status pages, a proxy or advanced storage destinations.
-Native iOS features: Keychain token storage, Face ID unlock, Background App Refresh with local notifications, the Files picker and the share sheet.
+Native iOS features: Keychain token storage, Face ID unlock, Background App Refresh, push notifications, the Files picker and the share sheet.
 Support: https://pipedash.app/support (email hcavarsan@yahoo.com.br)
 Privacy policy: https://pipedash.app/privacy

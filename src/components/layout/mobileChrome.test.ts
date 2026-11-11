@@ -106,5 +106,8 @@ test('locations split into path and query', () => {
 
 test('route keys separate the same path under different tabs', () => {
   assert.notEqual(routeKey('/pipelines/abc', '', { from: '/pipelines?view=pinned' }), routeKey('/pipelines/abc', ''))
-  assert.equal(routeKey('/pipelines', '?provider=1'), routeKey('/pipelines', ''))
+  assert.notEqual(routeKey('/pipelines', '?provider=1'), routeKey('/pipelines', '?view=a'))
+  assert.notEqual(routeKey('/pipelines', '?provider=1'), routeKey('/pipelines', ''))
+  assert.notEqual(routeKey('/pipelines', '?view=a'), routeKey('/pipelines', ''))
+  assert.equal(routeKey('/pipelines', '?search=x'), routeKey('/pipelines', ''))
 })

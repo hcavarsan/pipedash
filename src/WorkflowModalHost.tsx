@@ -5,8 +5,7 @@ import { ErrorBoundary } from './components/ErrorBoundary/ErrorBoundary'
 import { usePlugins } from './queries/usePluginsQueries'
 import { useRefreshProvider } from './queries/useRefreshQueries'
 import { useModalStore } from './stores/modalStore'
-import type { Pipeline } from './types/domain'
-import { canCancelPipeline, canRerunInPlace, getReconcileBlockReason } from './utils/pipelinePresentation'
+import type { Pipeline } from './types/pipelines'
 import { getPluginByType } from './utils/pluginHelpers'
 
 const TriggerWorkflowModal = lazy(() =>
@@ -31,7 +30,7 @@ export function WorkflowModalHost({ pipelines, invalidateAll }: WorkflowModalHos
   const { mutate: refreshProvider } = useRefreshProvider()
   const triggerModal = useModalStore((s) => s.triggerModal)
   const logsModal = useModalStore((s) => s.logsModal)
-  const openLogsModal = useModalStore((s) => s.openLogsModal)
+  const showRunAfterAction = useModalStore((s) => s.showRunAfterAction)
   const closeTriggerModal = useModalStore((s) => s.closeTriggerModal)
   const closeLogsModal = useModalStore((s) => s.closeLogsModal)
 
@@ -45,20 +44,27 @@ export function WorkflowModalHost({ pipelines, invalidateAll }: WorkflowModalHos
   const triggerPipeline = triggerModal.open ? pipelines.find((p) => p.id === triggerModal.pipelineId) : undefined
   const logsPipeline = logsModal.open ? pipelines.find((p) => p.id === logsModal.pipelineId) : undefined
 
+  const handleTriggerSuccess = async (pipelineId: string, runNumber: number): Promise<void> => {
+    await syncAfterAction(triggerPipeline?.provider_id)
+    showRunAfterAction(pipelineId, runNumber)
+  }
+
+  const handleRerunSuccess = async (pipelineId: string, newRunNumber: number): Promise<void> => {
+    await syncAfterAction(logsPipeline?.provider_id)
+    showRunAfterAction(pipelineId, newRunNumber)
+  }
+
   return (
     <>
       {triggerModal.open && triggerPipeline && (
         <ErrorBoundary scope="feature" name="Trigger workflow">
-          <Suspense fallback={<LoadingState message="Loading dialog..." />}>
+          <Suspense fallback={<LoadingState message="Loading dialog…" />}>
             <TriggerWorkflowModal
               opened
               onClose={closeTriggerModal}
               pipeline={triggerPipeline}
-              initialInputs={triggerModal.initialInputs}
-              onSuccess={async (pipelineId, runNumber) => {
-                await syncAfterAction(triggerPipeline.provider_id)
-                openLogsModal(pipelineId, runNumber)
-              }}
+              rerunOf={triggerModal.rerunOf}
+              onSuccess={handleTriggerSuccess}
             />
           </Suspense>
         </ErrorBoundary>
@@ -66,24 +72,15 @@ export function WorkflowModalHost({ pipelines, invalidateAll }: WorkflowModalHos
 
       {logsModal.open && (
         <ErrorBoundary scope="feature" name="Run details">
-          <Suspense fallback={<LoadingState message="Loading dialog..." />}>
+          <Suspense fallback={<LoadingState message="Loading dialog…" />}>
             <WorkflowLogsModal
               opened
               onClose={closeLogsModal}
               pipelineId={logsModal.pipelineId}
               runNumber={logsModal.runNumber}
-              providerId={logsPipeline?.provider_id}
-              providerType={logsPipeline?.provider_type}
               pipeline={logsPipeline}
               canViewLogs={!!logsPipeline && !!getPluginByType(plugins, logsPipeline.provider_type)?.capabilities.logs}
-              canTrigger={!!logsPipeline && !getReconcileBlockReason(logsPipeline)}
-              triggerBlockedReason={logsPipeline ? getReconcileBlockReason(logsPipeline) : undefined}
-              rerunInPlace={!!logsPipeline && canRerunInPlace(logsPipeline)}
-              canCancel={!!logsPipeline && canCancelPipeline(plugins, logsPipeline)}
-              onRerunSuccess={async (pipelineId, newRunNumber) => {
-                await syncAfterAction(logsPipeline?.provider_id)
-                openLogsModal(pipelineId, newRunNumber)
-              }}
+              onRerunSuccess={handleRerunSuccess}
               onCancelSuccess={() => syncAfterAction(logsPipeline?.provider_id)}
             />
           </Suspense>

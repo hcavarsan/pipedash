@@ -7,8 +7,8 @@ Pipedash is a CI/CD dashboard. People open it to find the pipeline that failed a
 - Dark is the default. Developers often keep it open beside an editor and a terminal, which are usually dark.
 - Light and System are available in Settings → General. Mantine stores the choice.
 - Use only colors that follow the scheme: `var(--mantine-color-body)`, `--mantine-color-default`, `--mantine-color-default-border`, `--mantine-color-default-hover`, `--mantine-color-text`, `--mantine-color-dimmed`, and `--mantine-color-<color>-light`. In code, use `c="dimmed"` or leave the default text color. Never hardcode `--mantine-color-dark-*`, hex, or `rgba`.
-- The brand palettes (blue, green, red, yellow, gray) are defined once in `src/theme/index.ts`. The desktop and web theme turns on `autoContrast` and uses shade 7 as the primary in both schemes, so text on filled buttons stays above 4.5:1. The macOS window buttons in `WindowControls.module.css` keep the system traffic-light colors as custom properties; that is the only other fixed color outside the status tokens.
-- `src/theme/index.ts` exports `baseTheme`, shared with the phone theme, and `theme`, which adds the desktop and web defaults on top. Desktop-only defaults never reach the phone shell.
+- The brand palettes (blue, green, red, yellow, gray) are defined once in `src/theme/theme.ts`. The desktop and web theme turns on `autoContrast` and uses shade 7 as the primary in both schemes, so text on filled buttons stays above 4.5:1. The macOS window buttons in `WindowControls.module.css` keep the system traffic-light colors as custom properties; that is the only other fixed color outside the status tokens.
+- `src/theme/theme.ts` exports `baseTheme`, shared with the phone theme, and `theme`, which adds the desktop and web defaults on top. Desktop-only defaults never reach the phone shell.
 - Runtime Mantine styles reuse Tauri's nonce from `#app-color-scheme`. Keep `getStyleNonce` on the provider so layout and theme rules pass the packaged content security policy.
 
 ## Color roles
@@ -29,20 +29,25 @@ Run status uses its own tokens, `--status-success`, `--status-failed`, `--status
 - A header is aligned exactly like its cells.
 - Text, statuses and dates align left. Numbers and durations align right and use tabular figures.
 - The actions column aligns right, header included.
-- Run history columns get their alignment from the column data type in `src/utils/columnBuilder.ts`, so every provider looks the same.
+- Run history columns get their alignment from the column data type in `src/features/runs/utils/columnBuilder.ts`, so every provider looks the same.
 - Counts are plain dimmed text, not badges.
-- Tables render through `StandardTable`, including the metrics data table and the pipeline picker in Add provider. Its wrapper owns the host sizing.
+- Two renderers share one presentation. `StandardTable` renders paginated data (run history). `VirtualTable` renders long unpaginated lists (pipelines, metrics data, the pipeline picker in Add provider). Both take header style, tabular figures and row classes from `src/components/common/tableStyles.ts`, and each wrapper owns its host sizing. Do not merge them and do not add a third.
+- Only rows with a real row action get the `interactive-surface` hover treatment. Passive rows stay neutral.
 - Rows that open something are reachable by keyboard. Run history rows take focus and open the run with Enter or Space; their action buttons stay separate tab stops.
 - Right-click, Shift+F10 or the context menu key opens the same actions as the row buttons on pipeline rows, pinned cards and run history rows. `useContextMenu` in `src/components/common/ContextMenu.tsx` builds the menu from the shared action list, so the menu and the buttons never drift apart.
 
 ## Spacing
 
-- Spacing uses the theme scale: `4xs` 2px, `3xs` 4px, `2xs` 6px, `xs` 10px, `sm` 12px, `md` 16px, `lg` 20px, `xl` 32px. No raw numbers in `gap`, `p`, `m` or `mt` props.
-- APIs that need numbers, such as Monaco padding and chart margins, read `SPACING_PX` from `src/theme`.
+- Spacing uses the theme scale: `4xs` 2px, `3xs` 4px, `2xs` 6px, `xs` 10px, `sm` 12px, `md` 16px, `lg` 20px, `xl` 32px. No numeric spacing props except `0`. CSS modules use `var(--mantine-spacing-*)`; 44pt touch targets, 22pt selection circles, hairlines and safe-area math stay literal.
+- APIs that need numbers, such as Monaco padding and chart margins, read `SPACING_PX` from `src/theme/theme.ts`.
+- Stacking order comes from `Z` in `src/theme/zIndex.ts`. No numeric `zIndex` anywhere else in TypeScript. CSS-module `z-index` values are local stacking only.
+- Buttons: `sm` in page headers, modal and wizard footers and form submits. `xs` inside cards, alerts, rows and filter bars. `compact-xs` and `compact-sm` only inside table rows and toolbars. `md` and `lg` only on the phone shell and entry screens.
+- Loaders use named sizes: `xs` next to text or inside rows and buttons, `md` for a section, `lg` for a page.
+- `scripts/audit_structure.py` rejects off-scale icon sizes, numeric spacing props, numeric loader sizes and raw z-index values.
 
 ## Shape and depth
 
-- Radius: `sm` for controls, inputs, and badges (the theme default). `md` for cards, papers, and modals, set through theme defaults.
+- Radius: `sm` for controls, inputs, and badges (the theme default). `md` for cards, papers, and modals, set through theme defaults. Desktop CSS uses `var(--mantine-radius-sm)`. The phone shell is the exception: its controls keep the iOS 10px and 12px radii, and the search field and "Jump to latest" stay pills.
 - Borders separate surfaces. Shadows appear only on floating layers: menus, popovers, comboboxes and tooltips, set as theme defaults.
 - No hover lift. A clickable surface gets the `interactive-surface` class, which tints its background on hover and darkens it on press with no delay. A blocked control keeps its tooltip but sets `aria-disabled` and looks disabled.
 - The desktop and web header is the one translucent surface: content scrolls under it, and its bottom border appears only once the page is scrolled. Reduce Transparency and Increase Contrast make it opaque.
@@ -52,27 +57,58 @@ Run status uses its own tokens, `--status-success`, `--status-failed`, `--status
 - Mantine's system font stack and size tokens. No raw font sizes.
 - Desktop and web headings tighten as they grow: about -0.02em at h1 down to normal at h5. Body text keeps a 1.5 line height.
 - Monospace only for real identifiers: commit SHAs, run IDs, paths, commands, and JSON.
-- Icons come from Tabler. They are chosen for meaning, never as decoration. Sizes: 14 in dense badges, 16 by default, 20 in the header toolbar, 24 in empty states.
+- Icons come from Tabler. They are chosen for meaning, never as decoration. Sizes: 14 in dense places (badges, `xs` and compact buttons, sidebar row actions), 16 by default, 20 in the header toolbar, phone header and sheet controls and `StatusIcon`, 24 in empty, error and success states (inside a `ThemeIcon` when it needs more weight). Em-based status glyphs and the window buttons are exempt.
+- User-facing text uses `…` (U+2026), never three dots.
 
 ## States and feedback
 
 - Loading: `LoadingState` with a message that names what is loading.
 - Empty: `EmptyState` with the reason it is empty and the next action, as a button when one exists.
 - Error: `ErrorState` with the operation that failed, the error, and a retry.
+- Block the screen with `ErrorState` only when there is nothing to show. When data is already loaded and a later read fails, keep the data and show the error with Retry above it. Show an empty state only after a successful empty result. `QueryBoundary` in `src/components/common/QueryBoundary.tsx` owns this rule for any `UseQueryResult`; a component that gets data and error as separate props applies the same three branches by hand.
+- A read retries once, after one second, and only for a network failure or a timeout. Every other failure shows at once. Writes never retry.
+- An action shows a pending state until its result is on screen and ignores a second activation while it runs. A success message waits for the real result.
 - Missing data is shown as `—` or "Unavailable". Never show it as `0`. A measured zero duration is `0s`.
 - Failure titles read `Couldn't <verb> <object>`; the message gives the cause or the next step. `errorMessage(error, fallback)` in `src/utils/errorDisplay.tsx` picks the most specific message. Notification helpers always take an explicit title.
-- A mutation hook owns its notifications. Callers do not toast the same outcome again.
+- A mutation hook owns its notifications, through `displaySuccessNotification`, `displayErrorNotification` and `displayWarningNotification`, which carry the severity glyph and the phone haptics. Callers do not toast the same outcome again. When an open form shows the failure inline, it passes `{ toastErrors: false }` to the hook, which then skips only its error notification. One outcome has one feedback surface.
+- External links open through `openLink` in `src/utils/openExternal.ts`, which reports a failure as "Couldn't open link".
 - Ask for confirmation only before something that cannot be undone: removing a provider, deleting metrics, a factory reset, cancelling runs, discarding unsaved edits. Clearing caches and other refetchable work runs at once with progress and a completion message.
 - Cancelling a run says "Cancellation requested" until the provider reports the run as cancelled. Run history, the logs dialog and bulk cancel share `useCancelRun`.
+- Variants of one operation share one control. The variant is an option inside that control's dialog or menu, never a second button beside it. A run has one Cancel action; when the provider allows it, the confirmation offers an unchecked "Force cancel" option, preselected only after a normal cancellation was already requested. A pipeline has one "Notifications…" entry that opens a single choice: follow settings, next finish only, all runs or muted.
 - Selecting a failed provider opens its pipelines page first. An SSO authentication failure starts sign-in; other connection failures or outages open Pipedash's provider status sheet. Dismissing recovery leaves the provider page open. Background failures never open login or status sheets automatically.
 - Provider recovery saves only credentials, preserving current settings and pipeline selections. The status sheet shows the Pipedash connection and its recovery action before upstream service status. Mobile long-press menus include Provider status and, when the backend requests it, Sign in.
+- List rows show status, never the message. A pipeline or run row carries its status glyph or badge, its name and its timing. A desktop table may add the provider's short reason code as its own column. Condition messages, error text and logs open with the run, where the details list them. A history page has no state banner and no provider note above its list; progress shows inside the running run.
+- A notification title says what happened, to what and where, so it reads alone in a list or on a lock screen: `<pipeline> failed · <repository>`, `<pipeline> #<run> failed` for a watched run, `Can't reach <provider>`, `<status page>: <incident>`, `<component> on <provider>: <state>`. The body adds the provider and the cause. Core writes every title and body; clients show them unchanged.
 
 ## Forms
 
-- Fields validate on blur, then again on every change once they show an error. Requirements such as a minimum password length are visible as help text before anyone types.
-- Numeric settings keep a draft: a blank field stays blank and shows an error instead of being replaced with a default. They save on blur or Enter and restore the saved value if the save fails.
+- Fields validate on blur, then again on every change once they show an error, on desktop and phone alike. `useBlurValidation` in `src/hooks/useBlurValidation.ts` owns this. Requirements such as a minimum password length are visible as help text before anyone types.
+- Numeric settings keep a draft through `useNumberDraft` in `src/hooks/useNumberDraft.ts`: a blank field stays blank and shows an error instead of being replaced with a default. They save on blur or Enter and restore the saved value if the save fails.
+- While a form saves, its fields are locked and its dialog passes `loading` to `StandardModal`, which then refuses every close path.
+- Wizards share their chrome: `WizardProgress` and `WizardFooter` in `src/components/forms`. Back sits on the left, Cancel and the actions on the right, the step action reads "Continue", and only the activated action shows a spinner.
+- Full-screen entry pages (connect, welcome, unreachable host, access gate, unlock) render `EntryScreen` in `src/features/connection/components/EntryScreen.tsx` on desktop and web.
 - On desktop and web, Enter submits the form. Moving to the next field with Enter happens only on the phone shell.
 - Dialogs with unsaved edits pass `dirty` to `StandardModal`, and footer buttons receive the guarded close through `footer={(close) => …}`, so Cancel, Escape, the close button and the overlay all ask before discarding.
+- A validation or submit error belongs to the draft that produced it. It hides when the draft changes, and a late response never applies to a newer value.
+
+## Copy
+
+| Use | Text |
+|---|---|
+| Open the views manager | `Manage views` |
+| Open the view creator | `New view…` |
+| Submit the view creator | `Create view` |
+| Migration primary action | `Migrate` |
+| Log export | `Export log` / `Exporting log…` |
+| Run actions | The labels from `buildRunActions`, on every surface |
+| External logs row on phone | `Open in <provider name>` |
+| Copy row after copying | `Copied` |
+| Discard prompt | `Discard changes` / `Keep editing` |
+| Loading | `Loading <object>…`, never a bare `Loading…` |
+| Failure titles | `Couldn't <verb> <object>` |
+| Password reminder | `Required to auto-unlock` |
+| Provider notifications help | ends with `, except for pipelines you watch` |
+| Add-provider phone empty state | built from the plugin's group terms, never provider-specific wording |
 
 ## Motion
 
@@ -96,15 +132,24 @@ Run status uses its own tokens, `--status-success`, `--status-failed`, `--status
 
 - Desktop and web keep desktop idioms: sidebar, toolbar, data tables, context menus, hover states and keyboard shortcuts. They never borrow phone navigation such as large titles, a bottom tab bar or pull to refresh.
 - Shortcuts, shown in tooltips through `shortcutLabel` in `src/lib/shortcuts.ts`: `/` or Mod+K focuses the page search, Mod+, opens Settings or returns from it, Mod+\ collapses or expands the sidebar. The desktop app also binds Mod+R to refresh everything and Mod+L to lock. The web app leaves browser shortcuts alone.
-- On macOS the app menu adds Settings… and Lock, and a Pipelines menu holds Refresh All, Toggle Sidebar and Find. Menu items and shortcuts run the same commands through the `menu-command` event.
+- On macOS the app menu adds Settings… and Lock, and a Pipelines menu holds Refresh All, Toggle Sidebar and Find. Rust dispatches settings, lock and refresh actions for both native menus. Find and sidebar changes use the frontend `menu-command` event.
 - Blank space in the desktop title bar drags the window, and double-clicking it maximizes. Window buttons show the real maximized state.
 - While Settings is open, the toolbar's Settings button becomes "Back to Pipelines".
 - Settings uses the same `PageHeader` as other pages, with section actions in its action slot. The settings sidebar is a labeled navigation landmark and marks the current section with `aria-current`.
 - A missing pipeline or an unknown address shows a not-found state with a way back instead of a silent redirect.
+- Menu bar and system tray visibility, background close and system notifications are separate device-local opt-ins. Linux background close minimizes the retained window because a created indicator does not prove a tray host is visible. Keep the Dock/taskbar and normal launch behavior. A failed settings request keeps its field patch for Retry. Retry reapplies those fields over current saved preferences.
+- An unfocused desktop window keeps refreshing providers in a background mode: no provider refreshes more often than every 5 minutes, so tray state and notifications stay current. Core owns that floor. Phones stop scheduled refreshes when the app leaves the foreground.
+- The native menu uses the shared persisted pins, shows 8 pipeline entries with overflow and keeps view/repository shortcuts separate. Rust owns the projection, run-watch transitions, notification decisions and session history. React consumes revisioned push snapshots. A menu read error invalidates only the menu projection. It keeps an existing notification baseline. Initial notification seeding uses separate pipeline/provider reads.
+- Desktop notification snapshots live only in React Query. Native events, initial reads and command replies share a revision guard so stale replies cannot replace newer history. The listener registers before the initial fetch; lock/unmount removes the cache, and reset reloads it without accepting pending replies from the old cache. Zustand holds selection and the web/mobile local notification list.
+- Native intents stay pending until setup and authentication finish. An authenticated consumer peeks, applies and acknowledges the observed ID. A stale acknowledgment cannot discard a newer intent. Mobile `open-run` actions open pipeline history when they have no exact run number.
+- Linux menu label changes replace only affected rows in the existing attached menu. Installed Muda 0.20.0 creates custom GTK label children that its `set_text` does not update in the exported AppIndicator menu. Other platforms update item values in place. Pipeline and shortcut action IDs belong to their attachment. Row replacement retires the old action IDs.
+- A waiting run watch reserves scheduler admission until its read finishes or stops. Automatic refresh cannot keep resetting the forced-read cooldown while that reservation exists. The existing cooldown and provider rate limits still apply. Cancellation releases the reservation for the matching provider generation.
+- The desktop app looks for a signed update on GitHub Releases shortly after it starts and once a day. Settings → About turns the automatic check off and keeps a manual check. Nothing downloads or installs until the person chooses **Update and restart** in the prompt. **Later** hides that version until the next launch. A finished install always restarts into the new version.
 
 ## iPhone
 
 - The phone shell sets `data-ios` on the root. Desktop and iPad styles never read these tokens.
+- The app opens on Browse, and the Browse tab starts there. All pipelines, views and providers are pushed from it.
 - Safe areas use the larger of WebKit's CSS inset and the native `WKWebView.safeAreaInsets` value. The native bridge updates on layout changes and navigation. The phone header reserves equal side insets to keep its title centered in landscape.
 - Text uses the `--ios-fs-*` and `--ios-lh-*` tokens: large title, title1 to title3, headline, body, callout, subheadline, footnote, caption1 and caption2. The Mantine sizes map to them: `xs` footnote, `sm` subheadline, `md` body, `lg` title3, `xl` title2. Headline is 600, the navigation large title is 700, everything else is 400. Letter spacing stays `normal` because the system font tracks itself.
 - Dynamic Type: when WebKit supports `font: -apple-system-body`, a hidden probe measures the body size and sets `--ios-text-scale` on the root. It updates live. Paddings next to text use `em` and containers use minimum heights, so rows grow with the text. Zoom stays enabled.
@@ -118,6 +163,8 @@ Run status uses its own tokens, `--status-success`, `--status-failed`, `--status
 - Every sheet uses one background for its header and body, and content starts 16pt below the header. Multi-step sheets show a compact progress row instead of a desktop stepper.
 - Sheets resize with the keyboard before revealing the focused field. Main-page field reveal excludes the fixed app header and the keyboard from the visible area. Modal fields use their own sheet boundaries. Picker sheets use one scroll surface and stay above the keyboard and home indicator.
 - The pressed highlight covers the whole row, including the chevron and the trailing … button.
+- A row with a trailing … button reserves 44pt for it, so text and the chevron never sit under it. `IosRow` takes the button through its `menu` prop and `IosPipelineRow` through its own; pages never build their own row shell.
+- Swipe actions are clipped to the width the row uncovered, so their color never shows under the row, along its bottom edge or in the group's rounded corners.
 - The search row on list pages, including run history, hides by default. A short pull reveals it, a longer pull refreshes. During refresh, the indicator stays fixed below the header and connection banner. Its spokes fade without rotating the container.
 - With filters active, the filter button switches to the filled icon in the tint color, and its label carries the count.
 - Run history edit mode uses 22pt selection circles and a full-width bottom toolbar with the bar material and the safe-area inset. The tab bar is hidden and inert while editing.
@@ -129,7 +176,8 @@ Run status uses its own tokens, `--status-success`, `--status-failed`, `--status
 
 ### Build watching
 
-- `PipedashBuildWatchEnabled` is `false` in the iOS release and also gates remote push. Both features stay hidden and their native entry points reject starts or registration. Remote push skips token synchronization and preserves saved pairings. Local notifications remain independent. The bundle omits their entitlements and background declarations, and release validation rejects reactivation. See [release restrictions](https://pipedash.app/docs/resources/ios-release#disabled-build-watching).
+- `PipedashBuildWatchEnabled` is `false` in the iOS release. Build watching and Live Activities stay hidden, their native entry points reject starts, and release validation rejects reactivation. See [release restrictions](https://pipedash.app/docs/resources/ios-release#disabled-build-watching).
+- `PipedashRemotePushEnabled` turns on remote push for alerts from a Pipedash server. The only bundled extension is `PipedashNotificationService`. The relay must never receive alert text: hosts send it only an alert id, and the extension downloads the text from the host. Local notifications stay independent.
 - Watch follows one exact pipeline and run number. A Watching section shows its pipeline above Pinned on the main pipelines page only. It uses the same row and card style as pinned pipelines, with actions to open the run or stop watching.
 - Core owns watch scheduling and applies provider quota, rate-limit and concurrency controls. Desktop forwards observations to the native background task and cancels on lifecycle changes.
 - A refresh waiting on a run-detail request retries through core policy after that request releases its claim. Run details never count as refreshed pipelines.

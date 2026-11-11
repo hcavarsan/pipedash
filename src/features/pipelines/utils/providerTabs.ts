@@ -1,4 +1,4 @@
-import type { PipelineView, PipelineViewQuery } from '../../../types/domain'
+import type { PipelineView, PipelineViewQuery } from '../../../types/views'
 
 import { rootViewOf } from '../../../utils/viewTree'
 

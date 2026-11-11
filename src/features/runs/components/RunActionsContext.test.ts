@@ -5,7 +5,9 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, type ReactNode } from 'react'
 
 import { pipelineFixture } from '../../../testing/fixtures'
-import type { PipelineRun } from '../../../types/domain'
+import { pipelineActionsFixture, runPresentationFixture } from '../../../testing/presentation'
+import type { PipelineRun } from '../../../types/pipelines'
+import { pluginFixture } from '../../providers/components/AddProviderModal/pluginFixture'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
@@ -20,8 +22,12 @@ Object.assign(window, {
       if (command === 'get_plugins') {
         return []
       }
-      if (command.startsWith('rerun') && backend.failing) {
-        throw new Error('provider refused')
+      if (command.startsWith('rerun')) {
+        if (backend.failing) {
+          throw new Error('provider refused')
+        }
+
+        return { run_id: null, run_number: null }
       }
 
       return null
@@ -32,9 +38,13 @@ Object.assign(window, {
 const { act, cleanup, renderHook } = await import('@testing-library/react')
 const { notifications } = await import('@mantine/notifications')
 const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
+const { queryKeys } = await import('../../../lib/queryKeys')
 const { RunActionsProvider, useRunActions } = await import('./RunActionsContext')
 
-const pipeline = pipelineFixture({ id: 'p1', provider_type: 'github' })
+const pipeline = pipelineFixture({
+  id: 'p1',
+  actions: pipelineActionsFixture({ rerun_strategy: 'in_place' }),
+})
 const run: PipelineRun = {
   id: 'r1',
   pipeline_id: 'p1',
@@ -48,12 +58,14 @@ const run: PipelineRun = {
   commit_message: null,
   branch: 'main',
   actor: null,
+  ...runPresentationFixture(),
 }
 
 let client = new QueryClient()
 
 beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  client.setQueryData(queryKeys.plugins.list(), [pluginFixture()])
   backend.failing = true
   backend.calls = []
 })

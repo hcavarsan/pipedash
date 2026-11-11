@@ -1,64 +1,47 @@
 import { Button, Group, Loader, Stack, Text, VisuallyHidden } from '@mantine/core'
 import { useClipboard } from '@mantine/hooks'
-import { IconCopy, IconExternalLink, IconPlayerPlay, IconShare2, IconSquare } from '@tabler/icons-react'
+import { IconCopy, IconExternalLink, IconShare2 } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { mobileService } from '../../../services/mobile'
-import { TYPOGRAPHY } from '../../../theme/typography'
-import type { PipelineRun } from '../../../types/domain'
+import type { PipelineRun } from '../../../types/pipelines'
 import { displayErrorNotification } from '../../../utils/errorDisplay'
-import { isHttpUrl, openExternal } from '../../../utils/openExternal'
+import { isHttpUrl, openLink } from '../../../utils/openExternal'
 import { isMobilePlatform } from '../../../utils/platform'
+import type { RunAction } from '../lib/runActions'
 
 interface RunActionsProps {
   run: PipelineRun
   providerName: string
   isMobile: boolean
-  isFlux: boolean
-  triggerLabel: string
   canViewLogs: boolean
-  canTrigger: boolean
-  canCancel: boolean
-  triggerBlockedReason: string | undefined
-  stopDisabled: boolean
-  rerunPending: boolean
-  cancelPending: boolean
-  onRerun: () => void
-  onCancel: () => void
+  note: string | null | undefined
+  actions: RunAction[]
 }
 
-const FLUX_NOTE = 'Reconcile uses the current resource configuration. It does not restore this historical revision.'
-const PENDING_NOTE = 'This run is pending. It can be stopped or rerun once it starts.'
+const VARIANTS: Record<string, 'outline' | 'default'> = { 'force-cancel': 'outline', watch: 'default' }
+
+const logsLabel = (canViewLogs: boolean, isMobile: boolean, providerName: string): string => {
+  if (canViewLogs) {
+    return `Open in ${providerName}`
+  }
+
+  return isMobile ? 'Logs' : 'View full logs'
+}
 
 export function RunActionsFooter({
   run,
   providerName,
   isMobile,
-  isFlux,
-  triggerLabel,
   canViewLogs,
-  canTrigger,
-  canCancel,
-  triggerBlockedReason,
-  stopDisabled,
-  rerunPending,
-  cancelPending,
-  onRerun,
-  onCancel,
+  note,
+  actions,
 }: RunActionsProps): ReactNode {
-  const isRunning = run.status === 'running' || run.status === 'pending'
-  const isPending = run.status === 'pending'
-
   return (
     <Stack gap="xs">
-      {(isFlux || triggerBlockedReason) && (
+      {note && (
         <Text size="sm" c="dimmed">
-          {triggerBlockedReason ?? FLUX_NOTE}
-        </Text>
-      )}
-      {isPending && canCancel && (
-        <Text size={TYPOGRAPHY.FIELD_VALUE_SMALL.size} c="dimmed">
-          {PENDING_NOTE}
+          {note}
         </Text>
       )}
       <Group justify="flex-end" gap="sm" grow={isMobile}>
@@ -72,60 +55,38 @@ export function RunActionsFooter({
             size="sm"
             rightSection={<IconExternalLink size={16} aria-hidden />}
           >
-            {canViewLogs ? `Open in ${providerName}` : isMobile ? 'Logs' : 'View full logs'}
+            {logsLabel(canViewLogs, isMobile, providerName)}
           </Button>
         )}
-        {isRunning && canCancel && (
+        {actions.map((action) => (
           <Button
-            color="red"
+            key={action.id}
             size="sm"
-            leftSection={<IconSquare size={16} aria-hidden />}
-            onClick={onCancel}
-            loading={cancelPending}
-            disabled={isPending || stopDisabled}
+            variant={VARIANTS[action.id] ?? 'filled'}
+            {...(action.color ? { color: action.color } : {})}
+            leftSection={action.icon}
+            loading={action.pending}
+            disabled={action.disabled}
+            onClick={() => void action.execute()}
           >
-            {isMobile ? 'Stop' : 'Stop workflow'}
+            {action.label}
           </Button>
-        )}
-        {!isRunning && canTrigger && (
-          <Button
-            size="sm"
-            leftSection={<IconPlayerPlay size={16} aria-hidden />}
-            onClick={onRerun}
-            loading={rerunPending}
-          >
-            {isFlux ? triggerLabel : isMobile ? 'Rerun' : 'Rerun workflow'}
-          </Button>
-        )}
+        ))}
       </Group>
     </Stack>
   )
 }
 
-export function MobileRunActions({
-  run,
-  isFlux,
-  triggerLabel,
-  canTrigger,
-  canCancel,
-  triggerBlockedReason,
-  rerunPending,
-  cancelPending,
-  onRerun,
-  onCancel,
-}: RunActionsProps): ReactNode {
+const RerunTitle = ({ label }: { label: string }): ReactNode => (
+  <Text component="span" inherit c="blue">
+    {label}
+  </Text>
+)
+
+export function MobileRunActions({ run, providerName, note, actions }: RunActionsProps): ReactNode {
   const clipboard = useClipboard({ timeout: 2000 })
-  const isRunning = run.status === 'running' || run.status === 'pending'
-  const isPending = run.status === 'pending'
   const hasLogs = isHttpUrl(run.logs_url)
-  const stoppable = isRunning && canCancel
-  const showRerun = !isRunning && canTrigger
-  const note =
-    isFlux || triggerBlockedReason
-      ? (triggerBlockedReason ?? FLUX_NOTE)
-      : isPending && canCancel
-        ? PENDING_NOTE
-        : undefined
+  const canShare = isMobilePlatform() || typeof navigator.share === 'function'
 
   const share = async (source: HTMLElement) => {
     if (isMobilePlatform()) {
@@ -134,12 +95,6 @@ export function MobileRunActions({
       } catch (error) {
         displayErrorNotification(error, "Couldn't share link")
       }
-
-      return
-    }
-
-    if (typeof navigator.share !== 'function') {
-      clipboard.copy(run.logs_url)
 
       return
     }
@@ -156,49 +111,39 @@ export function MobileRunActions({
   return (
     <>
       {hasLogs && (
-        <IosGroup footer={showRerun || stoppable ? undefined : note}>
+        <IosGroup footer={actions.length === 0 ? note : undefined}>
           <IosRow
-            title="View logs"
-            accessory={<IconExternalLink size={18} aria-hidden />}
-            onClick={() => openExternal(run.logs_url)}
+            title={`Open in ${providerName}`}
+            accessory={<IconExternalLink size={20} aria-hidden />}
+            onClick={() => openLink(run.logs_url)}
           />
           <IosRow
-            title="Copy link"
-            value={clipboard.copied ? 'Copied' : undefined}
-            accessory={<IconCopy size={18} aria-hidden />}
+            title={clipboard.copied ? 'Copied' : 'Copy link'}
+            accessory={<IconCopy size={20} aria-hidden />}
             onClick={() => clipboard.copy(run.logs_url)}
           />
-          <IosRow
-            title="Share link"
-            accessory={<IconShare2 size={20} aria-hidden />}
-            onClick={(event) => share(event.currentTarget)}
-          />
+          {canShare && (
+            <IosRow
+              title="Share link"
+              accessory={<IconShare2 size={20} aria-hidden />}
+              onClick={(event) => share(event.currentTarget)}
+            />
+          )}
         </IosGroup>
       )}
       <VisuallyHidden role="status">{clipboard.copied ? 'Link copied' : ''}</VisuallyHidden>
-      {showRerun && (
+      {actions.length > 0 && (
         <IosGroup footer={note}>
-          <IosRow
-            title={
-              <Text component="span" inherit c="blue">
-                {isFlux ? triggerLabel : 'Rerun workflow'}
-              </Text>
-            }
-            accessory={rerunPending ? <Loader size="sm" /> : undefined}
-            disabled={rerunPending}
-            onClick={onRerun}
-          />
-        </IosGroup>
-      )}
-      {stoppable && (
-        <IosGroup footer={note}>
-          <IosRow
-            title="Stop workflow"
-            destructive
-            accessory={cancelPending ? <Loader size="sm" /> : undefined}
-            disabled={isPending || cancelPending}
-            onClick={onCancel}
-          />
+          {actions.map((action) => (
+            <IosRow
+              key={action.id}
+              title={action.id === 'rerun' ? <RerunTitle label={action.label} /> : action.label}
+              destructive={action.color === 'red'}
+              accessory={action.pending ? <Loader size="xs" /> : undefined}
+              disabled={action.disabled}
+              onClick={() => void action.execute()}
+            />
+          ))}
         </IosGroup>
       )}
     </>

@@ -6,21 +6,17 @@ import { Link, useLocation } from 'react-router-dom'
 import { useRowMenuLongPress } from '../../hooks/useLongPress'
 import { useNow } from '../../hooks/useNow'
 import { type StatusKey, statusMeta } from '../../theme/status'
-import type { ProviderSummary } from '../../types/domain'
-import { getPipelineLabels, getPipelineStatusLabel, pipelineStatusKey } from '../../utils/pipelinePresentation'
+import type { PipelineActions, PipelineSelection, TableRow } from '../../types/pipelineRows'
+import type { ProviderSummary } from '../../types/providers'
+import { getPipelineStatusLabel, pipelineStatusKey } from '../../utils/pipelinePresentation'
+import { historyLabel, workflowSwipeActions } from '../../utils/pipelineRowActions'
 import { StatusGlyph } from '../atoms/StatusBadge'
 import groupClasses from '../ios/IosList.module.css'
 import { SwipeActions } from '../ios/SwipeActions'
 import type { SwipeAction } from '../ios/swipeAction'
 import { groupPath, pushState } from '../layout/mobileChrome'
 import classes from './IosPipelineList.module.css'
-import {
-  type PipelineActions,
-  type PipelineSelection,
-  type TableRow,
-  WorkflowActionMenu,
-  workflowSwipeActions,
-} from './PipelineRowParts'
+import { WorkflowActionMenu } from './PipelineRowActions'
 import { VirtualList } from './VirtualList'
 
 interface IosPipelineRowProps {
@@ -76,7 +72,7 @@ export function IosPipelineRow({
         </span>
         {!selecting && (
           <span className={classes.chevron} aria-hidden>
-            <IconChevronRight size={18} />
+            <IconChevronRight size={16} />
           </span>
         )}
       </button>
@@ -157,12 +153,12 @@ function SectionRowView({ row }: { row: SectionTableRow }): ReactNode {
           {row.status && <span className={classes.srOnly}>, {statusMeta(row.status).label}</span>}
         </span>
         {row.hasPendingFetch ? (
-          <Loader size={14} aria-label="Fetching pipelines" />
+          <Loader size="xs" aria-label="Fetching pipelines" />
         ) : (
           <span className={classes.value}>{row.pipelineCount}</span>
         )}
         <span className={classes.chevron} aria-hidden>
-          <IconChevronRight size={18} />
+          <IconChevronRight size={16} />
         </span>
       </Link>
     </div>
@@ -179,9 +175,8 @@ interface WorkflowRowViewProps {
 
 function WorkflowRowView({ row, now, getProvider, actions, selection }: WorkflowRowViewProps): ReactNode {
   const { pipeline } = row
-  const message = pipeline.resource_state?.message ?? ''
   const nested = Boolean(row.depth)
-  const subtitle = [nested ? '' : row.organization, pipeline.branch, relativeOrNever(row.lastRun, now), message]
+  const subtitle = [nested ? '' : row.organization, pipeline.branch, relativeOrNever(row.lastRun, now)]
     .filter(Boolean)
     .join(' · ')
 
@@ -191,7 +186,7 @@ function WorkflowRowView({ row, now, getProvider, actions, selection }: Workflow
       statusText={getPipelineStatusLabel(pipeline)}
       title={row.name}
       subtitle={subtitle}
-      hint={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()}`}
+      hint={`View ${historyLabel(actions, pipeline.provider_type)}`}
       longPressMenu
       selected={selection ? selection.selected.has(pipeline.id) : undefined}
       onClick={() => (selection ? selection.onToggle(pipeline) : actions.onViewHistory(pipeline))}
@@ -201,15 +196,22 @@ function WorkflowRowView({ row, now, getProvider, actions, selection }: Workflow
   )
 }
 
+function ListRowView({ row, ...rest }: Omit<WorkflowRowViewProps, 'row'> & { row: TableRow }): ReactNode {
+  return row.type === 'section' ? <SectionRowView row={row} /> : <WorkflowRowView row={row} {...rest} />
+}
+
 export function IosPipelineList({ header, rows, getProvider, actions, selection }: IosPipelineListProps): ReactNode {
   const now = useNow(30_000)
+  const headingId = useId()
   const items = listItems(rows)
 
   return (
-    <section className={groupClasses.section}>
+    <section className={groupClasses.section} aria-labelledby={header ? headingId : undefined}>
       {header && (
         <div className={groupClasses.headerRow}>
-          <h2 className={groupClasses.header}>{header}</h2>
+          <h2 id={headingId} className={groupClasses.header}>
+            {header}
+          </h2>
         </div>
       )}
       <VirtualList
@@ -218,17 +220,7 @@ export function IosPipelineList({ header, rows, getProvider, actions, selection 
         estimateSize={ROW_ESTIMATE}
         renderItem={(item) => (
           <div className={classes.cell} data-first={item.first || undefined} data-last={item.last || undefined}>
-            {item.row.type === 'section' ? (
-              <SectionRowView row={item.row} />
-            ) : (
-              <WorkflowRowView
-                row={item.row}
-                now={now}
-                getProvider={getProvider}
-                actions={actions}
-                selection={selection}
-              />
-            )}
+            <ListRowView row={item.row} now={now} getProvider={getProvider} actions={actions} selection={selection} />
           </div>
         )}
       />

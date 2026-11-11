@@ -1,4 +1,4 @@
-import type { ProviderSummary } from '../types/domain'
+import type { ProviderFreshness, ProviderSummary, ProviderTone } from '../types/providers'
 
 import { formatDateTime } from './formatDateTime'
 import { formatRelativeTime } from './formatRelativeTime'
@@ -25,8 +25,6 @@ export const describeFetch = (provider: ProviderSummary, now: number): FetchInfo
   status: statusText(provider),
 })
 
-export type ProviderTone = 'fresh' | 'stale' | 'down' | 'never'
-
 export const TONE_META: Record<ProviderTone, { label: string; color: string }> = {
   fresh: { label: 'Up to date', color: 'var(--status-success)' },
   stale: { label: 'Stale', color: 'var(--status-pending)' },
@@ -34,16 +32,11 @@ export const TONE_META: Record<ProviderTone, { label: string; color: string }> =
   never: { label: 'Never fetched', color: 'var(--status-neutral)' },
 }
 
-const TONE_SEVERITY: ProviderTone[] = ['down', 'stale', 'never', 'fresh']
+export const freshnessTone = ({ state, stale_at: staleAt }: ProviderFreshness, now: number): ProviderTone =>
+  state === 'fresh' && staleAt !== null && now > Date.parse(staleAt) ? 'stale' : state
 
-export const providerTone = (provider: ProviderSummary, now: number): ProviderTone => {
-  const { state, stale_at: staleAt } = provider.freshness
-
-  return state === 'fresh' && staleAt !== null && now > Date.parse(staleAt) ? 'stale' : state
-}
-
-export const worstTone = (tones: ProviderTone[]): ProviderTone =>
-  TONE_SEVERITY.find((tone) => tones.includes(tone)) ?? 'fresh'
+export const providerTone = (provider: ProviderSummary, now: number): ProviderTone =>
+  freshnessTone(provider.freshness, now)
 
 export const providerBadge = (provider: ProviderSummary, now: number): { color: string; label: string } | undefined => {
   const tone = providerTone(provider, now)
@@ -62,17 +55,12 @@ export const dataAge = (provider: ProviderSummary, now: number): DataAge => {
   const at = provider.last_success_at
   const ago = at ? formatRelativeTime(at, now) : null
 
+  const missing = tone === 'never' ? 'No pipeline data fetched yet' : 'Last successful fetch time unknown'
+  const checked = tone === 'fresh' ? `Data checked ${ago}` : `${TONE_META[tone].label} · data checked ${ago}`
+
   return {
     tone,
-    label: !ago
-      ? TONE_META[tone].label
-      : tone === 'fresh'
-        ? `Data checked ${ago}`
-        : `${TONE_META[tone].label} · data checked ${ago}`,
-    detail: at
-      ? `Pipeline data from ${formatDateTime(at)}`
-      : tone === 'never'
-        ? 'No pipeline data fetched yet'
-        : 'Last successful fetch time unknown',
+    label: ago ? checked : TONE_META[tone].label,
+    detail: at ? `Pipeline data from ${formatDateTime(at)}` : missing,
   }
 }

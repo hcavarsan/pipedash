@@ -1,13 +1,11 @@
-import { Button } from '@mantine/core'
 import { lazy, type ReactNode } from 'react'
-import { Navigate, Route, Routes, useNavigate } from 'react-router-dom'
+import { Navigate, Route, Routes } from 'react-router-dom'
 
-import { EmptyState } from './components/common/EmptyState'
 import { LazyRoute } from './components/common/LazyRoute'
-import { PageContainer } from './components/common/PageContainer'
-import { PageHeader } from './components/common/PageHeader'
+import { NotFoundPage } from './components/common/NotFoundPage'
 import { useMobileShell } from './hooks/useIsMobile'
-import type { Pipeline, ProviderSummary } from './types/domain'
+import type { Pipeline } from './types/pipelines'
+import type { ProviderSummary } from './types/providers'
 
 const UnifiedPipelinesView = lazy(() =>
   import('./features/pipelines/components/UnifiedPipelinesView').then((m) => ({
@@ -39,11 +37,17 @@ const NotificationsPage = lazy(() =>
   }))
 )
 
+export interface PrerequisiteState {
+  loading: boolean
+  error: unknown
+  retrying: boolean
+}
+
 interface AppRoutesProps {
   providers: ProviderSummary[]
   pipelines: Pipeline[]
-  loading: boolean
-  error: unknown
+  listPrerequisites: PrerequisiteState
+  detailPrerequisites: PrerequisiteState
   onRetry: () => Promise<void>
   onBack: () => void
   onViewHistory: (pipeline: Pipeline) => void
@@ -55,8 +59,8 @@ interface AppRoutesProps {
 export function AppRoutes({
   providers,
   pipelines,
-  loading,
-  error,
+  listPrerequisites,
+  detailPrerequisites,
   onRetry,
   onViewHistory,
   onViewMetrics,
@@ -64,14 +68,15 @@ export function AppRoutes({
   onTrigger,
   onBack,
 }: AppRoutesProps): ReactNode {
-  const navigate = useNavigate()
   const mobileShell = useMobileShell()
+  const home = mobileShell ? '/browse' : '/pipelines'
   const pipelinesPage = (
     <LazyRoute>
       <UnifiedPipelinesView
         providers={providers}
-        loading={loading}
-        error={error}
+        loading={listPrerequisites.loading}
+        error={listPrerequisites.error}
+        retrying={listPrerequisites.retrying}
         onRetry={() => {
           void onRetry()
         }}
@@ -85,7 +90,7 @@ export function AppRoutes({
 
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/pipelines" replace />} />
+      <Route path="/" element={<Navigate to={home} replace />} />
 
       <Route path="/pipelines" element={pipelinesPage} />
 
@@ -95,7 +100,14 @@ export function AppRoutes({
         path="/pipelines/:pipelineId"
         element={
           <LazyRoute>
-            <PipelineDetailRoute pipelines={pipelines} loading={loading} onBack={onBack} />
+            <PipelineDetailRoute
+              pipelines={pipelines}
+              loading={detailPrerequisites.loading}
+              error={detailPrerequisites.error}
+              retrying={detailPrerequisites.retrying}
+              onRetry={() => void onRetry()}
+              onBack={onBack}
+            />
           </LazyRoute>
         }
       />
@@ -126,18 +138,14 @@ export function AppRoutes({
         }
       />
 
-      <Route path="/providers" element={<Navigate to={mobileShell ? '/browse' : '/pipelines'} replace />} />
+      <Route path="/providers" element={<Navigate to={home} replace />} />
 
       <Route
         path="/notifications"
         element={
-          mobileShell ? (
-            <LazyRoute>
-              <NotificationsPage />
-            </LazyRoute>
-          ) : (
-            <Navigate to="/pipelines" replace />
-          )
+          <LazyRoute>
+            <NotificationsPage />
+          </LazyRoute>
         }
       />
 
@@ -150,32 +158,7 @@ export function AppRoutes({
         }
       />
 
-      <Route
-        path="*"
-        element={
-          mobileShell ? (
-            <Navigate to="/pipelines" replace />
-          ) : (
-            <PageContainer>
-              <PageHeader title="Page not found" />
-              <EmptyState
-                title="This page doesn't exist"
-                description="Check the address or return to your pipelines."
-                action={
-                  <Button
-                    variant="default"
-                    onClick={() => {
-                      void navigate('/pipelines')
-                    }}
-                  >
-                    Pipelines
-                  </Button>
-                }
-              />
-            </PageContainer>
-          )
-        }
-      />
+      <Route path="*" element={mobileShell ? <Navigate to="/pipelines" replace /> : <NotFoundPage />} />
     </Routes>
   )
 }

@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import { PageHeader } from '../../../components/common/PageHeader'
 import { NavBarMenu } from '../../../components/layout/NavBarMenu'
 import { useMobileTitle } from '../../../stores/mobileNavStore'
-import type { PipelineViewPage, ViewDisplay } from '../../../types/domain'
+import type { PipelineViewPage, ViewDisplay } from '../../../types/views'
 import type { PipelineViewPageModel } from '../hooks/usePipelineViewModel'
 import { usePipelineViewStore } from '../stores/pipelineViewStore'
 import { PipelineViewTabs } from './PipelineViewTabs'
@@ -15,11 +15,13 @@ interface PipelineViewToolbarProps {
   model: PipelineViewPageModel
   onDisplayChange: (display: ViewDisplay) => void
   onOpenFilters?: (() => void) | undefined
+  viewUpdating?: boolean | undefined
 }
 
 function viewOptions(
-  { view, page, kind, showHidden, labels, collapsibleIds, setAll, setFilter }: PipelineViewPageModel,
-  onDisplayChange: (display: ViewDisplay) => void
+  { view, page, kind, showHidden, terminology, collapsibleIds, setAll, setFilter }: PipelineViewPageModel,
+  onDisplayChange: (display: ViewDisplay) => void,
+  pending?: boolean
 ): ViewOptionsProps | null {
   if (!view) {
     return null
@@ -35,10 +37,11 @@ function viewOptions(
       : undefined
   const options: ViewOptionsProps = {
     view,
-    groupTitle: labels.groupTitle,
+    groupTitle: terminology?.group_title ?? '',
     onChange: onDisplayChange,
     onExpandAll: collapsibleIds.length > 0 ? (open: boolean) => setAll(collapsibleIds, open) : undefined,
     hidden,
+    pending,
   }
 
   return hasViewOptions(options) ? options : null
@@ -47,10 +50,10 @@ function viewOptions(
 const hasSelectable = (page: PipelineViewPage): boolean =>
   page.total + page.pinned.length > 0 || page.pinned_blocks.some((block) => block.pipelines.length > 0)
 
-function PipelineNavMenu({ model, onDisplayChange, onOpenFilters }: PipelineViewToolbarProps): ReactNode {
+function PipelineNavMenu({ model, onDisplayChange, onOpenFilters, viewUpdating }: PipelineViewToolbarProps): ReactNode {
   const openManage = usePipelineViewStore((s) => s.openManage)
   const { page, rows, pinnedBlocks, pushed, selecting, startSelection, query } = model
-  const options = viewOptions(model, onDisplayChange)
+  const options = viewOptions(model, onDisplayChange, viewUpdating)
   const selectable = rows.some((row) => row.type === 'workflow') || pinnedBlocks.length > 0
 
   if (!page || (pushed && !selectable)) {
@@ -61,7 +64,7 @@ function PipelineNavMenu({ model, onDisplayChange, onOpenFilters }: PipelineView
     <NavBarMenu label="More">
       {!selecting && selectable && <Menu.Item onClick={startSelection}>Select</Menu.Item>}
       {!pushed && onOpenFilters && <Menu.Item onClick={onOpenFilters}>Filter</Menu.Item>}
-      {!pushed && query.view !== 'pinned' && <Menu.Item onClick={openManage}>Edit Views</Menu.Item>}
+      {!pushed && query.view !== 'pinned' && <Menu.Item onClick={openManage}>Manage views</Menu.Item>}
       {!pushed && options && (
         <>
           <Menu.Divider />
@@ -82,7 +85,7 @@ export function PipelineViewNav({ model }: { model: PipelineViewPageModel }): Re
 }
 
 export function PipelineViewToolbar(props: PipelineViewToolbarProps): ReactNode {
-  const { model, onDisplayChange } = props
+  const { model, onDisplayChange, viewUpdating } = props
   const { mobileShell, mobileTitle, title, page, selecting, startSelection, finishSelection } = model
 
   useMobileTitle(mobileTitle)
@@ -91,7 +94,7 @@ export function PipelineViewToolbar(props: PipelineViewToolbarProps): ReactNode 
     return <PipelineNavMenu {...props} />
   }
 
-  const options = viewOptions(model, onDisplayChange)
+  const options = viewOptions(model, onDisplayChange, viewUpdating)
   const selectButton = selecting ? (
     <Button
       size="sm"

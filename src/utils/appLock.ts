@@ -1,4 +1,5 @@
-import type { Biometry, VaultStatusResponse } from '../types/domain'
+import { isRemoteClient } from '../services/connection'
+import type { Biometry, VaultStatusResponse } from '../types/vault'
 
 import { isAndroidPlatform } from './platform'
 
@@ -16,10 +17,10 @@ export const biometryLabel = (biometry: Biometry | undefined, android = isAndroi
 }
 
 export const lockMeansSomething = (status: Pick<VaultStatusResponse, 'requires_password' | 'app_lock'>): boolean =>
-  status.requires_password || status.app_lock?.enabled === true
+  !isRemoteClient() && (status.requires_password || status.app_lock?.enabled === true)
 
 export const needsUnlock = (status: LockState, tauri: boolean, hasToken: boolean): boolean => {
-  if (!status.requires_password && status.app_lock?.locked !== true) {
+  if (isRemoteClient() || (!status.requires_password && status.app_lock?.locked !== true)) {
     return false
   }
 

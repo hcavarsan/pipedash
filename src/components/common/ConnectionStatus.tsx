@@ -8,9 +8,11 @@ import { useMobileShell } from '@/hooks/useIsMobile'
 import { logger } from '@/lib/logger'
 import { queryKeys } from '@/lib/queryKeys'
 import { useVaultStatus } from '@/queries/useVaultQueries'
-import { isTauri } from '@/services/isTauri'
+import { connectionService, getConnection, hasLocalCore, isRemoteClient } from '@/services/connection'
+import { listenEvent } from '@/services/events'
 import { service } from '@/services/service'
 import { WS_EVENTS, wsClient } from '@/services/websocket'
+import { Z } from '@/theme/zIndex'
 
 import classes from './ConnectionStatus.module.css'
 
@@ -30,12 +32,20 @@ const ALERT_POSITION = {
   position: 'fixed',
   top: 'calc(60px + var(--safe-top))',
   right: 'calc(16px + var(--safe-right))',
-  zIndex: 1000,
+  zIndex: Z.connectionBanner,
 } as const
+
+function reconnect(): void {
+  if (isRemoteClient()) {
+    connectionService.reconnect().catch((error: unknown) => logger.error('ConnectionStatus', 'Reconnect failed', error))
+  } else {
+    wsClient.manualReconnect()
+  }
+}
 
 export function ConnectionStatus(): ReactNode {
   const [connectionState, setConnectionState] = useState<ConnectionState>({
-    status: 'connected',
+    status: getConnection().status === 'reconnecting' ? 'reconnecting' : 'connected',
     reconnectAttempts: 0,
   })
 
@@ -45,16 +55,26 @@ export function ConnectionStatus(): ReactNode {
   const mobileShell = useMobileShell()
 
   useEffect(() => {
-    if (isTauri()) {
+    if (hasLocalCore()) {
       return
     }
 
-    const unlisten = wsClient.listen<ConnectionState>(WS_EVENTS.CONNECTION_STATUS, (state) => {
-      setConnectionState(state)
-    })
+    let mounted = true
+    let unlisten: (() => void) | undefined
+
+    listenEvent<ConnectionState>(WS_EVENTS.CONNECTION_STATUS, setConnectionState)
+      .then((stop) => {
+        if (mounted) {
+          unlisten = stop
+        } else {
+          stop()
+        }
+      })
+      .catch((error: unknown) => logger.error('ConnectionStatus', "Couldn't listen for connection status", error))
 
     return () => {
-      unlisten()
+      mounted = false
+      unlisten?.()
     }
   }, [])
 
@@ -65,13 +85,13 @@ export function ConnectionStatus(): ReactNode {
         void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
       }
 
-      if (isTauri()) {
+      if (hasLocalCore()) {
         service
           .refreshAll()
           .catch((error: unknown) => logger.error('ConnectionStatus', 'Refresh after reconnect failed', error))
           .finally(invalidate)
       } else {
-        wsClient.manualReconnect()
+        reconnect()
         invalidate()
       }
     }
@@ -81,9 +101,7 @@ export function ConnectionStatus(): ReactNode {
     return () => window.removeEventListener('online', handleOnline)
   }, [queryClient])
 
-  const handleManualReconnect = () => {
-    wsClient.manualReconnect()
-  }
+  const handleManualReconnect = reconnect
 
   const bannerRef = (node: HTMLDivElement | null): (() => void) | undefined => {
     if (!node) {
@@ -110,10 +128,10 @@ export function ConnectionStatus(): ReactNode {
 
     if (vaultLocked) {
       banner = { icon: <IconLock size={14} />, title: 'Vault locked', detail: 'Token storage is locked' }
-    } else if (isTauri() ? !online : connectionState.status !== 'connected') {
+    } else if (hasLocalCore() ? !online : connectionState.status !== 'connected') {
       const reconnecting = connectionState.status === 'reconnecting'
 
-      banner = isTauri()
+      banner = hasLocalCore()
         ? { icon: <IconWifiOff size={14} />, title: "You're offline", detail: 'Refreshes when back online' }
         : {
             icon: <IconWifiOff size={14} />,
@@ -141,7 +159,7 @@ export function ConnectionStatus(): ReactNode {
     ) : null
   }
 
-  if (isTauri()) {
+  if (hasLocalCore()) {
     if (vaultLocked) {
       return (
         <Tooltip label="Vault is locked - some features may be unavailable">

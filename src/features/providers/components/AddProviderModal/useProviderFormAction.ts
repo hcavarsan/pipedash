@@ -1,12 +1,19 @@
-import { type Dispatch, startTransition, useActionState, useReducer } from 'react'
-import type { PluginMetadata, ProviderConfig } from '../../../../types/domain'
+import { type Dispatch, startTransition, useActionState, useMemo, useReducer, useState } from 'react'
+import { logger } from '../../../../lib/logger'
+import { useSaveProviderDraft } from '../../../../queries/useProvidersQueries'
+import { service } from '../../../../services/service'
 import { isValidationError, toPipedashError } from '../../../../types/errors'
+import type { PluginMetadata } from '../../../../types/plugins'
+import type { ProviderDraftResult } from '../../../../types/provider_draft'
+import type { ProviderConfig } from '../../../../types/providers'
 import { errorMessage } from '../../../../utils/errorDisplay'
-import { getPipelineLabels } from '../../../../utils/pipelinePresentation'
-import { SIGN_IN_KEY, TOKEN_KEY } from '../../lib/credentials'
-import { useSignInStatus } from '../../queries/useSignInQueries'
+import { sameJson } from '../../../../utils/sameJson'
+import { fieldInMode } from '../../lib/authModes'
+import { TOKEN_KEY } from '../../lib/credentials'
+import { useProviderDraftCheck } from '../../queries/useProviderDraftCheck'
 
-import { formReducer, isFormDirty } from './reducer'
+import { buildProviderDraft } from './draft'
+import { fieldRequest, formReducer, isFormDirty } from './reducer'
 import {
   type AddProviderModalProps,
   type FormAction,
@@ -15,16 +22,9 @@ import {
   initialFormState,
   type ProviderFormActionState,
   type ProviderSubmitIntent,
+  type ValidateKey,
 } from './types'
-import {
-  activeConfigFields,
-  activeConfigValues,
-  mapProviderFieldErrors,
-  stepOfField,
-  stepWithErrors,
-  validateProviderCredentials,
-  validateSignIn,
-} from './validation'
+import { mapProviderFieldErrors, stepOfField, stepWithErrors } from './validation'
 
 interface UseProviderFormActionParams {
   mode: AddProviderModalProps
@@ -39,14 +39,25 @@ export interface ProviderFormModel {
   actionState: ProviderFormActionState
   formAction: (formData: FormData) => void
   submitIntent: (intent: ProviderSubmitIntent) => void
+  validateKey: ValidateKey
+  submitError: string | null
   isPending: boolean
+  pendingIntent: ProviderSubmitIntent | null
   providerConfig: ProviderConfig
+  check: ProviderDraftResult | undefined
   credentialsIncomplete: boolean
   selectionNeedsRefresh: boolean
   saveOnly: boolean
 }
 
+const SELECTION_ERROR_KEY = 'selected_items'
+
 const INTENTS: readonly ProviderSubmitIntent[] = ['continue', 'save-credentials', 'save-selection']
+
+interface CredentialsOutcome {
+  failure: ProviderFormActionState | null
+  refreshSelection: boolean
+}
 
 function initialState(mode: AddProviderModalProps, plugin: PluginMetadata | null): FormState {
   return mode.editMode === true && plugin
@@ -63,86 +74,92 @@ export function useProviderFormAction({
   const { step, selectedPlugin, providerName, authMode, configValues, selectedPipelines } = state
   const editMode = mode.editMode === true
   const existingProvider = mode.editMode === true ? mode.existingProvider : undefined
-  const { data: signInStatus } = useSignInStatus(authMode === 'sign_in' ? (configValues[SIGN_IN_KEY] ?? null) : null)
-  const selectionNeedsRefresh = editMode && !!existingProvider?.config.selected_items && !configValues.selected_items
+  const providerId = existingProvider?.id ?? null
+  const saveDraft = useSaveProviderDraft({ toastErrors: false })
+  const [pendingIntent, setPendingIntent] = useState<ProviderSubmitIntent | null>(null)
+  const liveDraft = useMemo(
+    () => buildProviderDraft({ selectedPlugin, providerName, authMode, configValues }, providerId, null),
+    [selectedPlugin, providerName, authMode, configValues, providerId]
+  )
+  const check = useProviderDraftCheck(liveDraft)
+  const selectionNeedsRefresh = editMode && check?.selection_needs_refresh === true
   const saveOnly = editMode && !selectionNeedsRefresh
-  const fields = selectedPlugin?.config_schema.fields ?? []
-  const authModes = selectedPlugin?.config_schema.auth_modes
-
-  const credentialsIncomplete =
-    !!selectedPlugin &&
-    (activeConfigFields(fields, authMode, authModes).some(
-      (field) => field.required && !configValues[field.key]?.trim()
-    ) ||
-      validateSignIn(authMode, configValues, signInStatus) !== null)
+  const credentialsIncomplete = !!selectedPlugin && check?.credentials_complete !== true
 
   const providerConfig: ProviderConfig = {
     name: providerName,
     provider_type: selectedPlugin?.provider_type || '',
     token: configValues[TOKEN_KEY] || '',
-    config: activeConfigValues(configValues, authMode, authModes),
+    config: configValues,
     refresh_interval: 300,
   }
 
-  const fail = (error: string | null, fieldErrors: Record<string, string>): ProviderFormActionState => {
+  const submittedDraft = buildProviderDraft(state, providerId, Array.from(selectedPipelines))
+  const submitError = state.error && sameJson(state.error.draft, submittedDraft) ? state.error.message : null
+
+  const fail = (error: string, fieldErrors: Record<string, string>): ProviderFormActionState => {
     dispatch({ type: 'SET_FIELD_ERRORS', errors: fieldErrors })
-    dispatch({ type: 'SET_ERROR', error })
+    dispatch({ type: 'SET_ERROR', error: { message: error, draft: submittedDraft } })
 
     return { error, fieldErrors }
   }
 
-  const validateCredentials = (plugin: PluginMetadata, onlyProviderStep: boolean): ProviderFormActionState | null => {
-    const fields = plugin.config_schema.fields
-    const allErrors = validateProviderCredentials({
-      providerName,
-      fields,
-      authMode,
-      authModes: plugin.config_schema.auth_modes,
-      configValues,
-      signInStatus,
-    })
-    const errors = onlyProviderStep
-      ? Object.fromEntries(Object.entries(allErrors).filter(([key]) => stepOfField(key, fields) === 'provider'))
-      : allErrors
+  const validateKey: ValidateKey = async (key, patch = {}) => {
+    const next = { ...state, ...patch }
+    const draft = buildProviderDraft(next, providerId, null)
+    const requested = fieldRequest(next, key)
+
+    if (!draft) {
+      return
+    }
+
+    try {
+      const { errors } = await service.validateProviderDraft(draft)
+      const message = errors[key]
+
+      dispatch(
+        message
+          ? { type: 'SET_FIELD_ERROR', key, error: message, requested }
+          : { type: 'CLEAR_FIELD_ERROR', key, requested }
+      )
+    } catch (err: unknown) {
+      logger.warn('AddProviderModal', 'Field validation failed', err)
+    }
+  }
+
+  const validateCredentials = async (
+    plugin: PluginMetadata,
+    onlyProviderStep: boolean
+  ): Promise<CredentialsOutcome> => {
+    const draft = buildProviderDraft(state, providerId, null)
+    const fields = plugin.config_schema.fields.filter((field) => fieldInMode(field, state.authMode))
+    const result = draft ? await service.validateProviderDraft(draft) : null
+    const errors = Object.fromEntries(
+      Object.entries(result?.errors ?? {}).filter(
+        ([key]) => key !== SELECTION_ERROR_KEY && (!onlyProviderStep || stepOfField(key, fields) === 'provider')
+      )
+    )
 
     dispatch({ type: 'SET_FIELD_ERRORS', errors })
 
     if (Object.keys(errors).length === 0) {
-      return null
+      return { failure: null, refreshSelection: result?.selection_needs_refresh === true }
     }
 
     dispatch({ type: 'SET_STEP', step: stepWithErrors(errors, fields) })
     focusFirstInvalid()
 
-    return { error: null, fieldErrors: errors }
+    return { failure: { error: null, fieldErrors: errors }, refreshSelection: false }
   }
 
   const save = async (plugin: PluginMetadata, includeSelection: boolean): Promise<ProviderFormActionState> => {
-    const { [TOKEN_KEY]: token = '', ...config } = activeConfigValues(
-      configValues,
-      authMode,
-      plugin.config_schema.auth_modes
-    )
-
-    if (includeSelection) {
-      config.selected_items = Array.from(selectedPipelines).join(',')
-    }
-
-    const savedConfig: ProviderConfig = {
-      name: providerName,
-      provider_type: plugin.provider_type,
-      token,
-      config,
-      refresh_interval: existingProvider?.refresh_interval ?? 30,
-    }
+    const draft = buildProviderDraft(state, providerId, includeSelection ? Array.from(selectedPipelines) : null)
 
     try {
       dispatch({ type: 'SET_ERROR', error: null })
 
-      if (mode.editMode === true) {
-        await mode.onUpdate(mode.existingProvider.id, savedConfig)
-      } else {
-        await mode.onAdd(savedConfig)
+      if (draft) {
+        await saveDraft.mutateAsync(draft)
       }
 
       mode.onClose()
@@ -150,21 +167,55 @@ export function useProviderFormAction({
       return initialActionState
     } catch (err: unknown) {
       const failure = toPipedashError(err)
-      const fieldErrors = isValidationError(failure)
-        ? mapProviderFieldErrors(failure.fields ?? {}, plugin.config_schema.fields)
-        : {}
+      const fields = plugin.config_schema.fields.filter((field) => fieldInMode(field, state.authMode))
+      const fieldErrors = isValidationError(failure) ? mapProviderFieldErrors(failure.fields ?? {}, fields) : {}
       const result = fail(
         errorMessage(err, editMode ? "Couldn't update provider" : "Couldn't add provider"),
         fieldErrors
       )
 
       if (Object.keys(fieldErrors).length > 0) {
-        dispatch({ type: 'SET_STEP', step: stepWithErrors(fieldErrors, plugin.config_schema.fields) })
+        dispatch({ type: 'SET_STEP', step: stepWithErrors(fieldErrors, fields) })
         focusFirstInvalid()
       }
 
       return result
     }
+  }
+
+  const execute = async (intent: ProviderSubmitIntent): Promise<ProviderFormActionState> => {
+    if (!selectedPlugin) {
+      return fail('Please select a provider type', {})
+    }
+
+    if (intent === 'save-selection') {
+      return state.selectingAll ? initialActionState : save(selectedPlugin, true)
+    }
+
+    let outcome: CredentialsOutcome
+
+    try {
+      outcome = await validateCredentials(selectedPlugin, intent === 'continue' && step === 'provider')
+    } catch (err: unknown) {
+      return fail(errorMessage(err, "Couldn't validate provider"), {})
+    }
+
+    if (outcome.failure) {
+      return outcome.failure
+    }
+
+    if (intent === 'save-credentials') {
+      return save(selectedPlugin, false)
+    }
+
+    if (step === 'credentials' && editMode && outcome.refreshSelection) {
+      dispatch({ type: 'CLEAR_PIPELINES' })
+    }
+
+    dispatch({ type: 'SET_ERROR', error: null })
+    dispatch({ type: 'SET_STEP', step: step === 'provider' ? 'credentials' : 'pipelines' })
+
+    return initialActionState
   }
 
   const run = async (_previous: ProviderFormActionState, formData: FormData): Promise<ProviderFormActionState> => {
@@ -176,35 +227,13 @@ export function useProviderFormAction({
 
     const intent = requested ?? (step === 'credentials' && saveOnly ? 'save-credentials' : 'continue')
 
-    if (!selectedPlugin) {
-      return fail('Please select a provider type', {})
+    setPendingIntent(intent)
+
+    try {
+      return await execute(intent)
+    } finally {
+      setPendingIntent(null)
     }
-
-    if (intent === 'save-selection') {
-      if (state.selectingAll) {
-        return initialActionState
-      }
-      if (selectedPipelines.size === 0) {
-        return fail(`Please select at least one ${getPipelineLabels(selectedPlugin.provider_type).item}`, {})
-      }
-
-      return save(selectedPlugin, true)
-    }
-
-    const invalid = validateCredentials(selectedPlugin, intent === 'continue' && step === 'provider')
-
-    if (invalid) {
-      return invalid
-    }
-
-    if (intent === 'save-credentials') {
-      return save(selectedPlugin, false)
-    }
-
-    dispatch({ type: 'SET_ERROR', error: null })
-    dispatch({ type: 'SET_STEP', step: step === 'provider' ? 'credentials' : 'pipelines' })
-
-    return initialActionState
   }
 
   const [actionState, formAction, isPending] = useActionState(run, initialActionState)
@@ -223,8 +252,12 @@ export function useProviderFormAction({
     actionState,
     formAction,
     submitIntent,
+    validateKey,
+    submitError,
     isPending,
+    pendingIntent: isPending ? pendingIntent : null,
     providerConfig,
+    check,
     credentialsIncomplete,
     selectionNeedsRefresh,
     saveOnly,

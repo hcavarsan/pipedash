@@ -1,0 +1,1 @@
+ALTER TABLE device_alerts ADD COLUMN IF NOT EXISTS finish TEXT;

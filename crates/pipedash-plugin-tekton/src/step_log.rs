@@ -10,10 +10,7 @@ use serde::{
 };
 
 use crate::log_dialect::TektonLogDialect;
-use crate::types::{
-    StepState,
-    TektonTaskRun,
-};
+use crate::types::StepState;
 
 const MAX_PENDING_LINE_BYTES: usize = 1 << 20;
 
@@ -49,23 +46,27 @@ pub(crate) struct StartedStep<'a> {
     pub container: String,
     pub instance: Instance,
     pub done: bool,
+    pub sidecar: bool,
 }
 
-pub(crate) fn started_steps<'a>(task_run: &'a TektonTaskRun, pod: &Pod) -> Vec<StartedStep<'a>> {
-    let statuses = pod
-        .status
-        .as_ref()
-        .and_then(|status| status.container_statuses.as_deref())
-        .unwrap_or_default();
-    task_run
-        .status
-        .steps
+pub(crate) fn started_steps<'a>(
+    steps: &'a [StepState], pod: &Pod, sidecar: bool,
+) -> Vec<StartedStep<'a>> {
+    let status = pod.status.as_ref();
+    steps
         .iter()
         .filter(|step| step.has_started())
         .map(|step| {
-            let container = step.container_name();
-            let instance = statuses
-                .iter()
+            let container = step.container_name(if sidecar { "sidecar" } else { "step" });
+            let instance = status
+                .into_iter()
+                .flat_map(|status| {
+                    status
+                        .container_statuses
+                        .iter()
+                        .flatten()
+                        .chain(status.init_container_statuses.iter().flatten())
+                })
                 .find(|status| status.name == container)
                 .map(|status| Instance {
                     restarts: status.restart_count,
@@ -80,6 +81,7 @@ pub(crate) fn started_steps<'a>(task_run: &'a TektonTaskRun, pod: &Pod) -> Vec<S
                 container,
                 instance,
                 done: step.terminated.is_some(),
+                sidecar,
             }
         })
         .collect()
@@ -208,136 +210,4 @@ impl StepFilter {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn at(stamp: &str) -> DateTime<Utc> {
-        stamp.parse().unwrap()
-    }
-
-    fn run(
-        from: Option<Stamp>, hold_tail: bool, chunks: &[&str],
-    ) -> Result<(String, StepSummary), ()> {
-        let mut filter = StepFilter::new(from, hold_tail);
-        let mut out = Vec::new();
-        for chunk in chunks {
-            filter.push(chunk.as_bytes(), &mut out).map_err(|_| ())?;
-        }
-        let summary = filter.finish(&mut out).map_err(|_| ())?;
-        Ok((String::from_utf8(out).unwrap(), summary))
-    }
-
-    const LOG: &str = "2026-10-28T10:00:01.5Z a\n2026-10-28T10:00:02Z b\n2026-10-28T10:00:02Z b\n2026-10-28T10:00:03Z c\n";
-
-    #[test]
-    fn the_cursor_stamps_the_last_timestamp_with_its_line_count() {
-        let (text, summary) = run(None, false, &[LOG]).unwrap();
-
-        assert_eq!(text, LOG);
-        assert_eq!(summary.lines, 4);
-        assert_eq!(
-            summary.last,
-            Some(Stamp {
-                at: at("2026-10-28T10:00:03Z"),
-                seen: 1
-            })
-        );
-        let (_, summary) = run(
-            None,
-            false,
-            &["2026-10-28T10:00:02Z x\n2026-10-28T10:00:02Z x\n"],
-        )
-        .unwrap();
-        assert_eq!(summary.last.unwrap().seen, 2);
-    }
-
-    #[test]
-    fn resuming_drops_the_lines_already_seen_at_the_boundary_timestamp() {
-        let from = Stamp {
-            at: at("2026-10-28T10:00:02Z"),
-            seen: 2,
-        };
-        let more = "2026-10-28T10:00:02Z b\n2026-10-28T10:00:04Z d\n";
-        let body = format!(
-            "2026-10-28T10:00:01.5Z a\n2026-10-28T10:00:02Z b\n2026-10-28T10:00:02Z b\n{more}"
-        );
-
-        let (text, summary) = run(Some(from), false, &[&body]).unwrap();
-
-        assert_eq!(text, more);
-        assert_eq!(
-            summary.last,
-            Some(Stamp {
-                at: at("2026-10-28T10:00:04Z"),
-                seen: 1
-            })
-        );
-    }
-
-    #[test]
-    fn resuming_with_nothing_new_keeps_the_cursor() {
-        let from = Stamp {
-            at: at("2026-10-28T10:00:03Z"),
-            seen: 1,
-        };
-
-        let (text, summary) = run(Some(from), false, &["2026-10-28T10:00:03Z c\n"]).unwrap();
-
-        assert_eq!(text, "");
-        assert_eq!(summary.last, Some(from));
-    }
-
-    #[test]
-    fn a_boundary_line_that_vanished_diverges() {
-        let from = Stamp {
-            at: at("2026-10-28T10:00:02Z"),
-            seen: 2,
-        };
-        let cases: [&[&str]; 3] = [
-            &[],
-            &["2026-10-28T10:00:02Z b\n2026-10-28T10:00:05Z later\n"],
-            &["2026-10-28T10:00:09Z later\n"],
-        ];
-
-        for chunks in cases {
-            assert!(run(Some(from), false, chunks).is_err(), "{chunks:?}");
-        }
-    }
-
-    #[test]
-    fn splitting_the_stream_anywhere_yields_the_same_bytes() {
-        let whole = run(None, false, &[LOG]).unwrap().0;
-
-        for cut in 0..LOG.len() {
-            let (head, tail) = LOG.split_at(cut);
-            assert_eq!(run(None, false, &[head, tail]).unwrap().0, whole, "{cut}");
-        }
-    }
-
-    #[test]
-    fn an_unterminated_last_line_is_held_back_while_the_container_runs() {
-        let body = "2026-10-28T10:00:01Z a\n2026-10-28T10:00:02Z par";
-
-        let (running, summary) = run(None, true, &[body]).unwrap();
-        let (finished, _) = run(None, false, &[body]).unwrap();
-
-        assert_eq!(running, "2026-10-28T10:00:01Z a\n");
-        assert_eq!(summary.lines, 1);
-        assert_eq!(summary.last.unwrap().at, at("2026-10-28T10:00:01Z"));
-        assert_eq!(
-            finished,
-            "2026-10-28T10:00:01Z a\n2026-10-28T10:00:02Z par\n"
-        );
-    }
-
-    #[test]
-    fn an_oversized_unterminated_line_is_cut_into_lines() {
-        let big = "x".repeat(MAX_PENDING_LINE_BYTES + 1);
-        let body = format!("2026-10-28T10:00:01Z {big}");
-
-        let (text, summary) = run(None, true, &[&body]).unwrap();
-
-        assert_eq!(text, format!("{body}\n"));
-        assert_eq!(summary.lines, 1);
-    }
-}
+mod tests;

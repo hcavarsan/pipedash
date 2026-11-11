@@ -1,14 +1,15 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useEffectEvent, useRef } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router-dom'
 import { logger } from '../lib/logger'
 import { notifications } from '../lib/notifications'
 import { queryKeys } from '../lib/queryKeys'
-import type { ProviderSummary } from '../types/domain'
+import type { ProviderSummary } from '../types/providers'
 
 export function useProviderFilterReconciliation(): void {
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
   const providerParam = searchParams.get('provider')
   const handled = useRef<string | null>(null)
 
@@ -40,7 +41,7 @@ export function useProviderFilterReconciliation(): void {
 
         return next
       },
-      { replace: true }
+      { replace: true, state: location.state }
     )
 
     notifications.show({

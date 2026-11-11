@@ -3,15 +3,14 @@ import { IconChartLine, IconHistory } from '@tabler/icons-react'
 import { type ReactNode, useState } from 'react'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { PageContainer } from '../../../components/common/PageContainer'
-import { triggerIcon } from '../../../components/common/PipelineRowParts'
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import { NavBarMenu } from '../../../components/layout/NavBarMenu'
 import { PullToRefresh } from '../../../components/layout/PullRefreshContext'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
-import { usePlugins } from '../../../queries/usePluginsQueries'
-import type { Pipeline } from '../../../types/domain'
-import { getPluginDisplayName } from '../../../utils/pluginHelpers'
+import type { Pipeline } from '../../../types/pipelines'
+import { triggerIcon } from '../../../utils/pipelineRowActions'
 import { PipelineMetricsView } from '../../metrics/components/PipelineMetricsView'
+import { usePipelineNotifyItem } from '../../notifications/components/PipelineNotifyPolicy'
 import { useBulkCancelRuns } from '../hooks/useBulkCancelRuns'
 import { useRunHistoryColumns } from '../hooks/useRunHistoryColumns'
 import { useRunHistoryEvents } from '../hooks/useRunHistoryEvents'
@@ -25,32 +24,25 @@ import { RunHistoryResults } from './RunHistoryResults'
 export type DetailTab = 'history' | 'metrics'
 
 interface RunHistoryPageProps {
-  pipeline: Pipeline | null
+  pipeline: Pipeline
   tab: DetailTab
   onTabChange: (tab: DetailTab) => void
   onBack: () => void
-  isLoadingPipeline?: boolean | undefined
 }
 
-export function RunHistoryPage({
-  pipeline,
-  tab,
-  onTabChange,
-  onBack,
-  isLoadingPipeline = false,
-}: RunHistoryPageProps): ReactNode {
+export function RunHistoryPage({ pipeline, tab, onTabChange, onBack }: RunHistoryPageProps): ReactNode {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
-  const { data: plugins } = usePlugins()
   const { labels, canCancel, cancellingRun, openTrigger, triggerBlockedReason } = useRunActions()
   const data = useRunHistoryPageData(pipeline)
-  const columns = useRunHistoryColumns(pipeline?.provider_id)
+  const notifyItem = usePipelineNotifyItem()
+  const columns = useRunHistoryColumns(pipeline.provider_id)
   const [customization, setCustomization] = useState({ session: 0, opened: false })
   const [selecting, setSelecting] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
 
   useRunHistoryEvents({
-    pipelineId: pipeline?.id,
+    pipelineId: pipeline.id,
     resetPage: () => data.setFilter('page', 1),
     refetch: () => {
       void data.refetch()
@@ -58,22 +50,42 @@ export function RunHistoryPage({
   })
 
   const selection = useBulkCancelRuns({
-    pipeline: pipeline ?? undefined,
+    pipeline,
     page: isMobile ? 1 : data.filters.page,
     runs: data.runs,
     enabled: canCancel,
     cancellingRunNumber: cancellingRun,
   })
 
-  const historyLoading = isLoadingPipeline || data.isLoading || columns.loading || !pipeline?.id
+  const historyLoading = columns.loading || (!data.hasData && !data.isError)
   const canSelect = !selecting && data.runs.some(selection.isRunCancellable)
   const historyMenu = tab === 'history' && !historyLoading
-  const canTrigger = !!pipeline && !triggerBlockedReason
+  const canTrigger = !triggerBlockedReason
+  const notify = notifyItem(pipeline)
+
+  const historyContent = historyLoading ? (
+    <LoadingState message={`Loading ${labels.history.toLowerCase()}…`} />
+  ) : (
+    <>
+      <RunHistoryFilters
+        data={data}
+        selection={selection}
+        sheet={{ opened: filtersOpen, onClose: () => setFiltersOpen(false) }}
+      />
+      <RunHistoryResults
+        data={data}
+        columns={columns}
+        selection={selection}
+        selecting={selecting}
+        onSelectingChange={setSelecting}
+      />
+    </>
+  )
 
   return (
     <PageContainer>
-      {mobileShell && <PullToRefresh refresh={data.refetch} />}
-      {mobileShell && (canTrigger || historyMenu) && (
+      {mobileShell && <PullToRefresh refresh={data.refresh} />}
+      {mobileShell && (
         <NavBarMenu label="More">
           {canTrigger && (
             <Menu.Item leftSection={triggerIcon(pipeline)} onClick={openTrigger}>
@@ -82,11 +94,13 @@ export function RunHistoryPage({
           )}
           {historyMenu && canSelect && <Menu.Item onClick={() => setSelecting(true)}>Select</Menu.Item>}
           {historyMenu && <Menu.Item onClick={() => setFiltersOpen(true)}>Filter</Menu.Item>}
+          <Menu.Item leftSection={notify.icon} onClick={notify.onClick}>
+            {notify.label}
+          </Menu.Item>
         </NavBarMenu>
       )}
       <RunHistoryHeader
         pipeline={pipeline}
-        isLoadingPipeline={isLoadingPipeline}
         showCustomize={tab === 'history'}
         customizationDisabled={columns.loading || !!columns.error}
         onBack={onBack}
@@ -118,39 +132,17 @@ export function RunHistoryPage({
             minHeight: 0,
           }}
         >
-          {historyLoading || !pipeline ? (
-            <LoadingState message={`Loading ${labels.history.toLowerCase()}…`} />
-          ) : (
-            <>
-              <RunHistoryFilters
-                pipeline={pipeline}
-                data={data}
-                selection={selection}
-                sheet={{ opened: filtersOpen, onClose: () => setFiltersOpen(false) }}
-              />
-              <RunHistoryResults
-                data={data}
-                columns={columns}
-                selection={selection}
-                selecting={selecting}
-                onSelectingChange={setSelecting}
-              />
-            </>
-          )}
+          {historyContent}
         </Tabs.Panel>
 
         <Tabs.Panel value="metrics" style={{ width: '100%' }}>
-          {isLoadingPipeline || !pipeline ? (
-            <LoadingState message="Loading pipeline…" />
-          ) : (
-            <ErrorBoundary scope="feature" name="Pipeline metrics">
-              <PipelineMetricsView
-                pipelineId={pipeline.id}
-                pipelineName={pipeline.name}
-                repository={pipeline.repository}
-              />
-            </ErrorBoundary>
-          )}
+          <ErrorBoundary scope="feature" name="Pipeline metrics">
+            <PipelineMetricsView
+              pipelineId={pipeline.id}
+              pipelineName={pipeline.name}
+              repository={pipeline.repository}
+            />
+          </ErrorBoundary>
         </Tabs.Panel>
       </Tabs>
 
@@ -160,7 +152,6 @@ export function RunHistoryPage({
         customizationSession={customization.session}
         customizationOpened={customization.opened}
         onCloseCustomization={() => setCustomization((previous) => ({ ...previous, opened: false }))}
-        providerName={pipeline ? getPluginDisplayName(plugins, pipeline.provider_type) : ''}
       />
     </PageContainer>
   )

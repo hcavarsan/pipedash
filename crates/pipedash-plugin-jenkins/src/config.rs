@@ -1,19 +1,22 @@
 use std::collections::HashMap;
 
+use pipedash_plugin_api::config::comma_separated;
 use pipedash_plugin_api::{
     PluginError,
     PluginResult,
 };
+
+pub(crate) fn follow_all_jobs(config: &HashMap<String, String>) -> bool {
+    pipedash_plugin_api::config::bool_value(config, "follow_all_jobs")
+}
 
 pub(crate) fn parse_selected_items(config: &HashMap<String, String>) -> PluginResult<Vec<String>> {
     let selected_items = config
         .get("selected_items")
         .ok_or_else(|| PluginError::InvalidConfig("No jobs selected".to_string()))?;
 
-    Ok(selected_items
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+    Ok(comma_separated(selected_items)
+        .map(str::to_string)
         .collect())
 }
 
@@ -32,24 +35,4 @@ pub(crate) fn split_job_path(job_path: &str) -> (String, String) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_encode_job_name() {
-        assert_eq!(encode_job_name("folder/job"), "folder/job/job");
-        assert_eq!(encode_job_name("simple"), "simple");
-    }
-
-    #[test]
-    fn test_split_job_path() {
-        assert_eq!(
-            split_job_path("org/repo"),
-            ("org".to_string(), "repo".to_string())
-        );
-        assert_eq!(
-            split_job_path("simple"),
-            ("(root)".to_string(), "simple".to_string())
-        );
-    }
-}
+mod tests;

@@ -1,5 +1,7 @@
 import type { LogLinesPage } from '../../../types/logs'
 import { formatCount } from '../../../utils/formatCount'
+import { partitionPoint } from './binarySearch'
+import type { LogFilter } from './logRows'
 
 export const FULL_LINE_UNITS = 1_048_576
 export const COPY_MAX_LINES = 50_000
@@ -86,20 +88,56 @@ export function errorCounter(
     return failed ? 'Failed, no error lines' : 'No errors'
   }
 
-  let low = 0
-  let high = errorLines.length
-
-  while (line !== null && low < high) {
-    const mid = (low + high) >>> 1
-
-    if ((errorLines[mid] ?? Infinity) < line) {
-      low = mid + 1
-    } else {
-      high = mid
-    }
-  }
+  const low = line === null ? 0 : partitionPoint(errorLines.length, (index) => (errorLines[index] ?? Infinity) < line)
 
   return line !== null && errorLines[low] === line
     ? `Error ${(low + 1).toLocaleString()} of ${errorTotal.toLocaleString()}`
     : formatCount(errorTotal, 'error')
+}
+
+export interface LogOptionsState {
+  wrap: boolean
+  onWrapChange: (value: boolean) => void
+  timestamps: boolean
+  onTimestampsChange: (value: boolean) => void
+  filter: LogFilter
+  onFilterChange: (filter: LogFilter) => void
+  errorTotal: number
+  exporting: boolean
+  onExport: () => void
+}
+
+export interface LogOptionItem {
+  id: 'wrap' | 'timestamps' | 'errors' | 'export'
+  label: string
+  checked?: boolean
+  onSelect: () => void
+  disabled?: boolean
+}
+
+export function logOptionItems(state: LogOptionsState): LogOptionItem[] {
+  const errorsOnly = state.filter === 'errors'
+
+  return [
+    { id: 'wrap', label: 'Wrap lines', checked: state.wrap, onSelect: () => state.onWrapChange(!state.wrap) },
+    {
+      id: 'timestamps',
+      label: 'Show timestamps',
+      checked: state.timestamps,
+      onSelect: () => state.onTimestampsChange(!state.timestamps),
+    },
+    {
+      id: 'errors',
+      label: 'Show error lines only',
+      checked: errorsOnly,
+      disabled: state.errorTotal === 0 && !errorsOnly,
+      onSelect: () => state.onFilterChange(errorsOnly ? 'none' : 'errors'),
+    },
+    {
+      id: 'export',
+      label: state.exporting ? 'Exporting log…' : 'Export log',
+      disabled: state.exporting,
+      onSelect: state.onExport,
+    },
+  ]
 }

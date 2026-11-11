@@ -1,25 +1,47 @@
+import { Stack } from '@mantine/core'
 import { IconDatabase, IconListCheck, IconTransfer } from '@tabler/icons-react'
 import { type ReactNode, useId, useRef, useState } from 'react'
-import type { ModalAction } from '../../../../components/common/StandardModal'
+import { ErrorState } from '../../../../components/common/ErrorState'
+import { LoadingState } from '../../../../components/common/LoadingState'
+import type { ModalAction } from '../../../../components/common/standardModalTypes'
+import { DesktopFooter, ShellFooter, type WizardAction } from '../../../../components/forms/WizardFooter'
 import { useIsMobile, useMobileShell } from '../../../../hooks/useIsMobile'
-import { isTauri } from '../../../../services/isTauri'
-import type { StorageConfigResponse } from '../../../../types/domain'
+import type { StorageConfigResponse } from '../../../../types/storage'
 import { isMobilePlatform } from '../../../../utils/platform'
+import { sameJson } from '../../../../utils/sameJson'
 
 import { ConfirmStep } from './ConfirmStep'
-import { confirmSkipTransfer, DesktopFooter, ShellFooter, type WizardAction } from './SetupWizardActions'
-import { SetupWizardLayout } from './SetupWizardLayout'
+import { confirmSkipTransfer } from './SetupWizardActions'
+import { SetupWizardLayout, type WizardForm } from './SetupWizardLayout'
 import { StorageStep } from './StorageStep'
 import { SuccessStep } from './SuccessStep'
-import { initialDraft, validateSetupDraft } from './setupDraft'
+import { initialDraft, toFieldErrors, toSetupDraft } from './setupDraft'
 import { TransferStep } from './TransferStep'
 import type { VaultPasswordStatus, WizardStep } from './types'
+import { usePreparedSetup } from './usePreparedSetup'
 import { useSetupSubmission } from './useSetupSubmission'
 
 const STEP_META = {
   storage: { label: 'Storage', icon: <IconDatabase size={16} aria-hidden /> },
   transfer: { label: 'Transfer', icon: <IconTransfer size={16} aria-hidden /> },
   confirm: { label: 'Confirm', icon: <IconListCheck size={16} aria-hidden /> },
+}
+
+function saveLabelFor(needsMigration: boolean, transferData: boolean): string {
+  if (!needsMigration) {
+    return 'Save'
+  }
+
+  return transferData ? 'Save and transfer' : 'Switch without transferring'
+}
+
+const transferLabelFor = (skipsTransfer: boolean): string =>
+  skipsTransfer ? 'Switch without transferring' : 'Continue'
+
+function stepsFor(compact: boolean, transfer: boolean): WizardStep[] {
+  const middle: WizardStep[] = transfer ? ['transfer'] : []
+
+  return compact ? ['storage', ...middle, 'success'] : ['storage', ...middle, 'confirm', 'success']
 }
 
 interface SetupWizardSessionProps {
@@ -40,6 +62,7 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
   })
   const { currentConfig, vaultStatus, defaultDataDir } = initial
   const [draft, setDraft] = useState(() => initialDraft(currentConfig, defaultDataDir))
+  const [firstDraft] = useState(() => draft)
   const [step, setStep] = useState<WizardStep>('storage')
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
@@ -48,34 +71,24 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
   const compact = mobileShell && isMobilePlatform()
 
   const vaultPasswordFromEnv = vaultStatus.is_set
-  const needsVaultPassword = !vaultPasswordFromEnv && !isMobilePlatform()
-  const currentBackend = currentConfig?.config.storage.backend || 'sqlite'
-  const currentDataDir = currentConfig?.config.storage.data_dir || defaultDataDir
-  const isFromKeyring =
-    Boolean(currentConfig) && isTauri() && !isMobilePlatform() && currentBackend === 'sqlite' && !vaultPasswordFromEnv
+  const preparation = usePreparedSetup(draft, !currentConfig)
+  const { prepared } = preparation
+  const needsMigration = prepared?.needs_migration ?? false
   const reconfigured = Boolean(currentConfig)
-  const isDatabaseBackendChange = reconfigured && currentBackend !== draft.backend
-  const isDataDirChange = reconfigured && currentDataDir !== draft.dataDir
-  const needsMigration = isDatabaseBackendChange || isFromKeyring || isDataDirChange
   const showTransferStep = compact ? needsMigration : reconfigured
 
-  const wizardSteps: WizardStep[] = compact
-    ? showTransferStep
-      ? ['storage', 'transfer', 'success']
-      : ['storage', 'success']
-    : showTransferStep
-      ? ['storage', 'transfer', 'confirm', 'success']
-      : ['storage', 'confirm', 'success']
+  const wizardSteps = stepsFor(compact, showTransferStep)
   const stepIndex = Math.max(wizardSteps.indexOf(step), 0)
   const isSuccessStep = step === 'success'
   const stepperSteps = wizardSteps.flatMap((name) => (name === 'success' ? [] : [STEP_META[name]]))
-  const canProceedFromStorage = Object.keys(validateSetupDraft(draft, needsVaultPassword)).length === 0
-  const saveLabel = !needsMigration ? 'Save' : draft.transferData ? 'Save and transfer' : 'Switch without transferring'
-  const transferLabel = compact
-    ? saveLabel
-    : !draft.transferData && needsMigration
-      ? 'Switch without transferring'
-      : 'Continue'
+  const validation = toFieldErrors(prepared?.errors ?? {})
+  const canProceedFromStorage =
+    preparation.current && prepared !== undefined && Object.keys(prepared.errors).length === 0
+  const setupDraft = toSetupDraft(draft)
+  const dirty = !isSuccessStep && !sameJson(setupDraft, toSetupDraft(firstDraft))
+  const saveLabel = saveLabelFor(needsMigration, draft.transferData)
+  const skipsTransfer = !draft.transferData && needsMigration
+  const transferLabel = compact ? saveLabel : transferLabelFor(skipsTransfer)
   const submits =
     (step === 'storage' && compact && !needsMigration && !currentConfig) ||
     (step === 'transfer' && compact) ||
@@ -83,12 +96,9 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
 
   const [actionState, formAction, isPending] = useSetupSubmission({
     draft,
-    currentConfig,
-    defaultDataDir,
+    firstRun: !currentConfig,
     step,
     submits,
-    needsVaultPassword,
-    needsMigration,
     compact,
     onComplete,
   })
@@ -106,6 +116,20 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
   const goNext = (): void => setStep(wizardSteps[stepIndex + 1] ?? 'success')
   const goBack = (): void => setStep(wizardSteps[Math.max(stepIndex - 1, 0)] ?? 'storage')
 
+  const advanceFromStorage = (): void => {
+    if (canProceedFromStorage) {
+      goNext()
+    }
+  }
+
+  let wizardForm: WizardForm | null = null
+
+  if (submits) {
+    wizardForm = { id: formId, ref: formRef, action: formAction }
+  } else if (step === 'storage') {
+    wizardForm = { id: formId, ref: formRef, action: advanceFromStorage }
+  }
+
   const afterTransfer = (): void => {
     if (compact) {
       formRef.current?.requestSubmit()
@@ -116,10 +140,7 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
 
   const continueFromTransfer = (): void => {
     if (mobileShell && !draft.transferData && needsMigration) {
-      confirmSkipTransfer(
-        { databaseBackend: isDatabaseBackendChange, credentialStorage: isFromKeyring, dataDirectory: isDataDirChange },
-        afterTransfer
-      )
+      confirmSkipTransfer(afterTransfer)
     } else {
       afterTransfer()
     }
@@ -131,7 +152,7 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
         return currentConfig ? undefined : { label: 'Get started', submit: true, disabled: !canProceedFromStorage }
       }
 
-      return { label: 'Continue', onClick: goNext, disabled: !canProceedFromStorage }
+      return { label: 'Continue', submit: true, disabled: !canProceedFromStorage }
     }
 
     if (step === 'transfer') {
@@ -140,9 +161,35 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
 
     return step === 'confirm' ? { label: saveLabel, submit: true } : undefined
   })()
+  const busyPrimary = primary && { ...primary, loading: isPending }
 
   const canGoBack = stepIndex > 0 && !isSuccessStep
-  const error = actionState.errorStep === step ? actionState.error : null
+  const failure = actionState.errorStep === step && sameJson(actionState.submitted, setupDraft) ? actionState : null
+  const error = failure?.error ?? null
+  const preparationStatus = ((): ReactNode => {
+    if (preparation.error) {
+      return (
+        <ErrorState
+          title="Couldn't check the storage settings"
+          error={preparation.error}
+          onRetry={preparation.refetch}
+          retrying={preparation.isFetching}
+        />
+      )
+    }
+
+    return prepared === undefined ? <LoadingState variant="compact" message="Checking storage settings…" /> : null
+  })()
+  const desktopFooter = (requestClose: () => void): ReactNode => (
+    <DesktopFooter
+      primary={busyPrimary}
+      formId={formId}
+      busy={isPending}
+      onCancel={step === 'storage' && onClose ? requestClose : undefined}
+      onBack={canGoBack ? goBack : undefined}
+      fullWidth={isMobile}
+    />
+  )
   const shellPrimary: ModalAction | undefined = primary
     ? {
         label: primary.label,
@@ -179,14 +226,19 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
         )
       default:
         return (
-          <StorageStep
-            state={draft}
-            setState={setDraft}
-            currentConfig={currentConfig}
-            vaultStatus={vaultStatus}
-            error={error}
-            fieldErrors={actionState.errorStep === step ? actionState.fieldErrors : {}}
-          />
+          <Stack gap="md">
+            {preparationStatus}
+            <StorageStep
+              state={draft}
+              setState={setDraft}
+              currentConfig={currentConfig}
+              vaultStatus={vaultStatus}
+              error={error}
+              fieldErrors={failure?.fieldErrors ?? {}}
+              validation={validation}
+              passwordWarnings={prepared?.password_warnings ?? []}
+            />
+          </Stack>
         )
     }
   })()
@@ -206,22 +258,12 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
         position: isSuccessStep ? 'Finished' : `Step ${stepIndex + 1} of ${stepperSteps.length}`,
         title: isSuccessStep ? 'Setup complete' : (stepperSteps[stepIndex]?.label ?? ''),
       }}
-      form={submits ? { id: formId, ref: formRef, action: formAction } : null}
-      footer={
-        isSuccessStep ? null : (
-          <DesktopFooter
-            primary={primary}
-            formId={formId}
-            isPending={isPending}
-            onCancel={step === 'storage' ? onClose : undefined}
-            onBack={canGoBack ? goBack : undefined}
-            fullWidth={isMobile}
-          />
-        )
-      }
+      form={wizardForm}
+      dirty={dirty}
+      footer={isSuccessStep ? null : desktopFooter}
       shellFooter={
         primary || canGoBack ? (
-          <ShellFooter primary={primary} isPending={isPending} onBack={canGoBack ? goBack : undefined} />
+          <ShellFooter primary={busyPrimary} busy={isPending} onBack={canGoBack ? goBack : undefined} />
         ) : null
       }
       primaryAction={shellPrimary}

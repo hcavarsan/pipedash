@@ -1,11 +1,9 @@
-import { Button, Center, Code, Group, Paper, Stack, Text, ThemeIcon, Title } from '@mantine/core'
-import { IconAlertTriangle } from '@tabler/icons-react'
+import { Button, Center, Code, Stack } from '@mantine/core'
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { logger } from '../../lib/logger'
-
-import { StatusScreen } from './StatusScreen'
+import { ErrorState } from '../common/ErrorState'
 
 type Scope = 'app' | 'route' | 'feature'
 
@@ -29,8 +27,8 @@ const SCOPE_MIN_HEIGHT: Record<Scope, string | number> = {
 
 const SCOPE_TITLE: Record<Scope, string> = {
   app: 'Pipedash hit an unexpected error',
-  route: 'This page failed to load',
-  feature: 'This section failed to load',
+  route: "Couldn't load this page",
+  feature: "Couldn't load this section",
 }
 
 interface BoundaryFallbackProps {
@@ -54,70 +52,31 @@ function keysChanged(previous: readonly unknown[] | undefined, next: readonly un
 
 function BoundaryFallback({ scope, name, error, componentStack, onRetry }: BoundaryFallbackProps): ReactNode {
   const mobileShell = useMobileShell()
-  const title = name ? `${name} failed to load` : SCOPE_TITLE[scope]
-  const headingOrder = scope === 'feature' ? 2 : 1
-
-  if (mobileShell) {
-    return (
-      <StatusScreen
-        icon={
-          <ThemeIcon variant="transparent" color="red" size={48}>
-            <IconAlertTriangle size={40} aria-hidden />
-          </ThemeIcon>
-        }
-        title={title}
-        headingOrder={headingOrder}
-        message={error.message || 'An unexpected error occurred'}
-        minHeight={scope === 'app' ? '100dvh' : 400}
-        detail={
-          import.meta.env.DEV && componentStack ? (
-            <Code block fz="xs" mah={200} w="100%" style={{ overflow: 'auto' }}>
-              {componentStack}
-            </Code>
-          ) : null
-        }
-        actions={
-          <>
-            <Button size="md" fullWidth onClick={() => window.location.reload()}>
-              Reload page
-            </Button>
-            <Button size="md" fullWidth variant="default" onClick={onRetry}>
-              Try again
-            </Button>
-          </>
-        }
-      />
-    )
-  }
 
   return (
-    <Center mih={SCOPE_MIN_HEIGHT[scope]} p="xl" role="alert">
-      <Paper withBorder p="xl" maw={500} w="100%">
-        <Stack align="center" gap="md">
-          <ThemeIcon variant="transparent" color="red" size="xl">
-            <IconAlertTriangle size={24} aria-hidden />
-          </ThemeIcon>
-          <Stack align="center" gap="xs">
-            <Title order={headingOrder}>{title}</Title>
-            <Text size="sm" c="dimmed" ta="center">
-              {error.message || 'An unexpected error occurred'}
-            </Text>
-          </Stack>
-          {import.meta.env.DEV && componentStack && (
-            <Code block fz="xs" mah={200} w="100%" style={{ overflow: 'auto' }}>
-              {componentStack}
-            </Code>
-          )}
-          <Group justify="center" gap="sm">
-            <Button size="sm" onClick={() => window.location.reload()}>
+    <Center mih={SCOPE_MIN_HEIGHT[scope]} p={{ base: 'md', sm: 'xl' }}>
+      <Stack maw={500} w="100%">
+        <ErrorState
+          title={name ? `Couldn't load ${name}` : SCOPE_TITLE[scope]}
+          error={error.message || 'An unexpected error occurred'}
+          onRetry={onRetry}
+          actions={
+            <Button
+              size={mobileShell ? 'md' : 'sm'}
+              variant="default"
+              fullWidth={mobileShell}
+              onClick={() => window.location.reload()}
+            >
               Reload page
             </Button>
-            <Button size="sm" variant="default" onClick={onRetry}>
-              Try again
-            </Button>
-          </Group>
-        </Stack>
-      </Paper>
+          }
+        />
+        {import.meta.env.DEV && componentStack && (
+          <Code block fz="xs" mah={200} w="100%" style={{ overflow: 'auto' }}>
+            {componentStack}
+          </Code>
+        )}
+      </Stack>
     </Center>
   )
 }

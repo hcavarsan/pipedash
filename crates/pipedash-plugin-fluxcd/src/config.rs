@@ -6,6 +6,15 @@ use std::{
     fmt,
 };
 
+use pipedash_plugin_api::config::{
+    comma_separated,
+    value,
+};
+use pipedash_plugin_api::kubernetes::{
+    is_namespace,
+    is_resource_name,
+    KubeconfigSource,
+};
 use pipedash_plugin_api::{
     PluginError,
     PluginResult,
@@ -13,9 +22,8 @@ use pipedash_plugin_api::{
 
 use crate::types::Kind;
 
-pub(crate) const PROVIDER_TYPE: &str = "fluxcd";
 pub(crate) const DEFAULT_FLUX_NAMESPACE: &str = "flux-system";
-pub(crate) const KUBECONFIG_CONTENT_KEY: &str = "token";
+pub(crate) const KUBECONFIG_PATH_KEY: &str = "kubeconfig";
 pub(crate) const CONTROLLERS: [&str; 3] = [
     "source-controller",
     "kustomize-controller",
@@ -50,11 +58,12 @@ impl Target {
     }
 
     pub fn selection_id(&self) -> String {
-        format!("{}__{}__{}", self.kind, self.namespace, self.name)
-    }
-
-    pub fn pipeline_id(&self, provider_id: i64) -> String {
-        format!("{PROVIDER_TYPE}__{provider_id}__{}", self.selection_id())
+        format!(
+            "{kind}__{namespace}__{name}",
+            kind = self.kind,
+            namespace = self.namespace,
+            name = self.name
+        )
     }
 }
 
@@ -62,23 +71,6 @@ impl fmt::Display for Target {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {}/{}", self.kind, self.namespace, self.name)
     }
-}
-
-fn is_dns_label(value: &str) -> bool {
-    !value.is_empty()
-        && !value.starts_with('-')
-        && !value.ends_with('-')
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
-}
-
-pub(crate) fn is_namespace(value: &str) -> bool {
-    value.len() <= 63 && is_dns_label(value)
-}
-
-fn is_resource_name(value: &str) -> bool {
-    value.len() <= 253 && value.split('.').all(is_dns_label)
 }
 
 pub(crate) fn parse_selection(item: &str) -> PluginResult<Target> {
@@ -97,123 +89,32 @@ pub(crate) fn parse_selection(item: &str) -> PluginResult<Target> {
     Target::new(kind, namespace, name)
 }
 
-pub(crate) fn parse_pipeline_id(id: &str) -> PluginResult<(i64, Target)> {
-    let parts: Vec<&str> = id.split("__").collect();
-    let [prefix, provider_id, kind, namespace, name] = parts.as_slice() else {
-        return Err(PluginError::InvalidConfig(format!(
-            "Invalid FluxCD pipeline ID '{id}'. Expected: fluxcd__{{provider_id}}__{{Kind}}__{{namespace}}__{{name}}"
-        )));
+pub(crate) fn parse_pipeline_id(id: &str) -> PluginResult<Target> {
+    let invalid = || {
+        PluginError::InvalidConfig(format!(
+            "Invalid pipeline ID format: '{id}'. Expected format: '{{Kind}}__{{namespace}}__{{name}}'"
+        ))
     };
-    if *prefix != PROVIDER_TYPE {
-        return Err(PluginError::InvalidConfig(format!(
-            "Pipeline ID '{id}' does not belong to the FluxCD provider"
-        )));
-    }
-    let provider_id = provider_id.parse::<i64>().map_err(|_| {
-        PluginError::InvalidConfig(format!("Invalid provider ID in pipeline ID '{id}'"))
-    })?;
+    let parts: Vec<&str> = id.split("__").collect();
+    let [kind, namespace, name] = parts.as_slice() else {
+        return Err(invalid());
+    };
     let kind = Kind::from_name(kind).ok_or_else(|| {
         PluginError::InvalidConfig(format!(
             "Invalid kind in pipeline ID '{id}': expected Kustomization or HelmRelease"
         ))
     })?;
 
-    Ok((provider_id, Target::new(kind, namespace, name)?))
-}
-
-fn expand_path(path: &str) -> String {
-    shellexpand::full(path)
-        .map(|expanded| expanded.into_owned())
-        .unwrap_or_else(|_| path.to_string())
-}
-
-pub(crate) fn default_kubeconfig() -> String {
-    if let Ok(kubeconfig) = std::env::var("KUBECONFIG") {
-        if !kubeconfig.trim().is_empty() {
-            return kubeconfig;
-        }
-    }
-
-    dirs::home_dir()
-        .map(|home| home.join(".kube/config").to_string_lossy().to_string())
-        .unwrap_or_else(|| "~/.kube/config".to_string())
-}
-
-fn split_kubeconfig_paths(paths: &str) -> Vec<String> {
-    let separator = if cfg!(windows) { ';' } else { ':' };
-
-    paths
-        .split(separator)
-        .map(str::trim)
-        .filter(|path| !path.is_empty())
-        .map(expand_path)
-        .collect()
-}
-
-#[derive(Clone, PartialEq, Eq)]
-pub(crate) enum KubeconfigSource {
-    Content(String),
-    Paths(Vec<String>),
-}
-
-impl fmt::Debug for KubeconfigSource {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Content(_) => f.write_str("Content(<redacted>)"),
-            Self::Paths(paths) => f.debug_tuple("Paths").field(paths).finish(),
-        }
-    }
-}
-
-impl KubeconfigSource {
-    pub(crate) fn describe(&self) -> String {
-        match self {
-            Self::Content(_) => "pasted kubeconfig content".to_string(),
-            Self::Paths(paths) => paths.join(", "),
-        }
-    }
-}
-
-fn kubeconfig_paths(config: &HashMap<String, String>) -> Vec<String> {
-    let configured = config
-        .get("kubeconfig")
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty());
-
-    match configured {
-        Some(paths) => split_kubeconfig_paths(paths),
-        None => split_kubeconfig_paths(&default_kubeconfig()),
-    }
-}
-
-pub(crate) fn kubeconfig_source(config: &HashMap<String, String>) -> KubeconfigSource {
-    match config
-        .get(KUBECONFIG_CONTENT_KEY)
-        .filter(|content| !content.trim().is_empty())
-    {
-        Some(content) => KubeconfigSource::Content(content.clone()),
-        None => KubeconfigSource::Paths(kubeconfig_paths(config)),
-    }
+    Target::new(kind, namespace, name)
 }
 
 pub(crate) fn context(config: &HashMap<String, String>) -> Option<String> {
-    config
-        .get("context")
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
+    value(config, "context").map(str::to_string)
 }
 
-fn comma_separated(config: &HashMap<String, String>, key: &str) -> Vec<String> {
+fn unique_csv(config: &HashMap<String, String>, key: &str) -> Vec<String> {
     let mut items: Vec<String> = Vec::new();
-    for item in config
-        .get(key)
-        .map(String::as_str)
-        .unwrap_or_default()
-        .split(',')
-        .map(str::trim)
-        .filter(|item| !item.is_empty())
-    {
+    for item in comma_separated(config.get(key).map_or("", String::as_str)) {
         if !items.iter().any(|existing| existing == item) {
             items.push(item.to_string());
         }
@@ -233,23 +134,19 @@ pub(crate) struct Settings {
 
 impl Settings {
     pub fn from_config(config: &HashMap<String, String>) -> PluginResult<Self> {
-        let namespaces = comma_separated(config, "namespaces");
+        let namespaces = unique_csv(config, "namespaces");
         if let Some(invalid) = namespaces.iter().find(|namespace| !is_namespace(namespace)) {
             return Err(PluginError::InvalidConfig(format!(
                 "Invalid namespace '{invalid}' in 'namespaces': expected comma-separated Kubernetes namespace names"
             )));
         }
 
-        let selection = comma_separated(config, "selected_items")
+        let selection = unique_csv(config, "selected_items")
             .iter()
             .map(|item| parse_selection(item))
             .collect::<PluginResult<Vec<_>>>()?;
 
-        let flux_namespace = config
-            .get("flux_namespace")
-            .map(|value| value.trim())
-            .filter(|value| !value.is_empty())
-            .unwrap_or(DEFAULT_FLUX_NAMESPACE);
+        let flux_namespace = value(config, "flux_namespace").unwrap_or(DEFAULT_FLUX_NAMESPACE);
         if !is_namespace(flux_namespace) {
             return Err(PluginError::InvalidConfig(format!(
                 "Invalid namespace '{flux_namespace}' in 'flux_namespace': expected a Kubernetes namespace name"
@@ -257,7 +154,7 @@ impl Settings {
         }
 
         let settings = Self {
-            kubeconfig: kubeconfig_source(config),
+            kubeconfig: KubeconfigSource::from_config(config, KUBECONFIG_PATH_KEY),
             context: context(config),
             namespaces,
             selection,
@@ -313,141 +210,4 @@ impl Settings {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn config(pairs: &[(&str, &str)]) -> HashMap<String, String> {
-        pairs
-            .iter()
-            .map(|(key, value)| (key.to_string(), value.to_string()))
-            .collect()
-    }
-
-    #[test]
-    fn pipeline_id_round_trips_kind_namespace_and_name() {
-        let target = Target::new(Kind::HelmRelease, "apps", "web.v2").unwrap();
-
-        let (provider_id, parsed) = parse_pipeline_id(&target.pipeline_id(7)).unwrap();
-
-        assert_eq!((provider_id, parsed), (7, target));
-    }
-
-    #[test]
-    fn pipeline_id_rejects_other_providers_and_malformed_identities() {
-        for id in [
-            "tekton__1__Kustomization__ci__app",
-            "fluxcd__1__Kustomization__ci",
-            "fluxcd__1__Kustomization__ci__app__extra",
-            "fluxcd__x__Kustomization__ci__app",
-            "fluxcd__1__kustomization__ci__app",
-            "fluxcd__1__Kustomization__CI__app",
-            "fluxcd__1__Kustomization__ci__app_name",
-            "fluxcd__1__Kustomization__ci__..",
-            "fluxcd__1__Kustomization____app",
-        ] {
-            assert!(parse_pipeline_id(id).is_err(), "{id} must be rejected");
-        }
-    }
-
-    #[test]
-    fn selection_requires_exactly_kind_namespace_and_name() {
-        assert!(parse_selection("Kustomization__ci__app").is_ok());
-        assert!(parse_selection("ci__app").is_err());
-        assert!(parse_selection("Deployment__ci__app").is_err());
-        assert!(parse_selection("HelmRelease__ci/other__app").is_err());
-    }
-
-    #[test]
-    fn settings_split_comma_separated_namespaces_and_selection_without_duplicates() {
-        let settings = Settings::from_config(&config(&[
-            ("namespaces", "ci, apps,ci"),
-            (
-                "selected_items",
-                "Kustomization__ci__app, HelmRelease__apps__web,Kustomization__ci__app",
-            ),
-        ]))
-        .unwrap();
-
-        assert_eq!(settings.namespaces, vec!["ci", "apps"]);
-        assert_eq!(settings.selection.len(), 2);
-        assert_eq!(settings.monitored_namespaces(), vec!["apps", "ci"]);
-    }
-
-    #[test]
-    fn settings_reject_invalid_namespaces_and_selection_outside_them() {
-        assert!(Settings::from_config(&config(&[("namespaces", "ci,Bad_NS")])).is_err());
-        assert!(Settings::from_config(&config(&[
-            ("namespaces", "ci"),
-            ("selected_items", "Kustomization__other__app"),
-        ]))
-        .is_err());
-    }
-
-    #[test]
-    fn empty_namespaces_monitor_all_and_allow_any_valid_target() {
-        let settings = Settings::from_config(&config(&[])).unwrap();
-        let target = Target::new(Kind::Kustomization, "anywhere", "app").unwrap();
-
-        assert!(settings.monitored_namespaces().is_empty());
-        assert!(settings.ensure_allowed(&target).is_ok());
-    }
-
-    #[test]
-    fn selection_limits_which_targets_are_allowed() {
-        let settings =
-            Settings::from_config(&config(&[("selected_items", "Kustomization__ci__app")]))
-                .unwrap();
-        let selected = Target::new(Kind::Kustomization, "ci", "app").unwrap();
-        let sibling = Target::new(Kind::Kustomization, "ci", "other").unwrap();
-        let same_name_other_kind = Target::new(Kind::HelmRelease, "ci", "app").unwrap();
-
-        assert!(settings.ensure_allowed(&selected).is_ok());
-        assert!(settings.ensure_allowed(&sibling).is_err());
-        assert!(settings.ensure_allowed(&same_name_other_kind).is_err());
-    }
-
-    #[test]
-    fn kubeconfig_content_is_parsed_from_settings() {
-        let settings =
-            Settings::from_config(&config(&[("token", "apiVersion: v1\nkind: Config\n")])).unwrap();
-
-        assert_eq!(
-            settings.kubeconfig,
-            KubeconfigSource::Content("apiVersion: v1\nkind: Config\n".to_string())
-        );
-    }
-
-    #[test]
-    fn kubeconfig_content_wins_over_the_path() {
-        let source = kubeconfig_source(&config(&[
-            ("kubeconfig", "/home/me/.kube/config"),
-            ("token", "apiVersion: v1"),
-        ]));
-
-        assert_eq!(
-            source,
-            KubeconfigSource::Content("apiVersion: v1".to_string())
-        );
-    }
-
-    #[test]
-    fn blank_content_falls_back_to_the_path() {
-        let source = kubeconfig_source(&config(&[
-            ("kubeconfig", "/home/me/.kube/config"),
-            ("token", "  \n "),
-        ]));
-
-        assert_eq!(
-            source,
-            KubeconfigSource::Paths(vec!["/home/me/.kube/config".to_string()])
-        );
-    }
-
-    #[test]
-    fn kubeconfig_content_is_never_printed() {
-        let settings = Settings::from_config(&config(&[("token", "token: s3cr3t-value")])).unwrap();
-
-        assert!(!format!("{settings:?}").contains("s3cr3t-value"));
-        assert!(!settings.kubeconfig.describe().contains("s3cr3t-value"));
-    }
-}
+mod tests;

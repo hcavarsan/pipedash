@@ -1,4 +1,5 @@
 import {
+  keepPreviousData,
   type UseMutationResult,
   type UseQueryResult,
   useMutation,
@@ -7,66 +8,20 @@ import {
 } from '@tanstack/react-query'
 import { useCallback } from 'react'
 import { GC_TIMES, STALE_TIMES } from '../../../lib/cacheConfig'
-import { notifications } from '../../../lib/notifications'
 import { queryKeys } from '../../../lib/queryKeys'
 import { service } from '../../../services/service'
 import type {
-  AggregatedMetrics,
   AggregationPeriod,
   AggregationType,
   GlobalMetricsConfig,
   MetricsConfig,
+  MetricsDashboard,
   MetricsStats,
+  MetricTableSort,
   MetricType,
-} from '../../../types/domain'
-import { errorMessage } from '../../../utils/errorDisplay'
-
-const advancePeriod = (date: Date, period: AggregationPeriod): Date => {
-  const next = new Date(date)
-
-  switch (period) {
-    case 'hourly':
-      next.setUTCHours(next.getUTCHours() + 1)
-      break
-    case 'daily':
-      next.setUTCDate(next.getUTCDate() + 1)
-      break
-    case 'weekly':
-      next.setUTCDate(next.getUTCDate() + 7)
-      break
-    case 'monthly':
-      next.setUTCMonth(next.getUTCMonth() + 1)
-      break
-  }
-
-  return next
-}
-
-const fillMissingPeriods = (data: AggregatedMetrics): AggregatedMetrics => {
-  const filled: AggregatedMetrics['metrics'] = []
-
-  data.metrics.forEach((metric, index) => {
-    filled.push(metric)
-
-    const following = data.metrics[index + 1]
-
-    if (!following) {
-      return
-    }
-
-    const end = new Date(following.timestamp)
-
-    for (
-      let gap = advancePeriod(new Date(metric.timestamp), data.aggregation_period);
-      gap < end;
-      gap = advancePeriod(gap, data.aggregation_period)
-    ) {
-      filled.push({ timestamp: gap.toISOString(), value: 0, count: 0, min: null, max: null, avg: 0 })
-    }
-  })
-
-  return { ...data, metrics: filled, total_count: filled.length }
-}
+} from '../../../types/metrics'
+import type { DateRange } from '../../../utils/dateRange'
+import { displayErrorNotification, displaySuccessNotification } from '../../../utils/errorDisplay'
 
 export function useInvalidatePipelineMetrics(pipelineId: string): () => Promise<void> {
   const queryClient = useQueryClient()
@@ -96,16 +51,16 @@ export function usePipelineMetricsConfig(pipelineId: string): UseQueryResult<Met
   })
 }
 
-export function useAggregatedMetrics(params: {
+export function useMetricsDashboard(params: {
   metricType: MetricType
   aggregationPeriod: AggregationPeriod
   aggregationType?: AggregationType | undefined
   pipelineId?: string | undefined
-  startDate?: string | undefined
-  endDate?: string | undefined
+  dateRange: DateRange
   limit?: number | undefined
+  tableSort?: MetricTableSort | undefined
   enabled?: boolean | undefined
-}): UseQueryResult<AggregatedMetrics, Error> {
+}): UseQueryResult<MetricsDashboard, Error> {
   const { enabled = true, ...queryParams } = params
 
   return useQuery({
@@ -116,21 +71,22 @@ export function useAggregatedMetrics(params: {
         pipelineId: queryParams.pipelineId,
       }),
       queryParams.aggregationType,
-      queryParams.startDate,
-      queryParams.endDate,
+      queryParams.dateRange,
       queryParams.limit,
+      queryParams.tableSort,
     ],
     queryFn: () =>
-      service.queryAggregatedMetrics(
-        queryParams.metricType,
-        queryParams.aggregationPeriod,
-        queryParams.aggregationType,
-        queryParams.pipelineId,
-        queryParams.startDate,
-        queryParams.endDate,
-        queryParams.limit
-      ),
-    select: fillMissingPeriods,
+      service.getMetricsDashboard({
+        pipeline_id: queryParams.pipelineId,
+        metric_type: queryParams.metricType,
+        aggregation_period: queryParams.aggregationPeriod,
+        aggregation_type: queryParams.aggregationType,
+        date_range: queryParams.dateRange,
+        utc_offset_minutes: -new Date().getTimezoneOffset(),
+        limit: queryParams.limit,
+        table_sort: queryParams.tableSort,
+      }),
+    placeholderData: keepPreviousData,
     staleTime: STALE_TIMES.MODERATE,
     gcTime: GC_TIMES.SHORT,
     enabled,
@@ -162,22 +118,12 @@ export function useUpdateGlobalMetricsConfig(): UseMutationResult<
       queryClient.setQueryData<GlobalMetricsConfig>(queryKeys.metrics.globalConfig(), (config) =>
         config ? { ...config, enabled, default_retention_days: retentionDays } : config
       )
-      void queryClient.invalidateQueries({ queryKey: queryKeys.metrics.globalConfig() })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.metrics.stats() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.metrics.all })
 
-      notifications.show({
-        title: 'Global metrics settings saved',
-        message: 'Metrics collection and retention settings were updated.',
-        color: 'green',
-      })
-    },
-
-    onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't save global metrics settings",
-        message: errorMessage(error, 'Try saving the global metrics settings again.'),
-        color: 'red',
-      })
+      displaySuccessNotification(
+        'Metrics collection and retention settings were updated.',
+        'Global metrics settings saved'
+      )
     },
   })
 }
@@ -208,24 +154,19 @@ export function useUpdatePipelineMetricsConfig(): UseMutationResult<
 
       void queryClient.invalidateQueries({ queryKey: queryKeys.metrics.stats() })
 
-      notifications.show({
-        title: 'Pipeline metrics settings saved',
-        message: 'Metrics collection and retention settings were updated.',
-        color: 'green',
-      })
-    },
-
-    onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't save pipeline metrics settings",
-        message: errorMessage(error, 'Try saving the pipeline metrics settings again.'),
-        color: 'red',
-      })
+      displaySuccessNotification(
+        'Metrics collection and retention settings were updated.',
+        'Pipeline metrics settings saved'
+      )
     },
   })
 }
 
-export function useFlushMetrics(): UseMutationResult<number, Error, string | undefined, unknown> {
+export function useFlushMetrics({
+  toastErrors = true,
+}: {
+  toastErrors?: boolean
+} = {}): UseMutationResult<number, Error, string | undefined, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -255,19 +196,13 @@ export function useFlushMetrics(): UseMutationResult<number, Error, string | und
         void queryClient.invalidateQueries({ queryKey: queryKeys.metrics.all })
       }
 
-      notifications.show({
-        title: 'Metrics deleted',
-        message: `Deleted ${deletedCount} metric${deletedCount !== 1 ? 's' : ''}`,
-        color: 'green',
-      })
+      displaySuccessNotification(`Deleted ${deletedCount} metric${deletedCount !== 1 ? 's' : ''}`, 'Metrics deleted')
     },
 
     onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't delete metrics",
-        message: errorMessage(error, 'Try deleting the stored metrics again.'),
-        color: 'red',
-      })
+      if (toastErrors) {
+        displayErrorNotification(error, "Couldn't delete stored metrics")
+      }
     },
   })
 }

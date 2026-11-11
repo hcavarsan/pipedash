@@ -1,174 +1,133 @@
 use crate::schema::*;
 
-pub fn default_table_schema() -> TableSchema {
-    TableSchema::new()
-        .add_table(default_pipeline_runs_table())
-        .add_table(default_pipelines_table())
+pub fn table_schema(runs: TableDefinition, pipelines: TableDefinition) -> TableSchema {
+    TableSchema::new().add_table(runs).add_table(pipelines)
+}
+
+fn status_column() -> ColumnDefinition {
+    ColumnDefinition::new(
+        "status",
+        "Status",
+        "status",
+        ColumnDataType::Status,
+        CellRenderer::StatusBadge,
+    )
+    .with_width(120)
+    .sortable()
+    .filterable()
 }
 
 pub fn default_pipeline_runs_table() -> TableDefinition {
-    TableDefinition {
-        id: "pipeline_runs".to_string(),
-        name: "Pipeline Runs".to_string(),
-        description: Some("Build/run history for pipelines".to_string()),
-        columns: vec![
-            ColumnDefinition {
-                id: "run_number".to_string(),
-                label: "Run".to_string(),
-                description: Some("Run/build number".to_string()),
-                field_path: "run_number".to_string(),
-                data_type: ColumnDataType::Number,
-                renderer: CellRenderer::Text,
-                visibility: ColumnVisibility::Always,
-                default_visible: true,
-                width: Some(100),
-                sortable: true,
-                filterable: false,
-            },
-            ColumnDefinition {
-                id: "status".to_string(),
-                label: "Status".to_string(),
-                description: None,
-                field_path: "status".to_string(),
-                data_type: ColumnDataType::Status,
-                renderer: CellRenderer::StatusBadge,
-                visibility: ColumnVisibility::Always,
-                default_visible: true,
-                width: Some(120),
-                sortable: true,
-                filterable: true,
-            },
-            ColumnDefinition {
-                id: "branch".to_string(),
-                label: "Branch".to_string(),
-                description: None,
-                field_path: "branch".to_string(),
-                data_type: ColumnDataType::String,
-                renderer: CellRenderer::TruncatedText,
-                visibility: ColumnVisibility::WhenPresent,
-                default_visible: true,
-                width: Some(150),
-                sortable: true,
-                filterable: true,
-            },
-            ColumnDefinition {
-                id: "started_at".to_string(),
-                label: "Started".to_string(),
-                description: None,
-                field_path: "started_at".to_string(),
-                data_type: ColumnDataType::DateTime,
-                renderer: CellRenderer::DateTime,
-                visibility: ColumnVisibility::Always,
-                default_visible: true,
-                width: Some(180),
-                sortable: true,
-                filterable: false,
-            },
-            ColumnDefinition {
-                id: "duration_seconds".to_string(),
-                label: "Duration".to_string(),
-                description: None,
-                field_path: "duration_seconds".to_string(),
-                data_type: ColumnDataType::Duration,
-                renderer: CellRenderer::Duration,
-                visibility: ColumnVisibility::Always,
-                default_visible: true,
-                width: Some(120),
-                sortable: true,
-                filterable: false,
-            },
-            ColumnDefinition {
-                id: "commit_sha".to_string(),
-                label: "Commit".to_string(),
-                description: None,
-                field_path: "commit_sha".to_string(),
-                data_type: ColumnDataType::String,
-                renderer: CellRenderer::Commit,
-                visibility: ColumnVisibility::WhenPresent,
-                default_visible: false,
-                width: Some(140),
-                sortable: false,
-                filterable: false,
-            },
-            ColumnDefinition {
-                id: "actor".to_string(),
-                label: "Actor".to_string(),
-                description: Some("Who triggered the run".to_string()),
-                field_path: "actor".to_string(),
-                data_type: ColumnDataType::String,
-                renderer: CellRenderer::Text,
-                visibility: ColumnVisibility::WhenPresent,
-                default_visible: false,
-                width: Some(120),
-                sortable: true,
-                filterable: true,
-            },
+    TableDefinition::new(
+        "pipeline_runs",
+        "Pipeline Runs",
+        "Build/run history for pipelines",
+        vec![
+            ColumnDefinition::new(
+                "run_number",
+                "Run",
+                "run_number",
+                ColumnDataType::Number,
+                CellRenderer::Text,
+            )
+            .described("Run/build number")
+            .with_width(100)
+            .history_order(),
+            status_column(),
+            ColumnDefinition::new(
+                "branch",
+                "Branch",
+                "branch",
+                ColumnDataType::String,
+                CellRenderer::TruncatedText,
+            )
+            .when_present()
+            .with_width(150)
+            .sortable()
+            .filterable(),
+            ColumnDefinition::new(
+                "started_at",
+                "Started",
+                "started_at",
+                ColumnDataType::DateTime,
+                CellRenderer::DateTime,
+            )
+            .with_width(180)
+            .sortable(),
+            ColumnDefinition::new(
+                "duration_seconds",
+                "Duration",
+                "duration_seconds",
+                ColumnDataType::Duration,
+                CellRenderer::Duration,
+            )
+            .with_width(120)
+            .sortable(),
+            ColumnDefinition::new(
+                "commit_sha",
+                "Commit",
+                "commit_sha",
+                ColumnDataType::String,
+                CellRenderer::Commit,
+            )
+            .when_present()
+            .hidden()
+            .with_width(140),
+            ColumnDefinition::new(
+                "actor",
+                "Actor",
+                "actor",
+                ColumnDataType::String,
+                CellRenderer::Text,
+            )
+            .described("Who triggered the run")
+            .when_present()
+            .hidden()
+            .with_width(120)
+            .sortable()
+            .filterable(),
         ],
-        default_sort_column: Some("run_number".to_string()),
-        default_sort_direction: Some("desc".to_string()),
-    }
+    )
 }
 
 pub fn default_pipelines_table() -> TableDefinition {
-    TableDefinition {
-        id: "pipelines".to_string(),
-        name: "Pipelines".to_string(),
-        description: Some("All pipelines/workflows".to_string()),
-        columns: vec![
-            ColumnDefinition {
-                id: "name".to_string(),
-                label: "Name".to_string(),
-                description: None,
-                field_path: "name".to_string(),
-                data_type: ColumnDataType::String,
-                renderer: CellRenderer::Text,
-                visibility: ColumnVisibility::Always,
-                default_visible: true,
-                width: Some(200),
-                sortable: true,
-                filterable: true,
-            },
-            ColumnDefinition {
-                id: "status".to_string(),
-                label: "Status".to_string(),
-                description: None,
-                field_path: "status".to_string(),
-                data_type: ColumnDataType::Status,
-                renderer: CellRenderer::StatusBadge,
-                visibility: ColumnVisibility::Always,
-                default_visible: true,
-                width: Some(120),
-                sortable: true,
-                filterable: true,
-            },
-            ColumnDefinition {
-                id: "repository".to_string(),
-                label: "Repository".to_string(),
-                description: None,
-                field_path: "repository".to_string(),
-                data_type: ColumnDataType::String,
-                renderer: CellRenderer::TruncatedText,
-                visibility: ColumnVisibility::Always,
-                default_visible: true,
-                width: Some(180),
-                sortable: true,
-                filterable: true,
-            },
-            ColumnDefinition {
-                id: "branch".to_string(),
-                label: "Branch".to_string(),
-                description: None,
-                field_path: "branch".to_string(),
-                data_type: ColumnDataType::String,
-                renderer: CellRenderer::Badge,
-                visibility: ColumnVisibility::WhenPresent,
-                default_visible: true,
-                width: Some(120),
-                sortable: true,
-                filterable: true,
-            },
+    TableDefinition::new(
+        "pipelines",
+        "Pipelines",
+        "All pipelines/workflows",
+        vec![
+            ColumnDefinition::new(
+                "name",
+                "Name",
+                "name",
+                ColumnDataType::String,
+                CellRenderer::Text,
+            )
+            .with_width(200)
+            .sortable()
+            .filterable(),
+            status_column(),
+            ColumnDefinition::new(
+                "repository",
+                "Repository",
+                "repository",
+                ColumnDataType::String,
+                CellRenderer::TruncatedText,
+            )
+            .with_width(180)
+            .sortable()
+            .filterable(),
+            ColumnDefinition::new(
+                "branch",
+                "Branch",
+                "branch",
+                ColumnDataType::String,
+                CellRenderer::Badge,
+            )
+            .when_present()
+            .with_width(120)
+            .sortable()
+            .filterable(),
         ],
-        default_sort_column: Some("name".to_string()),
-        default_sort_direction: Some("asc".to_string()),
-    }
+    )
 }

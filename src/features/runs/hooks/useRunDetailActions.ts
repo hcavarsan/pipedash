@@ -1,22 +1,23 @@
 import { logger } from '../../../lib/logger'
 import { useCancelRun, useRerunFailedJobs, useRerunRun } from '../../../queries/useRunHistoryQueries'
-import type { Pipeline, PipelineRun } from '../../../types/domain'
-import type { RerunMode } from '../../../utils/rerunSummary'
-import { useRerunWorkflow } from '../queries/useRunDetailsQuery'
+import { useModalStore } from '../../../stores/modalStore'
+import type { Pipeline, PipelineRun } from '../../../types/pipelines'
+import type { RerunMode } from '../lib/runActions'
 
 interface UseRunDetailActionsOptions {
   pipelineId: string
   runNumber: number
   pipeline: Pipeline | undefined
   run: PipelineRun | undefined
-  rerunInPlace: boolean
   onClose: () => void
   onRerunSuccess?: ((pipelineId: string, newRunNumber: number) => void) | undefined
   onCancelSuccess?: (() => void) | undefined
   onCancelRequested: () => void
+  forceConfirmation?: string | undefined
+  cancellationRequested?: boolean | undefined
 }
 
-interface UseRunDetailActionsResult {
+export interface UseRunDetailActionsResult {
   rerun: (mode: RerunMode) => Promise<void>
   cancel: () => Promise<void>
   rerunPending: boolean
@@ -28,14 +29,15 @@ export function useRunDetailActions({
   runNumber,
   pipeline,
   run,
-  rerunInPlace,
   onClose,
   onRerunSuccess,
   onCancelSuccess,
   onCancelRequested,
+  forceConfirmation,
+  cancellationRequested = false,
 }: UseRunDetailActionsOptions): UseRunDetailActionsResult {
   const cancelRun = useCancelRun()
-  const rerunMutation = useRerunWorkflow()
+  const openTriggerModal = useModalStore((state) => state.openTriggerModal)
   const rerunRunMutation = useRerunRun()
   const rerunFailedMutation = useRerunFailedJobs()
 
@@ -44,22 +46,17 @@ export function useRunDetailActions({
       return
     }
 
-    try {
-      if (mode === 'failed' || rerunInPlace) {
-        await (mode === 'failed' ? rerunFailedMutation : rerunRunMutation).mutateAsync({ pipelineId, runNumber })
-        onClose()
-        onRerunSuccess?.(pipelineId, runNumber)
-
-        return
-      }
-
-      const result = await rerunMutation.mutateAsync({ pipelineId, inputs: run.inputs })
-
+    if (mode !== 'failed' && pipeline?.actions.rerun_strategy !== 'in_place') {
       onClose()
+      openTriggerModal(pipelineId, runNumber)
 
-      if (onRerunSuccess && result.newRunNumber > 0) {
-        onRerunSuccess(pipelineId, result.newRunNumber)
-      }
+      return
+    }
+
+    try {
+      await (mode === 'failed' ? rerunFailedMutation : rerunRunMutation).mutateAsync({ pipelineId, runNumber })
+      onClose()
+      onRerunSuccess?.(pipelineId, runNumber)
     } catch (error: unknown) {
       logger.error('WorkflowLogsModal', 'Failed to re-run workflow', error)
       throw error
@@ -72,7 +69,16 @@ export function useRunDetailActions({
     }
 
     try {
-      if (await cancelRun.mutateAsync({ pipelineId, runNumber, pipeline, run })) {
+      const requested = await cancelRun.mutateAsync({
+        pipelineId,
+        runNumber,
+        pipeline,
+        run,
+        forceConfirmation,
+        preferForce: cancellationRequested,
+      })
+
+      if (requested) {
         onCancelRequested()
         onCancelSuccess?.()
       }
@@ -84,7 +90,7 @@ export function useRunDetailActions({
   return {
     rerun,
     cancel,
-    rerunPending: rerunMutation.isPending || rerunRunMutation.isPending || rerunFailedMutation.isPending,
+    rerunPending: rerunRunMutation.isPending || rerunFailedMutation.isPending,
     cancelPending: cancelRun.isPending,
   }
 }

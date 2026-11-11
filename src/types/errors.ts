@@ -86,21 +86,66 @@ export function getErrorCode(error: unknown): string | undefined {
   return undefined
 }
 
+function statusOf(error: unknown): number | undefined {
+  const status = getHttpStatus(error)
+
+  if (status !== undefined || !isRecord(error)) {
+    return status
+  }
+
+  return getHttpStatus(error.cause)
+}
+
+function classifyByCode(error: unknown): PipedashError | undefined {
+  const code = getErrorCode(error)
+  const status = statusOf(error)
+  const message = formatErrorMessage(error)
+
+  switch (code) {
+    case 'UNAUTHORIZED':
+    case 'PROVIDER_AUTH_FAILED':
+      return { type: 'auth', message, cause: error }
+    case 'FORBIDDEN':
+      return { type: 'permission', message, missingPermissions: [], cause: error }
+    case 'NOT_FOUND':
+      return { type: 'not_found', message, cause: error }
+    case 'TIMEOUT':
+      return { type: 'timeout', message, cause: error }
+    case 'NETWORK_ERROR':
+    case 'SERVICE_UNAVAILABLE':
+    case 'SERVER_NOT_READY':
+    case 'UNREACHABLE':
+      return { type: 'network', message, ...(status !== undefined ? { statusCode: status } : {}), cause: error }
+    case undefined:
+      return status === 502 || status === 503 || status === 504
+        ? { type: 'network', message, statusCode: status, cause: error }
+        : undefined
+    default:
+      return undefined
+  }
+}
+
 export function toPipedashError(error: unknown): PipedashError {
-  if (isPipedashError(error)) {
+  if (isPipedashError(error) && error.type !== 'unknown') {
     return error
   }
 
-  if (error instanceof Error) {
-    if (error.name === 'TypeError' && error.message.includes('fetch')) {
-      return { type: 'network', message: 'Network request failed', cause: error }
-    }
+  const classified = classifyByCode(error)
 
-    if (error.name === 'TimeoutError' || error.message.includes('timeout')) {
+  if (classified) {
+    return classified
+  }
+
+  if (error instanceof Error) {
+    if (error.name === 'TimeoutError') {
       return { type: 'timeout', message: 'Request timed out', cause: error }
     }
 
     return { type: 'unknown', message: error.message, cause: error }
+  }
+
+  if (isPipedashError(error)) {
+    return error
   }
 
   if (typeof error === 'string') {
@@ -112,6 +157,12 @@ export function toPipedashError(error: unknown): PipedashError {
   }
 
   return { type: 'unknown', message: 'An unknown error occurred', cause: error }
+}
+
+export function isTransientError(error: unknown): boolean {
+  const { type } = toPipedashError(error)
+
+  return type === 'network' || type === 'timeout'
 }
 
 function isCommandError(error: unknown): error is { error: string } {

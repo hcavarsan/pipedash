@@ -1,6 +1,6 @@
 import type { DataTableColumn } from 'mantine-datatable'
 
-import type { PipelineRun } from '../../../types/domain'
+import type { PipelineRun } from '../../../types/pipelines'
 import { reorderSlots } from '../../../utils/viewTree'
 
 export interface ColumnItem {

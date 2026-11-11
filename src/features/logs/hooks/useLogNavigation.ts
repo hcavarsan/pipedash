@@ -109,7 +109,7 @@ export function useLogNavigation({
   }
 
   const nextMatch = () => {
-    if (matches.length === 0) {
+    if (!settled || matches.length === 0) {
       return
     }
 
@@ -126,7 +126,7 @@ export function useLogNavigation({
   }
 
   const prevMatch = () => {
-    if (matches.length === 0) {
+    if (!settled || matches.length === 0) {
       return
     }
 

@@ -1,14 +1,24 @@
 pub mod credential;
+pub mod date_range;
+pub mod device_alert;
 pub mod error;
 pub mod health;
 pub mod metrics;
+pub mod metrics_dashboard;
+pub mod notification_center;
+pub mod pairing;
 pub mod pipeline;
+pub mod pipeline_id;
 pub mod pipeline_view;
 pub mod provider;
+pub mod provider_attention;
+pub mod provider_draft;
 pub mod push;
 pub mod refresh;
+pub mod run_action_batch;
+pub mod run_history;
 pub mod run_logs;
-pub mod validation;
+pub mod setup;
 
 pub use credential::{
     SignInCredential,
@@ -17,6 +27,24 @@ pub use credential::{
     SignInStatus,
     SIGN_IN_CONFIG_KEY,
     SIGN_IN_EXPIRED,
+};
+pub use date_range::DateRange;
+pub use device_alert::preferences::{
+    change_preferences,
+    merge_fired_watches,
+    NotificationPreferenceSnapshot,
+    PipelineNotifyState,
+    PreferenceChange,
+};
+pub use device_alert::{
+    new_alert_id,
+    AlertKind,
+    DeviceAlert,
+    DevicePush,
+    NewDeviceAlert,
+    NotificationPreferences,
+    OnceWatch,
+    RunFinish,
 };
 pub use error::{
     DomainError,
@@ -28,8 +56,6 @@ pub use health::{
     EvidenceView,
     HealthLevel,
     HealthSignal,
-    Incident,
-    Maintenance,
     ProviderHealth,
     SignalKind,
     StatusPageRef,
@@ -49,29 +75,57 @@ pub use metrics::{
     MetricsStats,
     PipelineMetricsStats,
 };
+pub use metrics_dashboard::{
+    MetricRangeOption,
+    MetricSortField,
+    MetricStats,
+    MetricTableSort,
+    MetricsDashboard,
+    MetricsDashboardQuery,
+};
+pub use pairing::{
+    PairedDevice,
+    ServerUrl,
+};
 pub use pipeline::{
     PaginatedAvailablePipelines,
-    PaginatedRunHistory,
     PaginationParams,
     Pipeline,
     PipelineRun,
     PipelineStatus,
     ResourceState,
+    RunPace,
     TriggerParams,
+};
+pub use pipeline_view::presentation::{
+    SectionPresentation,
+    ViewPresentation,
+};
+pub use pipeline_view::reference::{
+    ViewKind,
+    ViewRef,
+};
+pub use pipeline_view::rules::ViewRules;
+pub use pipeline_view::selection::{
+    PipelineNavigation,
+    ViewEditorOptions,
+    ViewMembershipChange,
+    ViewSelectionEntry,
+    ViewSelectionQuery,
 };
 pub use pipeline_view::{
     CreateViewInput,
-    DateRange,
     LegacyImportResult,
     LegacyMarks,
     MembershipSource,
     PinKind,
     PinnedBlock,
     PinnedItem,
+    PipelineMenuEntry,
+    PipelineMenuSnapshot,
     PipelineView,
     PipelineViewPage,
     PipelineViewQuery,
-    RuleMatcher,
     SectionKind,
     SectionMode,
     SortDirection,
@@ -79,14 +133,11 @@ pub use pipeline_view::{
     ViewCapabilities,
     ViewDisplay,
     ViewFacets,
-    ViewKind,
     ViewLayout,
     ViewMember,
     ViewMembership,
     ViewPatch,
     ViewPipeline,
-    ViewRef,
-    ViewRules,
     ViewSection,
 };
 pub use provider::{
@@ -95,6 +146,7 @@ pub use provider::{
     Provider,
     ProviderConfig,
     ProviderFreshness,
+    ProviderImportFailure,
     ProviderImportResult,
     ProviderRecovery,
     ProviderSummary,
@@ -103,6 +155,18 @@ pub use push::PushSubscription;
 pub use refresh::{
     RefreshResult,
     RefreshState,
+};
+pub use run_action_batch::{
+    CancelGroup,
+    CancellationBatch,
+    CancellationResult,
+    CancellationTargets,
+    RunTarget,
+    SkippedPipeline,
+};
+pub use run_history::{
+    RunHistoryPage,
+    RunHistoryQuery,
 };
 pub use run_logs::{
     AnsiColor,
@@ -115,6 +179,7 @@ pub use run_logs::{
     LogDocumentMeta,
     LogLine,
     LogLinesPage,
+    LogLinesQuery,
     LogNode,
     LogNodeKind,
     LogRead,
@@ -128,14 +193,7 @@ pub use run_logs::{
     ParsedLine,
     PlainDialect,
     RunLogDocument,
+    RunLogGroup,
     RunLogNode,
     RunLogTree,
-};
-pub use validation::{
-    validate_config,
-    validate_pagination,
-    validate_pipeline_id,
-    validate_provider_name,
-    validate_provider_type,
-    validate_trigger_params,
 };

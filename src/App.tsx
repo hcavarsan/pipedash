@@ -8,16 +8,24 @@ import { ErrorState } from './components/common/ErrorState'
 import { LazyRoute } from './components/common/LazyRoute'
 import { LoadingState } from './components/common/LoadingState'
 import { ErrorBoundary } from './components/ErrorBoundary/ErrorBoundary'
+import { HostUnreachableScreen } from './features/connection/components/HostUnreachableScreen'
 import { ConfigErrorScreen } from './features/setup/components/ConfigErrorScreen'
 import { RequireAuth } from './features/vault/components/RequireAuth'
 import { logger } from './lib/logger'
 import { queryKeys } from './lib/queryKeys'
+import { isRemoteClient } from './services/connection'
 import { service } from './services/service'
 import { formatErrorMessage } from './types/errors'
 
 const UnlockRoute = lazy(() =>
   import('./features/vault/routes/UnlockRoute').then((m) => ({
     default: m.UnlockRoute,
+  }))
+)
+
+const ConnectServerScreen = lazy(() =>
+  import('./features/connection/components/ConnectServerScreen').then((m) => ({
+    default: m.ConnectServerScreen,
   }))
 )
 
@@ -58,6 +66,7 @@ export function App(): ReactNode {
   const handleSetupComplete = (): void => {
     setSetupActive(false)
     void queryClient.invalidateQueries({ queryKey: queryKeys.setup.status() })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.plugins.all })
   }
 
   const retrySetupStatus = (): void => {
@@ -77,7 +86,11 @@ export function App(): ReactNode {
   })
 
   if (checkingSetup) {
-    return <LoadingState variant="page" message="Loading Pipedash" />
+    return <LoadingState variant="page" message="Loading Pipedash…" />
+  }
+
+  if (setupFailed && isRemoteClient()) {
+    return <HostUnreachableScreen onRetry={refetchSetupStatus} />
   }
 
   if (setupFailed) {
@@ -108,7 +121,7 @@ export function App(): ReactNode {
   if (needsSetup || setupActive) {
     return (
       <ErrorBoundary name="Setup wizard">
-        <Suspense fallback={<LoadingState variant="page" message="Loading setup..." />}>
+        <Suspense fallback={<LoadingState variant="page" message="Loading setup…" />}>
           <SetupWizard opened onComplete={handleSetupComplete} />
         </Suspense>
       </ErrorBoundary>
@@ -122,6 +135,15 @@ export function App(): ReactNode {
         element={
           <LazyRoute>
             <UnlockRoute />
+          </LazyRoute>
+        }
+      />
+
+      <Route
+        path="/connect"
+        element={
+          <LazyRoute>
+            <ConnectServerScreen />
           </LazyRoute>
         }
       />

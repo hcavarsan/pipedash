@@ -3,17 +3,17 @@ import { after, afterEach, beforeEach, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, type ReactNode } from 'react'
-
-import type { PipelineStatus } from '../types/domain'
 import type { RunLogNode, RunLogTree } from '../types/logs'
+import type { PipelineStatus } from '../types/pipelines'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
 const { act, cleanup, renderHook, waitFor } = await import('@testing-library/react')
 const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
-const { events } = await import('../services/service')
+const { wsClient } = await import('../services/websocket')
 const { apiService } = await import('../services/api')
 const { tauriService } = await import('../services/tauri')
+const { notifications } = await import('../lib/notifications')
 const { useRerunFailedJobs, useRerunRun } = await import('./useRunHistoryQueries')
 const { useRunLogTree } = await import('./useRunLogQueries')
 
@@ -58,16 +58,28 @@ const rerunHooks = [
 for (const [hookName, method, useRerun] of rerunHooks) {
   test(`reopening logs right after ${hookName} fetches the new attempt`, async (context) => {
     const pipelineId = `github__1__o/r/${hookName}`
-    const firstAttempt: RunLogTree = { nodes: [job('111', 'failed')], default_node_id: '111', complete: true }
-    const secondAttempt: RunLogTree = { nodes: [job('222', 'running')], default_node_id: null, complete: false }
+    const firstAttempt: RunLogTree = {
+      nodes: [job('111', 'failed')],
+      default_node_id: '111',
+      complete: true,
+      groups: [],
+      step_ids_by_node: {},
+    }
+    const secondAttempt: RunLogTree = {
+      nodes: [job('222', 'running')],
+      default_node_id: null,
+      complete: false,
+      groups: [],
+      step_ids_by_node: {},
+    }
     let current = firstAttempt
     const trees = context.mock.fn(async () => current)
 
     context.mock.method(apiService, 'getRunLogTree', trees)
     context.mock.method(tauriService, 'getRunLogTree', trees)
-    context.mock.method(apiService, method, async () => undefined)
-    context.mock.method(tauriService, method, async () => undefined)
-    context.mock.method(events, 'listen', async () => () => undefined)
+    context.mock.method(apiService, method, async () => ({ run_id: null, run_number: null }))
+    context.mock.method(tauriService, method, async () => ({ run_id: null, run_number: null }))
+    context.mock.method(wsClient, 'listen', async () => () => undefined)
     notifyManager.setNotifyFunction((callback) => act(callback))
 
     const first = renderHook(() => useRunLogTree(pipelineId, 7, true), { wrapper })
@@ -104,7 +116,13 @@ for (const [hookName, method, useRerun] of rerunHooks) {
 test('a rejected rerun keeps the previous log tree and exposes the error', async (context) => {
   const pipelineId = 'github__1__o/r/rejected'
   const trees = context.mock.fn(
-    async (): Promise<RunLogTree> => ({ nodes: [job('111', 'failed')], default_node_id: '111', complete: true })
+    async (): Promise<RunLogTree> => ({
+      nodes: [job('111', 'failed')],
+      default_node_id: '111',
+      complete: true,
+      groups: [],
+      step_ids_by_node: {},
+    })
   )
   const failing = async () => {
     throw new Error('provider rejected rerun')
@@ -113,7 +131,7 @@ test('a rejected rerun keeps the previous log tree and exposes the error', async
   context.mock.method(tauriService, 'getRunLogTree', trees)
   context.mock.method(apiService, 'rerunRun', failing)
   context.mock.method(tauriService, 'rerunRun', failing)
-  context.mock.method(events, 'listen', async () => () => undefined)
+  context.mock.method(wsClient, 'listen', async () => () => undefined)
   notifyManager.setNotifyFunction((callback) => act(callback))
 
   const tree = renderHook(() => useRunLogTree(pipelineId, 7, true), { wrapper })
@@ -133,7 +151,7 @@ test('a rejected rerun keeps the previous log tree and exposes the error', async
 
 test('a pending rerun reports pending until the provider answers', async (context) => {
   const pipelineId = 'github__1__o/r/pending'
-  const gate = Promise.withResolvers<undefined>()
+  const gate = Promise.withResolvers<{ run_id: null; run_number: null }>()
   const slow = () => gate.promise
   context.mock.method(apiService, 'rerunRun', slow)
   context.mock.method(tauriService, 'rerunRun', slow)
@@ -145,30 +163,59 @@ test('a pending rerun reports pending until the provider answers', async (contex
   })
   await waitFor(() => assert.equal(rerun.result.current.isPending, true))
 
-  gate.resolve(undefined)
+  gate.resolve({ run_id: null, run_number: null })
   await waitFor(() => assert.equal(rerun.result.current.isPending, false))
 })
 
 test('an empty log tree after rerun is shown as empty', async (context) => {
   const pipelineId = 'github__1__o/r/empty'
-  let current: RunLogTree = { nodes: [job('111', 'failed')], default_node_id: '111', complete: true }
+  let current: RunLogTree = {
+    nodes: [job('111', 'failed')],
+    default_node_id: '111',
+    complete: true,
+    groups: [],
+    step_ids_by_node: {},
+  }
   const trees = context.mock.fn(async () => current)
-  const done = async () => undefined
+  const done = async () => ({ run_id: null, run_number: null })
   context.mock.method(apiService, 'getRunLogTree', trees)
   context.mock.method(tauriService, 'getRunLogTree', trees)
   context.mock.method(apiService, 'rerunRun', done)
   context.mock.method(tauriService, 'rerunRun', done)
-  context.mock.method(events, 'listen', async () => () => undefined)
+  context.mock.method(wsClient, 'listen', async () => () => undefined)
   notifyManager.setNotifyFunction((callback) => act(callback))
 
   const tree = renderHook(() => useRunLogTree(pipelineId, 7, true), { wrapper })
   await waitFor(() => assert.equal(tree.result.current.data?.nodes.length, 1))
   const rerun = renderHook(() => useRerunRun(), { wrapper })
 
-  current = { nodes: [], default_node_id: null, complete: false }
+  current = { nodes: [], default_node_id: null, complete: false, groups: [], step_ids_by_node: {} }
   await act(async () => {
     await rerun.result.current.mutateAsync({ pipelineId, runNumber: 7 })
   })
 
   await waitFor(() => assert.equal(tree.result.current.data?.nodes.length, 0))
+})
+
+test('a rerun says Run started only when the provider confirmed a run', async (context) => {
+  const shown = context.mock.method(notifications, 'show', () => 'id')
+  let result: { run_id: string | null; run_number: number | null } = { run_id: null, run_number: null }
+  const answer = async () => result
+  context.mock.method(apiService, 'rerunRun', answer)
+  context.mock.method(tauriService, 'rerunRun', answer)
+  notifyManager.setNotifyFunction((callback) => act(callback))
+  const rerun = renderHook(() => useRerunRun(), { wrapper })
+
+  await act(async () => {
+    await rerun.result.current.mutateAsync({ pipelineId: 'github__1__o/r/title', runNumber: 7 })
+  })
+  result = { run_id: '9', run_number: 8 }
+  await act(async () => {
+    await rerun.result.current.mutateAsync({ pipelineId: 'github__1__o/r/title', runNumber: 7 })
+  })
+
+  assert.deepEqual(
+    shown.mock.calls.map((call) => call.arguments[0]?.title),
+    ['Rerun requested', 'Run started']
+  )
 })

@@ -1,21 +1,21 @@
 import { invoke } from '@tauri-apps/api/core'
-
-import type {
-  AppLockStatus,
-  BuildWatchStatus,
-  ExportFileResult,
-  LocalNotificationSettings,
-  NativeIntent,
-  PushStatus,
-  UnlockVaultResponse,
-} from '../types/domain'
 import { toPipedashError } from '../types/errors'
+import type { ExportFileResult, PendingNativeIntent } from '../types/native'
+import type {
+  AlertHostInfo,
+  BuildWatchStatus,
+  HostAlert,
+  LocalNotificationSettings,
+  NotificationPreferences,
+  WatchOnce,
+} from '../types/notifications'
+import type { AppLockStatus, UnlockVaultResponse } from '../types/vault'
 
 export const NATIVE_INTENT_EVENT = 'native-intent'
 export const STATUS_BAR_TAP_EVENT = 'native-status-bar-tap'
 export const NATIVE_ACCESSIBILITY_EVENT = 'pipedash:accessibility-change'
 
-async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+export async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   try {
     return await invoke<T>(cmd, args)
   } catch (error) {
@@ -50,8 +50,6 @@ export const mobileService = {
       sourceRect: { x: sourceRect.x, y: sourceRect.y, width: sourceRect.width, height: sourceRect.height },
     }),
 
-  getPushStatus: (): Promise<PushStatus> => call('get_push_status'),
-
   getBuildWatch: (): Promise<BuildWatchStatus> => call('get_build_watch'),
 
   startBuildWatch: (pipelineId: string, runNumber: number): Promise<BuildWatchStatus> =>
@@ -64,12 +62,19 @@ export const mobileService = {
   setLocalNotificationsEnabled: (enabled: boolean): Promise<LocalNotificationSettings> =>
     call('set_local_notifications_enabled', { enabled }),
 
-  pushPairServer: (serverUrl: string, apiToken: string, label?: string): Promise<PushStatus> =>
-    call('push_pair_server', { serverUrl, apiToken, label }),
+  sendTestAlert: (): Promise<void> => call('send_test_alert'),
 
-  pushUnpairServer: (id: string): Promise<PushStatus> => call('push_unpair_server', { id }),
+  pairAlertHost: (address: string, code: string | null, allowPrivateHttp: boolean): Promise<AlertHostInfo> =>
+    call('pair_alert_host', { address, code, allowPrivateHttp }),
 
-  pushSendTest: (id: string): Promise<void> => call('push_send_test', { id }),
+  removeAlertHost: (): Promise<void> => call('remove_alert_host'),
+
+  takeMissedAlerts: (): Promise<HostAlert[]> => call('take_missed_alerts'),
+
+  setNotificationPreferences: (preferences: NotificationPreferences): Promise<WatchOnce[]> =>
+    call('set_notification_preferences', { preferences }),
+
+  loadNotificationPreferences: (): Promise<NotificationPreferences | null> => call('load_notification_preferences'),
 
   haptic: (kind: HapticKind): Promise<void> => call('native_haptic', { kind }),
 
@@ -83,5 +88,7 @@ export const mobileService = {
 
   releasePrivacyCover: (): Promise<void> => call('native_release_privacy_cover'),
 
-  takePendingIntent: (): Promise<NativeIntent | null> => call('native_take_pending_intent'),
+  peekPendingIntent: (): Promise<PendingNativeIntent | null> => call('native_peek_pending_intent'),
+
+  ackPendingIntent: (id: number): Promise<void> => call('native_ack_pending_intent', { id }),
 }

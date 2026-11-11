@@ -28,7 +28,7 @@ export function RequireAuth({ children }: RequireAuthProps): ReactNode {
   const needsUnlock = vaultStatus ? vaultNeedsUnlock(vaultStatus, isTauri(), isAuthenticated) : false
 
   if (isLoadingVault) {
-    return <LoadingState variant="page" message="Checking vault status" />
+    return <LoadingState variant="page" message="Checking vault status…" />
   }
 
   if (isError && !vaultStatus) {
@@ -38,7 +38,7 @@ export function RequireAuth({ children }: RequireAuthProps): ReactNode {
           headingOrder={1}
           icon={
             <ThemeIcon variant="transparent" color="red" size={48}>
-              <IconAlertCircle size={40} aria-hidden />
+              <IconAlertCircle size={24} aria-hidden />
             </ThemeIcon>
           }
           title="Couldn't check vault status"

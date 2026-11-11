@@ -4,7 +4,7 @@ import { after, afterEach, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement } from 'react'
 
-import type { LogViewerHandle } from '../../logs/components/LogViewer'
+import type { LogViewerHandle } from '../../logs/lib/logViewerTypes'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 

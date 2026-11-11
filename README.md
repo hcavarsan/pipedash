@@ -1,9 +1,9 @@
 <div align="center">
   <br>
   <img src="./app-icon.png" width="102px" alt="Pipedash logo" />
-  <h1>Pipedash</h1>
-  <p>One dashboard for the CI/CD pipelines of every provider you use.</p>
-  <a href="https://pipedash.app">Website</a> | <a href="https://pipedash.app/downloads">Downloads</a> | <a href="https://pipedash.app/docs">Docs</a>
+  <h3>Pipedash</h3>
+  <p>One dashboard for CI/CD pipelines across multiple providers.</p>
+  <a href="https://pipedash.app">Website</a> | <a href="https://demo.pipedash.app">Live Demo</a> | <a href="https://pipedash.app/downloads">Downloads</a> | <a href="https://pipedash.app/docs">Docs</a>
   <br><br>
   <a href="https://trendshift.io/repositories/17107?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-17107" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/17107/daily?language=Rust" alt="hcavarsan%2Fpipedash | Trendshift" width="250" height="55"/></a>
   <br><br>
@@ -16,6 +16,9 @@
   <a href="https://crates.io/crates/pipedash-web">
     <img src="https://img.shields.io/crates/v/pipedash-web?style=for-the-badge&logo=rust" alt="pipedash-web on crates.io">
   </a>
+  <a href="https://codecov.io/gh/hcavarsan/pipedash">
+    <img src="https://img.shields.io/codecov/c/github/hcavarsan/pipedash/main?style=for-the-badge&logo=codecov" alt="Codecov coverage">
+  </a>
   <br>
   <a href="https://apps.apple.com/br/app/pipedash-ci-cd-monitoring/id6757285870?l=en-GB">
     <img src="https://img.shields.io/badge/iOS-App%20Store-0D96F6?style=for-the-badge&logo=apple&logoColor=white" alt="iOS app on the App Store" height="40">
@@ -27,10 +30,86 @@
 </div>
 
 <p align="center">
-  <a href="https://pipedash.app">
-    <img src="https://pipedash.app/video/pipedash-hero-v5.webp" alt="Pipedash demo: the provider list, a workflow triggered with inputs, pinned workflows, a run history and build metrics" width="100%" />
-  </a>
+  <img src="./.github/diagrams/how-it-works.png" alt="How Pipedash works: it reads status and logs from the CI/CD providers, sends run and cancel actions back to them, and shows everything on desktop, web and mobile" width="100%" />
 </p>
+
+## Features
+
+<div align="center">
+<table>
+  <tr>
+    <td align="center" width="120"><img src="./.github/icons/monitor.svg" width="32" height="32" alt="" /><br><b>Monitor</b></td>
+    <td width="420">See the status of every pipeline in one place.</td>
+    <td width="264"><a href="https://pipedash.app/docs/features/dashboard">Dashboard</a><br><a href="https://pipedash.app/docs/features/provider-health">Provider health</a></td>
+  </tr>
+  <tr>
+    <td align="center" width="120"><img src="./.github/icons/organize.svg" width="32" height="32" alt="" /><br><b>Organize</b></td>
+    <td width="420">Group pipelines into saved views with rules, pins and bulk actions.</td>
+    <td width="264"><a href="https://pipedash.app/docs/features/views">Views</a></td>
+  </tr>
+  <tr>
+    <td align="center" width="120"><img src="./.github/icons/investigate.svg" width="32" height="32" alt="" /><br><b>Investigate</b></td>
+    <td width="420">Find out why a run failed.</td>
+    <td width="264"><a href="https://pipedash.app/docs/features/run-logs">Run logs</a><br><a href="https://pipedash.app/docs/features/metrics">Metrics</a></td>
+  </tr>
+  <tr>
+    <td align="center" width="120"><img src="./.github/icons/act.svg" width="32" height="32" alt="" /><br><b>Act</b></td>
+    <td width="420">Start a workflow with inputs or stop a run.</td>
+    <td width="264"><a href="https://pipedash.app/docs/features/trigger-and-cancel">Trigger and cancel</a></td>
+  </tr>
+  <tr>
+    <td align="center" width="120"><img src="./.github/icons/notify.svg" width="32" height="32" alt="" /><br><b>Notify</b></td>
+    <td width="420">Get an alert when a pipeline fails or recovers.</td>
+    <td width="264"><a href="https://pipedash.app/docs/features/notifications">Notifications</a></td>
+  </tr>
+</table>
+</div>
+
+## About
+
+Pipedash shows pipelines from the supported CI/CD providers in one table, so finding a failed build no longer means switching between dashboards. It polls each provider with a token or kubeconfig and caches the results. The same table opens, triggers, reruns and cancels runs.
+
+It runs as a desktop app, as a self-hosted web server in Docker or as an iOS and Android app. All of them share one Rust core.
+
+### Supported providers
+
+<div align="center">
+<table>
+  <tr>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/github-actions"><img src="./crates/pipedash-plugin-github/assets/icon.svg" width="40" height="40" alt="" /><br><b>GitHub&nbsp;Actions</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/gitlab-ci"><img src="./crates/pipedash-plugin-gitlab/assets/icon.svg" width="40" height="40" alt="" /><br><b>GitLab&nbsp;CI</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/gitea-actions"><img src="./crates/pipedash-plugin-gitea/assets/icon.svg" width="40" height="40" alt="" /><br><b>Gitea&nbsp;Actions</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/bitbucket-pipelines"><img src="./crates/pipedash-plugin-bitbucket/assets/icon.svg" width="40" height="40" alt="" /><br><b>Bitbucket&nbsp;Pipelines</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/azure-devops"><img src="./crates/pipedash-plugin-azure-devops/assets/icon.svg" width="40" height="40" alt="" /><br><b>Azure&nbsp;DevOps</b></a></td>
+  </tr>
+  <tr>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/circleci"><img src="./crates/pipedash-plugin-circleci/assets/icon.svg" width="40" height="40" alt="" /><br><b>CircleCI</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/buildkite"><img src="./crates/pipedash-plugin-buildkite/assets/icon.svg" width="40" height="40" alt="" /><br><b>Buildkite</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/jenkins"><img src="./crates/pipedash-plugin-jenkins/assets/icon.svg" width="40" height="40" alt="" /><br><b>Jenkins</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/woodpecker"><img src="./crates/pipedash-plugin-woodpecker/assets/icon.svg" width="40" height="40" alt="" /><br><b>Woodpecker&nbsp;CI</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/tekton"><img src="./crates/pipedash-plugin-tekton/assets/icon.svg" width="40" height="40" alt="" /><br><b>Tekton&nbsp;CD</b></a></td>
+  </tr>
+  <tr>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/argocd"><img src="./crates/pipedash-plugin-argocd/assets/icon.svg" width="40" height="40" alt="" /><br><b>ArgoCD</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/fluxcd"><img src="./crates/pipedash-plugin-fluxcd/assets/icon.svg" width="40" height="40" alt="" /><br><b>FluxCD</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/prow"><img src="./crates/pipedash-plugin-prow/assets/icon.svg" width="40" height="40" alt="" /><br><b>Prow</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/komodo"><img src="./crates/pipedash-plugin-komodo/assets/icon.svg" width="40" height="40" alt="" /><br><b>Komodo</b></a></td>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/coolify"><img src="./crates/pipedash-plugin-coolify/assets/icon.svg" width="40" height="40" alt="" /><br><b>Coolify</b></a></td>
+  </tr>
+</table>
+</div>
+
+## Get started
+
+### One-Click Deploy
+
+[![Deploy on RepoCloud](https://d16t0pc4846x52.cloudfront.net/deploylobe.svg)](https://repocloud.io/details/Pipedash/)
+
+- **Install** it with the [installation guide](https://pipedash.app/docs/getting-started/installation).
+- **Add a provider** with the [quick start](https://pipedash.app/docs/getting-started/quick-start).
+- **Run** it on [desktop](https://pipedash.app/docs/deployment/desktop), [mobile](https://pipedash.app/docs/deployment/mobile) or [Docker](https://pipedash.app/docs/deployment/docker).
+- **Share** one server through [Server mode](https://pipedash.app/docs/deployment/server-mode), a [reverse proxy](https://pipedash.app/docs/deployment/reverse-proxy) or the [REST API](https://pipedash.app/docs/deployment/rest-api).
+- **Configure** [settings](https://pipedash.app/docs/configuration), [storage](https://pipedash.app/docs/configuration/storage-backends), [tokens](https://pipedash.app/docs/configuration/token-storage) and the [cache](https://pipedash.app/docs/features/cache).
 
 ## Screenshots
 
@@ -80,72 +159,13 @@
 
 </details>
 
-## About
-
-Pipedash shows the pipelines of all your CI/CD providers in one table, so you stop switching between dashboards to find the build that failed. It polls each provider with the token or kubeconfig you add and caches the results. From the same table you open, trigger, rerun and cancel runs.
-
-It runs as a desktop app, as a self-hosted web server in Docker or as an iOS and [Android](https://pipedash.app/android) app. All of them share one Rust core.
-
-```mermaid
-flowchart LR
-  subgraph Providers
-    GH[GitHub Actions]
-    GL[GitLab CI]
-    K8S[Tekton, ArgoCD, FluxCD, Prow]
-    More[Gitea, Bitbucket, Buildkite, Jenkins, Azure DevOps, Komodo]
-  end
-  Providers -- API polling --> Core[pipedash-core]
-  Core <--> DB[(SQLite or PostgreSQL)]
-  Core --> Desktop[Desktop app]
-  Core --> Web[Web server]
-  Core --> Mobile[iOS and Android apps]
-```
-
-## Supported providers
-
-GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkins, Azure DevOps Pipelines, Tekton CD, ArgoCD, FluxCD, Prow and Komodo Stacks. Each one is a plugin crate. The [providers guide](https://pipedash.app/docs/providers) lists the token and permissions each provider needs.
-
-## Features
-
-- See the status of every pipeline, grouped by repository and workflow, and pin the ones you watch most. Hide a workflow you don't watch, and it leaves the table and its repository's status until you unhide it under Show hidden.
-- Organize pipelines into your own views, shown as tabs and in the sidebar, and nest views up to three levels deep. A parent view lists its sub-views as sections first, then its own pipelines, and you can open any sub-view from its section. Add pipelines by hand or by rules (provider, repository pattern such as `acme/*`, name and status), or define read-only views under `[views.<key>]` in `config.toml`. Each view keeps its own sort, sections and table or card layout. Pin views and repositories to the sidebar. Select several pipelines to pin, hide, add them to a view or create a new view from them at once.
-- Open the run history with commits, branches and durations, and track build metrics per pipeline.
-- Read, search and download job logs without leaving Pipedash. Live reads stop after 45 seconds without a viewer, so abandoned requests don't block other logs.
-- Open an ArgoCD sync to read its per-resource results, the app's recent events and the last 1000 lines of each pod container. A restarted container also shows its previous attempt. Pod logs need the `logs, get` permission in ArgoCD RBAC.
-- Sign in to ArgoCD with its SSO (bundled Dex or an external OIDC provider), or to a Prow Deck behind any OpenID Connect provider, instead of pasting a token. Pipedash renews the session before it expires and asks you to sign in again when the identity provider ends it. In the self-hosted web app, you paste the address of the page the browser opens after sign-in, unless Pipedash runs on the same machine as the browser.
-- Add a public Prow Deck such as prow.k8s.io with No auth. Pipedash reads its jobs, runs and logs without credentials and turns off starting and stopping runs.
-- Trigger a workflow with the inputs Pipedash loads from the provider, or rerun a past run with the same inputs.
-- Cancel one run or several at once. On GitHub, approve deployment reviews and rerun only the failed jobs.
-- See when GitHub disables a workflow and why: after 60 days without repository activity, by hand or in a fork. Enable it again from its row menu with a token that can trigger workflows.
-- Get a notification when a pipeline fails, a run takes far longer than usual or a provider has an outage.
-- Keep provider tokens in the system keyring or in a database encrypted with AES-256-GCM. Pipedash sends no analytics or telemetry.
-
-## Get started
-
-### One-Click Deploy
-
-[![Deploy on RepoCloud](https://d16t0pc4846x52.cloudfront.net/deploylobe.svg)](https://repocloud.io/details/Pipedash/)
-
-Download the [desktop app](https://pipedash.app/downloads), install the [iOS app](https://apps.apple.com/br/app/pipedash-ci-cd-monitoring/id6757285870?l=en-GB), join the [Android beta](https://pipedash.app/android) or run the [Docker image](https://pipedash.app/docs/deployment/docker). The [quick start](https://pipedash.app/docs/getting-started/quick-start) walks through your first provider.
-
-To install the self-hosted web app on iPhone, open it in Safari and choose Share > Add to Home Screen. Keep "Open as Web App" enabled when available. Its manifest covers the deployment base path and starts the app at that root. After deploying changes to scope, status-bar settings or icon artwork, add a new Home Screen icon to avoid cached installation metadata.
-
-When you move storage with "Transfer data", Pipedash keeps retained run history, including archived FluxCD reconciliations.
-
-- [Configuration](https://pipedash.app/docs/configuration): `config.toml`, environment variables and secrets.
-- [Storage and tokens](https://pipedash.app/docs/configuration/storage-backends): SQLite, PostgreSQL and token encryption.
-- [REST API](https://pipedash.app/docs/deployment/rest-api): routes, authentication and WebSocket events.
-- [Architecture](https://pipedash.app/docs/resources/architecture): crates, refresh loop and plugin system.
-- [Security](https://pipedash.app/docs/resources/security): encryption, API authentication and vulnerability reports.
-- [Releases](https://github.com/hcavarsan/pipedash/releases): changes and release assets.
-
 ## Contributing
 
-Read the [contribution guide](https://pipedash.app/docs/resources/contributing). For local builds, see [development](https://pipedash.app/docs/resources/development). To add a CI/CD provider, see [plugin development](https://pipedash.app/docs/resources/plugin-development).
-
-Run `mise install` before local checks. Rust is pinned to `nightly-2026-10-31` in `mise.toml` and `rust-toolchain.toml` because the November 1 nightly fails to compile the Linux `zbus` dependency; keep both pins aligned when upgrading.
-
-Report bugs or request features through [GitHub issues](https://github.com/hcavarsan/pipedash/issues). For help, see [support](https://pipedash.app/support).
+- **Contribute** through the [contribution guide](https://pipedash.app/docs/resources/contributing) and [GitHub issues](https://github.com/hcavarsan/pipedash/issues).
+- **Build** locally with the [development guide](https://pipedash.app/docs/resources/development). Run `mise install` first.
+- **Write a plugin** for a new provider with [plugin development](https://pipedash.app/docs/resources/plugin-development).
+- **Learn** the [architecture](https://pipedash.app/docs/resources/architecture) and the [security model](https://pipedash.app/docs/resources/security).
+- **Get help** from [support](https://pipedash.app/support).
 
 ## License
 
@@ -164,5 +184,5 @@ Pipedash is licensed under [GPL-3.0](LICENSE).
 ## Contributors
 
 <a href="https://github.com/hcavarsan/pipedash/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=hcavarsan/pipedash" alt="Pipedash contributors" />
+  <img src="https://contrib.rocks/image?repo=hcavarsan/pipedash&max=100" alt="Pipedash contributors" />
 </a>

@@ -25,7 +25,7 @@ static DIALECT: ActionsLogDialect = ActionsLogDialect;
 pub(crate) fn doc_key() -> DocKey {
     DocKey {
         provider_id: 1,
-        pipeline_id: "github__1__owner/repo/ci.yml".into(),
+        pipeline_id: "stub__1__owner/repo/ci.yml".into(),
         run_number: 7,
         node_id: "100".into(),
     }

@@ -1,21 +1,25 @@
-use std::sync::OnceLock;
-use std::time::Duration;
-
+use pipedash_plugin_api::http::{
+    decode_json,
+    parse_http_url,
+    send,
+    send_checked,
+};
+use pipedash_plugin_api::utils::Cached;
 use pipedash_plugin_api::{
     check_response,
-    map_send_error,
-    LogReadMode,
-    LogSink,
+    Organization,
     PaginatedResponse,
     PaginationParams,
     PluginError,
     PluginResult,
     RetryPolicy,
 };
-use reqwest::Url;
+use reqwest::{
+    Method,
+    Url,
+};
 
 use crate::types::{
-    Job,
     Pipeline,
     PipelineVariable,
     Project,
@@ -23,12 +27,14 @@ use crate::types::{
     User,
 };
 
+mod logs;
+
 pub struct GitLabClient {
     http_client: std::sync::Arc<reqwest::Client>,
     api_url: String,
     token: String,
     retry_policy: RetryPolicy,
-    user_cache: OnceLock<User>,
+    user_cache: Cached<User>,
 }
 
 impl GitLabClient {
@@ -40,25 +46,14 @@ impl GitLabClient {
             api_url: api_url.trim_end_matches('/').to_string(),
             token,
             retry_policy: RetryPolicy::default(),
-            user_cache: OnceLock::new(),
+            user_cache: Cached::default(),
         }
     }
 
     pub async fn get_user(&self) -> PluginResult<User> {
-        if let Some(user) = self.user_cache.get() {
-            return Ok(user.clone());
-        }
-
-        let user: User = self
-            .retry_policy
-            .retry(|| async {
-                let response = self.get(&format!("{}/user", self.api_url)).await?;
-                Self::json(response).await
-            })
-            .await?;
-
-        let _ = self.user_cache.set(user.clone());
-        Ok(user)
+        self.user_cache
+            .get_or_fetch(|| self.get_json(format!("{}/user", self.api_url)))
+            .await
     }
 
     pub async fn list_groups(&self) -> PluginResult<Vec<pipedash_plugin_api::Organization>> {
@@ -92,20 +87,13 @@ impl GitLabClient {
                         ))
                         .await?;
                     let next_page = Self::next_page(&response);
-                    let items: Vec<serde_json::Value> = Self::json(response).await?;
+                    let items: Vec<serde_json::Value> =
+                        decode_json(response, "GitLab API response").await?;
 
                     Ok((
                         items
-                            .into_iter()
-                            .map(|g| pipedash_plugin_api::Organization {
-                                id: g["id"].as_i64().unwrap_or(0).to_string(),
-                                name: g["full_path"]
-                                    .as_str()
-                                    .or_else(|| g["name"].as_str())
-                                    .unwrap_or("")
-                                    .to_string(),
-                                description: g["description"].as_str().map(|s| s.to_string()),
-                            })
+                            .iter()
+                            .map(organization_from_value)
                             .collect::<Vec<_>>(),
                         next_page,
                     ))
@@ -173,13 +161,7 @@ impl GitLabClient {
     }
 
     pub async fn get_project(&self, project_id: i64) -> PluginResult<Project> {
-        self.retry_policy
-            .retry(|| async {
-                let response = self
-                    .get(&format!("{}/projects/{}", self.api_url, project_id))
-                    .await?;
-                Self::json(response).await
-            })
+        self.get_json(format!("{}/projects/{}", self.api_url, project_id))
             .await
     }
 
@@ -201,7 +183,7 @@ impl GitLabClient {
                         ))
                         .await?;
                     let next_page = Self::next_page(&response);
-                    let items: Vec<Pipeline> = Self::json(response).await?;
+                    let items: Vec<Pipeline> = decode_json(response, "GitLab API response").await?;
 
                     Ok((items, next_page))
                 })
@@ -234,82 +216,10 @@ impl GitLabClient {
     }
 
     pub async fn get_pipeline(&self, project_id: i64, pipeline_id: i64) -> PluginResult<Pipeline> {
-        self.retry_policy
-            .retry(|| async {
-                let response = self
-                    .get(&format!(
-                        "{}/projects/{}/pipelines/{}",
-                        self.api_url, project_id, pipeline_id
-                    ))
-                    .await?;
-                Self::json(response).await
-            })
-            .await
-    }
-
-    pub async fn get_pipeline_jobs(
-        &self, project_id: i64, pipeline_id: i64,
-    ) -> PluginResult<Vec<Job>> {
-        let mut jobs = Vec::new();
-        let mut page = 1;
-        loop {
-            let (batch, next) = self
-                .retry_policy
-                .retry(|| async {
-                    let response = self
-                        .get(&format!(
-                            "{}/projects/{}/pipelines/{}/jobs?per_page=100&include_retried=true&page={}",
-                            self.api_url, project_id, pipeline_id, page
-                        ))
-                        .await?;
-                    let next = Self::next_page(&response);
-                    Ok((Self::json::<Vec<Job>>(response).await?, next))
-                })
-                .await?;
-            jobs.extend(batch);
-            match next {
-                Some(next) if next > page => page = next,
-                _ => return Ok(jobs),
-            }
-        }
-    }
-
-    pub async fn stream_job_log(
-        &self, project_id: i64, job_id: &str, offset: Option<u64>, sink: &mut LogSink,
-    ) -> PluginResult<(LogReadMode, u64)> {
-        let url = Self::parse_url(&format!(
-            "{}/projects/{}/jobs/{}/trace",
-            self.api_url, project_id, job_id
-        ))?;
-
-        let url = &url;
-        sink.pipe_resumed(offset, |from| async move {
-            let response = self
-                .retry_policy
-                .retry_unsent(url, || {
-                    let request = self
-                        .http_client
-                        .get(url.clone())
-                        .header("PRIVATE-TOKEN", &self.token)
-                        .header(reqwest::header::ACCEPT, "text/plain")
-                        .timeout(Duration::from_secs(900));
-                    match from {
-                        Some(from) => {
-                            request.header(reqwest::header::RANGE, format!("bytes={from}-"))
-                        }
-                        None => request,
-                    }
-                    .send()
-                })
-                .await?;
-
-            if matches!(response.status().as_u16(), 404 | 410) {
-                return Err(PluginError::PipelineNotFound(format!(
-                    "Logs for job {job_id} are no longer available"
-                )));
-            }
-            Ok(response)
-        })
+        self.get_json(format!(
+            "{}/projects/{}/pipelines/{}",
+            self.api_url, project_id, pipeline_id
+        ))
         .await
     }
 
@@ -325,18 +235,12 @@ impl GitLabClient {
             variables,
         };
 
-        let response = self
-            .retry_policy
-            .retry_unsent(&url, || {
-                self.http_client
-                    .post(url.clone())
-                    .header("PRIVATE-TOKEN", &self.token)
-                    .json(&request_body)
-                    .send()
-            })
-            .await?;
+        let response = send_checked(&self.retry_policy, &url, || {
+            self.authorized(Method::POST, &url).json(&request_body)
+        })
+        .await?;
 
-        Self::json(check_response(response).await?).await
+        decode_json(response, "GitLab API response").await
     }
 
     pub async fn cancel_pipeline(
@@ -347,17 +251,12 @@ impl GitLabClient {
             self.api_url, project_id, pipeline_id
         ))?;
 
-        let response = self
-            .retry_policy
-            .retry_unsent(&url, || {
-                self.http_client
-                    .post(url.clone())
-                    .header("PRIVATE-TOKEN", &self.token)
-                    .send()
-            })
-            .await?;
+        let response = send_checked(&self.retry_policy, &url, || {
+            self.authorized(Method::POST, &url)
+        })
+        .await?;
 
-        Self::json(check_response(response).await?).await
+        decode_json(response, "GitLab API response").await
     }
 
     async fn project_page(
@@ -370,7 +269,7 @@ impl GitLabClient {
             .and_then(|v| v.to_str().ok())
             .and_then(|s| s.parse::<usize>().ok());
 
-        let items: Vec<Project> = Self::json(response).await?;
+        let items: Vec<Project> = decode_json(response, "GitLab API response").await?;
         let count = total_count.unwrap_or(items.len());
 
         Ok(PaginatedResponse::new(
@@ -390,30 +289,35 @@ impl GitLabClient {
     }
 
     fn parse_url(url: &str) -> PluginResult<Url> {
-        Url::parse(url).map_err(|e| PluginError::InvalidConfig(format!("Invalid GitLab URL: {e}")))
+        parse_http_url(url, "GitLab")
     }
 
     async fn get(&self, url: &str) -> PluginResult<reqwest::Response> {
         let url = Self::parse_url(url)?;
-        let response = self
-            .http_client
-            .get(url.clone())
-            .header("PRIVATE-TOKEN", &self.token)
-            .send()
-            .await
-            .map_err(|e| map_send_error(e, &url))?;
-        check_response(response).await
+        check_response(send(&url, self.authorized(Method::GET, &url)).await?).await
     }
 
-    async fn json<T: serde::de::DeserializeOwned>(response: reqwest::Response) -> PluginResult<T> {
-        let url = response.url().clone();
-        response.json::<T>().await.map_err(|e| {
-            let e = e.without_url();
-            tracing::error!(error = %e, "Failed to deserialize GitLab response");
-            PluginError::ApiError(format!(
-                "Failed to parse GitLab API response from {}: {e}",
-                pipedash_plugin_api::redact_url(&url),
-            ))
-        })
+    async fn get_json<T: serde::de::DeserializeOwned>(&self, url: String) -> PluginResult<T> {
+        self.retry_policy
+            .retry(|| async { decode_json(self.get(&url).await?, "GitLab API response").await })
+            .await
+    }
+
+    fn authorized(&self, method: Method, url: &Url) -> reqwest::RequestBuilder {
+        self.http_client
+            .request(method, url.clone())
+            .header("PRIVATE-TOKEN", &self.token)
+    }
+}
+
+fn organization_from_value(value: &serde_json::Value) -> Organization {
+    Organization {
+        id: value["id"].as_i64().unwrap_or(0).to_string(),
+        name: value["full_path"]
+            .as_str()
+            .or_else(|| value["name"].as_str())
+            .unwrap_or("")
+            .to_string(),
+        description: value["description"].as_str().map(|s| s.to_string()),
     }
 }

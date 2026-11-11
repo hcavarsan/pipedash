@@ -3,8 +3,9 @@ import { after, afterEach, mock, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, type ReactNode } from 'react'
-
-import type { PipelineRun } from '../../../types/domain'
+import { pipelineFixture } from '../../../testing/fixtures'
+import { pipelineActionsFixture, runPresentationFixture } from '../../../testing/presentation'
+import type { PipelineRun } from '../../../types/pipelines'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
@@ -43,6 +44,7 @@ const run: PipelineRun = {
   commit_message: null,
   branch: 'main',
   actor: null,
+  ...runPresentationFixture(),
 }
 
 afterEach(async () => {
@@ -66,9 +68,8 @@ test('a failed rerun rejects so the confirmation dialog can stay open, and only 
       useRunDetailActions({
         pipelineId: 'p1',
         runNumber: 7,
-        pipeline: undefined,
+        pipeline: pipelineFixture({ actions: pipelineActionsFixture({ rerun_strategy: 'in_place' }) }),
         run,
-        rerunInPlace: false,
         onClose: () => closed.push(1),
         onCancelRequested: () => undefined,
       }),

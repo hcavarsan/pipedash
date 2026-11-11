@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 
-import { useMobileNavStore } from '../../stores/mobileNavStore'
 import type { ElementRef } from './useMobilePageMotion'
 
 export function useMobilePageArrival(page: ElementRef, announcement: ElementRef, title: string): () => void {
@@ -31,7 +30,7 @@ export function useMobilePageArrival(page: ElementRef, announcement: ElementRef,
     if (region) {
       region.textContent = ''
       frame.current = requestAnimationFrame(() => {
-        region.textContent = useMobileNavStore.getState().title ?? latestTitle.current
+        region.textContent = latestTitle.current
       })
     }
   }, [page, announcement])

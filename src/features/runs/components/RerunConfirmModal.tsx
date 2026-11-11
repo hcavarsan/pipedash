@@ -1,23 +1,21 @@
 import { Button, Group, Radio, Stack, Text } from '@mantine/core'
 import { IconCheck } from '@tabler/icons-react'
 import { type ReactNode, useActionState, useId, useRef, useState } from 'react'
+import { ActionTargetRows } from '../../../components/common/ActionTargetRows'
 import { FormErrorDisplay } from '../../../components/common/FormErrorDisplay'
+import { QueryBoundary } from '../../../components/common/QueryBoundary'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
-import type { Pipeline, PipelineRun } from '../../../types/domain'
+import type { Pipeline, PipelineRun } from '../../../types/pipelines'
 import { errorMessage } from '../../../utils/errorDisplay'
-import {
-  buildRerunSummary,
-  canRerunFailedOnly,
-  type RerunMode,
-  type RerunSummaryField,
-} from '../../../utils/rerunSummary'
+import { sameJson } from '../../../utils/sameJson'
+import type { RerunMode } from '../lib/runActions'
+import { usePreparedTrigger } from '../queries/useWorkflowQueries'
 
 interface RerunConfirmModalProps {
   run: PipelineRun | null
   pipeline: Pipeline | undefined
-  providerName: string
   onClose: () => void
   onConfirm: (mode: RerunMode) => Promise<unknown>
 }
@@ -31,53 +29,45 @@ const MODE_COPY: Record<RerunMode, { label: string; confirm: string; description
   all: { label: 'Re-run all jobs', confirm: 'Re-run all jobs', description: 'Runs every job of this run again.' },
 }
 
-const SummaryRows = ({ rows }: { rows: RerunSummaryField[] }) => (
-  <Stack gap="xs">
-    {rows.map(({ label, value }) => (
-      <Group key={label} justify="space-between" align="flex-start" wrap="nowrap" gap="md">
-        <Text size="sm" c="dimmed">
-          {label}
-        </Text>
-        <Text size="sm" ta="right" style={{ overflowWrap: 'anywhere' }}>
-          {value}
-        </Text>
-      </Group>
-    ))}
-  </Stack>
-)
+interface ModeRadiosProps {
+  modes: RerunMode[]
+  mode: RerunMode
+  pending: boolean
+  onChange: (mode: RerunMode) => void
+}
 
-const ShellRows = ({ rows, header }: { rows: RerunSummaryField[]; header?: string }) => (
-  <IosGroup header={header}>
-    {rows.map(({ label, value }) =>
-      value.length > 32 ? (
-        <IosRow key={label} title={value} subtitle={label} />
-      ) : (
-        <IosRow key={label} title={label} value={value} />
-      )
-    )}
-  </IosGroup>
+const ModeRadios = ({ modes, mode, pending, onChange }: ModeRadiosProps): ReactNode => (
+  <Radio.Group<RerunMode> name="mode" label="Jobs to rerun" value={mode} onChange={onChange}>
+    <Stack gap="xs" mt="xs">
+      {modes.map((value) => (
+        <Radio
+          key={value}
+          value={value}
+          label={MODE_COPY[value].label}
+          description={MODE_COPY[value].description}
+          disabled={pending}
+        />
+      ))}
+    </Stack>
+  </Radio.Group>
 )
 
 interface RerunActionState {
   error: string | null
+  submitted: { mode: RerunMode; runId: string } | null
 }
 
-export const RerunConfirmModal = ({
-  run,
-  pipeline,
-  providerName,
-  onClose,
-  onConfirm,
-}: RerunConfirmModalProps): ReactNode => {
+export const RerunConfirmModal = ({ run, pipeline, onClose, onConfirm }: RerunConfirmModalProps): ReactNode => {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
   const formId = useId()
   const formRef = useRef<HTMLFormElement>(null)
   const [choice, setChoice] = useState<RerunMode | null>(null)
 
-  const failedOffered = run !== null && canRerunFailedOnly(run)
+  const prepared = usePreparedTrigger(pipeline?.id ?? '', run?.run_number, run !== null)
+  const draft = prepared.data
+  const failedOffered = run?.actions.rerun_failed.allowed === true
   const mode: RerunMode = choice ?? (failedOffered ? 'failed' : 'all')
-  const summary = run ? buildRerunSummary(run, { pipeline, providerName }) : { fields: [], inputs: [] }
   const modes: RerunMode[] = failedOffered ? ['failed', 'all'] : []
 
   const close = () => {
@@ -90,38 +80,62 @@ export const RerunConfirmModal = ({
       try {
         await onConfirm(mode)
       } catch (error: unknown) {
-        return { error: errorMessage(error, 'Try the rerun again.') }
+        return {
+          error: errorMessage(error, 'Try the rerun again.'),
+          submitted: { mode, runId: run?.id ?? '' },
+        }
       }
 
       close()
 
-      return { error: null }
+      return { error: null, submitted: null }
     },
-    { error: null }
+    { error: null, submitted: null }
   )
+  const submittedError = sameJson(state.submitted, { mode, runId: run?.id ?? '' }) ? state.error : null
 
   const footer = (requestClose: () => void) => (
     <Group justify="flex-end" gap="sm" grow={isMobile}>
       <Button variant="default" size="sm" onClick={requestClose} disabled={pending}>
         Cancel
       </Button>
-      <Button size="sm" type="submit" form={formId} loading={pending}>
+      <Button size="sm" type="submit" form={formId} loading={pending} disabled={!draft}>
         {MODE_COPY[mode].confirm}
       </Button>
     </Group>
   )
 
+  const summary = (
+    <QueryBoundary
+      query={prepared}
+      loading="Loading rerun details…"
+      failure="Couldn't load rerun details"
+      variant="compact"
+    >
+      {(data) =>
+        mobileShell ? (
+          <IosGroup>
+            {data.fields.map(({ label, value }) => (
+              <IosRow key={label} title={label} value={value} />
+            ))}
+          </IosGroup>
+        ) : (
+          <ActionTargetRows rows={data.fields} />
+        )
+      }
+    </QueryBoundary>
+  )
+
   const shellBody = (
     <Stack gap="lg">
-      <ShellRows rows={summary.fields} />
-      {summary.inputs.length > 0 && <ShellRows rows={summary.inputs} header="Inputs" />}
+      {summary}
       <IosGroup footer={modes.length === 0 ? MODE_COPY.all.description : MODE_COPY[mode].description}>
         {modes.map((value) => (
           <IosRow
             key={value}
             title={MODE_COPY[value].label}
             selected={mode === value}
-            accessory={mode === value ? <IconCheck size={18} color="var(--ios-tint)" aria-hidden /> : undefined}
+            accessory={mode === value ? <IconCheck size={20} color="var(--ios-tint)" aria-hidden /> : undefined}
             disabled={pending}
             onClick={() => setChoice(value)}
           />
@@ -132,29 +146,9 @@ export const RerunConfirmModal = ({
 
   const desktopBody = (
     <Stack gap="md">
-      <SummaryRows rows={summary.fields} />
-      {summary.inputs.length > 0 && (
-        <Stack gap="xs">
-          <Text size="sm" fw={500}>
-            Inputs
-          </Text>
-          <SummaryRows rows={summary.inputs} />
-        </Stack>
-      )}
+      {summary}
       {modes.length > 0 ? (
-        <Radio.Group<RerunMode> name="mode" label="Jobs to rerun" value={mode} onChange={(value) => setChoice(value)}>
-          <Stack gap="xs" mt="xs">
-            {modes.map((value) => (
-              <Radio
-                key={value}
-                value={value}
-                label={MODE_COPY[value].label}
-                description={MODE_COPY[value].description}
-                disabled={pending}
-              />
-            ))}
-          </Stack>
-        </Radio.Group>
+        <ModeRadios modes={modes} mode={mode} pending={pending} onChange={setChoice} />
       ) : (
         <Text size="sm" c="dimmed">
           {MODE_COPY.all.description}
@@ -171,12 +165,17 @@ export const RerunConfirmModal = ({
       title={mobileShell ? 'Confirm re-run' : `Re-run: ${pipeline?.name ?? ''}`}
       loading={pending}
       footer={footer}
-      primaryAction={{ label: 'Re-run', onClick: () => formRef.current?.requestSubmit(), loading: pending }}
+      primaryAction={{
+        label: 'Re-run',
+        onClick: () => formRef.current?.requestSubmit(),
+        loading: pending,
+        disabled: !draft,
+      }}
     >
       <form ref={formRef} id={formId} action={formAction}>
         <Stack gap="md">
           {mobileShell ? shellBody : desktopBody}
-          <FormErrorDisplay title="Couldn't re-run" globalError={state.error} />
+          <FormErrorDisplay title="Couldn't re-run workflow" globalError={submittedError} />
         </Stack>
       </form>
     </StandardModal>

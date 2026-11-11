@@ -4,7 +4,8 @@ import { after, afterEach, beforeEach, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, type ReactNode } from 'react'
 
-import type { PermissionCheckResult, ProviderConfig } from '../../../../types/domain'
+import type { PermissionCheckResult } from '../../../../types/plugins'
+import type { ProviderConfig } from '../../../../types/providers'
 
 import { pluginFixture } from './pluginFixture'
 
@@ -30,7 +31,12 @@ const configFor = (token: string): ProviderConfig => ({
 })
 
 const granted: PermissionCheckResult = {
-  permission_status: { permissions: [], all_granted: true, checked_at: '2026-01-01T00:00:00Z' },
+  permission_status: {
+    permissions: [],
+    all_granted: true,
+    checked_at: '2026-01-01T00:00:00Z',
+    credential_label: null,
+  },
   features: [],
 }
 

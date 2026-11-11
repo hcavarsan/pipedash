@@ -1,9 +1,19 @@
 use std::collections::HashMap;
 
+use crate::metadata::{
+    PluginManifest,
+    PluginMetadata,
+};
 use crate::plugin::Plugin;
 
+struct Registration {
+    plugin: Box<dyn Plugin>,
+    metadata: PluginMetadata,
+    create: fn() -> Box<dyn Plugin>,
+}
+
 pub struct PluginRegistry {
-    plugins: HashMap<String, Box<dyn Plugin>>,
+    plugins: HashMap<String, Registration>,
 }
 
 impl PluginRegistry {
@@ -13,13 +23,42 @@ impl PluginRegistry {
         }
     }
 
-    pub fn register(&mut self, plugin: Box<dyn Plugin>) {
-        let provider_type = plugin.provider_type().to_string();
-        self.plugins.insert(provider_type, plugin);
+    pub fn register(&mut self, create: fn() -> Box<dyn Plugin>, manifest: PluginManifest) {
+        let plugin = create();
+        let mut metadata = plugin.metadata().clone();
+        manifest.apply(&mut metadata);
+        self.plugins.insert(
+            manifest.provider_type().to_string(),
+            Registration {
+                plugin,
+                metadata,
+                create,
+            },
+        );
     }
 
     pub fn get(&self, provider_type: &str) -> Option<&dyn Plugin> {
-        self.plugins.get(provider_type).map(|p| p.as_ref())
+        self.plugins
+            .get(provider_type)
+            .map(|registration| registration.plugin.as_ref())
+    }
+
+    pub fn create(&self, provider_type: &str) -> Option<Box<dyn Plugin>> {
+        self.plugins
+            .get(provider_type)
+            .map(|registration| (registration.create)())
+    }
+
+    pub fn metadata(&self) -> impl Iterator<Item = &PluginMetadata> {
+        self.plugins
+            .values()
+            .map(|registration| &registration.metadata)
+    }
+
+    pub fn metadata_of(&self, provider_type: &str) -> Option<&PluginMetadata> {
+        self.plugins
+            .get(provider_type)
+            .map(|registration| &registration.metadata)
     }
 
     pub fn is_registered(&self, provider_type: &str) -> bool {
@@ -42,12 +81,4 @@ impl Default for PluginRegistry {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_registry_creation() {
-        let registry = PluginRegistry::new();
-        assert_eq!(registry.count(), 0);
-    }
-}
+mod tests;

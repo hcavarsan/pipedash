@@ -2,23 +2,21 @@ import { IconMenu2 } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { IosPipelineRow, relativeOrNever } from '../../../components/common/IosPipelineList'
 import rowClasses from '../../../components/common/IosPipelineList.module.css'
-import {
-  type PinToggle,
-  type PipelineActions,
-  type PipelineSelection,
-  WorkflowActionMenu,
-  workflowSwipeActions,
-} from '../../../components/common/PipelineRowParts'
+import { WorkflowActionMenu } from '../../../components/common/PipelineRowActions'
 import { VirtualList } from '../../../components/common/VirtualList'
 import { IosGroup } from '../../../components/ios/IosList'
 import { useNow } from '../../../hooks/useNow'
-import type { ProviderSummary, ViewPipeline } from '../../../types/domain'
-import { getPipelineLabels, getPipelineStatusLabel, pipelineStatusKey } from '../../../utils/pipelinePresentation'
+import type { PinToggle, PipelineActions, PipelineSelection } from '../../../types/pipelineRows'
+import type { ProviderSummary } from '../../../types/providers'
+import type { ViewPipeline } from '../../../types/views'
+import { getPipelineStatusLabel, pipelineStatusKey } from '../../../utils/pipelinePresentation'
+import { historyLabel, workflowSwipeActions } from '../../../utils/pipelineRowActions'
 import { reorderSlots } from '../../../utils/viewTree'
 import type { PipelineViewPageModel } from '../hooks/usePipelineViewModel'
 import { inMemberOrder, pinnedFromBlocks } from '../lib/pipelineRows'
-import { useReorderPinned, useViewMembers } from '../queries/usePipelineViewQueries'
-import { SortableList } from './SortableList'
+import { useViewMembers } from '../queries/usePipelineViewQueries'
+import { useReorderPinned } from '../queries/useViewReorderQueries'
+import { type SortableDragProps, SortableList } from './SortableList'
 
 const ROW_ESTIMATE = 64
 
@@ -48,7 +46,7 @@ function PinnedRow({ pipeline, getProvider, actions, selection, now, pin, reorde
       statusText={getPipelineStatusLabel(pipeline)}
       title={pipeline.name}
       subtitle={subtitle}
-      hint={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()}`}
+      hint={`View ${historyLabel(actions, pipeline.provider_type)}`}
       longPressMenu
       selected={selection ? selection.selected.has(pipeline.id) : undefined}
       onClick={() => (selection ? selection.onToggle(pipeline) : actions.onViewHistory(pipeline))}
@@ -66,6 +64,21 @@ function PinnedRow({ pipeline, getProvider, actions, selection, now, pin, reorde
   )
 }
 
+function ReorderHandle({ name, drag }: { name: string; drag: SortableDragProps }): ReactNode {
+  return (
+    <button
+      type="button"
+      className={rowClasses.reorder}
+      data-reorder-handle
+      {...drag.handleProps}
+      {...drag.listeners}
+      aria-label={`Reorder ${name}`}
+    >
+      <IconMenu2 size={20} aria-hidden />
+    </button>
+  )
+}
+
 export function IosPinnedList({
   model,
   actions,
@@ -80,7 +93,7 @@ export function IosPinnedList({
   const pinned = inMemberOrder(page?.sections ?? [], manual ? members : undefined)
   const extras = pinnedFromBlocks(pinned, pinnedBlocks)
   const reorderable = Boolean(selection) && manual && pinned.length > 1
-  const { mutate: reorder } = useReorderPinned()
+  const reorder = useReorderPinned()
 
   if (pinned.length + extras.length === 0) {
     return null
@@ -99,16 +112,23 @@ export function IosPinnedList({
   )
   const entries: PinnedEntry[] = [
     ...pinned.map((pipeline) => ({ pipeline })),
-    ...extras.map(({ pipeline, block }) => ({
-      pipeline,
-      pin: {
-        pinned: true,
-        label: 'Unpin repository',
-        onToggle: () => actions.pinItem('repository', block.ref).onClick(),
-      },
-    })),
+    ...extras.map(({ pipeline, block }) => {
+      const item = actions.pinItem('repository', block.ref)
+
+      return {
+        pipeline,
+        pin: { pinned: true, label: 'Unpin repository', pending: item.disabled ?? false, onToggle: item.onClick },
+      }
+    }),
   ]
   const sorting = reorderable && members
+  const reorderPinned = (next: string[]) =>
+    reorder.mutate(
+      reorderSlots(
+        (members ?? []).map((member) => member.pipeline_id),
+        next
+      )
+    )
   const offset = sorting ? pinned.length : 0
   const lastId = entries.at(-1)?.pipeline.id
 
@@ -120,14 +140,8 @@ export function IosPinnedList({
           getId={(pipeline) => pipeline.id}
           orientation="vertical"
           handle
-          onReorder={(next) =>
-            reorder(
-              reorderSlots(
-                members.map((member) => member.pipeline_id),
-                next
-              )
-            )
-          }
+          disabled={reorder.isPending}
+          onReorder={reorderPinned}
         >
           {(pipeline, drag) => (
             <div
@@ -138,20 +152,7 @@ export function IosPinnedList({
               data-last={pipeline.id === lastId || undefined}
               data-dragging={drag.isDragging || undefined}
             >
-              {row(
-                pipeline,
-                undefined,
-                <button
-                  type="button"
-                  className={rowClasses.reorder}
-                  data-reorder-handle
-                  {...drag.handleProps}
-                  {...drag.listeners}
-                  aria-label={`Reorder ${pipeline.name}`}
-                >
-                  <IconMenu2 size={20} aria-hidden />
-                </button>
-              )}
+              {row(pipeline, undefined, <ReorderHandle name={pipeline.name} drag={drag} />)}
             </div>
           )}
         </SortableList>

@@ -5,7 +5,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks'
 import { createElement } from 'react'
 
-import type { ProviderSummary } from '../../types/domain'
+import type { ProviderSummary } from '../../types/providers'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 Object.assign(window, { __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'linux' } })
@@ -66,6 +66,8 @@ afterEach(async () => {
 const stubShell = (context: TestContext, listProviders: () => Promise<ProviderSummary[]>) => {
   context.mock.method(service, 'listProviders', listProviders)
   context.mock.method(service, 'getAvailablePlugins', async () => [])
+  context.mock.method(service, 'listPipelineViews', async () => [])
+  context.mock.method(service, 'listPins', async () => [])
   context.mock.method(service, 'getVaultStatus', async () => ({
     is_unlocked: true,
     password_source: 'none',

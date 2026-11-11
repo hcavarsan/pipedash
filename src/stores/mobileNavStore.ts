@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { createContext, useContext, useLayoutEffect } from 'react'
 import { create } from 'zustand'
 
 import type { MobileTab } from '../components/layout/mobileChrome'
@@ -54,28 +54,29 @@ export function rememberScroll(scrolls: Record<string, number>, key: string, top
   return capped(next)
 }
 
-function rememberTitle(titles: Record<string, string>, path: string, title: string): Record<string, string> {
-  if (titles[path] === title) {
+function rememberTitle(titles: Record<string, string>, key: string, title: string | null): Record<string, string> {
+  if ((titles[key] ?? null) === title) {
     return titles
   }
 
   const next = { ...titles }
 
-  delete next[path]
-  next[path] = title
+  delete next[key]
+
+  if (title !== null) {
+    next[key] = title
+  }
 
   return capped(next)
 }
 
 interface MobileNavState {
-  title: string | null
-  setTitle: (title: string | null) => void
+  titles: Record<string, string>
+  setTitle: (key: string, title: string | null) => void
   tabs: TabRoutes
   scrolls: Record<string, number>
   rememberRoute: (tab: MobileTab, route: TabRoute) => void
   rememberScroll: (key: string, top: number) => void
-  pageTitles: Record<string, string>
-  rememberTitle: (path: string, title: string) => void
   transition: BarTransition | null
   setTransition: (transition: BarTransition | null) => void
   navSlot: HTMLElement | null
@@ -83,8 +84,14 @@ interface MobileNavState {
 }
 
 export const useMobileNavStore = create<MobileNavState>()((set, get) => ({
-  title: null,
-  setTitle: (title) => set({ title }),
+  titles: {},
+  setTitle: (key, title) => {
+    const titles = rememberTitle(get().titles, key, title)
+
+    if (titles !== get().titles) {
+      set({ titles })
+    }
+  },
   tabs: {},
   scrolls: {},
   rememberRoute: (tab, route) => {
@@ -95,26 +102,21 @@ export const useMobileNavStore = create<MobileNavState>()((set, get) => ({
     }
   },
   rememberScroll: (key, top) => set({ scrolls: rememberScroll(get().scrolls, key, top) }),
-  pageTitles: {},
-  rememberTitle: (path, title) => {
-    const pageTitles = rememberTitle(get().pageTitles, path, title)
-
-    if (pageTitles !== get().pageTitles) {
-      set({ pageTitles })
-    }
-  },
   transition: null,
   setTransition: (transition) => set({ transition }),
   navSlot: null,
   setNavSlot: (navSlot) => set({ navSlot }),
 }))
 
+export const RouteKeyContext = createContext<string | null>(null)
+
 export function useMobileTitle(title: string | null | undefined): void {
+  const key = useContext(RouteKeyContext)
   const setTitle = useMobileNavStore((s) => s.setTitle)
 
-  useEffect(() => {
-    setTitle(title ?? null)
-
-    return () => setTitle(null)
-  }, [title, setTitle])
+  useLayoutEffect(() => {
+    if (key) {
+      setTitle(key, title ?? null)
+    }
+  }, [key, title, setTitle])
 }

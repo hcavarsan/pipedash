@@ -5,7 +5,7 @@ import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { usePlugins } from '../../../queries/usePluginsQueries'
 import { useProviderStore } from '../../../stores/providerStore'
-import type { ProviderSummary } from '../../../types/domain'
+import type { ProviderSummary } from '../../../types/providers'
 import { formatCount } from '../../../utils/formatCount'
 import { formatTime } from '../../../utils/formatDateTime'
 import { getPluginDisplayName } from '../../../utils/pluginHelpers'
@@ -24,6 +24,75 @@ interface ProviderSettingsCardProps {
   onFinishEditing: () => void
 }
 
+interface ProviderSettingsStatusProps {
+  name: string
+  failedMessage: string | null
+  pausedUntil: ProviderSummary['paused_until']
+}
+
+function ProviderSettingsStatus({ name, failedMessage, pausedUntil }: ProviderSettingsStatusProps): ReactNode {
+  return (
+    <Stack gap="3xs">
+      <Group gap="xs">
+        <Text size="sm">{name}</Text>
+        {pausedUntil && (
+          <Tooltip label={PAUSED_NOTE} multiline w={300}>
+            <Text size="xs" c="dimmed">
+              Paused until {formatTime(pausedUntil)}
+            </Text>
+          </Tooltip>
+        )}
+      </Group>
+      {failedMessage && (
+        <Text size="xs" c="red">
+          Fetch failed: {failedMessage}
+        </Text>
+      )}
+    </Stack>
+  )
+}
+
+function ProviderRefreshValue({ provider, onEdit }: { provider: ProviderSummary; onEdit: () => void }): ReactNode {
+  return (
+    <Group gap="xs">
+      <Text size="sm">{provider.refresh_interval}s</Text>
+      <Tooltip label={`Edit refresh interval for ${provider.name}`}>
+        <ActionIcon size="sm" aria-label={`Edit refresh interval for ${provider.name}`} onClick={onEdit}>
+          <IconEdit size={14} aria-hidden />
+        </ActionIcon>
+      </Tooltip>
+    </Group>
+  )
+}
+
+function ProviderSettingsActions({ onEdit, onRemove }: { onEdit: () => void; onRemove: () => void }): ReactNode {
+  return (
+    <>
+      <Divider />
+      <Group gap="xs" justify="flex-end">
+        <Button
+          size="compact-xs"
+          variant="subtle"
+          color="gray"
+          onClick={onEdit}
+          leftSection={<IconSettings size={14} aria-hidden />}
+        >
+          Edit
+        </Button>
+        <Button
+          size="compact-xs"
+          variant="subtle"
+          color="gray"
+          onClick={onRemove}
+          leftSection={<IconTrash size={14} aria-hidden />}
+        >
+          Remove
+        </Button>
+      </Group>
+    </>
+  )
+}
+
 export const ProviderSettingsCard = ({
   provider,
   statusPagesEnabled,
@@ -38,6 +107,13 @@ export const ProviderSettingsCard = ({
   const confirmRemove = useConfirmRemoveProvider()
   const typeName = getPluginDisplayName(plugins, provider.provider_type)
 
+  const failedMessage = provider.last_fetch_status === 'error' ? provider.last_fetch_error || 'Failed to fetch' : null
+  const failedTitle = (
+    <Text span inherit c="red">
+      Fetch failed
+    </Text>
+  )
+
   if (mobileShell) {
     return (
       <Stack gap="sm">
@@ -46,16 +122,7 @@ export const ProviderSettingsCard = ({
             title={provider.name}
             subtitle={[typeName, formatCount(provider.pipeline_count, 'pipeline')].join(' · ')}
           />
-          {provider.last_fetch_status === 'error' && (
-            <IosRow
-              title={
-                <Text span inherit c="red">
-                  Fetch failed
-                </Text>
-              }
-              subtitle={provider.last_fetch_error || 'Failed to fetch'}
-            />
-          )}
+          {failedMessage && <IosRow title={failedTitle} subtitle={failedMessage} />}
           {provider.paused_until && (
             <IosRow title={`Paused until ${formatTime(provider.paused_until)}`} subtitle={PAUSED_NOTE} />
           )}
@@ -93,23 +160,11 @@ export const ProviderSettingsCard = ({
             <Text size="xs" c="dimmed">
               Provider name
             </Text>
-            <Group gap="xs">
-              <Text size="sm">{provider.name}</Text>
-              {provider.last_fetch_status === 'error' && (
-                <Tooltip label={provider.last_fetch_error || 'Failed to fetch'} multiline w={300}>
-                  <Text size="xs" c="red">
-                    Error
-                  </Text>
-                </Tooltip>
-              )}
-              {provider.paused_until && (
-                <Tooltip label={PAUSED_NOTE} multiline w={300}>
-                  <Text size="xs" c="dimmed">
-                    Paused until {formatTime(provider.paused_until)}
-                  </Text>
-                </Tooltip>
-              )}
-            </Group>
+            <ProviderSettingsStatus
+              name={provider.name}
+              failedMessage={failedMessage}
+              pausedUntil={provider.paused_until}
+            />
           </Stack>
 
           <Stack gap="3xs">
@@ -133,18 +188,7 @@ export const ProviderSettingsCard = ({
             {editing ? (
               <ProviderRefreshIntervalForm provider={provider} onSaved={onFinishEditing} onCancel={onFinishEditing} />
             ) : (
-              <Group gap="xs">
-                <Text size="sm">{provider.refresh_interval}s</Text>
-                <Tooltip label={`Edit refresh interval for ${provider.name}`}>
-                  <ActionIcon
-                    size="sm"
-                    aria-label={`Edit refresh interval for ${provider.name}`}
-                    onClick={onStartEditing}
-                  >
-                    <IconEdit size={14} aria-hidden />
-                  </ActionIcon>
-                </Tooltip>
-              </Group>
+              <ProviderRefreshValue provider={provider} onEdit={onStartEditing} />
             )}
           </Stack>
         </SimpleGrid>
@@ -152,29 +196,10 @@ export const ProviderSettingsCard = ({
         <ProviderStatusInfo provider={provider} statusPagesEnabled={statusPagesEnabled} now={now} />
 
         {!editing && (
-          <>
-            <Divider />
-            <Group gap="xs" justify="flex-end">
-              <Button
-                size="compact-xs"
-                variant="subtle"
-                color="gray"
-                onClick={() => requestEditProvider(provider.id)}
-                leftSection={<IconSettings size={14} aria-hidden />}
-              >
-                Edit
-              </Button>
-              <Button
-                size="compact-xs"
-                variant="subtle"
-                color="gray"
-                onClick={() => confirmRemove(provider.id, provider.name)}
-                leftSection={<IconTrash size={14} aria-hidden />}
-              >
-                Remove
-              </Button>
-            </Group>
-          </>
+          <ProviderSettingsActions
+            onEdit={() => requestEditProvider(provider.id)}
+            onRemove={() => confirmRemove(provider.id, provider.name)}
+          />
         )}
       </Stack>
     </Card>

@@ -12,10 +12,6 @@ concurrency:
 
 env:
   K8S_OPENAPI_ENABLED_VERSION: "1.32"
-  TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-  TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
   VITE_ENV: "production"
   TAURI_DEBUG: "false"
 
@@ -23,6 +19,7 @@ jobs:
   validate-version:
     name: Validate version
     runs-on: ubuntu-22.04
+    timeout-minutes: 10
     steps:
       - name: Validate version format
         env:
@@ -40,6 +37,7 @@ jobs:
     permissions:
       contents: write # create the draft release
     runs-on: ubuntu-22.04
+    timeout-minutes: 10
     outputs:
       release_id: ${{ steps.release.outputs.id }}
     steps:
@@ -71,31 +69,32 @@ jobs:
             arch: arm64
             runner: ubicloud-standard-4-arm-ubuntu-2204
             rust_target: aarch64-unknown-linux-gnu
-            tauri_args: "--target aarch64-unknown-linux-gnu --bundles deb,rpm,appimage --verbose"
+            tauri_args: "--target aarch64-unknown-linux-gnu --bundles deb,rpm,appimage --verbose --config crates/pipedash-desktop/tauri.release.conf.json"
           - os: ubuntu-22.04
             arch: amd64
             rust_target: x86_64-unknown-linux-gnu
-            tauri_args: "--target x86_64-unknown-linux-gnu --bundles deb,rpm,appimage --verbose"
+            tauri_args: "--target x86_64-unknown-linux-gnu --bundles deb,rpm,appimage --verbose --config crates/pipedash-desktop/tauri.release.conf.json"
           - os: macos-latest
             arch: universal
             rust_target: universal-apple-darwin
-            tauri_args: "--target universal-apple-darwin --bundles dmg,app --verbose"
+            tauri_args: "--target universal-apple-darwin --bundles dmg,app --verbose --config crates/pipedash-desktop/tauri.release.conf.json"
           - os: windows-latest
             arch: x86
             rust_target: i686-pc-windows-msvc
-            tauri_args: "--target i686-pc-windows-msvc --bundles nsis --verbose"
+            tauri_args: "--target i686-pc-windows-msvc --bundles nsis --verbose --config crates/pipedash-desktop/tauri.release.conf.json"
             msvc_arch: x86
           - os: windows-latest
             arch: x86_64
             rust_target: x86_64-pc-windows-msvc
-            tauri_args: "--target x86_64-pc-windows-msvc --bundles nsis --verbose"
+            tauri_args: "--target x86_64-pc-windows-msvc --bundles nsis --verbose --config crates/pipedash-desktop/tauri.release.conf.json"
             msvc_arch: x64
           - os: windows-latest
             arch: arm64
             rust_target: aarch64-pc-windows-msvc
-            tauri_args: "--target aarch64-pc-windows-msvc --bundles nsis --verbose"
+            tauri_args: "--target aarch64-pc-windows-msvc --bundles nsis --verbose --config crates/pipedash-desktop/tauri.release.conf.json"
 
     runs-on: ${{ matrix.runner || matrix.os }}
+    timeout-minutes: 45
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -103,7 +102,7 @@ jobs:
           persist-credentials: false
 
       - name: Install mise
-        uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
         with:
           install: false
           cache: false
@@ -155,8 +154,6 @@ jobs:
 
       - name: Build pipedash Desktop App
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
-        id: tauri_build
-        continue-on-error: true
         env:
           RUSTFLAGS: '-C link-arg=-s'
           AWS_LC_SYS_CMAKE_CFLAGS: ${{ matrix.os == 'windows-latest' && '/std:c11' || '' }}
@@ -177,31 +174,7 @@ jobs:
           releaseBody: "See the assets to download this version and install."
           releaseDraft: true
           prerelease: false
-          args: ${{ matrix.tauri_args }}
-
-      - name: Retry Build on Failure
-        if: steps.tauri_build.outcome == 'failure'
-        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
-        env:
-          RUSTFLAGS: '-C link-arg=-s'
-          AWS_LC_SYS_CMAKE_CFLAGS: ${{ matrix.os == 'windows-latest' && '/std:c11' || '' }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_OPTIONS: --max-old-space-size=6000
-          ENABLE_CODE_SIGNING: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Pipedash - ${{ github.ref_name }}"
-          releaseBody: "See the assets to download this version and install."
-          releaseDraft: true
-          prerelease: false
+          uploadUpdaterJson: false
           args: ${{ matrix.tauri_args }}
 
   docker-build:
@@ -211,6 +184,7 @@ jobs:
       contents: read # checkout the repository
       packages: write # push the per-platform image by digest to ghcr.io
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
     if: startsWith(github.ref, 'refs/tags/v')
     strategy:
       fail-fast: false
@@ -266,6 +240,7 @@ jobs:
     permissions:
       packages: write # publish the multi-platform manifest to ghcr.io
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Download digests
@@ -317,17 +292,20 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
         run: docker buildx imagetools inspect "$IMAGE:$VERSION"
 
-  publish-cargo-crates:
-    name: Publish crates to crates.io
-    needs: [ create-release-draft ]
+  publish-base-crates:
+    name: Publish shared crates to crates.io
+    needs: [ create-release-draft, pipedash, docker-build, updater-manifest ]
     permissions:
       contents: read # checkout the repository
       id-token: write # mint short-lived crates.io tokens via trusted publishing
     runs-on: ubuntu-22.04
+    timeout-minutes: 20
     if: |
       startsWith(github.ref, 'refs/tags/v') &&
       !contains(github.ref, '-beta') &&
       !contains(github.ref, '-alpha')
+    outputs:
+      providers: ${{ steps.providers.outputs.crates }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -340,7 +318,101 @@ jobs:
           sudo apt-get install -y pkg-config libssl-dev
 
       - name: Install mise
-        uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        with:
+          install: false
+          cache: false
+
+      - name: Install mise tools
+        run: mise install
+
+      - name: Discover provider crates
+        id: providers
+        run: |
+          crates=$(grep -l 'register_plugin!' crates/pipedash-plugin-*/src/lib.rs | cut -d/ -f2 | jq -Rnc '[inputs]')
+          echo "crates=$crates" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to crates.io (pipedash-plugin-api)
+        id: auth-plugin-api
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+
+      - name: Publish pipedash-plugin-api
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-api.outputs.token }}
+        run: scripts/publish_crate.sh crates/pipedash-plugin-api
+
+      - name: Authenticate to crates.io (pipedash-plugin-actions)
+        id: auth-plugin-actions
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+
+      - name: Publish pipedash-plugin-actions
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-actions.outputs.token }}
+        run: scripts/publish_crate.sh crates/pipedash-plugin-actions wait
+
+  publish-provider-crates:
+    name: Publish ${{ matrix.crate }} to crates.io
+    needs: [ publish-base-crates ]
+    permissions:
+      contents: read # checkout the repository
+      id-token: write # mint short-lived crates.io tokens via trusted publishing
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    strategy:
+      max-parallel: 1
+      matrix:
+        crate: ${{ fromJSON(needs.publish-base-crates.outputs.providers) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev
+
+      - name: Install mise
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        with:
+          install: false
+          cache: false
+
+      - name: Install mise tools
+        run: mise install
+
+      - name: Authenticate to crates.io
+        id: auth
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+
+      - name: Publish provider crate
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          CRATE: ${{ matrix.crate }}
+        run: scripts/publish_crate.sh "crates/$CRATE" wait
+
+  publish-app-crates:
+    name: Publish app crates to crates.io
+    needs: [ publish-provider-crates ]
+    permissions:
+      contents: read # checkout the repository
+      id-token: write # mint short-lived crates.io tokens via trusted publishing
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev
+
+      - name: Install mise
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
         with:
           install: false
           cache: false
@@ -353,196 +425,14 @@ jobs:
           mise run install
           mise run build:front
 
-      # crates.io trusted-publishing tokens expire after 30 minutes and the full
-      # publish takes longer, so each crate gets its own token.
-      - name: Write publish helper
-        run: |
-          cat > "$RUNNER_TEMP/publish_crate.sh" <<'EOF'
-          set -eo pipefail
-          crate_path="$1"
-          crate_name=$(basename "$crate_path")
-          max_retries=3
-          retry_delay=30
-          publish_args=()
-          if [ "${3:-}" = "allow-dirty" ]; then
-            publish_args+=(--allow-dirty)
-          fi
-
-          # Wait 60s between publishes to avoid rate limiting
-          if [ "${2:-}" = "wait" ]; then
-            echo "Waiting 60s to avoid rate limiting..."
-            sleep 60
-          fi
-
-          echo "Publishing $crate_name..."
-          cd "$crate_path"
-
-          version=$(cargo metadata --no-deps --format-version 1 | jq -r --arg n "$crate_name" '.packages[] | select(.name == $n) | .version')
-          if curl -sf -A "pipedash-release" "https://crates.io/api/v1/crates/$crate_name/$version" >/dev/null; then
-            echo "$crate_name $version already published, skipping"
-            exit 0
-          fi
-
-          for attempt in $(seq 1 "$max_retries"); do
-            echo "Attempt $attempt/$max_retries for $crate_name"
-
-            if cargo publish "${publish_args[@]}"; then
-              echo "Successfully published $crate_name"
-              exit 0
-            fi
-
-            if [ "$attempt" -lt "$max_retries" ]; then
-              echo "Retrying $crate_name in ${retry_delay}s..."
-              sleep "$retry_delay"
-              retry_delay=$((retry_delay * 2))
-            else
-              echo "Failed to publish $crate_name after $max_retries attempts"
-              exit 1
-            fi
-          done
-          EOF
-          chmod +x "$RUNNER_TEMP/publish_crate.sh"
-
-      # Publish in dependency order
-      - name: Authenticate to crates.io (pipedash-plugin-api)
-        id: auth-plugin-api
+      - name: Authenticate to crates.io (pipedash-plugins)
+        id: auth-plugins
         uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
 
-      - name: Publish pipedash-plugin-api
+      - name: Publish pipedash-plugins
         env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-api.outputs.token }}
-        run: |
-          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-api
-
-      - name: Authenticate to crates.io (pipedash-plugin-actions)
-        id: auth-plugin-actions
-        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
-
-      - name: Publish pipedash-plugin-actions
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-actions.outputs.token }}
-        run: |
-          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-actions wait
-
-      - name: Authenticate to crates.io (pipedash-plugin-github)
-        id: auth-plugin-github
-        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
-
-      - name: Publish pipedash-plugin-github
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-github.outputs.token }}
-        run: |
-          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-github wait
-
-      - name: Authenticate to crates.io (pipedash-plugin-gitlab)
-        id: auth-plugin-gitlab
-        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
-
-      - name: Publish pipedash-plugin-gitlab
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-gitlab.outputs.token }}
-        run: |
-          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-gitlab wait
-
-      - name: Authenticate to crates.io (pipedash-plugin-bitbucket)
-        id: auth-plugin-bitbucket
-        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
-
-      - name: Publish pipedash-plugin-bitbucket
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-bitbucket.outputs.token }}
-        run: |
-          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-bitbucket wait
-
-      - name: Authenticate to crates.io (pipedash-plugin-buildkite)
-        id: auth-plugin-buildkite
-        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
-
-      - name: Publish pipedash-plugin-buildkite
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-buildkite.outputs.token }}
-        run: |
-          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-buildkite wait
-
-      - name: Authenticate to crates.io (pipedash-plugin-jenkins)
-        id: auth-plugin-jenkins
-        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
-
-      - name: Publish pipedash-plugin-jenkins
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-jenkins.outputs.token }}
-        run: |
-          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-jenkins wait
-
-      - name: Authenticate to crates.io (pipedash-plugin-tekton)
-        id: auth-plugin-tekton
-        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
-
-      - name: Publish pipedash-plugin-tekton
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-tekton.outputs.token }}
-        run: |
-          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-tekton wait
-
-      - name: Authenticate to crates.io (pipedash-plugin-argocd)
-        id: auth-plugin-argocd
-        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
-
-      - name: Publish pipedash-plugin-argocd
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-argocd.outputs.token }}
-        run: |
-          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-argocd wait
-
-      - name: Authenticate to crates.io (pipedash-plugin-gitea)
-        id: auth-plugin-gitea
-        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
-
-      - name: Publish pipedash-plugin-gitea
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-gitea.outputs.token }}
-        run: |
-          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-gitea wait
-
-      - name: Authenticate to crates.io (pipedash-plugin-fluxcd)
-        id: auth-plugin-fluxcd
-        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
-
-      - name: Publish pipedash-plugin-fluxcd
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-fluxcd.outputs.token }}
-        run: |
-          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-fluxcd wait
-
-      - name: Authenticate to crates.io (pipedash-plugin-azure-devops)
-        id: auth-plugin-azure-devops
-        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
-
-      - name: Publish pipedash-plugin-azure-devops
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-azure-devops.outputs.token }}
-        run: |
-          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-azure-devops wait
-
-      - name: Authenticate to crates.io (pipedash-plugin-komodo)
-        id: auth-plugin-komodo
-        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
-
-      - name: Publish pipedash-plugin-komodo
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-komodo.outputs.token }}
-        run: |
-          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-komodo wait
-
-      - name: Authenticate to crates.io (pipedash-plugin-prow)
-        id: auth-plugin-prow
-        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
-
-      - name: Publish pipedash-plugin-prow
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-prow.outputs.token }}
-        run: |
-          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-prow wait
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugins.outputs.token }}
+        run: scripts/publish_crate.sh crates/pipedash-plugins wait
 
       - name: Authenticate to crates.io (pipedash-core)
         id: auth-core
@@ -551,8 +441,7 @@ jobs:
       - name: Publish pipedash-core
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth-core.outputs.token }}
-        run: |
-          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-core wait
+        run: scripts/publish_crate.sh crates/pipedash-core wait
 
       - name: Authenticate to crates.io (pipedash-web)
         id: auth-web
@@ -561,21 +450,18 @@ jobs:
       - name: Publish pipedash-web
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth-web.outputs.token }}
-        # dist/ is gitignored build output from the frontend step, and cargo
-        # counts packaged files that git ignores as uncommitted changes.
-        run: |
-          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-web wait allow-dirty
+        run: scripts/publish_crate.sh crates/pipedash-web wait allow-dirty
 
-  update-release:
-    name: Update release notes and publish
+  updater-manifest:
+    name: Publish updater manifest
     needs: [ pipedash, create-release-draft ]
     permissions:
-      contents: write # update release notes and publish the release
+      contents: write # upload latest.json to the draft release
+      pull-requests: read # credit pull request authors in the release notes
     runs-on: ubuntu-22.04
-    if: |
-      startsWith(github.ref, 'refs/tags/v') &&
-      !contains(github.ref, '-beta') &&
-      !contains(github.ref, '-alpha')
+    timeout-minutes: 10
+    outputs:
+      notes: ${{ steps.notes.outputs.content }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -583,20 +469,68 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Generate changelog
-        uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff # v4.9.1
-        id: git-cliff
-        with:
-          config: cliff.toml
-          args: --latest --strip header
+      - name: Generate release notes
+        id: notes
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPO: ${{ github.repository }}
+          CLIFF_VERSION: "2.13.1"
+          CLIFF_SHA512: "02aba6bf3149d4529709a8d942ee57229c50614539daf61507b723a7f2cfafca32d77b53f15b7f055b57aef0bc5eef72ac7d3aaa02ce5c97fad009fc4a051ddf"
+        run: |
+          asset="git-cliff-$CLIFF_VERSION-x86_64-unknown-linux-musl.tar.gz"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/$asset" \
+            "https://github.com/orhun/git-cliff/releases/download/v$CLIFF_VERSION/$asset"
+          (cd "$RUNNER_TEMP" && echo "$CLIFF_SHA512  $asset" | sha512sum -c -)
+          tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP"
+          PATH="$RUNNER_TEMP/git-cliff-$CLIFF_VERSION:$PATH" scripts/release_notes.sh "$RUNNER_TEMP/notes.md"
+          delimiter="notes-$(openssl rand -hex 16)"
+          {
+            echo "content<<$delimiter"
+            cat "$RUNNER_TEMP/notes.md"
+            echo
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
 
+      - name: Upload latest.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          RELEASE_ID: ${{ needs.create-release-draft.outputs.release_id }}
+        run: |
+          dir="$RUNNER_TEMP/signatures"; mkdir -p "$dir"
+          gh api --paginate "repos/$GH_REPO/releases/$RELEASE_ID/assets" \
+            --jq '.[] | select(.name | endswith(".sig") or . == "latest.json") | "\(.id) \(.name)"' > "$RUNNER_TEMP/assets.txt"
+          while read -r id name; do
+            if [ "$name" = "latest.json" ]; then
+              gh api --method DELETE "repos/$GH_REPO/releases/assets/$id"
+            else
+              gh api -H 'Accept: application/octet-stream' "repos/$GH_REPO/releases/assets/$id" > "$dir/$name"
+            fi
+          done < "$RUNNER_TEMP/assets.txt"
+          python3 scripts/updater_manifest.py --tag "$TAG" --repo "$GH_REPO" --signatures "$dir" \
+            --notes-file "$RUNNER_TEMP/notes.md" --output "$RUNNER_TEMP/latest.json"
+          gh api --method POST -H 'Content-Type: application/json' \
+            "https://uploads.github.com/repos/$GH_REPO/releases/$RELEASE_ID/assets?name=latest.json" \
+            --input "$RUNNER_TEMP/latest.json" --jq .name
+
+  update-release:
+    name: Update release notes and publish
+    needs: [ pipedash, create-release-draft, docker-publish, updater-manifest ]
+    permissions:
+      contents: write # update release notes and publish the release
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    if: |
+      startsWith(github.ref, 'refs/tags/v') &&
+      !contains(github.ref, '-beta') &&
+      !contains(github.ref, '-alpha')
+    steps:
       - name: Update release notes
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           RELEASE_ID: ${{ needs.create-release-draft.outputs.release_id }}
-          BODY: ${{ steps.git-cliff.outputs.content }}
+          BODY: ${{ needs.updater-manifest.outputs.notes }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |

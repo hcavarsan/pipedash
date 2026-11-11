@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:3540c0362c809df084ffac0ae69fe794515f9de92692f02178bcdce0ef0302ac
     platform: linux/amd64
     environment:
       POSTGRES_USER: pipedash
@@ -14,6 +14,12 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+
+  pipedash-data-init:
+    image: busybox:1.38.0@sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4
+    command: ["chown", "-R", "65532:65532", "/data"]
+    volumes:
+      - pipedash-data:/data
 
   pipedash:
     build:
@@ -35,10 +41,14 @@ services:
       GITHUB_TOKEN: your-github-token-here
     volumes:
       - ./config.toml:/config/config.toml:ro
+      - pipedash-data:/data
     depends_on:
       postgres:
         condition: service_healthy
+      pipedash-data-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
 volumes:
   postgres-data:
+  pipedash-data:

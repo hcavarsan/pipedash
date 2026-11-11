@@ -1,0 +1,11 @@
+{% if not kubernetes %}
+mod client;
+{% endif %}
+mod config;
+mod metadata;
+mod plugin;
+mod schema;
+
+pub use plugin::{{ pascal }}Plugin;
+
+pipedash_plugin_api::register_plugin!({{ pascal }}Plugin);

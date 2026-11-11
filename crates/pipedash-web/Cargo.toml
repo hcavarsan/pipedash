@@ -6,11 +6,22 @@ edition.workspace = true
 description = "REST API server for Pipedash"
 repository = "https://github.com/hcavarsan/pipedash"
 license = "GPL-3.0"
-include = ["build.rs", "dist/**", "src/**"]
+include = [
+    "dist/**",
+    "src/**",
+    "!src/**/tests.rs",
+    "!src/**/*_tests.rs",
+    "!src/test_support.rs",
+    "!src/test_support/**",
+]
+
+[lib]
+path = "src/lib.rs"
 
 [[bin]]
 name = "pipedash-web"
 path = "src/main.rs"
+required-features = ["embedded-frontend"]
 
 [dependencies]
 # Error handling
@@ -19,24 +30,26 @@ anyhow.workspace = true
 async-trait.workspace = true
 # Web framework
 axum = { workspace = true, features = ["macros", "ws"] }
+base64.workspace = true
 # Chrono for timestamps
 chrono.workspace = true
 # Configuration
 futures-util.workspace = true
-mime_guess.workspace = true
+mime_guess = { workspace = true, optional = true }
 # Core
 pipedash-core.workspace = true
 pipedash-plugin-api.workspace = true
+pipedash-plugins.workspace = true
+qrcode.workspace = true
 rand.workspace = true
 # Static file embedding
-rust-embed.workspace = true
+rust-embed = { workspace = true, optional = true }
 # TLS/Crypto
 rustls.workspace = true
 subtle.workspace = true
 # Serialization
 serde.workspace = true
 serde_json.workspace = true
-thiserror.workspace = true
 # Async runtime
 tokio = { workspace = true, features = ["full"] }
 # WebSocket
@@ -48,8 +61,14 @@ tracing.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
+pipedash-plugin-actions.workspace = true
+reqwest.workspace = true
 
 [features]
-default = ["postgres"]
+default = ["postgres", "embedded-frontend"]
+embedded-frontend = ["dep:rust-embed", "dep:mime_guess"]
 full = ["postgres"]
 postgres = ["pipedash-core/postgres"]
+
+[lints]
+workspace = true

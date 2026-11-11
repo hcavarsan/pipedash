@@ -31,6 +31,54 @@ const CACHE_NAMES: Record<CacheType, string> = {
   all: 'all caches',
 }
 
+interface CacheCountProps {
+  label: string
+  count: string | number
+}
+
+const CacheCount = ({ label, count }: CacheCountProps): ReactNode => (
+  <Stack gap="3xs">
+    <Text size="xs" c="dimmed">
+      {label}
+    </Text>
+    <Text size="sm">{count}</Text>
+  </Stack>
+)
+
+const CacheMetricsRow = ({ count }: { count: number }): ReactNode => (
+  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg">
+    <CacheCount label="Metrics" count={`${count} items`} />
+  </SimpleGrid>
+)
+
+interface CacheStatRowProps {
+  label: string
+  count: string
+  clearLabel: string
+  pending: boolean
+  disabled: boolean
+  onClear: () => void
+}
+
+const CacheStatRow = ({ label, count, clearLabel, pending, disabled, onClear }: CacheStatRowProps): ReactNode => (
+  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg">
+    <CacheCount label={label} count={count} />
+    <Stack gap="3xs" align="flex-end">
+      <Button
+        size="compact-xs"
+        variant="subtle"
+        color="gray"
+        aria-label={clearLabel}
+        onClick={onClear}
+        disabled={disabled}
+        loading={pending}
+      >
+        Clear
+      </Button>
+    </Stack>
+  </SimpleGrid>
+)
+
 export const CacheSection = ({ onRefresh }: CacheSectionProps): ReactNode => {
   const mobileShell = useMobileShell()
   const { data: cacheStats, isLoading, error, refetch, isRefetching } = useCacheStats()
@@ -53,20 +101,22 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps): ReactNode => {
       onError: () => haptic('error'),
     })
 
+  const alert = error && (
+    <ErrorState
+      title="Couldn't load cache statistics"
+      error={error}
+      onRetry={() => refetch()}
+      retrying={isRefetching}
+    />
+  )
+
   const renderContent = () => {
     if (isLoading) {
-      return <LoadingState message="Loading cache statistics..." />
+      return <LoadingState message="Loading cache statistics…" />
     }
 
     if (!cacheStats) {
-      return (
-        <ErrorState
-          title="Couldn't load cache statistics"
-          error={error}
-          onRetry={() => refetch()}
-          retrying={isRefetching}
-        />
-      )
+      return alert
     }
 
     const cacheItems = [
@@ -81,7 +131,17 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps): ReactNode => {
     ]
 
     if (mobileShell) {
-      const clearing = <Loader size={18} aria-label="Clearing" role="status" />
+      const clearing = <Loader size="xs" aria-label="Clearing" role="status" />
+      const clearRows = cacheItems.map((item) => (
+        <IosRow
+          key={item.key}
+          title={<AccentText>{`Clear ${item.label.toLowerCase()}`}</AccentText>}
+          ariaLabel={`Clear ${CACHE_NAMES[item.key]}`}
+          disabled={isClearing}
+          onClick={() => clearNow(item.key)}
+          accessory={clearMutations[item.key].isPending ? clearing : undefined}
+        />
+      ))
 
       return (
         <Stack gap="lg" pb="md">
@@ -94,18 +154,7 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps): ReactNode => {
             )}
           </IosGroup>
 
-          <IosGroup footer="Cached data is re-fetched when needed.">
-            {cacheItems.map((item) => (
-              <IosRow
-                key={item.key}
-                title={<AccentText>{`Clear ${item.label.toLowerCase()}`}</AccentText>}
-                ariaLabel={`Clear ${CACHE_NAMES[item.key]}`}
-                disabled={isClearing}
-                onClick={() => clearNow(item.key)}
-                accessory={clearMutations[item.key].isPending ? clearing : undefined}
-              />
-            ))}
-          </IosGroup>
+          <IosGroup footer="Cached data is re-fetched when needed.">{clearRows}</IosGroup>
 
           <IosGroup>
             <IosRow
@@ -119,47 +168,29 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps): ReactNode => {
       )
     }
 
+    const statRows = cacheItems.map((item, index) => (
+      <Box key={item.key}>
+        {index > 0 && <Divider mb="md" />}
+        <CacheStatRow
+          label={item.label}
+          count={item.count}
+          clearLabel={`Clear ${CACHE_NAMES[item.key]}`}
+          pending={clearMutations[item.key].isPending}
+          disabled={isClearing}
+          onClear={() => clearNow(item.key)}
+        />
+      </Box>
+    ))
+
     return (
       <Card padding="md">
         <Stack gap="md">
-          {cacheItems.map((item, index) => (
-            <Box key={item.key}>
-              {index > 0 && <Divider mb="md" />}
-              <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg">
-                <Stack gap="3xs">
-                  <Text size="xs" c="dimmed">
-                    {item.label}
-                  </Text>
-                  <Text size="sm">{item.count}</Text>
-                </Stack>
-                <Stack gap="3xs" align="flex-end">
-                  <Button
-                    size="compact-xs"
-                    variant="subtle"
-                    color="gray"
-                    aria-label={`Clear ${CACHE_NAMES[item.key]}`}
-                    onClick={() => clearNow(item.key)}
-                    disabled={isClearing}
-                    loading={clearMutations[item.key].isPending}
-                  >
-                    Clear
-                  </Button>
-                </Stack>
-              </SimpleGrid>
-            </Box>
-          ))}
+          {statRows}
 
           {cacheStats.metrics_count > 0 && (
             <>
               <Divider />
-              <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg">
-                <Stack gap="3xs">
-                  <Text size="xs" c="dimmed">
-                    Metrics
-                  </Text>
-                  <Text size="sm">{cacheStats.metrics_count} items</Text>
-                </Stack>
-              </SimpleGrid>
+              <CacheMetricsRow count={cacheStats.metrics_count} />
             </>
           )}
 
@@ -179,5 +210,10 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps): ReactNode => {
     )
   }
 
-  return <Box>{renderContent()}</Box>
+  return (
+    <Box>
+      {cacheStats && alert}
+      {renderContent()}
+    </Box>
+  )
 }

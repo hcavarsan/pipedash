@@ -1,4 +1,4 @@
-name: "Mark or close stale issues and PRs"
+name: Stale
 on:
   schedule:
     # Run the stalebot every day at 11pm UTC
@@ -17,6 +17,7 @@ jobs:
       issues: write # for actions/stale to close stale issues
       pull-requests: write # for actions/stale to close stale PRs
     runs-on: ubuntu-22.04
+    timeout-minutes: 10
     if: github.repository == 'hcavarsan/pipedash'
     steps:
       - uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # v11.0.0

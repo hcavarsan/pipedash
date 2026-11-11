@@ -1,16 +1,12 @@
 import { Button, Group, NumberInput, Text } from '@mantine/core'
-import { type ReactNode, useActionState, useId, useState } from 'react'
+import { type ReactNode, useId } from 'react'
 import { LiveStatus } from '../../../components/forms/LiveStatus'
-import { SubmitButton } from '../../../components/forms/SubmitButton'
 import { IosRow } from '../../../components/ios/IosList'
 import { FieldRow, RowNumberInput } from '../../../components/ios/mobileParts'
 import { useMobileShell } from '../../../hooks/useIsMobile'
-import { notifications } from '../../../lib/notifications'
+import { useNumberDraft } from '../../../hooks/useNumberDraft'
 import { useUpdateProviderRefreshInterval } from '../../../queries/useProvidersQueries'
-import type { ProviderSummary } from '../../../types/domain'
-import { errorMessage } from '../../../utils/errorDisplay'
-
-const INTERVAL_ERROR = 'Enter a whole number from 5 to 300 seconds.'
+import type { ProviderSummary } from '../../../types/providers'
 
 interface ProviderRefreshIntervalFormProps {
   provider: ProviderSummary
@@ -18,15 +14,8 @@ interface ProviderRefreshIntervalFormProps {
   onCancel: () => void
 }
 
-interface IntervalState {
-  error: string | null
-}
-
-const isValidInterval = (value: number | string): boolean => {
-  const parsed = Number(value)
-
-  return value !== '' && Number.isInteger(parsed) && parsed >= 5 && parsed <= 300
-}
+const MIN_INTERVAL = 5
+const MAX_INTERVAL = 300
 
 export const ProviderRefreshIntervalForm = ({
   provider,
@@ -34,58 +23,46 @@ export const ProviderRefreshIntervalForm = ({
   onCancel,
 }: ProviderRefreshIntervalFormProps): ReactNode => {
   const mobileShell = useMobileShell()
-  const mutation = useUpdateProviderRefreshInterval(mobileShell)
+  const mutation = useUpdateProviderRefreshInterval()
   const errorId = useId()
-  const [draft, setDraft] = useState<number | string>(provider.refresh_interval)
-  const [touched, setTouched] = useState(false)
-  const invalid = !isValidInterval(draft)
-
-  const [state, formAction, pending] = useActionState(
-    async (previous: IntervalState): Promise<IntervalState> => {
-      if (invalid) {
-        setTouched(true)
-        if (mobileShell) {
-          notifications.show({ title: 'Invalid refresh interval', message: INTERVAL_ERROR, color: 'red' })
-        }
-
-        return previous
-      }
-
-      try {
-        await mutation.mutateAsync({ id: provider.id, refreshInterval: Number(draft) })
-        onSaved()
-
-        return { error: null }
-      } catch (error) {
-        return { error: errorMessage(error, 'Try saving the interval again.') }
-      }
+  const draft = useNumberDraft({
+    saved: provider.refresh_interval,
+    min: MIN_INTERVAL,
+    save: async (refreshInterval) => {
+      await mutation.mutateAsync({ id: provider.id, refreshInterval })
+      onSaved()
     },
-    { error: null }
-  )
+  })
 
-  const error = invalid ? (touched ? INTERVAL_ERROR : null) : state.error
+  const { error, pending } = draft
   const label = `Refresh interval in seconds for ${provider.name}`
   const status = error ?? (pending ? 'Saving refresh interval' : '')
 
+  const handleSubmit = (event: { preventDefault: () => void }): void => {
+    event.preventDefault()
+    draft.commit()
+  }
+
   if (mobileShell) {
     return (
-      <form action={formAction} noValidate style={{ display: 'contents' }}>
+      <form onSubmit={handleSubmit} noValidate style={{ display: 'contents' }}>
         <LiveStatus message={status} />
         <FieldRow title="Refresh interval" subtitle={error ? <span id={errorId}>{error}</span> : undefined}>
           {(id) => (
             <RowNumberInput
               id={id}
               name="refreshInterval"
-              value={draft}
-              onChange={setDraft}
-              onBlur={() => setTouched(true)}
-              min={5}
-              max={300}
+              value={draft.value}
+              onChange={draft.onChange}
+              onBlur={draft.commit}
+              min={MIN_INTERVAL}
+              max={MAX_INTERVAL}
               step={5}
               suffix="s"
               clampBehavior="none"
               allowDecimal={false}
               required
+              enterKeyHint="done"
               aria-label={label}
               aria-invalid={error ? true : undefined}
               aria-describedby={error ? errorId : undefined}
@@ -93,31 +70,29 @@ export const ProviderRefreshIntervalForm = ({
             />
           )}
         </FieldRow>
-        <SubmitButton variant="subtle" fullWidth>
-          Save
-        </SubmitButton>
         <IosRow title="Cancel" disabled={pending} onClick={onCancel} />
       </form>
     )
   }
 
   return (
-    <form action={formAction} noValidate>
+    <form onSubmit={handleSubmit} noValidate>
       <LiveStatus message={status} />
       <Group gap="xs" align="flex-start" wrap="nowrap">
         <NumberInput
           name="refreshInterval"
-          value={draft}
-          onChange={setDraft}
-          onBlur={() => setTouched(true)}
+          value={draft.value}
+          onChange={draft.onChange}
+          onBlur={draft.commit}
           error={error ? true : undefined}
           clampBehavior="none"
           allowDecimal={false}
           required
-          min={5}
-          max={300}
+          min={MIN_INTERVAL}
+          max={MAX_INTERVAL}
           step={5}
           aria-label={label}
+          aria-invalid={error ? true : undefined}
           aria-describedby={error ? errorId : undefined}
           disabled={pending}
           size="xs"
@@ -127,9 +102,6 @@ export const ProviderRefreshIntervalForm = ({
         <Button type="button" size="compact-xs" variant="subtle" color="gray" onClick={onCancel} disabled={pending}>
           Cancel
         </Button>
-        <SubmitButton size="compact-xs" variant="light" color="gray">
-          Save
-        </SubmitButton>
       </Group>
       {error && (
         <Text id={errorId} size="xs" c="red">

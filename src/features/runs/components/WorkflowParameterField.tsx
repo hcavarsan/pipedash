@@ -2,7 +2,7 @@ import { NativeSelect, NumberInput, Select, Switch, Text, TextInput } from '@man
 import type { ReactNode } from 'react'
 import shell from '../../../components/forms/ShellForm.module.css'
 import { IosRow } from '../../../components/ios/IosList'
-import type { WorkflowParameter } from '../../../types/domain'
+import type { WorkflowParameter } from '../../../types/pipelines'
 import { errorId, fieldA11y, fieldAttributes, helpId, withoutType } from '../../../utils/formFields'
 import { comparable } from '../lib/triggerParams'
 
@@ -174,13 +174,13 @@ function DesktopField({ param, value, error, last, pending, onChange, onBlur }: 
           description={description}
           placeholder="Select an option"
           disabled={pending}
-          onBlur={onBlur}
           data={options}
           value={typeof value === 'string' && value !== '' && options.includes(value) ? value : null}
           onChange={onChange}
           clearable={!param.required}
           error={error}
           required={param.required}
+          onBlur={onBlur}
         />
       )
     }
@@ -190,7 +190,6 @@ function DesktopField({ param, value, error, last, pending, onChange, onBlur }: 
         <NumberInput
           {...withoutType(attributes)}
           disabled={pending}
-          onBlur={onBlur}
           value={typeof value === 'number' || typeof value === 'string' ? value : ''}
           onChange={onChange}
           label={label}
@@ -198,6 +197,7 @@ function DesktopField({ param, value, error, last, pending, onChange, onBlur }: 
           placeholder="Enter a number"
           error={error}
           required={param.required}
+          onBlur={onBlur}
         />
       )
 
@@ -206,7 +206,6 @@ function DesktopField({ param, value, error, last, pending, onChange, onBlur }: 
         <TextInput
           {...attributes}
           disabled={pending}
-          onBlur={onBlur}
           value={comparable(value)}
           onChange={(event) => onChange(event.currentTarget.value)}
           label={label}
@@ -214,6 +213,7 @@ function DesktopField({ param, value, error, last, pending, onChange, onBlur }: 
           placeholder={`Enter ${label.toLowerCase()}`}
           error={error}
           required={param.required}
+          onBlur={onBlur}
         />
       )
   }

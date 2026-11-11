@@ -2,7 +2,7 @@ import { Button, Menu } from '@mantine/core'
 import { IconAdjustmentsHorizontal } from '@tabler/icons-react'
 import { Fragment, type ReactNode } from 'react'
 import { useMobileShell } from '../../../hooks/useIsMobile'
-import type { PipelineView, SectionMode, ViewDisplay } from '../../../types/domain'
+import type { PipelineView, SectionMode, ViewDisplay } from '../../../types/views'
 import { typedKeys } from '../../../utils/typedKeys'
 
 export interface ViewOptionsProps {
@@ -11,6 +11,7 @@ export interface ViewOptionsProps {
   onChange: (display: ViewDisplay) => void
   onExpandAll?: ((open: boolean) => void) | undefined
   hidden?: { value: boolean; count: number; onChange: (value: boolean) => void } | undefined
+  pending?: boolean | undefined
 }
 
 interface Option<K extends keyof ViewDisplay> {
@@ -21,7 +22,63 @@ interface Option<K extends keyof ViewDisplay> {
 export const hasViewOptions = ({ view, onExpandAll, hidden }: ViewOptionsProps): boolean =>
   view.capabilities.edit_display || Boolean(hidden) || Boolean(onExpandAll)
 
-export function ViewOptionsItems({ view, groupTitle, onChange, onExpandAll, hidden }: ViewOptionsProps): ReactNode {
+type DisplayKey = 'sort' | 'direction' | 'sections' | 'layout'
+
+interface OptionItemsInput {
+  groupKey: DisplayKey
+  options: ReadonlyArray<{ value: string; label: string }>
+  display: ViewDisplay
+  inlineDirection: boolean
+  pending: boolean
+  onChange: (display: ViewDisplay) => void
+}
+
+function optionItems({
+  groupKey,
+  options,
+  display,
+  inlineDirection,
+  pending,
+  onChange,
+}: OptionItemsInput): ReactNode[] {
+  const ascending = display.direction === 'asc'
+
+  return options.map((option) => {
+    const active = display[groupKey] === option.value
+    const toggles = active && groupKey === 'sort' && inlineDirection
+    let text = option.label
+    let next: ViewDisplay = { ...display, [groupKey]: option.value }
+
+    if (toggles) {
+      text = `${option.label} ${ascending ? '↑' : '↓'}`
+      next = { ...display, direction: ascending ? 'desc' : 'asc' }
+    } else if (active) {
+      text = `${option.label} ✓`
+    }
+
+    return (
+      <Menu.Item
+        key={option.value}
+        role="menuitemradio"
+        aria-checked={active}
+        {...(toggles ? { 'aria-label': `${option.label}, ${ascending ? 'ascending' : 'descending'}` } : {})}
+        disabled={pending}
+        onClick={() => onChange(next)}
+      >
+        {text}
+      </Menu.Item>
+    )
+  })
+}
+
+export function ViewOptionsItems({
+  view,
+  groupTitle,
+  onChange,
+  onExpandAll,
+  hidden,
+  pending = false,
+}: ViewOptionsProps): ReactNode {
   const mobileShell = useMobileShell()
   const { display } = view
   const sorts: Option<'sort'>[] = [
@@ -64,8 +121,6 @@ export function ViewOptionsItems({ view, groupTitle, onChange, onExpandAll, hidd
     ...(mobileShell ? [] : [{ key: 'layout' as const, label: 'Layout', options: layouts }]),
   ]
   const displayGroups = view.capabilities.edit_display ? views : []
-  const flipped = display.direction === 'asc' ? 'desc' : 'asc'
-  const arrow = display.direction === 'asc' ? '↑' : '↓'
   const expandAll = mobileShell ? undefined : onExpandAll
 
   return (
@@ -74,26 +129,7 @@ export function ViewOptionsItems({ view, groupTitle, onChange, onExpandAll, hidd
         <Fragment key={key}>
           {index > 0 && <Menu.Divider />}
           <Menu.Label>{label}</Menu.Label>
-          {options.map((option) => {
-            const active = display[key] === option.value
-            const toggles = active && key === 'sort' && inlineDirection
-
-            return (
-              <Menu.Item
-                key={option.value}
-                role="menuitemradio"
-                aria-checked={active}
-                {...(toggles
-                  ? { 'aria-label': `${option.label}, ${display.direction === 'asc' ? 'ascending' : 'descending'}` }
-                  : {})}
-                onClick={() =>
-                  onChange(toggles ? { ...display, direction: flipped } : { ...display, [key]: option.value })
-                }
-              >
-                {toggles ? `${option.label} ${arrow}` : active ? `${option.label} ✓` : option.label}
-              </Menu.Item>
-            )
-          })}
+          {optionItems({ groupKey: key, options, display, inlineDirection, pending, onChange })}
         </Fragment>
       ))}
       {hidden && (
@@ -123,7 +159,12 @@ export function ViewOptionsMenu(props: ViewOptionsProps): ReactNode {
   return (
     <Menu position="bottom-end">
       <Menu.Target>
-        <Button variant="default" size="sm" leftSection={<IconAdjustmentsHorizontal size={16} aria-hidden />}>
+        <Button
+          variant="default"
+          size="sm"
+          loading={props.pending === true}
+          leftSection={<IconAdjustmentsHorizontal size={16} aria-hidden />}
+        >
           View options
         </Button>
       </Menu.Target>

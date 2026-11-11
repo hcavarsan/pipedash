@@ -3,7 +3,7 @@ import { type ReactNode, useRef, useState } from 'react'
 
 import { FillScrollArea } from '../../../components/common/FillScrollArea'
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
-import type { LogViewerHandle } from '../../logs/components/LogViewer'
+import type { LogViewerHandle } from '../../logs/lib/logViewerTypes'
 import { createLogShortcutHandler } from '../lib/logShortcuts'
 import { RunLogsPanel } from './RunLogsPanel'
 

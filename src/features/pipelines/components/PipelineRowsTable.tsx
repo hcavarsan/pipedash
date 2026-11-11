@@ -1,21 +1,16 @@
-import { Box, Group, Stack, Text, UnstyledButton } from '@mantine/core'
+import { Group, Stack, Text, UnstyledButton } from '@mantine/core'
 import { IconChevronDown, IconChevronRight, IconFolder, IconFolders, IconGitBranch } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
+import { StatusBadge } from '../../../components/atoms/StatusBadge'
 import { useContextMenu } from '../../../components/common/ContextMenu'
-import {
-  type PipelineActions,
-  PipelineStatusBadge,
-  RepositoryFetchIndicator,
-  RowFetchInfo,
-  rowMenuItems,
-  SectionActions,
-  type TableRow,
-  WorkflowActions,
-  workflowMenuItems,
-} from '../../../components/common/PipelineRowParts'
+import { RepositoryFetchIndicator, RowFetchInfo } from '../../../components/common/PipelineFetchInfo'
+import { SectionActions, WorkflowActions } from '../../../components/common/PipelineRowActions'
+import { PipelineStatusBadge } from '../../../components/common/PipelineStatusBadge'
 import { VirtualTable, type VirtualTableColumn } from '../../../components/common/VirtualTable'
-import type { Pipeline, ProviderSummary, ViewDisplay } from '../../../types/domain'
-import { getPipelineLabels } from '../../../utils/pipelinePresentation'
+import type { PipelineActions, TableRow } from '../../../types/pipelineRows'
+import type { ProviderSummary } from '../../../types/providers'
+import type { ViewDisplay } from '../../../types/views'
+import { historyLabel, rowMenuItems, workflowMenuItems } from '../../../utils/pipelineRowActions'
 import { TableCells } from '../../../utils/tableCells'
 import { ProviderStatusButton } from '../../notifications/components/ProviderStatusButton'
 import type { PipelineViewPageModel } from '../hooks/usePipelineViewModel'
@@ -26,10 +21,10 @@ const ROW_HEIGHT = 48
 interface PipelineNameCellProps {
   row: TableRow
   onToggle: (id: string) => void
-  onOpen: (pipeline: Pipeline) => void
+  actions: PipelineActions
 }
 
-export function PipelineNameCell({ row, onToggle, onOpen }: PipelineNameCellProps): ReactNode {
+export function PipelineNameCell({ row, onToggle, actions }: PipelineNameCellProps): ReactNode {
   const indent = row.depth ? `calc(var(--mantine-spacing-xl) * ${row.depth})` : undefined
 
   if (row.type === 'section') {
@@ -70,8 +65,8 @@ export function PipelineNameCell({ row, onToggle, onOpen }: PipelineNameCellProp
       className="item-primary"
       w="100%"
       {...(indent === undefined ? {} : { pl: indent })}
-      onClick={() => onOpen(pipeline)}
-      aria-label={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()} for ${row.name}`}
+      onClick={() => actions.onViewHistory(pipeline)}
+      aria-label={`View ${historyLabel(actions, pipeline.provider_type)} for ${row.name}`}
     >
       <Group gap="xs" wrap="nowrap" style={{ overflow: 'hidden', maxWidth: '100%' }}>
         <IconGitBranch size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} aria-hidden />
@@ -103,7 +98,7 @@ export function usePipelineColumns({
       sortable,
       width: '35%',
       textAlign: 'left',
-      render: (row) => <PipelineNameCell row={row} onToggle={onToggle} onOpen={actions.onViewHistory} />,
+      render: (row) => <PipelineNameCell row={row} onToggle={onToggle} actions={actions} />,
     },
     {
       id: 'organization',
@@ -118,12 +113,15 @@ export function usePipelineColumns({
       title: 'Status',
       sortable,
       width: 120,
-      textAlign: 'center',
+      textAlign: 'left',
       render: (row) =>
         row.type === 'workflow' ? (
           <PipelineStatusBadge pipeline={row.pipeline} provider={getProvider(row.pipeline.provider_id)} />
         ) : (
-          <RowFetchInfo row={row} getProvider={getProvider} />
+          <Group gap="xs" wrap="nowrap">
+            {row.status && <StatusBadge status={row.status} />}
+            <RowFetchInfo row={row} getProvider={getProvider} />
+          </Group>
         ),
     },
     {
@@ -172,10 +170,10 @@ interface PipelineRowsTableProps {
 }
 
 export function PipelineRowsTable({ model, actions, onDisplayChange }: PipelineRowsTableProps): ReactNode {
-  const { rows, labels, sortable, sortStatus, display, selecting, selectedSet, selectRowKeys, getProvider } = model
+  const { rows, terminology, sortable, sortStatus, display, selecting, selectedSet, selectRowKeys, getProvider } = model
   const contextMenu = useContextMenu()
   const columns = usePipelineColumns({
-    groupTitle: labels.groupTitle,
+    groupTitle: terminology?.group_title ?? '',
     sortable,
     getProvider,
     actions,
@@ -185,42 +183,40 @@ export function PipelineRowsTable({ model, actions, onDisplayChange }: PipelineR
     rows.flatMap((row) => (row.type === 'workflow' && selectedSet.has(row.pipeline.id) ? [row.id] : []))
   )
 
-  return (
-    <Box style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
-      <VirtualTable<TableRow>
-        records={rows}
-        columns={columns}
-        getKey={(row) => row.id}
-        height="100%"
-        rowHeight={ROW_HEIGHT}
-        label={`${labels.items} table`}
-        sort={sortStatus}
-        onSortChange={({ columnId, direction }) => {
-          const sort = accessorSort(columnId)
+  const tableSelection = selecting
+    ? {
+        selectedKeys,
+        isSelectable: (row: TableRow) => row.type === 'workflow',
+        onChange: selectRowKeys,
+        label: (row: TableRow) => `Select ${row.name}`,
+      }
+    : undefined
 
-          if (display && sort) {
-            onDisplayChange({ ...display, sort, direction })
-          }
-        }}
-        onRowClick={(row) =>
-          row.type === 'workflow' ? actions.onViewHistory(row.pipeline) : model.toggleSection(row.id)
+  return (
+    <VirtualTable<TableRow>
+      records={rows}
+      columns={columns}
+      getKey={(row) => row.id}
+      height="100%"
+      rowHeight={ROW_HEIGHT}
+      label={`${terminology?.items ?? 'pipelines'} table`}
+      sort={sortStatus}
+      onSortChange={({ columnId, direction }) => {
+        const sort = accessorSort(columnId)
+
+        if (display && sort) {
+          onDisplayChange({ ...display, sort, direction })
         }
-        rowAttributes={(row) =>
-          contextMenu(() =>
-            row.type === 'workflow' ? workflowMenuItems(row.pipeline, actions) : rowMenuItems(row, actions)
-          )
-        }
-        selection={
-          selecting
-            ? {
-                selectedKeys,
-                isSelectable: (row) => row.type === 'workflow',
-                onChange: selectRowKeys,
-                label: (row) => `Select ${row.name}`,
-              }
-            : undefined
-        }
-      />
-    </Box>
+      }}
+      onRowClick={(row) =>
+        row.type === 'workflow' ? actions.onViewHistory(row.pipeline) : model.toggleSection(row.id)
+      }
+      rowAttributes={(row) =>
+        contextMenu(() =>
+          row.type === 'workflow' ? workflowMenuItems(row.pipeline, actions) : rowMenuItems(row, actions)
+        )
+      }
+      selection={tableSelection}
+    />
   )
 }

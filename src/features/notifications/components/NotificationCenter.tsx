@@ -1,6 +1,5 @@
 import {
   ActionIcon,
-  Box,
   Button,
   Group,
   Indicator,
@@ -9,28 +8,30 @@ import {
   Stack,
   Text,
   Tooltip,
-  UnstyledButton,
   VisuallyHidden,
 } from '@mantine/core'
-import { IconAlertTriangle, IconBell, IconBellCheck, IconCheck, IconExclamationCircle } from '@tabler/icons-react'
+import {
+  type Icon,
+  IconAlertTriangle,
+  IconBell,
+  IconBellCheck,
+  IconCheck,
+  IconExclamationCircle,
+} from '@tabler/icons-react'
 import { lazy, type ReactNode, Suspense, useEffect, useRef, useState } from 'react'
-import { ProviderIcon } from '../../../components/atoms/ProviderIcon'
 import { EmptyState } from '../../../components/common/EmptyState'
+import { ErrorState } from '../../../components/common/ErrorState'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import { useNow } from '../../../hooks/useNow'
 import { useProviders } from '../../../queries/useProvidersQueries'
-import {
-  type CenterNotification,
-  type CenterNotificationTone,
-  useNotificationCenterStore,
-} from '../../../stores/notificationCenterStore'
+import { useNotificationCenterStore } from '../../../stores/notificationCenterStore'
 import { HEALTH_META } from '../../../theme/status'
-import type { HealthLevel, ProviderSummary } from '../../../types/domain'
-import { formatRelativeTime } from '../../../utils/formatRelativeTime'
-import { providerAttention } from '../../../utils/providerAttention'
-
-import { notificationIcon, notificationLabel } from '../lib/labels'
+import type { HealthLevel } from '../../../types/health'
+import type { CenterNotification, CenterNotificationTone } from '../../../types/notifications'
+import type { ProviderSummary } from '../../../types/providers'
+import { useNotificationActions, useNotificationItems } from '../queries/useDesktopNotifications'
+import { AffectedProviderRow, NotificationCenterItem, NotificationSectionLabel } from './NotificationCenterItem'
 
 const NotificationDetailsModal = lazy(() =>
   import('./NotificationDetailsModal').then((m) => ({ default: m.NotificationDetailsModal }))
@@ -51,51 +52,16 @@ function unreadDotColor(items: CenterNotification[]): string | null {
   return DOT_COLORS.find(([tone]) => unread.some((item) => item.tone === tone))?.[1] ?? null
 }
 
-interface RowProps {
-  leading: ReactNode
-  title: string
-  subtitle: string
-  unread?: boolean
-  onClick: () => void
+const SEVERITIES: Record<string, { name: string; Icon: Icon }> = {
+  red: { name: 'danger', Icon: IconExclamationCircle },
+  orange: { name: 'warning', Icon: IconAlertTriangle },
 }
 
-function Row({ leading, title, subtitle, unread = false, onClick }: RowProps) {
-  return (
-    <UnstyledButton
-      className="interactive-surface"
-      px="sm"
-      py="xs"
-      onClick={onClick}
-      style={{ borderRadius: 'var(--mantine-radius-sm)' }}
-    >
-      <Group gap="sm" wrap="nowrap" align="flex-start">
-        <Box c="dimmed" pt="4xs" style={{ display: 'flex' }}>
-          {leading}
-        </Box>
-        <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
-          <Text size="sm" fw={unread ? 600 : 500} truncate>
-            {title}
-          </Text>
-          <Text size="xs" c="dimmed" lineClamp={2}>
-            {subtitle}
-          </Text>
-        </Stack>
-        {unread && (
-          <Box w={6} h={6} mt="2xs" bg="blue" style={{ borderRadius: '50%', flexShrink: 0 }}>
-            <VisuallyHidden>Unread</VisuallyHidden>
-          </Box>
-        )}
-      </Group>
-    </UnstyledButton>
-  )
-}
-
-function SectionLabel({ children }: { children: string }) {
-  return (
-    <Text size="xs" c="dimmed" fw={500} px="sm" pt="xs">
-      {children}
-    </Text>
-  )
+function severityFor(dotColor: string | null): { name: string | null; Icon: Icon } {
+  if (!dotColor) {
+    return { name: null, Icon: IconCheck }
+  }
+  return SEVERITIES[dotColor] ?? { name: 'success', Icon: IconCheck }
 }
 
 export function NotificationHost(): ReactNode {
@@ -135,14 +101,14 @@ export function NotificationHost(): ReactNode {
       <VisuallyHidden role="status">{announcement}</VisuallyHidden>
       {selectionType === 'notification' && (
         <ErrorBoundary scope="feature" name="Notification details">
-          <Suspense fallback={<LoadingState message="Loading dialog..." />}>
+          <Suspense fallback={<LoadingState message="Loading notification details…" />}>
             <NotificationDetailsModal />
           </Suspense>
         </ErrorBoundary>
       )}
       {selectionType === 'provider' && (
         <ErrorBoundary scope="feature" name="Provider status">
-          <Suspense fallback={<LoadingState message="Loading dialog..." />}>
+          <Suspense fallback={<LoadingState message="Loading provider status…" />}>
             <ProviderStatusModal />
           </Suspense>
         </ErrorBoundary>
@@ -160,20 +126,29 @@ export function useAffectedProviders(): Array<{ provider: ProviderSummary; headl
   const { data: providers } = useProviders()
 
   return (providers ?? []).flatMap((provider) => {
-    const { headline } = providerAttention(provider)
+    const { headline } = provider.attention
 
     return headline ? [{ provider, headline }] : []
   })
 }
 
+export function NotificationsEmptyState(): ReactNode {
+  return (
+    <EmptyState
+      icon={<IconBellCheck size={24} aria-hidden />}
+      title="You're all caught up"
+      description="Provider outages and pipeline failures show up here."
+    />
+  )
+}
+
 export function NotificationList({ title, onSelect }: NotificationListProps): ReactNode {
-  const items = useNotificationCenterStore((state) => state.items)
-  const open = useNotificationCenterStore((state) => state.open)
-  const markAllRead = useNotificationCenterStore((state) => state.markAllRead)
-  const clear = useNotificationCenterStore((state) => state.clear)
+  const { items, status, error, refetch } = useNotificationItems()
+  const { open, markAllRead, clear, pending } = useNotificationActions()
   const now = useNow(30_000)
   const unread = items.filter((item) => !item.read).length
   const affected = useAffectedProviders()
+  const empty = items.length === 0 && affected.length === 0
 
   const select = (selection: Parameters<typeof open>[0]) => {
     onSelect?.()
@@ -190,52 +165,50 @@ export function NotificationList({ title, onSelect }: NotificationListProps): Re
         )}
         <Group gap="3xs">
           {unread > 0 && (
-            <Button size="compact-xs" variant="subtle" color="gray" onClick={markAllRead}>
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              color="gray"
+              loading={pending === 'markAll'}
+              disabled={pending !== null}
+              onClick={markAllRead}
+            >
               Mark all read
             </Button>
           )}
           {items.length > 0 && (
-            <Button size="compact-xs" variant="subtle" color="gray" onClick={clear}>
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              color="gray"
+              loading={pending === 'clear'}
+              disabled={pending !== null}
+              onClick={clear}
+            >
               Clear
             </Button>
           )}
         </Group>
       </Group>
 
-      {items.length === 0 && affected.length === 0 ? (
-        <EmptyState
-          icon={<IconBellCheck size={24} aria-hidden />}
-          title="You're all caught up"
-          description="Provider outages and pipeline failures show up here."
-        />
-      ) : (
+      {status === 'error' && (
+        <Stack px="md" pb="sm">
+          <ErrorState title="Couldn't load notifications" error={error} onRetry={refetch} />
+        </Stack>
+      )}
+      {status === 'pending' && empty && <LoadingState message="Loading notifications…" />}
+      {status === 'success' && empty && <NotificationsEmptyState />}
+      {!empty && (
         <ScrollArea.Autosize mah={title ? 440 : undefined} type="auto">
           <Stack gap="4xs" px="2xs" pb="2xs">
-            {affected.length > 0 && <SectionLabel>Affecting pipelines now</SectionLabel>}
+            {affected.length > 0 && <NotificationSectionLabel>Affecting pipelines now</NotificationSectionLabel>}
             {affected.map(({ provider, headline }) => (
-              <Row
-                key={provider.id}
-                leading={<ProviderIcon name={provider.name} icon={provider.icon} size={16} />}
-                title={provider.name}
-                subtitle={headline}
-                onClick={() => select({ type: 'provider', providerId: provider.id })}
-              />
+              <AffectedProviderRow key={provider.id} provider={provider} headline={headline} onSelect={select} />
             ))}
-            {affected.length > 0 && items.length > 0 && <SectionLabel>Recent</SectionLabel>}
-            {items.map((item) => {
-              const ItemIcon = notificationIcon(item)
-
-              return (
-                <Row
-                  key={item.key}
-                  leading={<ItemIcon size={16} aria-hidden />}
-                  title={item.title}
-                  subtitle={`${notificationLabel(item)} · ${formatRelativeTime(item.at, now)}`}
-                  unread={!item.read}
-                  onClick={() => select({ type: 'notification', key: item.key })}
-                />
-              )
-            })}
+            {affected.length > 0 && items.length > 0 && <NotificationSectionLabel>Recent</NotificationSectionLabel>}
+            {items.map((item) => (
+              <NotificationCenterItem key={item.key} item={item} now={now} onSelect={select} />
+            ))}
           </Stack>
         </ScrollArea.Autosize>
       )}
@@ -249,26 +222,16 @@ interface UnreadNotifications {
 }
 
 export function useUnreadNotifications(): UnreadNotifications {
-  const items = useNotificationCenterStore((state) => state.items)
+  const { items } = useNotificationItems()
 
   return { unread: items.filter((item) => !item.read).length, dotColor: unreadDotColor(items) }
 }
 
 export function NotificationCenter(): ReactNode {
   const [opened, setOpened] = useState(false)
-  const markAllRead = useNotificationCenterStore((state) => state.markAllRead)
   const { unread, dotColor } = useUnreadNotifications()
 
-  const toggle = (next: boolean) => {
-    if (!next) {
-      markAllRead()
-    }
-    setOpened(next)
-  }
-
-  const severity = dotColor === 'red' ? 'danger' : dotColor === 'orange' ? 'warning' : dotColor ? 'success' : null
-  const SeverityIcon =
-    severity === 'danger' ? IconExclamationCircle : severity === 'warning' ? IconAlertTriangle : IconCheck
+  const { name: severity, Icon: SeverityIcon } = severityFor(dotColor)
   const label = unread > 0 ? `Notifications, ${unread} unread${severity ? `, ${severity}` : ''}` : 'Notifications'
 
   return (
@@ -278,19 +241,19 @@ export function NotificationCenter(): ReactNode {
       size={16}
       offset={4}
       withBorder
-      label={<SeverityIcon size={12} aria-hidden />}
+      label={<SeverityIcon size={14} aria-hidden />}
     >
-      <Popover opened={opened} onChange={toggle} position="bottom-end" width={380} shadow="md" trapFocus returnFocus>
+      <Popover opened={opened} onChange={setOpened} position="bottom-end" width={380} shadow="md" trapFocus returnFocus>
         <Popover.Target>
           <Tooltip label={label} position="bottom" disabled={opened}>
-            <ActionIcon size="lg" aria-label={label} onClick={() => toggle(!opened)}>
+            <ActionIcon size="lg" aria-label={label} onClick={() => setOpened(!opened)}>
               <IconBell size={20} aria-hidden />
             </ActionIcon>
           </Tooltip>
         </Popover.Target>
 
         <Popover.Dropdown p={0} maw="calc(100vw - 16px)">
-          <NotificationList title="Notifications" onSelect={() => toggle(false)} />
+          <NotificationList title="Notifications" onSelect={() => setOpened(false)} />
         </Popover.Dropdown>
       </Popover>
     </Indicator>

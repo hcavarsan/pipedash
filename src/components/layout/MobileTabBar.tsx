@@ -1,5 +1,5 @@
 import { IconBell, IconPinned, IconSettings, IconStack2 } from '@tabler/icons-react'
-import { type ReactNode, useEffect, useState } from 'react'
+import { type MouseEvent, type ReactNode, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useUnreadNotifications } from '../../features/notifications/components/NotificationCenter'
 import { useKeyboardOpen } from '../../hooks/useKeyboardInset'
@@ -15,18 +15,16 @@ interface Tab {
   label: string
   ariaLabel: string
   to: string
-  root: string
   icon: typeof IconBell
 }
 
 const TABS: Tab[] = [
-  { id: 'pipelines', label: 'Browse', ariaLabel: 'Browse', to: '/pipelines', root: BROWSE_PATH, icon: IconStack2 },
+  { id: 'pipelines', label: 'Browse', ariaLabel: 'Browse', to: BROWSE_PATH, icon: IconStack2 },
   {
     id: 'pinned',
     label: 'Pinned',
     ariaLabel: 'Pinned workflows',
     to: '/pipelines?view=pinned',
-    root: '/pipelines?view=pinned',
     icon: IconPinned,
   },
   {
@@ -34,10 +32,9 @@ const TABS: Tab[] = [
     label: 'Alerts',
     ariaLabel: 'Notifications',
     to: '/notifications',
-    root: '/notifications',
     icon: IconBell,
   },
-  { id: 'settings', label: 'Settings', ariaLabel: 'Settings', to: '/settings', root: '/settings', icon: IconSettings },
+  { id: 'settings', label: 'Settings', ariaLabel: 'Settings', to: '/settings', icon: IconSettings },
 ]
 
 function useMinimizedOnScroll(): boolean {
@@ -64,6 +61,19 @@ function useMinimizedOnScroll(): boolean {
   return minimized
 }
 
+interface TabBadgeProps {
+  count: number
+  color: string
+}
+
+function TabBadge({ count, color }: TabBadgeProps): ReactNode {
+  return (
+    <span className={classes.badge} style={{ background: `var(--mantine-color-${color}-filled)` }} aria-hidden>
+      {count > 99 ? '99+' : count}
+    </span>
+  )
+}
+
 export function MobileTabBar(): ReactNode {
   const { pathname, search, state } = useLocation()
   const navigate = useNavigate()
@@ -73,6 +83,27 @@ export function MobileTabBar(): ReactNode {
   const { unread, dotColor } = useUnreadNotifications()
   const keyboardOpen = useKeyboardOpen()
   const minimized = useMinimizedOnScroll()
+
+  const handleTabClick = (event: MouseEvent<HTMLAnchorElement>, { id, to }: Tab): void => {
+    event.preventDefault()
+
+    const action = tabAction(activeTab, id, back !== null)
+
+    if (action === 'pop-to-root') {
+      goBack(to)
+      return
+    }
+
+    if (action === 'scroll-top') {
+      scrollActiveToTop()
+      return
+    }
+
+    const route = resumeRoute(tabs, id, to)
+
+    navigate(route.path, route.from ? { state: { from: route.from, tab: id, depth: route.depth ?? 1 } } : undefined)
+  }
+
   return (
     <nav
       className={classes.bar}
@@ -82,7 +113,8 @@ export function MobileTabBar(): ReactNode {
       aria-hidden={keyboardOpen || undefined}
       inert={keyboardOpen}
     >
-      {TABS.map(({ id, label, ariaLabel, to, root, icon: Icon }) => {
+      {TABS.map((tab) => {
+        const { id, label, ariaLabel, to, icon: Icon } = tab
         const active = id === activeTab
         const unreadLabel = id === 'notifications' && unread > 0 ? `${ariaLabel}, ${unread} unread` : ariaLabel
 
@@ -94,36 +126,11 @@ export function MobileTabBar(): ReactNode {
             data-active={active || undefined}
             aria-current={active ? 'page' : undefined}
             aria-label={unreadLabel}
-            onClick={(event) => {
-              event.preventDefault()
-
-              const action = tabAction(activeTab, id, back !== null)
-
-              if (action === 'switch') {
-                const route = resumeRoute(tabs, id, to)
-
-                navigate(
-                  route.path,
-                  route.from ? { state: { from: route.from, tab: id, depth: route.depth ?? 1 } } : undefined
-                )
-              } else if (action === 'pop-to-root') {
-                goBack(root)
-              } else {
-                scrollActiveToTop()
-              }
-            }}
+            onClick={(event) => handleTabClick(event, tab)}
           >
             <Icon size={24} stroke={active ? 2 : 1.6} aria-hidden />
             <span className={classes.label}>{label}</span>
-            {id === 'notifications' && unread > 0 && dotColor && (
-              <span
-                className={classes.badge}
-                style={{ background: `var(--mantine-color-${dotColor}-filled)` }}
-                aria-hidden
-              >
-                {unread > 99 ? '99+' : unread}
-              </span>
-            )}
+            {id === 'notifications' && unread > 0 && dotColor && <TabBadge count={unread} color={dotColor} />}
           </Link>
         )
       })}

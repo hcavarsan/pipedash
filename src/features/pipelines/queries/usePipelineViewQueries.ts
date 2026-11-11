@@ -1,9 +1,11 @@
 import {
+  type MutationKey,
   type QueryClient,
-  type QueryKey,
   type UseMutationResult,
   type UseQueryResult,
   useMutation,
+  useMutationState,
+  useQueries,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
@@ -11,69 +13,101 @@ import { useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { GC_TIMES, STALE_TIMES } from '../../../lib/cacheConfig'
 import { logger } from '../../../lib/logger'
-import { notifications } from '../../../lib/notifications'
-import { queryKeys } from '../../../lib/queryKeys'
+import { queryKeys, ROW_ACTION_KEY } from '../../../lib/queryKeys'
 import { service } from '../../../services/service'
 import type {
   CreateViewInput,
   PinKind,
   PinnedItem,
+  PipelineNavigation,
   PipelineView,
   PipelineViewPage,
   PipelineViewQuery,
+  ViewEditorOptions,
   ViewMember,
   ViewPatch,
-  ViewPipeline,
-} from '../../../types/domain'
-import { getErrorCode } from '../../../types/errors'
-import { errorMessage } from '../../../utils/errorDisplay'
+  ViewSelectionEntry,
+} from '../../../types/views'
+import { displayErrorNotification, displaySuccessNotification } from '../../../utils/errorDisplay'
+import { isRecord } from '../../../utils/isRecord'
 
 const LEGACY_PINNED_KEY = 'pipedash-pinned-pipelines'
 const LEGACY_HIDDEN_KEY = 'pipedash-hidden-pipelines'
+const PIN_KEY = [...ROW_ACTION_KEY, 'pin'] as const
 
-function invalidateViews(queryClient: QueryClient) {
-  void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pages() })
-  void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.views() })
-  void queryClient.invalidateQueries({ queryKey: [...queryKeys.pipelines.all, 'viewMembers'] })
-  void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pins() })
+export type PipelineMark = 'pinned' | 'hidden'
+
+export interface MarkChange {
+  mark: PipelineMark
+  pipelineIds: string[]
+  value: boolean
 }
 
-function notifyError(title: string, error: Error, fallback: string) {
-  notifications.show({ title, message: errorMessage(error, fallback), color: 'red' })
+interface Busy {
+  isBusy: (key: string) => boolean
+  isBusyNow: (key: string) => boolean
 }
 
-function updatePages(queryClient: QueryClient, update: (page: PipelineViewPage) => PipelineViewPage) {
-  queryClient.setQueriesData<PipelineViewPage>({ queryKey: queryKeys.pipelines.pages() }, (page) =>
-    page ? update(page) : page
+export async function invalidateViews(queryClient: QueryClient): Promise<void> {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pages() }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.views() }),
+    queryClient.invalidateQueries({ queryKey: [...queryKeys.pipelines.all, 'viewMembers'] }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pins() }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.selections() }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.editorOptions() }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.navigations() }),
+  ])
+}
+
+function pipelineIdsOf(variables: unknown): string[] {
+  if (!isRecord(variables)) {
+    return []
+  }
+
+  const { pipelineIds, id } = variables
+
+  if (Array.isArray(pipelineIds)) {
+    return pipelineIds.filter((value): value is string => typeof value === 'string')
+  }
+
+  return typeof id === 'string' ? [id] : []
+}
+
+export const pinKey = (kind: string, ref: string): string => `${kind}:${ref}`
+
+function pinKeysOf(variables: unknown): string[] {
+  if (!isRecord(variables)) {
+    return []
+  }
+
+  const { kind, ref } = variables
+
+  return typeof kind === 'string' && typeof ref === 'string' ? [pinKey(kind, ref)] : []
+}
+
+function useBusy(mutationKey: MutationKey, keysOf: (variables: unknown) => string[]): Busy {
+  const queryClient = useQueryClient()
+  const pending = new Set(
+    useMutationState({
+      filters: { mutationKey, status: 'pending' },
+      select: (mutation) => keysOf(mutation.state.variables),
+    }).flat()
   )
-}
 
-function updatePagePipeline(queryClient: QueryClient, id: string, patch: Partial<ViewPipeline>) {
-  const apply = (pipelines: ViewPipeline[]) => pipelines.map((p) => (p.id === id ? { ...p, ...patch } : p))
-
-  updatePages(queryClient, (page) => ({
-    ...page,
-    pinned: apply(page.pinned),
-    sections: page.sections.map((section) => ({ ...section, pipelines: apply(section.pipelines) })),
-  }))
-}
-
-type PageSnapshots = Array<[QueryKey, PipelineViewPage | undefined]>
-
-interface DisplaySnapshots {
-  pages: PageSnapshots
-  views: PipelineView[] | undefined
-}
-
-function snapshotPages(queryClient: QueryClient): PageSnapshots {
-  return queryClient.getQueriesData<PipelineViewPage>({ queryKey: queryKeys.pipelines.pages() })
-}
-
-function restorePages(queryClient: QueryClient, snapshots: PageSnapshots | undefined) {
-  for (const [key, page] of snapshots ?? []) {
-    queryClient.setQueryData(key, page)
+  return {
+    isBusy: (key) => pending.has(key),
+    isBusyNow: (key) =>
+      queryClient.isMutating({
+        mutationKey,
+        predicate: (mutation) => keysOf(mutation.state.variables).includes(key),
+      }) > 0,
   }
 }
+
+export const useBusyPipelines = (): Busy => useBusy(ROW_ACTION_KEY, pipelineIdsOf)
+
+export const useBusyPins = (): Busy => useBusy(PIN_KEY, pinKeysOf)
 
 export function usePipelineViews(enabled = true): UseQueryResult<PipelineView[], Error> {
   return useQuery({
@@ -94,7 +128,6 @@ export function usePipelineViewPage(
     placeholderData: (previous) => (previous?.view.id === query.view ? previous : undefined),
     staleTime: STALE_TIMES.FAST_CHANGING,
     gcTime: GC_TIMES.SHORT,
-    retry: (failureCount, error) => getErrorCode(error) !== 'NOT_FOUND' && failureCount < 3,
     enabled,
   })
 }
@@ -104,6 +137,44 @@ export function useViewMembers(id: string, enabled: boolean): UseQueryResult<Vie
     queryKey: queryKeys.pipelines.viewMembers(id),
     queryFn: () => service.listPipelineViewMembers(id),
     enabled,
+  })
+}
+
+export function useViewSelection(pipelineIds: string[], enabled: boolean): UseQueryResult<ViewSelectionEntry[], Error> {
+  return useQuery({
+    queryKey: queryKeys.pipelines.selection(pipelineIds),
+    queryFn: () => service.getViewSelection(pipelineIds),
+    enabled,
+  })
+}
+
+export function useViewEditorOptions(view: string | null, enabled: boolean): UseQueryResult<ViewEditorOptions, Error> {
+  return useQuery({
+    queryKey: queryKeys.pipelines.editorOption(view),
+    queryFn: () => service.getViewEditorOptions(view),
+    enabled,
+  })
+}
+
+export function useSubViewAllowance(views: PipelineView[]): (id: string) => boolean {
+  const custom = views.filter((view) => view.kind === 'custom')
+  const results = useQueries({
+    queries: custom.map((view) => ({
+      queryKey: queryKeys.pipelines.editorOption(view.id),
+      queryFn: () => service.getViewEditorOptions(view.id),
+    })),
+  })
+  const allowed = new Set(custom.filter((_, index) => results[index]?.data?.can_add_sub_view).map((view) => view.id))
+
+  return (id) => allowed.has(id)
+}
+
+export function usePipelineNavigation(search: string): UseQueryResult<PipelineNavigation, Error> {
+  return useQuery({
+    queryKey: queryKeys.pipelines.navigation(search),
+    queryFn: () => service.getPipelineNavigation(search || undefined),
+    staleTime: STALE_TIMES.FAST_CHANGING,
+    placeholderData: (previous) => previous,
   })
 }
 
@@ -119,69 +190,57 @@ export function useSetPin(): UseMutationResult<void, Error, { kind: PinKind; ref
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: PIN_KEY,
     mutationFn: ({ kind, ref, pinned }: { kind: PinKind; ref: string; pinned: boolean }) =>
       service.setPin(kind, ref, pinned),
-    onError: (error: Error) => notifyError("Couldn't update pin", error, 'Try pinning it again.'),
+    onError: (error: Error) => displayErrorNotification(error, "Couldn't update pin"),
     onSettled: () => invalidateViews(queryClient),
   })
 }
 
-export function useCreatePipelineView(): UseMutationResult<PipelineView, Error, CreateViewInput, unknown> {
+export function useCreatePipelineView({
+  toastErrors = true,
+}: {
+  toastErrors?: boolean
+} = {}): UseMutationResult<PipelineView, Error, CreateViewInput, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: (input: CreateViewInput) => service.createPipelineView(input),
-    onSuccess: (view) => {
-      invalidateViews(queryClient)
-      notifications.show({ title: 'View created', message: view.name, color: 'green' })
+    onSuccess: async (view) => {
+      await invalidateViews(queryClient)
+      displaySuccessNotification(view.name, 'View created')
     },
-    onError: (error: Error) => notifyError("Couldn't create view", error, 'Try creating the view again.'),
+    onError: (error: Error) => {
+      if (toastErrors) {
+        displayErrorNotification(error, "Couldn't create view")
+      }
+    },
   })
 }
 
-export function useUpdatePipelineView(): UseMutationResult<
-  PipelineView,
-  Error,
-  { id: string; patch: ViewPatch },
-  DisplaySnapshots | undefined
-> {
+export function useUpdatePipelineView({
+  toastErrors = true,
+}: {
+  toastErrors?: boolean
+} = {}): UseMutationResult<PipelineView, Error, { id: string; patch: ViewPatch }, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: ViewPatch }) => service.updatePipelineView(id, patch),
-    onMutate: async ({ id, patch }) => {
-      const { display } = patch
+    onSuccess: async (view, { patch }) => {
+      await invalidateViews(queryClient)
 
-      if (!display || patch.name !== undefined || patch.rules !== undefined || patch.members !== undefined) {
-        return undefined
-      }
-
-      const setDisplay = (view: PipelineView): PipelineView => (view.id === id ? { ...view, display } : view)
-
-      await queryClient.cancelQueries({ queryKey: queryKeys.pipelines.pages() })
-      const snapshots: DisplaySnapshots = {
-        pages: snapshotPages(queryClient),
-        views: queryClient.getQueryData<PipelineView[]>(queryKeys.pipelines.views()),
-      }
-      updatePages(queryClient, (page) => ({ ...page, view: setDisplay(page.view) }))
-      queryClient.setQueryData<PipelineView[]>(queryKeys.pipelines.views(), (views) => views?.map(setDisplay))
-
-      return snapshots
-    },
-    onSuccess: (view, { patch }) => {
       if (patch.name !== undefined || patch.rules !== undefined || patch.members !== undefined) {
-        notifications.show({ title: 'View saved', message: view.name, color: 'green' })
+        displaySuccessNotification(view.name, 'View saved')
       }
     },
-    onError: (error: Error, _variables, snapshots) => {
-      if (snapshots) {
-        restorePages(queryClient, snapshots.pages)
-        queryClient.setQueryData(queryKeys.pipelines.views(), snapshots.views)
+    onError: (error: Error) => {
+      if (toastErrors) {
+        displayErrorNotification(error, "Couldn't save view")
       }
-
-      notifyError("Couldn't save view", error, 'Try saving the view again.')
     },
-    onSettled: () => invalidateViews(queryClient),
+    onSettled: (_view, error) => (error ? invalidateViews(queryClient) : undefined),
   })
 }
 
@@ -193,61 +252,20 @@ export function useDeletePipelineView(): UseMutationResult<void, Error, string, 
 
   return useMutation({
     mutationFn: (id: string) => service.deletePipelineView(id),
-    onSuccess: (_data, id) => {
-      invalidateViews(queryClient)
-      notifications.show({ title: 'View deleted', message: 'The view was removed.', color: 'green' })
+    onSuccess: async (_data, id) => {
+      await invalidateViews(queryClient)
+      displaySuccessNotification('The view was removed.', 'View deleted')
 
       if (currentView === id) {
         void navigate('/pipelines', { replace: true })
       }
     },
-    onError: (error: Error) => notifyError("Couldn't delete view", error, 'Try deleting the view again.'),
-  })
-}
-
-export function useReorderPipelineViews(): UseMutationResult<
-  void,
-  Error,
-  string[],
-  { previous: PipelineView[] | undefined }
-> {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: (order: string[]) => service.reorderPipelineViews(order),
-    onMutate: async (order) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.pipelines.views() })
-
-      const previous = queryClient.getQueryData<PipelineView[]>(queryKeys.pipelines.views())
-
-      queryClient.setQueryData<PipelineView[]>(queryKeys.pipelines.views(), (views) => {
-        if (!views) {
-          return views
-        }
-
-        const movable = order
-          .map((id) => views.find((view) => view.id === id))
-          .filter((view): view is PipelineView => view !== undefined)
-        let next = 0
-
-        return views.map((view) => (order.includes(view.id) ? (movable[next++] ?? view) : view))
-      })
-
-      return { previous }
-    },
-    onError: (error: Error, _order, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(queryKeys.pipelines.views(), context.previous)
-      }
-
-      notifyError("Couldn't reorder views", error, 'Try moving the view again.')
-    },
-    onSettled: () => invalidateViews(queryClient),
+    onError: (error: Error) => displayErrorNotification(error, "Couldn't delete view"),
   })
 }
 
 export function useSetViewMembership(): UseMutationResult<
-  void,
+  ViewSelectionEntry[],
   Error,
   { id: string; pipelineIds: string[]; member: boolean },
   unknown
@@ -255,77 +273,38 @@ export function useSetViewMembership(): UseMutationResult<
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ id, pipelineIds, member }: { id: string; pipelineIds: string[]; member: boolean }) => {
-      for (const pipelineId of pipelineIds) {
-        await service.setPipelineViewMembership(id, pipelineId, member)
+    mutationKey: [...ROW_ACTION_KEY, 'membership'],
+    mutationFn: ({ id, pipelineIds, member }: { id: string; pipelineIds: string[]; member: boolean }) =>
+      service.setViewMemberships(id, { pipeline_ids: pipelineIds, member }),
+    onSuccess: (entries, { pipelineIds }) => {
+      queryClient.setQueryData(queryKeys.pipelines.selection(pipelineIds), entries)
+    },
+    onSettled: () => invalidateViews(queryClient),
+    onError: (error: Error) => displayErrorNotification(error, "Couldn't update view"),
+  })
+}
+
+export function useSetPipelineMarks(): UseMutationResult<void, Error, MarkChange, unknown> {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationKey: [...ROW_ACTION_KEY, 'marks'],
+    mutationFn: async ({ mark, pipelineIds, value }: MarkChange) => {
+      const results = await Promise.allSettled(
+        pipelineIds.map((id) =>
+          mark === 'pinned'
+            ? service.setPipelineViewMembership('pinned', id, value)
+            : service.setPipelineHidden(id, value)
+        )
+      )
+      const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+
+      if (failed) {
+        throw failed.reason
       }
     },
-    onSettled: () => invalidateViews(queryClient),
-    onError: (error: Error) => notifyError("Couldn't update view", error, 'Try updating the view again.'),
-  })
-}
-
-export function useTogglePin(): UseMutationResult<void, Error, ViewPipeline, PageSnapshots> {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: (pipeline: ViewPipeline) => service.setPipelineViewMembership('pinned', pipeline.id, !pipeline.pinned),
-    onMutate: async (pipeline) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.pipelines.pages() })
-      const snapshots = snapshotPages(queryClient)
-      updatePagePipeline(queryClient, pipeline.id, { pinned: !pipeline.pinned })
-
-      return snapshots
-    },
-    onError: (error: Error, _pipeline, snapshots) => {
-      restorePages(queryClient, snapshots)
-      notifyError("Couldn't update pin", error, 'Try pinning the workflow again.')
-    },
-    onSettled: () => invalidateViews(queryClient),
-  })
-}
-
-export function useReorderPinned(): UseMutationResult<PipelineView, Error, string[], ViewMember[] | undefined> {
-  const queryClient = useQueryClient()
-  const key = queryKeys.pipelines.viewMembers('pinned')
-
-  return useMutation({
-    mutationFn: (members: string[]) => service.updatePipelineView('pinned', { members }),
-    onMutate: async (members) => {
-      await queryClient.cancelQueries({ queryKey: key })
-      const previous = queryClient.getQueryData<ViewMember[]>(key)
-      const byId = new Map(previous?.map((member) => [member.pipeline_id, member]))
-      queryClient.setQueryData(
-        key,
-        members.flatMap((id) => byId.get(id) ?? [])
-      )
-
-      return previous
-    },
-    onError: (error: Error, _members, previous) => {
-      queryClient.setQueryData(key, previous)
-      notifyError("Couldn't reorder pinned workflows", error, 'Try moving it again.')
-    },
-    onSettled: () => invalidateViews(queryClient),
-  })
-}
-
-export function useToggleHidden(): UseMutationResult<void, Error, ViewPipeline, PageSnapshots> {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: (pipeline: ViewPipeline) => service.setPipelineHidden(pipeline.id, !pipeline.hidden),
-    onMutate: async (pipeline) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.pipelines.pages() })
-      const snapshots = snapshotPages(queryClient)
-      updatePagePipeline(queryClient, pipeline.id, { hidden: !pipeline.hidden })
-
-      return snapshots
-    },
-    onError: (error: Error, _pipeline, snapshots) => {
-      restorePages(queryClient, snapshots)
-      notifyError("Couldn't update hidden pipelines", error, 'Try hiding the workflow again.')
-    },
+    onError: (error: Error, { mark }) =>
+      displayErrorNotification(error, mark === 'pinned' ? "Couldn't update pin" : "Couldn't update hidden pipelines"),
     onSettled: () => invalidateViews(queryClient),
   })
 }

@@ -51,6 +51,7 @@ pub struct OidcConfig {
 pub struct Application {
     pub metadata: ApplicationMetadata,
     pub spec: ApplicationSpec,
+    #[serde(default)]
     pub status: ApplicationStatus,
 }
 
@@ -98,6 +99,21 @@ pub struct ApplicationSource {
     pub chart: Option<String>,
 }
 
+impl ApplicationSource {
+    pub fn kind(&self) -> &'static str {
+        match &self.path {
+            _ if self.chart.is_some() => "Helm",
+            Some(path)
+                if path.to_lowercase().contains("kustomize")
+                    || path.ends_with("kustomization.yaml") =>
+            {
+                "Kustomize"
+            }
+            _ => "Plain",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApplicationDestination {
     pub server: Option<String>,
@@ -126,18 +142,19 @@ pub struct AutomatedSyncPolicy {
     pub self_heal: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ApplicationStatus {
     pub sync: SyncStatus,
     pub health: HealthStatus,
     #[serde(rename = "operationState")]
     pub operation_state: Option<OperationState>,
     pub history: Option<Vec<RevisionHistory>>,
-    #[serde(default)]
     pub resources: Vec<ResourceStatus>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SyncStatus {
     pub status: String,
     pub revision: Option<String>,
@@ -151,7 +168,7 @@ pub struct ComparedTo {
     pub destination: ApplicationDestination,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HealthStatus {
     #[serde(default)]
     pub status: String,
@@ -291,207 +308,7 @@ where
     Ok(Option::<Vec<T>>::deserialize(deserializer)?.unwrap_or_default())
 }
 
-#[derive(Debug, Deserialize)]
-pub struct ApplicationTree {
-    #[serde(default, deserialize_with = "null_as_empty")]
-    pub nodes: Vec<ResourceNode>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ResourceNode {
-    #[serde(default)]
-    pub group: String,
-    #[serde(default)]
-    pub kind: String,
-    #[serde(default)]
-    pub namespace: String,
-    #[serde(default)]
-    pub name: String,
-    pub health: Option<HealthStatus>,
-    #[serde(default, deserialize_with = "null_as_empty")]
-    pub info: Vec<InfoItem>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct InfoItem {
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub value: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct EventList {
-    #[serde(default, deserialize_with = "null_as_empty")]
-    pub items: Vec<Event>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Event {
-    #[serde(rename = "type", default)]
-    pub event_type: String,
-    #[serde(default)]
-    pub reason: String,
-    #[serde(default)]
-    pub message: String,
-    #[serde(default)]
-    pub count: i64,
-    pub first_timestamp: Option<DateTime<Utc>>,
-    pub last_timestamp: Option<DateTime<Utc>>,
-    pub event_time: Option<DateTime<Utc>>,
-}
-
-impl Event {
-    pub fn time(&self) -> Option<DateTime<Utc>> {
-        self.last_timestamp
-            .or(self.event_time)
-            .or(self.first_timestamp)
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PodLogMessage {
-    pub result: Option<PodLogEntry>,
-    pub error: Option<StreamError>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PodLogEntry {
-    #[serde(default)]
-    pub content: String,
-    pub time_stamp_str: Option<String>,
-    #[serde(default)]
-    pub last: bool,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct StreamError {
-    #[serde(default)]
-    pub message: String,
-    #[serde(default)]
-    pub http_code: u16,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ResourceManifest {
-    pub manifest: String,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(default)]
-pub struct Pod {
-    pub metadata: PodMetadata,
-    pub spec: PodSpec,
-    pub status: PodStatus,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(default)]
-pub struct PodMetadata {
-    pub uid: String,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct PodSpec {
-    pub node_name: Option<String>,
-    pub init_containers: Vec<PodContainer>,
-    pub containers: Vec<PodContainer>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(default)]
-pub struct PodContainer {
-    pub name: String,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct PodStatus {
-    pub phase: String,
-    pub reason: Option<String>,
-    pub message: Option<String>,
-    pub init_container_statuses: Vec<ContainerStatus>,
-    pub container_statuses: Vec<ContainerStatus>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct ContainerStatus {
-    pub name: String,
-    pub restart_count: i64,
-    pub state: ContainerState,
-    pub last_state: ContainerState,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(default)]
-pub struct ContainerState {
-    pub waiting: Option<ContainerWaiting>,
-    pub terminated: Option<ContainerTerminated>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(default)]
-pub struct ContainerWaiting {
-    pub reason: Option<String>,
-    pub message: Option<String>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct ContainerTerminated {
-    pub exit_code: i64,
-    pub reason: Option<String>,
-    pub message: Option<String>,
-    pub finished_at: Option<DateTime<Utc>>,
-}
+pub(crate) mod logs;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const APP_OK: &str = r#"{"metadata":{"name":"ok"},"spec":{"source":{"repoURL":"https://github.com/acme/ok","path":"k8s","targetRevision":"main"},"destination":{"server":"https://kubernetes.default.svc","namespace":"ok"},"project":"default"},"status":{"sync":{"status":"Synced"},"health":{"status":"Healthy"}}}"#;
-
-    fn parse_list_with(app: &str) -> Vec<String> {
-        let list: ApplicationList =
-            serde_json::from_str(&format!(r#"{{"metadata":{{}},"items":[{APP_OK},{app}]}}"#))
-                .unwrap();
-        list.items.into_iter().map(|a| a.metadata.name).collect()
-    }
-
-    #[test]
-    fn list_keeps_app_with_destination_name() {
-        let app = r#"{"metadata":{"name":"by-name"},"spec":{"source":{"repoURL":"https://github.com/acme/a","path":"k8s","targetRevision":"main"},"destination":{"name":"in-cluster","namespace":"a"},"project":"default"},"status":{"sync":{"status":"Synced"},"health":{"status":"Healthy"}}}"#;
-        assert_eq!(parse_list_with(app), ["ok", "by-name"]);
-    }
-
-    #[test]
-    fn list_keeps_app_without_target_revision_or_namespace() {
-        let app = r#"{"metadata":{"name":"head"},"spec":{"source":{"repoURL":"https://github.com/acme/b","path":"k8s"},"destination":{"server":"https://kubernetes.default.svc"},"project":"default"},"status":{"sync":{"status":"Synced"},"health":{"status":"Healthy"}}}"#;
-        assert_eq!(parse_list_with(app), ["ok", "head"]);
-    }
-
-    #[test]
-    fn list_keeps_multi_source_app_with_history() {
-        let app = r#"{"metadata":{"name":"multi"},"spec":{"sources":[{"repoURL":"https://github.com/acme/c","path":"k8s","targetRevision":"main"},{"repoURL":"https://charts.acme.dev","chart":"redis","targetRevision":"18.1.0"}],"destination":{"server":"https://kubernetes.default.svc","namespace":"c"},"project":"default"},"status":{"sync":{"status":"Synced","comparedTo":{"source":{"repoURL":""},"sources":[{"repoURL":"https://github.com/acme/c","path":"k8s","targetRevision":"main"}],"destination":{"server":"https://kubernetes.default.svc","namespace":"c"}},"revisions":["abc123","18.1.0"]},"health":{"status":"Healthy"},"history":[{"deployedAt":"2026-10-20T10:00:00Z","id":0,"source":{"repoURL":""},"sources":[{"repoURL":"https://github.com/acme/c","path":"k8s","targetRevision":"main"}],"revisions":["abc123","18.1.0"]}]}}"#;
-        assert_eq!(parse_list_with(app), ["ok", "multi"]);
-    }
-
-    #[test]
-    fn list_keeps_app_awaiting_first_reconcile() {
-        let app = r#"{"metadata":{"name":"new"},"spec":{"source":{"repoURL":"https://github.com/acme/d","path":"k8s","targetRevision":"main"},"destination":{"server":"https://kubernetes.default.svc","namespace":"d"},"project":"default"},"status":{"sync":{"status":"","comparedTo":{"source":{"repoURL":""},"destination":{}}},"health":{}}}"#;
-        assert_eq!(parse_list_with(app), ["ok", "new"]);
-    }
-
-    #[test]
-    fn primary_source_prefers_sources_over_empty_source() {
-        let spec: ApplicationSpec = serde_json::from_str(
-            r#"{"source":{"repoURL":""},"sources":[{"repoURL":"https://github.com/acme/c","path":"k8s","targetRevision":"main"}],"destination":{"server":"https://kubernetes.default.svc"},"project":"default"}"#,
-        )
-        .unwrap();
-        assert_eq!(spec.primary_source().repo_url, "https://github.com/acme/c");
-    }
-}
+mod tests;

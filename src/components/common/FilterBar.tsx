@@ -1,64 +1,17 @@
-import { ActionIcon, Box, Button, Group, MultiSelect, Select, Stack, Tooltip } from '@mantine/core'
+import { Box, Button, Group, MultiSelect } from '@mantine/core'
 import { IconFilter, IconX } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { STATUS_OPTIONS } from '../../theme/status'
 import { DATE_RANGE_OPTIONS } from '../../utils/dateRange'
-import { IosGroup, IosRow } from '../ios/IosList'
 
 import classes from './FilterBar.module.css'
-
+import { FilterSelect } from './FilterSelect'
+import { FilterSheet } from './FilterSheet'
+import type { FilterBarProps } from './filterTypes'
 import { PhoneSearchField } from './PhoneSearchField'
 import { SearchInput } from './SearchInput'
-import { StandardModal } from './StandardModal'
-
-type FilterOption = string | { value: string; label: string }
-
-interface ValueFilter {
-  value: string | null
-  onChange: (value: string | null) => void
-}
-
-interface OptionFilter extends ValueFilter {
-  options: FilterOption[]
-  label?: string
-  allLabel?: string
-}
-
-interface FilterConfig {
-  search?: {
-    value: string
-    onChange: (value: string) => void
-    placeholder?: string
-  }
-  status?: {
-    value: string[]
-    onSelect: (status: string, selected: boolean) => void
-    onClear: () => void
-    options?: { value: string; label: string }[]
-  }
-  provider?: OptionFilter
-  organization?: OptionFilter
-  repository?: OptionFilter
-  workflow?: OptionFilter
-  branch?: OptionFilter
-  actor?: OptionFilter
-  dateRange?: ValueFilter
-}
-
-export interface FilterSheet {
-  opened: boolean
-  onClose: () => void
-}
-
-interface FilterBarProps {
-  filters: FilterConfig
-  onClearAll?: () => void
-  sheet?: FilterSheet | undefined
-}
-
-const dateRangeOptions = [{ value: '', label: 'All time' }, ...DATE_RANGE_OPTIONS]
 
 type OptionFilterKey = 'provider' | 'organization' | 'repository' | 'workflow' | 'branch' | 'actor'
 
@@ -71,57 +24,7 @@ const OPTION_FILTERS: { key: OptionFilterKey; label: string; allLabel: string }[
   { key: 'actor', label: 'Actor', allLabel: 'All actors' },
 ]
 
-interface FilterSelectProps {
-  label: string
-  data: { value: string; label: string }[]
-  value: string | null
-  onChange: (value: string | null) => void
-  searchable?: boolean | undefined
-  leftSection?: React.ReactNode
-  clearable?: boolean | undefined
-}
-
-export const FilterSelect = ({
-  label,
-  data,
-  value,
-  onChange,
-  searchable,
-  leftSection,
-  clearable = true,
-}: FilterSelectProps): ReactNode => (
-  <Select
-    aria-label={label}
-    placeholder={label}
-    data={data}
-    value={value}
-    onChange={onChange}
-    searchable={searchable ?? false}
-    rightSection={
-      value && clearable ? (
-        <Tooltip label={`Clear ${label.toLowerCase()} filter`}>
-          <ActionIcon
-            size="xs"
-            aria-label={`Clear ${label.toLowerCase()} filter`}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={(event) => {
-              event.stopPropagation()
-              onChange(null)
-            }}
-          >
-            <IconX size={14} aria-hidden />
-          </ActionIcon>
-        </Tooltip>
-      ) : null
-    }
-    leftSection={leftSection}
-    {...(value && clearable ? { rightSectionPointerEvents: 'all' as const } : {})}
-    miw={130}
-    flex={1}
-    maw="100%"
-    size="xs"
-  />
-)
+const dateRangeOptions = [{ value: '', label: 'All time' }, ...DATE_RANGE_OPTIONS]
 
 export const FilterBar = ({ filters, onClearAll, sheet }: FilterBarProps): ReactNode => {
   const mobileShell = useMobileShell()
@@ -204,7 +107,6 @@ export const FilterBar = ({ filters, onClearAll, sheet }: FilterBarProps): React
           placeholder={filters.search.placeholder || 'Search'}
           value={searchValue}
           onChange={filters.search.onChange}
-          size="xs"
         />
       </Box>
     )
@@ -214,12 +116,30 @@ export const FilterBar = ({ filters, onClearAll, sheet }: FilterBarProps): React
       ...(status?.value.length ? ['Status'] : []),
       ...selects.filter((select) => select.value).map((select) => select.label),
     ]
-    const clearSheetFilters = () => {
+    const clearSheetFilters = (): void => {
       status?.onClear()
       for (const select of selects) {
         select.onChange(null)
       }
     }
+    const searchBar = filters.search && (
+      <div className={classes.bar}>
+        <PhoneSearchField
+          value={searchValue}
+          placeholder={filters.search.placeholder}
+          onChange={filters.search.onChange}
+          onClear={() => filters.search?.onChange('')}
+        />
+      </div>
+    )
+    const activeBar = activeLabels.length > 0 && (
+      <div className={classes.active} role="status">
+        <span className={classes.activeText}>Filtered by {activeLabels.join(', ')}</span>
+        <button type="button" className={classes.clear} onClick={clearSheetFilters}>
+          Clear
+        </button>
+      </div>
+    )
 
     return (
       <>
@@ -228,85 +148,19 @@ export const FilterBar = ({ filters, onClearAll, sheet }: FilterBarProps): React
           data-search-reveal
           data-pinned={searchValue || activeLabels.length > 0 || sheetOpen ? true : undefined}
         >
-          {filters.search && (
-            <div className={classes.bar}>
-              <PhoneSearchField
-                value={searchValue}
-                placeholder={filters.search.placeholder}
-                onChange={filters.search.onChange}
-                onClear={() => filters.search?.onChange('')}
-              />
-            </div>
-          )}
-          {activeLabels.length > 0 && (
-            <div className={classes.active} role="status">
-              <span className={classes.activeText}>Filtered by {activeLabels.join(', ')}</span>
-              <button type="button" className={classes.clear} onClick={clearSheetFilters}>
-                Clear
-              </button>
-            </div>
-          )}
+          {searchBar}
+          {activeBar}
         </div>
 
-        <StandardModal opened={sheetOpen} onClose={() => sheet?.onClose()} title="Filters" size="md">
-          <Stack gap="lg">
-            <IosGroup>
-              {status && (
-                <IosRow
-                  title="Status"
-                  accessory={
-                    <MultiSelect
-                      aria-label="Status"
-                      placeholder={status.value.length > 0 ? undefined : 'All'}
-                      data={statusOptions}
-                      value={status.value}
-                      onOptionSubmit={(value) => status.onSelect(value, true)}
-                      onRemove={(value) => status.onSelect(value, false)}
-                      onClear={status.onClear}
-                      variant="unstyled"
-                      w={190}
-                      styles={{
-                        input: { background: 'transparent', paddingLeft: 0 },
-                        pillsList: { justifyContent: 'flex-end' },
-                      }}
-                    />
-                  }
-                />
-              )}
-              {selects.map(({ key, label, data, value, onChange, searchable }) => (
-                <IosRow
-                  key={key}
-                  title={label}
-                  accessory={
-                    <Select
-                      aria-label={label}
-                      placeholder="All"
-                      data={data}
-                      value={value}
-                      onChange={onChange}
-                      searchable={searchable}
-                      variant="unstyled"
-                      w={190}
-                      styles={{ input: { background: 'transparent', textAlign: 'right', paddingLeft: 0 } }}
-                    />
-                  }
-                />
-              ))}
-            </IosGroup>
-            {hasActiveFilters && (
-              <IosGroup>
-                <IosRow
-                  title="Clear filters"
-                  destructive
-                  onClick={() => {
-                    clearAllFilters()
-                    sheet?.onClose()
-                  }}
-                />
-              </IosGroup>
-            )}
-          </Stack>
-        </StandardModal>
+        <FilterSheet
+          opened={sheetOpen}
+          onClose={() => sheet?.onClose()}
+          status={status}
+          statusOptions={statusOptions}
+          selects={selects}
+          hasActiveFilters={activeLabels.length > 0}
+          onClear={clearSheetFilters}
+        />
       </>
     )
   }
@@ -331,7 +185,6 @@ export const FilterBar = ({ filters, onClearAll, sheet }: FilterBarProps): React
             miw={130}
             flex={1}
             maw="100%"
-            size="xs"
           />
         )}
 

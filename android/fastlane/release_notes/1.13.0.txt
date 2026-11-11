@@ -1,0 +1,5 @@
+- Turn on Follow all jobs to monitor new Jenkins jobs automatically.
+- Search older run history without skipping matches, and keep the correct sort order across pages.
+- Rerun continued CircleCI pipelines without restarting setup workflows, and clear string inputs when triggering runs.
+- Coolify shows dead containers as failed.
+- Saved tokens use encryption keys unique to each installation.

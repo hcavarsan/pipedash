@@ -101,3 +101,23 @@ test('a body that throws keeps the close control available', async () => {
 
   await waitFor(() => assert.equal(closes, 1))
 })
+
+test('requestClose is refused while loading', async () => {
+  closes = 0
+  render(
+    <MantineProvider env="test">
+      <StandardModal opened loading title="Sheet" onClose={() => (closes += 1)}>
+        Body
+      </StandardModal>
+    </MantineProvider>
+  )
+  const handle = openHandle()
+  let result: boolean | undefined
+
+  await act(async () => {
+    result = await handle.requestClose()
+  })
+
+  assert.equal(result, false)
+  assert.equal(closes, 0)
+})

@@ -10,8 +10,10 @@ import { queryKeys } from '@/lib/queryKeys'
 import { isTauri } from '@/services/isTauri'
 import { displayErrorNotification } from '@/utils/errorDisplay'
 import { openExternal } from '@/utils/openExternal'
+import { isDesktopTauri } from '@/utils/platform'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { apiService } from '../../../services/api'
+import { UpdateCard } from './UpdateCard'
 
 const LINKS = [
   { label: 'Privacy Policy', url: 'https://pipedash.app/privacy' },
@@ -27,11 +29,17 @@ export function AboutSection(): ReactNode {
     staleTime: Infinity,
   })
 
-  const openLink = (label: string, url: string) =>
-    openExternal(url).catch((error: unknown) => {
+  const openLink = (label: string, url: string): void => {
+    void openExternal(url).catch((error: unknown) => {
       logger.error('AboutSection', `Couldn't open ${url}`, error)
       displayErrorNotification(error, `Couldn't open ${label}`)
     })
+  }
+
+  const openAnchor = (event: React.MouseEvent, label: string, url: string): void => {
+    event.preventDefault()
+    openLink(label, url)
+  }
 
   if (mobileShell) {
     return (
@@ -44,10 +52,8 @@ export function AboutSection(): ReactNode {
             <IosRow
               key={url}
               title={label}
-              accessory={<IconExternalLink size={18} aria-hidden />}
-              onClick={() => {
-                void openLink(label, url)
-              }}
+              accessory={<IconExternalLink size={16} aria-hidden />}
+              onClick={() => openLink(label, url)}
             />
           ))}
         </IosGroup>
@@ -55,39 +61,39 @@ export function AboutSection(): ReactNode {
     )
   }
 
+  const links = LINKS.map(({ label, url }) => (
+    <Button
+      key={url}
+      component="a"
+      href={url}
+      variant="default"
+      justify="space-between"
+      rightSection={<IconExternalLink size={16} aria-hidden />}
+      onClick={(event: React.MouseEvent) => openAnchor(event, label, url)}
+    >
+      {label}
+    </Button>
+  ))
+
   return (
-    <Card padding="md">
-      <Stack gap="md">
-        <Stack gap={0}>
-          <Text size="sm" fw={600}>
-            Pipedash
-          </Text>
-          <Text size="xs" c="dimmed">
-            Version {version ?? 'unknown'}
-          </Text>
-        </Stack>
+    <Stack gap="md">
+      <Card padding="md">
+        <Stack gap="md">
+          <Stack gap={0}>
+            <Text size="sm" fw={600}>
+              Pipedash
+            </Text>
+            <Text size="xs" c="dimmed">
+              Version {version ?? 'unknown'}
+            </Text>
+          </Stack>
 
-        <Divider />
+          <Divider />
 
-        <Stack gap="xs">
-          {LINKS.map(({ label, url }) => (
-            <Button
-              key={url}
-              component="a"
-              href={url}
-              variant="default"
-              justify="space-between"
-              rightSection={<IconExternalLink size={16} aria-hidden />}
-              onClick={(event: React.MouseEvent) => {
-                event.preventDefault()
-                void openLink(label, url)
-              }}
-            >
-              {label}
-            </Button>
-          ))}
+          <Stack gap="xs">{links}</Stack>
         </Stack>
-      </Stack>
-    </Card>
+      </Card>
+      {isDesktopTauri() && <UpdateCard />}
+    </Stack>
   )
 }

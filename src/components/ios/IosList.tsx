@@ -52,6 +52,7 @@ interface IosRowContentProps {
   icon?: ReactNode
   value?: ReactNode
   accessory?: ReactNode
+  menu?: ReactNode
   chevron?: boolean
   destructive?: boolean
   selected?: boolean
@@ -59,6 +60,8 @@ interface IosRowContentProps {
   ariaLabel?: string
   invalid?: boolean
   swipeActions?: SwipeAction[]
+  expanded?: boolean
+  controls?: string
 }
 
 type IosRowInteraction =
@@ -75,6 +78,7 @@ export function IosRow(props: IosRowProps): ReactNode {
     icon,
     value,
     accessory,
+    menu,
     chevron = Boolean(props.to),
     destructive,
     selected,
@@ -82,6 +86,8 @@ export function IosRow(props: IosRowProps): ReactNode {
     ariaLabel,
     invalid,
     swipeActions,
+    expanded,
+    controls,
   } = props
   const location = useLocation()
   const pressRef = useRowMenuLongPress(Boolean(longPressMenu))
@@ -95,6 +101,8 @@ export function IosRow(props: IosRowProps): ReactNode {
     'data-selected': selected ? '' : undefined,
     'aria-label': ariaLabel,
     'aria-invalid': invalid || undefined,
+    'aria-expanded': expanded,
+    'aria-controls': controls,
   }
   const content = (
     <>
@@ -111,51 +119,65 @@ export function IosRow(props: IosRowProps): ReactNode {
       {accessory && <span className={classes.accessory}>{accessory}</span>}
       {chevron && (
         <span className={classes.chevron} aria-hidden>
-          <IconChevronRight size={18} />
+          <IconChevronRight size={16} />
         </span>
       )}
     </>
   )
 
-  const render = (className: string | undefined, ref?: (element: HTMLElement | null) => void) =>
-    props.to ? (
-      <Link
-        to={props.to}
-        state={pushState(location.pathname, location.search, location.state)}
-        {...shared}
-        aria-current={selected ? 'true' : undefined}
-        className={className}
-        ref={ref}
-      >
-        {content}
-      </Link>
-    ) : props.onClick ? (
-      <button
-        type="button"
-        onClick={props.onClick}
-        disabled={props.disabled}
-        {...shared}
-        aria-pressed={selected}
-        className={className}
-        ref={ref}
-      >
-        {content}
-      </button>
-    ) : (
+  const render = (className: string | undefined, ref?: (element: HTMLElement | null) => void): ReactNode => {
+    if (props.to) {
+      return (
+        <Link
+          to={props.to}
+          state={pushState(location.pathname, location.search, location.state)}
+          {...shared}
+          aria-current={selected ? 'true' : undefined}
+          className={className}
+          ref={ref}
+        >
+          {content}
+        </Link>
+      )
+    }
+    if (props.onClick) {
+      return (
+        <button
+          type="button"
+          onClick={props.onClick}
+          disabled={props.disabled}
+          {...shared}
+          aria-pressed={selected}
+          className={className}
+          ref={ref}
+        >
+          {content}
+        </button>
+      )
+    }
+    return (
       <div {...shared} className={className} ref={ref}>
         {content}
       </div>
     )
+  }
 
-  if (swipeActions?.length) {
+  if (swipeActions?.length || menu) {
+    const body = (
+      <>
+        {render(classes.row)}
+        {menu}
+      </>
+    )
+
     return (
       <div
         ref={pressRef}
-        className={`${classes.swipeRow} ${classes.item}`}
+        className={`${classes.menuRow} ${classes.item}`}
         data-icon={icon ? '' : undefined}
         data-selected={selected ? '' : undefined}
       >
-        <SwipeActions actions={swipeActions}>{render(classes.row)}</SwipeActions>
+        {swipeActions?.length ? <SwipeActions actions={swipeActions}>{body}</SwipeActions> : body}
       </div>
     )
   }

@@ -1,10 +1,14 @@
-use std::sync::OnceLock;
-use std::time::Duration;
-
+use pipedash_plugin_api::http::{
+    decode_json,
+    get_json,
+    parse_http_url,
+    send,
+    send_checked,
+};
+use pipedash_plugin_api::logs::fetch::send_log;
+use pipedash_plugin_api::utils::Cached;
 use pipedash_plugin_api::{
     check_response,
-    map_send_error,
-    redact_url,
     LogReadMode,
     LogSink,
     PaginatedResponse,
@@ -13,7 +17,10 @@ use pipedash_plugin_api::{
     PluginResult,
     RetryPolicy,
 };
-use reqwest::Url;
+use reqwest::{
+    Method,
+    Url,
+};
 
 use crate::types::{
     PaginatedResponse as BitbucketPaginatedResponse,
@@ -30,7 +37,7 @@ pub struct BitbucketClient {
     api_url: String,
     auth_value: String,
     retry_policy: RetryPolicy,
-    user_cache: OnceLock<User>,
+    user_cache: Cached<User>,
 }
 
 impl BitbucketClient {
@@ -42,22 +49,13 @@ impl BitbucketClient {
             api_url: api_url.trim_end_matches('/').to_string(),
             auth_value,
             retry_policy: RetryPolicy::default(),
-            user_cache: OnceLock::new(),
+            user_cache: Cached::default(),
         }
     }
 
     pub async fn get_user(&self) -> PluginResult<User> {
-        if let Some(user) = self.user_cache.get() {
-            return Ok(user.clone());
-        }
-
-        let user: User = self
-            .retry_policy
-            .retry(|| async { self.get_json(&format!("{}/user", self.api_url)).await })
-            .await?;
-
-        let _ = self.user_cache.set(user.clone());
-        Ok(user)
+        let url = format!("{}/user", self.api_url);
+        self.user_cache.get_or_fetch(|| self.get_json(&url)).await
     }
 
     pub async fn list_workspaces(&self) -> PluginResult<Vec<Workspace>> {
@@ -71,10 +69,7 @@ impl BitbucketClient {
                 break;
             }
 
-            let paginated: BitbucketPaginatedResponse<Workspace> = self
-                .retry_policy
-                .retry(|| async { self.get_json(&url).await })
-                .await?;
+            let paginated: BitbucketPaginatedResponse<Workspace> = self.get_json(&url).await?;
 
             all_workspaces.extend(paginated.values);
             next_url = paginated.next;
@@ -87,29 +82,21 @@ impl BitbucketClient {
     pub async fn list_repositories(
         &self, workspace: &str, params: &PaginationParams,
     ) -> PluginResult<PaginatedResponse<Repository>> {
-        self.retry_policy
-            .retry(|| async {
-                let url = format!(
-                    "{}/repositories/{}?pagelen={}&page={}",
-                    self.api_url, workspace, params.page_size, params.page
-                );
-                self.repository_page(&url, params).await
-            })
-            .await
+        let url = format!(
+            "{}/repositories/{}?pagelen={}&page={}",
+            self.api_url, workspace, params.page_size, params.page
+        );
+        self.repository_page(&url, params).await
     }
 
     pub async fn list_all_repositories(
         &self, params: &PaginationParams,
     ) -> PluginResult<PaginatedResponse<Repository>> {
-        self.retry_policy
-            .retry(|| async {
-                let url = format!(
-                    "{}/repositories?role=member&pagelen={}&page={}",
-                    self.api_url, params.page_size, params.page
-                );
-                self.repository_page(&url, params).await
-            })
-            .await
+        let url = format!(
+            "{}/repositories?role=member&pagelen={}&page={}",
+            self.api_url, params.page_size, params.page
+        );
+        self.repository_page(&url, params).await
     }
 
     pub async fn list_pipelines(
@@ -123,22 +110,16 @@ impl BitbucketClient {
             repo_slug,
             limit.min(100)
         ));
-        const MAX_PAGES: usize = 10;
-        let mut page_count = 0;
 
         while let Some(url) = next_url.take() {
-            if page_count >= MAX_PAGES || pipelines.len() >= limit {
+            if pipelines.len() >= limit {
                 break;
             }
 
-            let paginated: BitbucketPaginatedResponse<Pipeline> = self
-                .retry_policy
-                .retry(|| async { self.get_json(&url).await })
-                .await?;
+            let paginated: BitbucketPaginatedResponse<Pipeline> = self.get_json(&url).await?;
 
             pipelines.extend(paginated.values);
             next_url = paginated.next;
-            page_count += 1;
         }
 
         pipelines.truncate(limit);
@@ -153,14 +134,7 @@ impl BitbucketClient {
         let found = self
             .retry_policy
             .retry(|| async {
-                let response = self
-                    .http_client
-                    .get(url.clone())
-                    .header(reqwest::header::AUTHORIZATION, &self.auth_value)
-                    .send()
-                    .await
-                    .map_err(|e| map_send_error(e, &url))?;
-                check_response(response).await
+                check_response(send(&url, self.authorized(Method::GET, &url)).await?).await
             })
             .await;
         match found {
@@ -179,10 +153,7 @@ impl BitbucketClient {
         ));
 
         while let Some(url) = next_url.take() {
-            let paginated: BitbucketPaginatedResponse<Pipeline> = self
-                .retry_policy
-                .retry(|| async { self.get_json(&url).await })
-                .await?;
+            let paginated: BitbucketPaginatedResponse<Pipeline> = self.get_json(&url).await?;
 
             if let Some(pipeline) = paginated
                 .values
@@ -218,10 +189,7 @@ impl BitbucketClient {
                 break;
             }
 
-            let paginated: BitbucketPaginatedResponse<PipelineStep> = self
-                .retry_policy
-                .retry(|| async { self.get_json(&url).await })
-                .await?;
+            let paginated: BitbucketPaginatedResponse<PipelineStep> = self.get_json(&url).await?;
 
             steps.extend(paginated.values);
             next_url = paginated.next;
@@ -245,31 +213,11 @@ impl BitbucketClient {
         ))?;
 
         let url = &url;
-        sink.pipe_resumed(offset, |from| async move {
-            let response = self
-                .retry_policy
-                .retry_unsent(url, || {
-                    let request = self
-                        .http_client
-                        .get(url.clone())
-                        .header(reqwest::header::AUTHORIZATION, &self.auth_value)
-                        .timeout(Duration::from_secs(900));
-                    match from {
-                        Some(from) => {
-                            request.header(reqwest::header::RANGE, format!("bytes={from}-"))
-                        }
-                        None => request,
-                    }
-                    .send()
-                })
-                .await?;
-
-            if matches!(response.status().as_u16(), 404 | 410) {
-                return Err(PluginError::PipelineNotFound(format!(
-                    "Log of step {step_uuid} is no longer available"
-                )));
-            }
-            Ok(response)
+        let gone = format!("Log of step {step_uuid} is no longer available");
+        sink.pipe_resumed(offset, |from| {
+            send_log(&self.retry_policy, url, from, &gone, || {
+                self.authorized(Method::GET, url)
+            })
         })
         .await
     }
@@ -281,18 +229,12 @@ impl BitbucketClient {
             "{}/repositories/{}/{}/pipelines/",
             self.api_url, workspace, repo_slug
         ))?;
-        let response = self
-            .retry_policy
-            .retry_unsent(&url, || {
-                self.http_client
-                    .post(url.clone())
-                    .header(reqwest::header::AUTHORIZATION, &self.auth_value)
-                    .json(&request)
-                    .send()
-            })
-            .await?;
+        let response = send_checked(&self.retry_policy, &url, || {
+            self.authorized(Method::POST, &url).json(&request)
+        })
+        .await?;
 
-        Self::json(check_response(response).await?).await
+        decode_json(response, "Bitbucket API response").await
     }
 
     pub async fn stop_pipeline(
@@ -305,17 +247,11 @@ impl BitbucketClient {
             repo_slug,
             Self::encoded_uuid(pipeline_uuid)
         ))?;
-        let response = self
-            .retry_policy
-            .retry_unsent(&url, || {
-                self.http_client
-                    .post(url.clone())
-                    .header(reqwest::header::AUTHORIZATION, &self.auth_value)
-                    .send()
-            })
-            .await?;
-
-        check_response(response).await.map(drop)
+        send_checked(&self.retry_policy, &url, || {
+            self.authorized(Method::POST, &url)
+        })
+        .await
+        .map(drop)
     }
 
     async fn repository_page(
@@ -332,8 +268,7 @@ impl BitbucketClient {
     }
 
     fn parse_url(url: &str) -> PluginResult<Url> {
-        Url::parse(url)
-            .map_err(|e| PluginError::InvalidConfig(format!("Invalid Bitbucket URL: {e}")))
+        parse_http_url(url, "Bitbucket")
     }
 
     fn encoded_uuid(uuid: &str) -> String {
@@ -346,124 +281,18 @@ impl BitbucketClient {
 
     async fn get_json<T: serde::de::DeserializeOwned>(&self, url: &str) -> PluginResult<T> {
         let url = Self::parse_url(url)?;
-        let response = self
-            .http_client
-            .get(url.clone())
-            .header(reqwest::header::AUTHORIZATION, &self.auth_value)
-            .send()
-            .await
-            .map_err(|e| map_send_error(e, &url))?;
-        Self::json(check_response(response).await?).await
+        get_json(&self.retry_policy, &url, "Bitbucket API response", || {
+            self.authorized(Method::GET, &url)
+        })
+        .await
     }
 
-    async fn json<T: serde::de::DeserializeOwned>(response: reqwest::Response) -> PluginResult<T> {
-        let url = response.url().clone();
-        response.json::<T>().await.map_err(|e| {
-            PluginError::ApiError(format!(
-                "Failed to parse Bitbucket API response from {}: {}",
-                redact_url(&url),
-                e.without_url()
-            ))
-        })
+    fn authorized(&self, method: Method, url: &Url) -> reqwest::RequestBuilder {
+        self.http_client
+            .request(method, url.clone())
+            .header(reqwest::header::AUTHORIZATION, &self.auth_value)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use std::io::{
-        Read,
-        Write,
-    };
-    use std::sync::atomic::{
-        AtomicUsize,
-        Ordering,
-    };
-    use std::sync::Arc;
-
-    use super::*;
-
-    fn page(from: i64, count: i64, next: Option<String>) -> String {
-        let values: Vec<serde_json::Value> = (from..from + count)
-            .rev()
-            .map(|n| {
-                serde_json::json!({
-                    "uuid": format!("{{{n}}}"),
-                    "build_number": n,
-                    "state": {"name": "COMPLETED", "result": {"name": "SUCCESSFUL"}},
-                    "target": {"type": "pipeline_ref_target", "ref_name": "main"},
-                    "created_on": "2026-10-01T00:00:00Z",
-                    "links": {}
-                })
-            })
-            .collect();
-        serde_json::json!({"values": values, "next": next, "pagelen": 100}).to_string()
-    }
-
-    fn serve_two_pages() -> (BitbucketClient, Arc<AtomicUsize>) {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let requests = Arc::new(AtomicUsize::new(0));
-        let counter = requests.clone();
-        std::thread::spawn(move || {
-            for stream in listener.incoming() {
-                let mut stream = stream.unwrap();
-                let mut buf = [0u8; 4096];
-                let n = stream.read(&mut buf).unwrap();
-                let request = String::from_utf8_lossy(&buf[..n]).to_string();
-                let line = request.lines().next().unwrap_or_default().to_string();
-                counter.fetch_add(1, Ordering::SeqCst);
-                let body = if line.contains("page=2") {
-                    page(1, 50, None)
-                } else {
-                    page(
-                        51,
-                        100,
-                        Some(format!(
-                            "http://127.0.0.1:{port}/repositories/ws/repo/pipelines?pagelen=100&sort=-created_on&page=2"
-                        )),
-                    )
-                };
-                let response = format!(
-                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
-                    body.len(),
-                    body
-                );
-                stream.write_all(response.as_bytes()).unwrap();
-            }
-        });
-
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = BitbucketClient::new(
-            Arc::new(reqwest::Client::new()),
-            format!("http://127.0.0.1:{port}"),
-            "Basic x".to_string(),
-        );
-        (client, requests)
-    }
-
-    #[tokio::test]
-    async fn run_history_follows_next_past_the_first_100_runs() {
-        let (client, requests) = serve_two_pages();
-
-        let runs = client.list_pipelines("ws", "repo", 200).await.unwrap();
-
-        assert_eq!(runs.len(), 150);
-        assert_eq!(runs.first().map(|run| run.build_number), Some(150));
-        assert_eq!(runs.last().map(|run| run.build_number), Some(1));
-        assert_eq!(requests.load(Ordering::SeqCst), 2);
-    }
-
-    #[tokio::test]
-    async fn run_history_stops_at_the_limit() {
-        let (client, requests) = serve_two_pages();
-
-        let runs = client.list_pipelines("ws", "repo", 120).await.unwrap();
-        assert_eq!(runs.len(), 120);
-        assert_eq!(runs.last().map(|run| run.build_number), Some(31));
-        assert_eq!(requests.load(Ordering::SeqCst), 2);
-
-        let runs = client.list_pipelines("ws", "repo", 100).await.unwrap();
-        assert_eq!(runs.len(), 100);
-        assert_eq!(requests.load(Ordering::SeqCst), 3);
-    }
-}
+mod tests;

@@ -137,14 +137,23 @@ pub fn classify(status: u16, reason: Option<&str>) -> Outcome {
 }
 
 pub const FAILURE_CATEGORY: &str = "pipedash-failure";
+pub const ALERT_TITLE: &str = "Pipedash";
+pub const ALERT_BODY: &str = "New alert. Open Pipedash to see it.";
+pub const ALERT_THREAD: &str = "pipedash-alerts";
+pub const ALERT_TTL_SECS: u64 = 24 * 60 * 60;
 
-pub struct Notification<'a> {
-    pub title: &'a str,
-    pub body: &'a str,
-    pub thread_id: Option<&'a str>,
-    pub pipeline_id: Option<&'a str>,
-    pub provider_id: Option<u64>,
-    pub run_number: Option<u64>,
+pub enum Notification<'a> {
+    Legacy {
+        title: &'a str,
+        body: &'a str,
+        thread_id: Option<&'a str>,
+        pipeline_id: Option<&'a str>,
+        provider_id: Option<u64>,
+        run_number: Option<u64>,
+    },
+    Alert {
+        alert_id: &'a str,
+    },
 }
 
 #[derive(Serialize)]
@@ -158,6 +167,8 @@ struct Payload<'a> {
 struct Aps<'a> {
     alert: Alert<'a>,
     sound: &'static str,
+    #[serde(rename = "mutable-content", skip_serializing_if = "Option::is_none")]
+    mutable_content: Option<u8>,
     #[serde(rename = "thread-id", skip_serializing_if = "Option::is_none")]
     thread_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -165,8 +176,15 @@ struct Aps<'a> {
 }
 
 #[derive(Serialize)]
+#[serde(untagged)]
+enum Destination<'a> {
+    Pipeline(PipelineDestination<'a>),
+    Alert(AlertDestination<'a>),
+}
+
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Destination<'a> {
+struct PipelineDestination<'a> {
     key: String,
     pipeline_id: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -175,23 +193,51 @@ struct Destination<'a> {
     run_number: Option<u64>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AlertDestination<'a> {
+    alert_id: &'a str,
+}
+
 fn payload<'a>(notification: &Notification<'a>) -> Payload<'a> {
-    Payload {
-        aps: Aps {
-            alert: Alert {
-                title: notification.title,
-                body: notification.body,
-            },
-            sound: "default",
-            thread_id: notification.thread_id,
-            category: notification.pipeline_id.map(|_| FAILURE_CATEGORY),
-        },
-        pipedash: notification.pipeline_id.map(|pipeline_id| Destination {
-            key: format!("pipeline:{pipeline_id}"),
+    match *notification {
+        Notification::Legacy {
+            title,
+            body,
+            thread_id,
             pipeline_id,
-            provider_id: notification.provider_id,
-            run_number: notification.run_number,
-        }),
+            provider_id,
+            run_number,
+        } => Payload {
+            aps: Aps {
+                alert: Alert { title, body },
+                sound: "default",
+                mutable_content: None,
+                thread_id,
+                category: pipeline_id.map(|_| FAILURE_CATEGORY),
+            },
+            pipedash: pipeline_id.map(|pipeline_id| {
+                Destination::Pipeline(PipelineDestination {
+                    key: format!("pipeline:{pipeline_id}"),
+                    pipeline_id,
+                    provider_id,
+                    run_number,
+                })
+            }),
+        },
+        Notification::Alert { alert_id } => Payload {
+            aps: Aps {
+                alert: Alert {
+                    title: ALERT_TITLE,
+                    body: ALERT_BODY,
+                },
+                sound: "default",
+                mutable_content: Some(1),
+                thread_id: Some(ALERT_THREAD),
+                category: None,
+            },
+            pipedash: Some(Destination::Alert(AlertDestination { alert_id })),
+        },
     }
 }
 
@@ -244,16 +290,19 @@ impl Apns {
         };
         let payload = payload(notification);
 
-        let response = self
+        let mut request = self
             .http
             .post(format!("{base}/3/device/{}", subscription.device_token))
             .bearer_auth(token)
             .header("apns-topic", &subscription.bundle_id)
             .header("apns-push-type", "alert")
-            .header("apns-priority", "10")
-            .json(&payload)
-            .send()
-            .await;
+            .header("apns-priority", "10");
+        if let Notification::Alert { alert_id } = notification {
+            request = request
+                .header("apns-collapse-id", *alert_id)
+                .header("apns-expiration", (unix_now() + ALERT_TTL_SECS).to_string());
+        }
+        let response = request.json(&payload).send().await;
         let response = match response {
             Ok(response) => response,
             Err(error) => {
@@ -290,239 +339,4 @@ impl Apns {
 }
 
 #[cfg(test)]
-mod tests {
-    use axum::http::Version;
-    use ring::signature::{
-        UnparsedPublicKey,
-        ECDSA_P256_SHA256_FIXED,
-    };
-
-    use super::*;
-    use crate::test_support::{
-        key_pem,
-        StubApns,
-    };
-
-    fn decode(part: &str) -> Vec<u8> {
-        URL_SAFE_NO_PAD.decode(part).unwrap()
-    }
-
-    #[test]
-    fn the_provider_token_has_the_apns_shape_and_a_valid_signature() {
-        let (pem, public_key) = key_pem();
-        let signer = Signer::new(&pem, "ABC123DEFG", "TEAM123456").unwrap();
-
-        let token = signer.token(1_700_000_000).unwrap();
-        let parts: Vec<&str> = token.split('.').collect();
-
-        assert_eq!(parts.len(), 3);
-        let header: serde_json::Value = serde_json::from_slice(&decode(parts[0])).unwrap();
-        let claims: serde_json::Value = serde_json::from_slice(&decode(parts[1])).unwrap();
-        assert_eq!(
-            header,
-            serde_json::json!({ "alg": "ES256", "kid": "ABC123DEFG" })
-        );
-        assert_eq!(
-            claims,
-            serde_json::json!({ "iss": "TEAM123456", "iat": 1_700_000_000 })
-        );
-        let signature = decode(parts[2]);
-        assert_eq!(signature.len(), 64);
-        UnparsedPublicKey::new(&ECDSA_P256_SHA256_FIXED, public_key)
-            .verify(format!("{}.{}", parts[0], parts[1]).as_bytes(), &signature)
-            .unwrap();
-    }
-
-    #[test]
-    fn the_token_is_reused_until_it_is_close_to_an_hour_old() {
-        let (pem, _) = key_pem();
-        let signer = Signer::new(&pem, "K", "T").unwrap();
-        let issued = 1_700_000_000;
-
-        let first = signer.token(issued).unwrap();
-        assert_eq!(
-            signer.token(issued + TOKEN_MAX_AGE_SECS - 1).unwrap(),
-            first
-        );
-
-        let refreshed = signer.token(issued + TOKEN_MAX_AGE_SECS).unwrap();
-        assert_ne!(refreshed, first);
-
-        signer.invalidate();
-        assert_ne!(
-            signer.token(issued + TOKEN_MAX_AGE_SECS).unwrap(),
-            refreshed
-        );
-    }
-
-    #[test]
-    fn keys_that_are_not_es256_pkcs8_pem_are_rejected() {
-        assert!(matches!(
-            Signer::new(
-                "-----BEGIN PRIVATE KEY-----\n!!!\n-----END PRIVATE KEY-----",
-                "K",
-                "T"
-            ),
-            Err(KeyError::Pem)
-        ));
-        assert!(matches!(
-            Signer::new(
-                "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----",
-                "K",
-                "T"
-            ),
-            Err(KeyError::Pkcs8)
-        ));
-    }
-
-    #[test]
-    fn a_key_with_escaped_newlines_loads_like_a_multi_line_one() {
-        let (pem, _) = key_pem();
-        let escaped = pem.trim_end().replace('\n', "\\n");
-
-        assert!(Signer::new(&escaped, "K", "T").is_ok());
-    }
-
-    #[test]
-    fn apns_responses_map_to_outcomes() {
-        assert_eq!(classify(200, None), Outcome::Delivered);
-        assert_eq!(classify(410, None), Outcome::Unregistered);
-        assert_eq!(classify(410, Some("Unregistered")), Outcome::Unregistered);
-        assert_eq!(classify(400, Some("BadDeviceToken")), Outcome::Unregistered);
-        assert_eq!(classify(400, Some("BadTopic")), Outcome::Failed);
-        assert_eq!(classify(403, Some("ExpiredProviderToken")), Outcome::Failed);
-        assert_eq!(classify(429, Some("TooManyRequests")), Outcome::Failed);
-        assert_eq!(classify(500, None), Outcome::Failed);
-        assert_eq!(classify(503, Some("ServiceUnavailable")), Outcome::Failed);
-    }
-
-    #[tokio::test]
-    async fn a_notification_goes_out_over_http2_with_the_apns_headers_and_payload() {
-        let stub = StubApns::start().await;
-        let (pem, _) = key_pem();
-        let apns = Apns::new(Signer::new(&pem, "K", "T").unwrap(), &stub.url, &stub.url).unwrap();
-        let subscription = Subscription {
-            device_token: "abcd1234".to_string(),
-            environment: Environment::Production,
-            bundle_id: "com.example.app".to_string(),
-        };
-
-        let outcome = apns
-            .send(
-                &subscription,
-                &Notification {
-                    title: "build failed",
-                    body: "GitHub · main · #7",
-                    thread_id: Some("github__1__build"),
-                    pipeline_id: None,
-                    provider_id: None,
-                    run_number: None,
-                },
-            )
-            .await;
-
-        assert_eq!(outcome, Outcome::Delivered);
-        let requests = stub.take_requests();
-        assert_eq!(requests.len(), 1);
-        let request = &requests[0];
-        assert_eq!(request.version, Version::HTTP_2);
-        assert_eq!(request.path, "/3/device/abcd1234");
-        assert_eq!(request.topic.as_deref(), Some("com.example.app"));
-        assert_eq!(request.push_type.as_deref(), Some("alert"));
-        assert!(request
-            .authorization
-            .as_deref()
-            .is_some_and(|value| value.starts_with("Bearer ") && value.matches('.').count() == 2));
-        assert_eq!(
-            request.body,
-            serde_json::json!({
-                "aps": {
-                    "alert": { "title": "build failed", "body": "GitHub · main · #7" },
-                    "sound": "default",
-                    "thread-id": "github__1__build",
-                }
-            })
-        );
-    }
-
-    #[test]
-    fn a_failure_payload_carries_the_destination_and_the_open_run_category() {
-        let notification = Notification {
-            title: "build failed",
-            body: "GitHub · main · #7",
-            thread_id: Some("github__1__acme/app/ci.yml"),
-            pipeline_id: Some("github__1__acme/app/ci.yml"),
-            provider_id: Some(1),
-            run_number: Some(7),
-        };
-
-        assert_eq!(
-            serde_json::to_value(payload(&notification)).unwrap(),
-            serde_json::json!({
-                "aps": {
-                    "alert": { "title": "build failed", "body": "GitHub · main · #7" },
-                    "sound": "default",
-                    "thread-id": "github__1__acme/app/ci.yml",
-                    "category": "pipedash-failure",
-                },
-                "pipedash": {
-                    "key": "pipeline:github__1__acme/app/ci.yml",
-                    "pipelineId": "github__1__acme/app/ci.yml",
-                    "providerId": 1,
-                    "runNumber": 7,
-                },
-            })
-        );
-    }
-
-    #[test]
-    fn a_notification_without_a_pipeline_has_no_destination_or_category() {
-        let notification = Notification {
-            title: "t",
-            body: "b",
-            thread_id: None,
-            pipeline_id: None,
-            provider_id: Some(1),
-            run_number: Some(7),
-        };
-
-        assert_eq!(
-            serde_json::to_value(payload(&notification)).unwrap(),
-            serde_json::json!({
-                "aps": { "alert": { "title": "t", "body": "b" }, "sound": "default" }
-            })
-        );
-    }
-
-    #[tokio::test]
-    async fn an_unreachable_apns_is_a_failure_not_a_removal() {
-        let (pem, _) = key_pem();
-        let apns = Apns::new(
-            Signer::new(&pem, "K", "T").unwrap(),
-            "http://127.0.0.1:1",
-            "http://127.0.0.1:1",
-        )
-        .unwrap();
-        let subscription = Subscription {
-            device_token: "abcd1234".to_string(),
-            environment: Environment::Sandbox,
-            bundle_id: "com.example.app".to_string(),
-        };
-
-        let outcome = apns
-            .send(
-                &subscription,
-                &Notification {
-                    title: "t",
-                    body: "b",
-                    thread_id: None,
-                    pipeline_id: None,
-                    provider_id: None,
-                    run_number: None,
-                },
-            )
-            .await;
-
-        assert_eq!(outcome, Outcome::Failed);
-    }
-}
+mod tests;

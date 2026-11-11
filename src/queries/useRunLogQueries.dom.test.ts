@@ -12,7 +12,7 @@ const { act, cleanup, renderHook, waitFor } = await import('@testing-library/rea
 const { environmentManager, notifyManager, QueryClient, QueryClientProvider, timeoutManager } = await import(
   '@tanstack/react-query'
 )
-const { events } = await import('../services/service')
+const { wsClient } = await import('../services/websocket')
 const { apiService } = await import('../services/api')
 const { tauriService } = await import('../services/tauri')
 const { useRunLogDocument, useRunLogTree } = await import('./useRunLogQueries')
@@ -114,6 +114,7 @@ const readyMeta: LogDocumentMeta = {
   updated_at_ms: 0,
   stable_lines: 0,
   previous_revision: null,
+  refresh_error: null,
 }
 
 const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -147,7 +148,7 @@ test('a pending job becomes ready on the 30 s heartbeat without reselection', as
 
   context.mock.method(apiService, 'openRunLog', opens)
   context.mock.method(tauriService, 'openRunLog', opens)
-  context.mock.method(events, 'listen', async () => () => undefined)
+  context.mock.method(wsClient, 'listen', async () => () => undefined)
   notifyManager.setNotifyFunction((callback) => act(callback))
 
   const { result } = renderHook(() => useRunLogDocument('github__1__o/r/w', 7, '99', true), { wrapper })
@@ -166,7 +167,7 @@ test('a pending job becomes ready on the 30 s heartbeat without reselection', as
 })
 
 test('a complete document is never refetched on a timer', async (context) => {
-  context.mock.method(events, 'listen', async () => () => undefined)
+  context.mock.method(wsClient, 'listen', async () => () => undefined)
   const opens = stubOpen(context, async () => ({ state: 'ready', ...readyMeta }))
   notifyManager.setNotifyFunction((callback) => act(callback))
 
@@ -189,7 +190,7 @@ type Handler = (payload: {
 function captureListeners(context: TestContext, defer?: Promise<void>) {
   const handlers = new Map<string, Handler>()
   const unlisten = context.mock.fn(() => undefined)
-  context.mock.method(events, 'listen', async (name: string, handler: Handler) => {
+  context.mock.method(wsClient, 'listen', async (name: string, handler: Handler) => {
     handlers.set(name, handler)
     await defer
 
@@ -305,7 +306,13 @@ function stubTree(context: TestContext, impl: () => Promise<RunLogTree>) {
   return trees
 }
 
-const tree = (complete: boolean): RunLogTree => ({ nodes: [], default_node_id: null, complete })
+const tree = (complete: boolean): RunLogTree => ({
+  nodes: [],
+  default_node_id: null,
+  complete,
+  groups: [],
+  step_ids_by_node: {},
+})
 
 test('a run-log-tree-changed event refetches only the tree of that run', async (context) => {
   const { handlers } = captureListeners(context)
@@ -323,7 +330,7 @@ test('a run-log-tree-changed event refetches only the tree of that run', async (
 })
 
 test('an incomplete tree beats every 30 s and a complete one never does', async (context) => {
-  context.mock.method(events, 'listen', async () => () => undefined)
+  context.mock.method(wsClient, 'listen', async () => () => undefined)
   let complete = false
   const trees = stubTree(context, async () => tree(complete))
   notifyManager.setNotifyFunction((callback) => act(callback))

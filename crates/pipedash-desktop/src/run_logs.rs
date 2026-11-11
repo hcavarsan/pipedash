@@ -3,6 +3,7 @@ use std::sync::Arc;
 use pipedash_core::application::LogService;
 use pipedash_core::domain::{
     LogLinesPage,
+    LogLinesQuery,
     LogSearchQuery,
     LogSearchResult,
     RunLogDocument,
@@ -10,7 +11,7 @@ use pipedash_core::domain::{
 };
 use tauri::State;
 
-use crate::commands::ErrorResponse;
+use crate::error::ErrorResponse;
 use crate::MaybeCoreContext;
 
 pub(crate) async fn log_service(
@@ -44,22 +45,13 @@ pub async fn open_run_log(
 }
 
 #[tauri::command]
-#[allow(clippy::too_many_arguments)]
 pub async fn read_run_log_lines(
     maybe_core: State<'_, MaybeCoreContext>, pipeline_id: String, run_number: i64, node_id: String,
-    revision: i64, start: u32, count: u32, max_line_units: u32,
+    query: LogLinesQuery,
 ) -> Result<LogLinesPage, ErrorResponse> {
     let service = log_service(&maybe_core).await?;
     Ok(service
-        .read_lines(
-            &pipeline_id,
-            run_number,
-            &node_id,
-            revision,
-            start,
-            count,
-            max_line_units,
-        )
+        .read_lines(&pipeline_id, run_number, &node_id, query)
         .await?)
 }
 

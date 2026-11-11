@@ -4,6 +4,7 @@ mod mapper;
 mod metadata;
 mod permissions;
 mod plugin;
+mod presentation;
 mod schema;
 mod types;
 

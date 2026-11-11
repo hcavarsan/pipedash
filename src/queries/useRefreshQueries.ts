@@ -1,14 +1,28 @@
 import { type UseMutationResult, useMutation, useMutationState, useQueryClient } from '@tanstack/react-query'
-import { notifications } from '../lib/notifications'
-
 import { queryKeys } from '../lib/queryKeys'
 import { isTauri } from '../services/isTauri'
 import { service } from '../services/service'
-import type { ProviderSummary, RefreshResult } from '../types/domain'
-import { displayErrorNotification } from '../utils/errorDisplay'
+import type { RefreshResult } from '../types/health'
+import type { ProviderSummary } from '../types/providers'
+import {
+  displayErrorNotification,
+  displaySuccessNotification,
+  displayWarningNotification,
+  errorMessage,
+} from '../utils/errorDisplay'
 import { summarizeRefresh } from '../utils/refreshSummary'
 
-const REFRESH_TOAST_MS = 5000
+function notifyRefresh(results: RefreshResult[], providers: ProviderSummary[]): void {
+  const { message, color } = summarizeRefresh(results, providers)
+
+  if (color === 'green') {
+    displaySuccessNotification(message, 'Refreshed')
+  } else if (results.every((result) => result.state === 'failed')) {
+    displayErrorNotification(new Error(message), "Couldn't refresh providers")
+  } else {
+    displayWarningNotification(message, 'Refreshed with errors')
+  }
+}
 
 const desktopOffline = () => isTauri() && !navigator.onLine
 
@@ -42,28 +56,27 @@ export function useRefreshProviders(): RefreshProvidersResult {
       return
     }
 
-    const settled = await Promise.allSettled(ids.map((id) => refreshProvider(id)))
-
-    if (!desktopOffline()) {
-      const results = settled.flatMap((entry) => (entry.status === 'fulfilled' ? [entry.value] : []))
-      const failed = settled.find((entry): entry is PromiseRejectedResult => entry.status === 'rejected')
-
-      if (results.length > 0) {
-        const providers = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list()) ?? []
-        const { message, color } = summarizeRefresh(results, providers)
-
-        notifications.show({ message, color, autoClose: REFRESH_TOAST_MS })
-      }
-
-      if (failed) {
-        displayErrorNotification(failed.reason, "Couldn't refresh")
-      }
-    }
+    const results = await Promise.all(
+      ids.map((id) =>
+        refreshProvider(id).catch(
+          (error: unknown): RefreshResult => ({
+            provider_id: id,
+            state: 'failed',
+            kind: null,
+            message: errorMessage(error, 'Refresh failed'),
+          })
+        )
+      )
+    )
 
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.providers.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all }),
     ])
+
+    if (!desktopOffline()) {
+      notifyRefresh(results, queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list()) ?? [])
+    }
   }
 
   return { refresh, refreshing }
@@ -75,27 +88,26 @@ export function useRefreshAll(): UseMutationResult<RefreshResult[], Error, void,
   return useMutation({
     mutationFn: () => service.refreshAll(),
 
-    onSuccess: (results) => {
-      if (desktopOffline()) {
-        return
-      }
-
-      const providers = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list()) ?? []
-      const { message, color } = summarizeRefresh(results, providers)
-
-      notifications.show({ message, color, autoClose: REFRESH_TOAST_MS })
-    },
-
-    onError: (error) => {
-      if (!desktopOffline()) {
-        displayErrorNotification(error, "Couldn't refresh")
-      }
-    },
-
-    onSettled: () =>
-      Promise.all([
+    onSuccess: async (results) => {
+      await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.providers.all }),
         queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all }),
-      ]),
+      ])
+
+      if (!desktopOffline()) {
+        notifyRefresh(results, queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list()) ?? [])
+      }
+    },
+
+    onError: async (error) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.providers.all }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all }),
+      ])
+
+      if (!desktopOffline()) {
+        displayErrorNotification(error, "Couldn't refresh providers")
+      }
+    },
   })
 }

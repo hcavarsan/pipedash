@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useSyncExternalStore } from 'react'
 import { logger } from '../../../lib/logger'
 import { useVaultStatus } from '../../../queries/useVaultQueries'
 import { mobileService } from '../../../services/mobile'
+import { Z } from '../../../theme/zIndex'
 import { shouldShowPrivacyCover } from '../../../utils/appLock'
 import { isMobilePlatform } from '../../../utils/platform'
 
@@ -40,7 +41,7 @@ export function PrivacyCover(): ReactNode {
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 10000,
+        zIndex: Z.privacyCover,
         background: 'var(--ios-grouped-bg, var(--mantine-color-body))',
       }}
     />

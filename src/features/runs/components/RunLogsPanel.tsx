@@ -5,8 +5,9 @@ import { ErrorState } from '../../../components/common/ErrorState'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { useRunLogTree } from '../../../queries/useRunLogQueries'
 import type { RunLogNode } from '../../../types/logs'
-import { LogViewer, type LogViewerHandle } from '../../logs/components/LogViewer'
-import { groupLogNodes } from '../lib/logTree'
+import { LogViewer } from '../../logs/components/LogViewer'
+import type { LogViewerHandle } from '../../logs/lib/logViewerTypes'
+import { resolveLogGroups } from '../lib/logTree'
 import { LogJobList } from './LogJobList'
 
 interface RunLogsPanelProps {
@@ -30,7 +31,7 @@ export const RunLogsPanel = ({
   const { data: tree, isLoading, error, refetch, isFetching } = useRunLogTree(pipelineId, runNumber, true)
 
   const selectData = useMemo(() => {
-    const groups = groupLogNodes(tree?.nodes ?? [])
+    const groups = tree ? resolveLogGroups(tree) : []
     const items = (nodes: RunLogNode[]) => nodes.map((n) => ({ value: n.id, label: n.name }))
     const [first] = groups
 
@@ -47,12 +48,20 @@ export const RunLogsPanel = ({
     return <ErrorState title="Couldn't load jobs" error={error} onRetry={() => refetch()} retrying={isFetching} />
   }
 
+  const failure = error ? (
+    <ErrorState title="Couldn't load jobs" error={error} onRetry={() => refetch()} retrying={isFetching} />
+  ) : null
   const node =
     tree.nodes.find((n) => n.id === selectedId && n.log !== null) ??
     tree.nodes.find((n) => n.id === tree.default_node_id && n.log !== null)
 
   if (!node) {
-    return <EmptyState title="This run has no jobs yet" description="Jobs appear here once the provider starts them." />
+    return (
+      <>
+        {failure}
+        <EmptyState title="This run has no jobs yet" description="Jobs appear here once the provider starts them." />
+      </>
+    )
   }
 
   const viewer = (
@@ -68,33 +77,38 @@ export const RunLogsPanel = ({
     />
   )
 
-  if (narrow) {
-    return (
-      <Box display="flex" flex={1} mih={0} style={{ flexDirection: 'column' }}>
-        <Box p="sm" flex="none">
-          <Select
-            aria-label="Job"
-            data={selectData}
-            value={node.id}
-            limit={50}
-            searchable
-            allowDeselect={false}
-            onChange={(value) => setSelectedId(value)}
-          />
-        </Box>
-        <Box flex={1} mih={0} display="flex" style={{ flexDirection: 'column' }}>
-          {viewer}
-        </Box>
+  const body = narrow ? (
+    <Box display="flex" flex={1} mih={0} style={{ flexDirection: 'column' }}>
+      <Box p="sm" flex="none">
+        <Select
+          aria-label="Job"
+          data={selectData}
+          value={node.id}
+          limit={50}
+          searchable
+          allowDeselect={false}
+          onChange={(value) => setSelectedId(value)}
+        />
       </Box>
-    )
-  }
-
-  return (
+      <Box flex={1} mih={0} display="flex" style={{ flexDirection: 'column' }}>
+        {viewer}
+      </Box>
+    </Box>
+  ) : (
     <Box display="flex" flex={1} mih={0}>
       <LogJobList nodes={tree.nodes} selectedId={node.id} onSelect={setSelectedId} />
       <Box flex={1} miw={0} mih={0} display="flex" style={{ flexDirection: 'column' }}>
         {viewer}
       </Box>
     </Box>
+  )
+
+  return failure ? (
+    <Box display="flex" flex={1} mih={0} style={{ flexDirection: 'column' }}>
+      {failure}
+      {body}
+    </Box>
+  ) : (
+    body
   )
 }

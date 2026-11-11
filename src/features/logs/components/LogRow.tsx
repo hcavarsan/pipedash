@@ -5,9 +5,9 @@ import { StatusIcon } from '../../../components/atoms/StatusBadge'
 import type { AnsiColor, LogSection, LogStyle } from '../../../types/logs'
 import { formatDuration } from '../../../utils/formatDuration'
 import { isOneOf } from '../../../utils/isOneOf'
-import { openExternal } from '../../../utils/openExternal'
+import { openLink } from '../../../utils/openExternal'
 import { typedKeys } from '../../../utils/typedKeys'
-import type { LineState } from '../lib/lineCache'
+import type { LineState } from '../lib/lineCacheTypes'
 import { type Highlight, segmentsFor } from '../lib/segments'
 import classes from './LogViewer.module.css'
 
@@ -39,6 +39,7 @@ export type LogRowProps = LogRowCommonProps &
         current: MatchTriple | null
         onSelect: (line: number, extend: boolean) => void
         onFullLine: (line: number) => void
+        onRetry: () => void
       }
   )
 
@@ -63,6 +64,8 @@ const BG: Record<AnsiColor, string | undefined> = {
   cyan: classes.bgCyan,
   white: classes.bgWhite,
 }
+
+const GLYPH_BY_KIND = { error: IconCircleX, warning: IconAlertTriangle }
 
 const join = (...names: Array<string | false | null | undefined>) => names.filter(Boolean).join(' ')
 
@@ -172,7 +175,7 @@ function LineText({
           className={className || undefined}
           onClick={(event) => {
             event.preventDefault()
-            void openExternal(href)
+            openLink(href)
           }}
         >
           {segment.text}
@@ -195,10 +198,11 @@ export const LogRow = memo(function LogRow(props: LogRowProps): ReactNode {
     return <StepHeader section={props.section} open={props.open} onToggle={props.onToggle} />
   }
 
-  const { line, data, section, open, selected, fresh, gutterCh, timestamps, onToggle, onSelect, onFullLine } = props
+  const { line, data, section, open, selected, fresh, gutterCh, timestamps, onToggle, onSelect, onFullLine, onRetry } =
+    props
   const loaded = typeof data === 'object' ? data : null
   const lineKind = loaded?.kind
-  const Glyph = lineKind === 'error' ? IconCircleX : lineKind === 'warning' ? IconAlertTriangle : null
+  const Glyph = lineKind === 'error' || lineKind === 'warning' ? GLYPH_BY_KIND[lineKind] : null
   const kindClass = lineKind && isOneOf(typedKeys(KIND_CLASS), lineKind) ? KIND_CLASS[lineKind] : null
   return (
     <div
@@ -242,8 +246,15 @@ export const LogRow = memo(function LogRow(props: LogRowProps): ReactNode {
             {open ? <IconChevronDown size={14} aria-hidden /> : <IconChevronRight size={14} aria-hidden />}
           </button>
         )}
-        {data === 'loading' && <span className={classes.dim}>Loading…</span>}
-        {data === 'error' && <span className={classes.fgRed}>Couldn't load this line</span>}
+        {data === 'loading' && <span className={classes.dim}>Loading line…</span>}
+        {data === 'error' && (
+          <>
+            <span className={classes.fgRed}>Couldn't load this line </span>
+            <button type="button" className={classes.omitted} onClick={onRetry}>
+              Retry
+            </button>
+          </>
+        )}
         {loaded && (
           <LineText
             text={loaded.text}

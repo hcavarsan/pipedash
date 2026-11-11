@@ -1,23 +1,48 @@
-import { Anchor, Button, Group, Input, Loader, Stack, Text, TextInput } from '@mantine/core'
-import { IconCheck, IconLogin } from '@tabler/icons-react'
-import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react'
-import { IosGroup, IosRow } from '../../../../components/ios/IosList'
-import { errorMessage } from '../../../../utils/errorDisplay'
-import { openExternal } from '../../../../utils/openExternal'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
+import type { SignInStatus } from '../../../../types/providers'
+import { displayErrorNotification, errorMessage } from '../../../../utils/errorDisplay'
+import { openLink } from '../../../../utils/openExternal'
 import { SIGN_IN_KEY } from '../../lib/credentials'
 import { useCancelSignIn, useCompleteSignIn, useSignInStatus, useStartSignIn } from '../../queries/useSignInQueries'
+import { SignInPasteControls } from '../SignInPasteControls'
+import { DesktopSignIn, ShellSignIn, type SignInPhase, type SignInViewProps } from './SignInFieldViews'
 
-import { ShellField } from './ShellForm'
-
-const LABEL = 'Single sign-on'
 const DESCRIPTION = 'Opens your identity provider in the browser. Pipedash renews the session before it expires.'
-const PASTE_LABEL = 'Address of the page after sign-in'
-const PASTE_DESCRIPTION =
-  "After you sign in, the browser opens a page that can't load. Copy its address from the address bar and paste it here."
-const PASTE_LINK = "Browser didn't return to Pipedash?"
 const FLOW_EXPIRED = 'The sign-in was cancelled or timed out. Start it again.'
 const SESSION_EXPIRED = 'Your sign-in expired. Sign in again.'
 const GENERIC_LABEL = 'SSO'
+
+function failureMessage(status: SignInStatus | undefined, hasFlow: boolean): string | null {
+  if (status?.state === 'failed') {
+    return status.message
+  }
+
+  if (status?.state === 'expired') {
+    return hasFlow ? FLOW_EXPIRED : SESSION_EXPIRED
+  }
+
+  return null
+}
+
+function signedInText(status: SignInStatus | undefined): string | null {
+  if (status?.state !== 'completed') {
+    return null
+  }
+
+  return status.account ? `Signed in as ${status.account}` : 'Signed in'
+}
+
+function signInPhase(waiting: boolean, checking: boolean, signedIn: string | null): SignInPhase {
+  if (waiting) {
+    return 'waiting'
+  }
+
+  if (checking) {
+    return 'checking'
+  }
+
+  return signedIn ? 'signedIn' : 'idle'
+}
 
 interface SignInFieldProps {
   id: string
@@ -47,12 +72,13 @@ export function SignInField({
   const { data: status, isLoading, error: statusError } = useSignInStatus(reference)
   const start = useStartSignIn()
   const complete = useCompleteSignIn()
-  const { mutate: cancelFlow } = useCancelSignIn()
+  const { mutate: cancelFlow, mutateAsync: cancelOwnedFlow, isPending: cancelling } = useCancelSignIn()
 
   const flow = start.data?.id === reference ? start.data : null
   const waiting = status ? status.state === 'pending' : flow !== null
   const ownedFlowRef = useRef<string | null>(null)
   const unmountedRef = useRef(false)
+  const completingRef = useRef(false)
 
   useEffect(() => {
     unmountedRef.current = false
@@ -94,9 +120,18 @@ export function SignInField({
     onChange(started.id)
   }
 
-  const handleCancel = () => {
-    if (ownedFlowRef.current) {
-      cancelFlow(ownedFlowRef.current)
+  const handleCancel = async () => {
+    const owned = ownedFlowRef.current
+
+    if (owned) {
+      try {
+        await cancelOwnedFlow(owned)
+      } catch (cancelError) {
+        displayErrorNotification(cancelError, "Couldn't cancel sign-in")
+
+        return
+      }
+
       ownedFlowRef.current = null
     }
 
@@ -106,33 +141,37 @@ export function SignInField({
     onChange(previous)
   }
 
-  const handleComplete = () => {
-    if (reference && pasted.trim()) {
-      complete.mutate({ id: reference, redirectUrl: pasted })
-    }
+  const changePasted = (value: string) => {
+    setPasted(value)
+    complete.reset()
   }
 
-  const handlePasteKey = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') {
-      event.preventDefault()
-      handleComplete()
+  const handleComplete = async () => {
+    if (!reference || !pasted.trim() || completingRef.current) {
+      return
+    }
+
+    completingRef.current = true
+
+    try {
+      await complete.mutateAsync({ id: reference, redirectUrl: pasted }).catch(() => undefined)
+    } finally {
+      completingRef.current = false
     }
   }
 
   const handleOpenAgain = () => {
     if (flow) {
-      void openExternal(flow.authorize_url)
+      openLink(flow.authorize_url)
     }
   }
 
-  const expiredMessage = flow ? FLOW_EXPIRED : SESSION_EXPIRED
-  const failure = status?.state === 'failed' ? status.message : status?.state === 'expired' ? expiredMessage : null
+  const failure = failureMessage(status, flow !== null)
   const startError = start.error ? errorMessage(start.error, "Couldn't start the sign-in") : null
   const statusFailure = statusError ? errorMessage(statusError, "Couldn't check the sign-in") : null
   const shownError = startError ?? statusFailure ?? failure ?? error ?? undefined
   const checking = reference !== null && isLoading && flow === null
-  const signedIn =
-    status?.state === 'completed' ? (status.account ? `Signed in as ${status.account}` : 'Signed in') : null
+  const signedIn = signedInText(status)
   const waitingText = `Waiting for you to sign in with ${flow?.label ?? GENERIC_LABEL}…`
   const pasteVisible = waiting && flow !== null && (flow.manual || pasteOpen)
   const pasteLinkVisible = waiting && flow !== null && !pasteVisible
@@ -143,132 +182,39 @@ export function SignInField({
       ? `Fill in ${new Intl.ListFormat('en', { type: 'conjunction' }).format(missing)} to sign in.`
       : DESCRIPTION
 
-  const pasteInput = (
-    <TextInput
-      {...(shell ? { variant: 'unstyled' } : {})}
-      label={shell ? undefined : PASTE_LABEL}
-      description={shell ? undefined : PASTE_DESCRIPTION}
-      aria-label={PASTE_LABEL}
-      error={shell ? undefined : pasteError}
-      value={pasted}
-      onChange={(event) => setPasted(event.currentTarget.value)}
-      onKeyDown={handlePasteKey}
-      autoComplete="off"
-      autoCapitalize="off"
-      autoCorrect="off"
-      spellCheck={false}
-      inputMode="url"
-      enterKeyHint="go"
-    />
-  )
-
-  if (shell) {
-    return (
-      <>
-        <ShellField id={id} description={description} error={shownError}>
-          {waiting ? (
-            <>
-              <IosRow title={waitingText} accessory={<Loader size="xs" aria-hidden />} />
-              {flow && <IosRow title="Open the sign-in page again" onClick={handleOpenAgain} />}
-              {pasteLinkVisible && <IosRow title={PASTE_LINK} onClick={() => setPasteOpen(true)} />}
-              <IosRow title="Cancel" destructive onClick={handleCancel} />
-            </>
-          ) : checking ? (
-            <IosRow title="Checking sign-in…" accessory={<Loader size="xs" aria-hidden />} />
-          ) : signedIn ? (
-            <>
-              <IosRow title={signedIn} icon={<IconCheck size={18} aria-hidden />} />
-              <IosRow title="Sign in again" onClick={handleStart} disabled={blocked} />
-            </>
-          ) : (
-            <IosRow
-              title="Sign in with SSO"
-              icon={<IconLogin size={18} aria-hidden />}
-              accessory={start.isPending ? <Loader size="xs" aria-hidden /> : undefined}
-              onClick={handleStart}
-              disabled={blocked}
-              invalid={Boolean(error)}
-            />
-          )}
-        </ShellField>
-        {pasteVisible && (
-          <>
-            <ShellField id={`${id}-paste`} label={PASTE_LABEL} description={PASTE_DESCRIPTION} error={pasteError}>
-              {pasteInput}
-            </ShellField>
-            <IosGroup>
-              <IosRow title="Continue" onClick={handleComplete} disabled={!pasted.trim() || complete.isPending} />
-            </IosGroup>
-          </>
-        )}
-      </>
-    )
+  const view: SignInViewProps = {
+    id,
+    phase: signInPhase(waiting, checking, signedIn),
+    description,
+    shownError,
+    invalid: Boolean(error),
+    signedIn,
+    waitingText,
+    canOpenAgain: flow !== null,
+    pasteLinkVisible,
+    pasteVisible,
+    pasteControls: (
+      <SignInPasteControls
+        shell={shell}
+        value={pasted}
+        error={pasteError}
+        pending={complete.isPending}
+        fieldId={`${id}-paste`}
+        onChange={changePasted}
+        onSubmit={() => void handleComplete()}
+      />
+    ),
+    pasteError,
+    continueDisabled: !pasted.trim() || complete.isPending,
+    blocked,
+    starting: start.isPending,
+    cancelling,
+    onStart: handleStart,
+    onCancel: handleCancel,
+    onOpenAgain: handleOpenAgain,
+    onShowPaste: () => setPasteOpen(true),
+    onContinue: () => void handleComplete(),
   }
 
-  return (
-    <Input.Wrapper id={id} labelElement="div" label={LABEL} description={description} error={shownError}>
-      <Stack gap="xs" mt="xs">
-        {waiting ? (
-          <>
-            <Group gap="xs">
-              <Loader size="xs" aria-hidden />
-              <Text size="sm">{waitingText}</Text>
-            </Group>
-            <Group gap="xs">
-              {flow && (
-                <Button id={id} variant="default" size="xs" onClick={handleOpenAgain}>
-                  Open the sign-in page again
-                </Button>
-              )}
-              <Button variant="subtle" size="xs" onClick={handleCancel}>
-                Cancel
-              </Button>
-            </Group>
-            {pasteLinkVisible && (
-              <Anchor component="button" type="button" size="xs" ta="left" onClick={() => setPasteOpen(true)}>
-                {PASTE_LINK}
-              </Anchor>
-            )}
-            {pasteVisible && (
-              <Stack gap="xs">
-                {pasteInput}
-                <Group>
-                  <Button size="xs" onClick={handleComplete} loading={complete.isPending} disabled={!pasted.trim()}>
-                    Continue
-                  </Button>
-                </Group>
-              </Stack>
-            )}
-          </>
-        ) : checking ? (
-          <Group gap="xs">
-            <Loader size="xs" aria-hidden />
-            <Text size="sm">Checking sign-in…</Text>
-          </Group>
-        ) : signedIn ? (
-          <Group gap="xs">
-            <IconCheck size={16} aria-hidden />
-            <Text size="sm">{signedIn}</Text>
-            <Button id={id} variant="default" size="xs" onClick={handleStart} disabled={blocked}>
-              Sign in again
-            </Button>
-          </Group>
-        ) : (
-          <Group>
-            <Button
-              id={id}
-              variant="default"
-              leftSection={<IconLogin size={16} aria-hidden />}
-              onClick={handleStart}
-              loading={start.isPending}
-              disabled={blocked}
-              aria-invalid={error ? true : undefined}
-            >
-              Sign in with SSO
-            </Button>
-          </Group>
-        )}
-      </Stack>
-    </Input.Wrapper>
-  )
+  return shell ? <ShellSignIn {...view} /> : <DesktopSignIn {...view} />
 }

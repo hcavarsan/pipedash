@@ -2,67 +2,31 @@ use pipedash_plugin_api::schema::{
     CellRenderer,
     ColumnDataType,
     ColumnDefinition,
-    ColumnVisibility,
     TableDefinition,
     TableSchema,
 };
 
 pub fn create_table_schema() -> TableSchema {
-    TableSchema::new()
-        .add_table(create_runs_table())
-        .add_table(create_pipelines_table())
+    pipedash_plugin_api::defaults::table_schema(create_runs_table(), create_pipelines_table())
 }
 
 fn column(
     id: &str, label: &str, description: &str, field_path: &str, data_type: ColumnDataType,
     renderer: CellRenderer, width: u32,
 ) -> ColumnDefinition {
-    ColumnDefinition {
-        id: id.to_string(),
-        label: label.to_string(),
-        description: Some(description.to_string()),
-        field_path: field_path.to_string(),
-        data_type,
-        renderer,
-        visibility: ColumnVisibility::WhenPresent,
-        default_visible: true,
-        width: Some(width),
-        sortable: true,
-        filterable: false,
-    }
-}
-
-fn always(column: ColumnDefinition) -> ColumnDefinition {
-    ColumnDefinition {
-        visibility: ColumnVisibility::Always,
-        ..column
-    }
-}
-
-fn hidden(column: ColumnDefinition) -> ColumnDefinition {
-    ColumnDefinition {
-        default_visible: false,
-        ..column
-    }
-}
-
-fn filterable(column: ColumnDefinition) -> ColumnDefinition {
-    ColumnDefinition {
-        filterable: true,
-        ..column
-    }
+    ColumnDefinition::new(id, label, field_path, data_type, renderer)
+        .described(description)
+        .with_width(width)
+        .sortable()
 }
 
 fn create_runs_table() -> TableDefinition {
-    TableDefinition {
-        id: "pipeline_runs".to_string(),
-        name: "Reconciliations".to_string(),
-        description: Some(
-            "Reconciliation history Flux keeps in status.history, plus the current status when it is not covered by that history. Flux does not keep a complete execution log."
-                .to_string(),
-        ),
-        columns: vec![
-            always(column(
+    TableDefinition::new(
+        "pipeline_runs",
+        "Reconciliations",
+        "Reconciliation history Flux keeps in status.history, plus the current status when it is not covered by that history. Flux does not keep a complete execution log.",
+        vec![
+            column(
                 "run_label",
                 "Record",
                 "Reconciliation, Helm release version, or the current state reported by Flux",
@@ -70,8 +34,8 @@ fn create_runs_table() -> TableDefinition {
                 ColumnDataType::String,
                 CellRenderer::TruncatedText,
                 170,
-            )),
-            always(filterable(column(
+            ),
+            column(
                 "status",
                 "Status",
                 "Pipedash status derived from the Flux record",
@@ -79,7 +43,7 @@ fn create_runs_table() -> TableDefinition {
                 ColumnDataType::Status,
                 CellRenderer::StatusBadge,
                 130,
-            ))),
+            ).filterable(),
             column(
                 "reason",
                 "Reason",
@@ -88,8 +52,8 @@ fn create_runs_table() -> TableDefinition {
                 ColumnDataType::String,
                 CellRenderer::TruncatedText,
                 170,
-            ),
-            hidden(column(
+            ).when_present(),
+            column(
                 "message",
                 "Message",
                 "Message of the Flux Ready condition. History records only carry it when they match the current state.",
@@ -97,7 +61,7 @@ fn create_runs_table() -> TableDefinition {
                 ColumnDataType::String,
                 CellRenderer::TruncatedText,
                 360,
-            )),
+            ).when_present().hidden(),
             column(
                 "revision",
                 "Revision",
@@ -106,8 +70,8 @@ fn create_runs_table() -> TableDefinition {
                 ColumnDataType::String,
                 CellRenderer::TruncatedText,
                 220,
-            ),
-            hidden(column(
+            ).when_present(),
+            column(
                 "release_version",
                 "Release",
                 "Helm release version",
@@ -115,8 +79,8 @@ fn create_runs_table() -> TableDefinition {
                 ColumnDataType::Number,
                 CellRenderer::Text,
                 100,
-            )),
-            hidden(column(
+            ).when_present().hidden(),
+            column(
                 "chart",
                 "Chart",
                 "Helm chart name and version",
@@ -124,8 +88,8 @@ fn create_runs_table() -> TableDefinition {
                 ColumnDataType::String,
                 CellRenderer::TruncatedText,
                 170,
-            )),
-            always(column(
+            ).when_present().hidden(),
+            column(
                 "started_at",
                 "Observed",
                 "Timestamp taken from Flux status, newest first by default. See Time source for what it represents; it is not always the start of a reconciliation.",
@@ -133,8 +97,8 @@ fn create_runs_table() -> TableDefinition {
                 ColumnDataType::DateTime,
                 CellRenderer::DateTime,
                 180,
-            )),
-            hidden(column(
+            ).history_order(),
+            column(
                 "time_source",
                 "Time source",
                 "Flux status field the Observed timestamp comes from",
@@ -142,8 +106,8 @@ fn create_runs_table() -> TableDefinition {
                 ColumnDataType::String,
                 CellRenderer::TruncatedText,
                 240,
-            )),
-            hidden(column(
+            ).when_present().hidden(),
+            column(
                 "concluded_at",
                 "Last reconciled",
                 "When Flux recorded the end of the reconciliation",
@@ -151,7 +115,7 @@ fn create_runs_table() -> TableDefinition {
                 ColumnDataType::DateTime,
                 CellRenderer::DateTime,
                 180,
-            )),
+            ).when_present().hidden(),
             column(
                 "duration_seconds",
                 "Duration",
@@ -160,8 +124,8 @@ fn create_runs_table() -> TableDefinition {
                 ColumnDataType::Duration,
                 CellRenderer::Duration,
                 120,
-            ),
-            hidden(column(
+            ).when_present(),
+            column(
                 "total_reconciliations",
                 "Reconciliations",
                 "How many reconciliations Flux grouped into this record",
@@ -169,8 +133,8 @@ fn create_runs_table() -> TableDefinition {
                 ColumnDataType::Number,
                 CellRenderer::Text,
                 140,
-            )),
-            hidden(column(
+            ).when_present().hidden(),
+            column(
                 "record_source",
                 "Source",
                 "status.history from Flux, or the current snapshot of status conditions",
@@ -178,8 +142,8 @@ fn create_runs_table() -> TableDefinition {
                 ColumnDataType::String,
                 CellRenderer::Badge,
                 150,
-            )),
-            hidden(column(
+            ).when_present().hidden(),
+            column(
                 "commit_sha",
                 "Commit",
                 "Commit digest taken from the source revision",
@@ -187,8 +151,8 @@ fn create_runs_table() -> TableDefinition {
                 ColumnDataType::String,
                 CellRenderer::Commit,
                 140,
-            )),
-            hidden(column(
+            ).when_present().hidden(),
+            column(
                 "branch",
                 "Ref",
                 "Branch or tag taken from the source revision",
@@ -196,8 +160,8 @@ fn create_runs_table() -> TableDefinition {
                 ColumnDataType::String,
                 CellRenderer::TruncatedText,
                 140,
-            )),
-            hidden(column(
+            ).when_present().hidden(),
+            column(
                 "digest",
                 "Digest",
                 "Digest Flux recorded for the reconciled manifests or Helm release",
@@ -205,8 +169,8 @@ fn create_runs_table() -> TableDefinition {
                 ColumnDataType::String,
                 CellRenderer::TruncatedText,
                 200,
-            )),
-            hidden(column(
+            ).when_present().hidden(),
+            column(
                 "run_number",
                 "Record ID",
                 "Numeric identity of the record",
@@ -214,20 +178,18 @@ fn create_runs_table() -> TableDefinition {
                 ColumnDataType::Number,
                 CellRenderer::Text,
                 160,
-            )),
+            ).when_present().hidden(),
         ],
-        default_sort_column: Some("started_at".to_string()),
-        default_sort_direction: Some("desc".to_string()),
-    }
+    )
 }
 
 fn create_pipelines_table() -> TableDefinition {
-    TableDefinition {
-        id: "pipelines".to_string(),
-        name: "Flux resources".to_string(),
-        description: Some("Flux Kustomizations and HelmReleases".to_string()),
-        columns: vec![
-            always(filterable(column(
+    TableDefinition::new(
+        "pipelines",
+        "Flux resources",
+        "Flux Kustomizations and HelmReleases",
+        vec![
+            column(
                 "name",
                 "Resource",
                 "Flux kind and resource name",
@@ -235,8 +197,8 @@ fn create_pipelines_table() -> TableDefinition {
                 ColumnDataType::String,
                 CellRenderer::Text,
                 240,
-            ))),
-            always(filterable(column(
+            ).filterable(),
+            column(
                 "status",
                 "Status",
                 "Pipedash status derived from Flux conditions",
@@ -244,8 +206,8 @@ fn create_pipelines_table() -> TableDefinition {
                 ColumnDataType::Status,
                 CellRenderer::StatusBadge,
                 130,
-            ))),
-            always(filterable(column(
+            ).filterable(),
+            column(
                 "namespace",
                 "Namespace",
                 "Kubernetes namespace",
@@ -253,7 +215,7 @@ fn create_pipelines_table() -> TableDefinition {
                 ColumnDataType::String,
                 CellRenderer::Badge,
                 160,
-            ))),
+            ).filterable(),
             column(
                 "reason",
                 "Reason",
@@ -262,7 +224,7 @@ fn create_pipelines_table() -> TableDefinition {
                 ColumnDataType::String,
                 CellRenderer::TruncatedText,
                 170,
-            ),
+            ).when_present(),
             column(
                 "message",
                 "Message",
@@ -271,7 +233,7 @@ fn create_pipelines_table() -> TableDefinition {
                 ColumnDataType::String,
                 CellRenderer::TruncatedText,
                 360,
-            ),
+            ).when_present(),
             column(
                 "revision",
                 "Revision",
@@ -280,7 +242,7 @@ fn create_pipelines_table() -> TableDefinition {
                 ColumnDataType::String,
                 CellRenderer::TruncatedText,
                 220,
-            ),
+            ).when_present(),
             column(
                 "source_ref",
                 "Source",
@@ -289,7 +251,7 @@ fn create_pipelines_table() -> TableDefinition {
                 ColumnDataType::String,
                 CellRenderer::TruncatedText,
                 240,
-            ),
+            ).when_present(),
             column(
                 "chart",
                 "Chart",
@@ -298,7 +260,7 @@ fn create_pipelines_table() -> TableDefinition {
                 ColumnDataType::String,
                 CellRenderer::TruncatedText,
                 170,
-            ),
+            ).when_present(),
             column(
                 "release_version",
                 "Release",
@@ -307,7 +269,7 @@ fn create_pipelines_table() -> TableDefinition {
                 ColumnDataType::Number,
                 CellRenderer::Text,
                 100,
-            ),
+            ).when_present(),
             column(
                 "suspended",
                 "Suspended",
@@ -316,7 +278,7 @@ fn create_pipelines_table() -> TableDefinition {
                 ColumnDataType::Boolean,
                 CellRenderer::Badge,
                 120,
-            ),
+            ).when_present(),
             column(
                 "last_run",
                 "Last reconciliation",
@@ -325,8 +287,8 @@ fn create_pipelines_table() -> TableDefinition {
                 ColumnDataType::DateTime,
                 CellRenderer::DateTime,
                 180,
-            ),
-            hidden(column(
+            ).when_present(),
+            column(
                 "repository",
                 "Namespace/source",
                 "Namespace and source name used to group resources",
@@ -334,8 +296,8 @@ fn create_pipelines_table() -> TableDefinition {
                 ColumnDataType::String,
                 CellRenderer::TruncatedText,
                 200,
-            )),
-            hidden(column(
+            ).when_present().hidden(),
+            column(
                 "branch",
                 "Ref",
                 "Branch or tag taken from the source revision",
@@ -343,9 +305,10 @@ fn create_pipelines_table() -> TableDefinition {
                 ColumnDataType::String,
                 CellRenderer::Badge,
                 140,
-            )),
+            ).when_present().hidden(),
         ],
-        default_sort_column: Some("name".to_string()),
-        default_sort_direction: Some("asc".to_string()),
-    }
+    )
 }
+
+#[cfg(test)]
+mod tests;

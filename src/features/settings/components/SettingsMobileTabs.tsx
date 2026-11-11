@@ -4,6 +4,20 @@ import { Link } from 'react-router-dom'
 
 import { SETTINGS_SECTIONS, type SettingsSection } from '../../../components/common/SettingsSidebar'
 
+interface SettingsTabLabelProps {
+  label: string
+  icon: ReactNode
+}
+
+const SettingsTabLabel = ({ label, icon }: SettingsTabLabelProps): ReactNode => (
+  <Stack gap="4xs" align="center">
+    {icon}
+    <Text size="xs" fw={500} truncate maw="100%">
+      {label}
+    </Text>
+  </Stack>
+)
+
 export const SettingsMobileTabs = ({ activeSection }: { activeSection: SettingsSection }): ReactNode => (
   <Box
     component="nav"
@@ -30,12 +44,7 @@ export const SettingsMobileTabs = ({ activeSection }: { activeSection: SettingsS
             c={active ? 'blue' : 'dimmed'}
             {...(active ? { bg: 'var(--mantine-color-blue-light)' } : {})}
           >
-            <Stack gap="4xs" align="center">
-              {section.icon}
-              <Text size="xs" fw={500} truncate maw="100%">
-                {section.label}
-              </Text>
-            </Stack>
+            <SettingsTabLabel label={section.label} icon={section.icon} />
           </UnstyledButton>
         )
       })}

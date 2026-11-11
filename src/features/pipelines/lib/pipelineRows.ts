@@ -1,16 +1,17 @@
-import type { TableRow } from '../../../components/common/PipelineRowParts'
 import { STATUS_META } from '../../../theme/status'
+import type { TableRow } from '../../../types/pipelineRows'
+import type { PipelineTerminology } from '../../../types/presentation'
+import type { ProviderSummary } from '../../../types/providers'
 import type {
   PinnedBlock,
   PipelineViewPage,
-  ProviderSummary,
   SectionMode,
   ViewMember,
   ViewPipeline,
   ViewSection,
   ViewSortKey,
-} from '../../../types/domain'
-import { type PipelineLabels, pipelineStatusKey } from '../../../utils/pipelinePresentation'
+} from '../../../types/views'
+import { pipelineStatusKey } from '../../../utils/pipelinePresentation'
 import { typedKeys } from '../../../utils/typedKeys'
 
 export const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
@@ -59,13 +60,13 @@ export const SORT_ACCESSORS: Record<ViewSortKey, string | undefined> = {
 export const accessorSort = (accessor: string): ViewSortKey | undefined =>
   typedKeys(SORT_ACCESSORS).find((key) => SORT_ACCESSORS[key] === accessor)
 
-export const getSectionsLabel = (sections: SectionMode, labels: PipelineLabels, isFluxView: boolean): string =>
+export const getSectionsLabel = (sections: SectionMode, terminology: PipelineTerminology | undefined): string =>
   ({
-    repository: isFluxView ? 'Sources' : 'Repositories',
-    organization: labels.groupTitle,
+    repository: terminology?.sources_title ?? '',
+    organization: terminology?.group_title ?? '',
     provider: 'Providers',
     status: 'Statuses',
-    none: labels.items.charAt(0).toUpperCase() + labels.items.slice(1),
+    none: terminology ? terminology.items.charAt(0).toUpperCase() + terminology.items.slice(1) : '',
   })[sections]
 
 export const sectionTitle = (section: ViewSection): string =>
@@ -87,7 +88,7 @@ export function buildPipelineRows({ page, isOpen, getProvider }: BuildPipelineRo
 
   for (const section of page?.sections ?? []) {
     const flat = section.kind === 'none'
-    const expanded = isOpen(section.id, false)
+    const expanded = isOpen(section.id, true)
 
     if (!flat) {
       const lead = section.pipelines.find((pipeline) => pipeline.id === section.status_pipeline_id)
@@ -102,6 +103,9 @@ export function buildPipelineRows({ page, isOpen, getProvider }: BuildPipelineRo
         providerIds: new Set(section.provider_ids),
         providerLabel: providerLabel(section.provider_ids),
         hasPendingFetch: section.pending_fetch,
+        freshness: section.freshness,
+        organizationLabel: section.presentation.organization_label,
+        countLabel: section.presentation.count_label,
         status: section.kind !== 'status' && lead ? pipelineStatusKey(lead) : section.status,
         lastRun: section.last_run,
         expanded,

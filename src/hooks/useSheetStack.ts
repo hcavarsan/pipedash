@@ -1,12 +1,11 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 
+import { Z } from '../theme/zIndex'
+
 export interface SheetHandle {
   requestClose: () => Promise<boolean>
   closeNow: () => Promise<boolean>
 }
-
-const BASE_Z = 300
-const Z_STEP = 10
 
 let stack: readonly number[] = []
 let nextId = 1
@@ -43,7 +42,9 @@ export function useSheetStack(active: boolean): { id: number; zIndex: number; co
 
   const index = snapshot.indexOf(id)
 
-  return { id, zIndex: BASE_Z + Math.max(index, 0) * Z_STEP, covered: index < 0 ? 0 : snapshot.length - 1 - index }
+  const zIndex = Z.sheetBase + Math.max(index, 0) * Z.sheetStep
+
+  return { id, zIndex, covered: index < 0 ? 0 : snapshot.length - 1 - index }
 }
 
 export function registerSheet(id: number, handle: SheetHandle): () => void {
@@ -56,3 +57,17 @@ export function registerSheet(id: number, handle: SheetHandle): () => void {
 
 export const sheetHandle = (element: HTMLElement): SheetHandle | undefined =>
   handles.get(Number(element.dataset.sheetId))
+
+export const sheetMark = (): number => nextId
+
+export async function closeSheetsFrom(mark: number): Promise<boolean> {
+  const open = [...handles.keys()].filter((id) => id >= mark).sort((a, b) => b - a)
+
+  for (const id of open) {
+    if ((await handles.get(id)?.requestClose()) === false) {
+      return false
+    }
+  }
+
+  return true
+}

@@ -4,13 +4,10 @@
   "themeId": "midnight-glow-pro",
   "fontId": "system-sans",
   "connectedCanvas": true,
-  "locales": [
-    "en"
-  ],
+  "locales": ["en"],
   "locale": "en",
   "device": "iphone",
   "orientation": "portrait",
-  "appIcon": "/app-icon.png",
   "slidesByDevice": {
     "iphone": [
       {
@@ -1376,6 +1373,7 @@
     "creative-header": [],
     "creative-search": []
   },
+  "appIcon": "/app-icon.png",
   "scene": {
     "backdrop": "solid",
     "span": true,

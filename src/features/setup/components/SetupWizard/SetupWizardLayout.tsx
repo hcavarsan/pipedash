@@ -1,11 +1,12 @@
-import { Box, Stack, Stepper, Text } from '@mantine/core'
-import { IconCheck } from '@tabler/icons-react'
+import { Box, Stack } from '@mantine/core'
 import type { ReactNode, RefObject } from 'react'
 import { FillScrollArea } from '../../../../components/common/FillScrollArea'
-import { type ModalAction, StandardModal } from '../../../../components/common/StandardModal'
+import { StandardModal } from '../../../../components/common/StandardModal'
+import type { ModalAction, StandardModalProps } from '../../../../components/common/standardModalTypes'
 import { ErrorBoundary } from '../../../../components/ErrorBoundary/ErrorBoundary'
 import { StepRegion } from '../../../../components/forms/StepRegion'
-import { useIsMobile, useMobileShell } from '../../../../hooks/useIsMobile'
+import { WizardProgress } from '../../../../components/forms/WizardProgress'
+import { useMobileShell } from '../../../../hooks/useIsMobile'
 
 import { Onboarding, StepHeader } from './Onboarding'
 
@@ -37,8 +38,9 @@ interface SetupWizardLayoutProps {
   stepper: WizardStepper | null
   region: WizardRegion | null
   form: WizardForm | null
-  footer: ReactNode
+  footer: StandardModalProps['footer']
   shellFooter: ReactNode
+  dirty: boolean
   primaryAction: ModalAction | undefined
   onBack: (() => void) | undefined
   children: ReactNode
@@ -56,12 +58,12 @@ export function SetupWizardLayout({
   region,
   form,
   footer,
+  dirty,
   shellFooter,
   primaryAction,
   onBack,
   children,
 }: SetupWizardLayoutProps): ReactNode {
-  const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
 
   const regionBody = region ? (
@@ -110,6 +112,7 @@ export function SetupWizardLayout({
         size="lg"
         fullHeight
         loading={busy}
+        dirty={dirty}
         {...(primaryAction ? { primaryAction } : {})}
         {...(onBack ? { backAction: { label: 'Back', onClick: onBack } } : {})}
       >
@@ -126,40 +129,13 @@ export function SetupWizardLayout({
       title={title}
       size="lg"
       loading={busy}
+      dirty={dirty}
       footer={footer}
       contentPadding={false}
       disableScrollArea
     >
       <Stack gap={0} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        {stepper && (
-          <Box
-            px="lg"
-            pt="md"
-            pb="md"
-            style={{
-              flexShrink: 0,
-              borderBottom: '1px solid var(--mantine-color-default-border)',
-            }}
-          >
-            <Stepper active={stepper.active} size="xs" iconSize={24}>
-              {stepper.steps.map((s) => (
-                <Stepper.Step
-                  key={s.label}
-                  label={isMobile ? undefined : s.label}
-                  aria-label={s.label}
-                  icon={s.icon}
-                  completedIcon={<IconCheck size={16} aria-hidden />}
-                />
-              ))}
-            </Stepper>
-
-            {isMobile && (
-              <Text size="xs" c="dimmed" ta="center" mt="xs">
-                Step {stepper.active + 1} of {stepper.steps.length}: {stepper.steps[stepper.active]?.label}
-              </Text>
-            )}
-          </Box>
-        )}
+        {stepper && <WizardProgress steps={stepper.steps} active={stepper.active} />}
 
         <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           <FillScrollArea type="auto">

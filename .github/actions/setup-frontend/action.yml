@@ -1,0 +1,15 @@
+name: Set up frontend
+description: Install the pinned Node and Bun versions and the frontend dependencies.
+runs:
+  using: composite
+  steps:
+    - name: Install Node and Bun
+      uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+      with:
+        install_args: node bun
+        cache_key_prefix: mise-frontend-v1
+        cache_restore_retry_budget: 60s
+
+    - name: Install dependencies
+      shell: bash
+      run: bun install --frozen-lockfile

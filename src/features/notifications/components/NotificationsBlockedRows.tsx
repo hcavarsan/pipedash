@@ -9,12 +9,16 @@ import { notificationProblem } from '../../../utils/systemNotifications'
 const WEB_HELP =
   "Allow notifications for this site in your browser's site settings, then turn this on again. On iPhone, add Pipedash to the Home Screen first, then open Settings > Notifications > Pipedash."
 
+export function blockedHelp(): string {
+  return isMobilePlatform() ? notificationProblem('blocked') : WEB_HELP
+}
+
 export function NotificationsBlockedRows(): ReactNode {
   const native = isMobilePlatform()
 
   return (
     <>
-      <IosRow title="Notifications blocked" subtitle={native ? notificationProblem('blocked') : WEB_HELP} />
+      <IosRow title="Notifications blocked" subtitle={blockedHelp()} />
       {native && (
         <IosRow
           title={<AccentText>Open Settings</AccentText>}

@@ -1,9 +1,9 @@
 import { useState } from 'react'
 
 import { useProviderPermissions } from '../../../../queries/useProvidersQueries'
-import type { FeatureAvailability, PermissionStatus, PluginMetadata, ProviderConfig } from '../../../../types/domain'
 import { isAuthError, isNetworkError, isPermissionError, toPipedashError } from '../../../../types/errors'
-import { displayErrorNotification, displaySuccessNotification } from '../../../../utils/errorDisplay'
+import type { FeatureAvailability, PermissionStatus, PluginMetadata } from '../../../../types/plugins'
+import type { ProviderConfig } from '../../../../types/providers'
 
 interface UsePermissionCheckParams {
   selectedPlugin: PluginMetadata | null
@@ -55,13 +55,7 @@ export function usePermissionCheck({
 
     setModalOpen(true)
 
-    const result = await refetch()
-
-    if (result.error) {
-      displayErrorNotification(result.error, "Couldn't check permissions")
-    } else if (result.data?.permission_status?.all_granted) {
-      displaySuccessNotification('Required permissions granted', 'Permissions verified')
-    }
+    await refetch()
   }
 
   return {

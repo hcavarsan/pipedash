@@ -2,11 +2,15 @@ use axum::{
     body::Body,
     http::{
         header,
+        response::Builder,
         HeaderValue,
         StatusCode,
         Uri,
     },
-    response::Response,
+    response::{
+        IntoResponse,
+        Response,
+    },
 };
 use rust_embed::Embed;
 
@@ -38,29 +42,31 @@ fn serve_file_content(content: &[u8], path: &str) -> Response {
 
     let cache_control = determine_cache_control(path);
 
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, mime_type)
-        .header(header::CACHE_CONTROL, cache_control)
-        .body(Body::from(content.to_vec()))
-        .unwrap()
+    finish(
+        Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, mime_type)
+            .header(header::CACHE_CONTROL, cache_control),
+        Body::from(content.to_vec()),
+    )
 }
 
 fn serve_index_html(base_path: &str) -> Response {
     match StaticAssets::get(INDEX_HTML) {
-        Some(content) => Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
-            .header(header::CACHE_CONTROL, "no-cache")
-            .body(Body::from(with_base_href(
+        Some(content) => finish(
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+                .header(header::CACHE_CONTROL, "no-cache"),
+            Body::from(with_base_href(
                 &String::from_utf8_lossy(&content.data),
                 base_path,
-            )))
-            .unwrap(),
-        None => Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(Body::from("Frontend not built. Run: bun run build"))
-            .unwrap(),
+            )),
+        ),
+        None => finish(
+            Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR),
+            Body::from("Frontend not built. Run: bun run build"),
+        ),
     }
 }
 
@@ -73,11 +79,18 @@ fn with_base_href(html: &str, base_path: &str) -> String {
 }
 
 fn not_found() -> Response {
-    Response::builder()
-        .status(StatusCode::NOT_FOUND)
-        .header(header::CONTENT_TYPE, "text/plain")
-        .body(Body::from("404 Not Found"))
-        .unwrap()
+    finish(
+        Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .header(header::CONTENT_TYPE, "text/plain"),
+        Body::from("404 Not Found"),
+    )
+}
+
+fn finish(builder: Builder, body: Body) -> Response {
+    builder
+        .body(body)
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
 fn determine_cache_control(path: &str) -> HeaderValue {
@@ -101,109 +114,4 @@ fn is_asset_path(path: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_determine_cache_control() {
-        assert_eq!(
-            determine_cache_control("assets/vendor-abc123.js"),
-            "public, immutable, max-age=31536000"
-        );
-        assert_eq!(determine_cache_control("index.html"), "no-cache");
-        assert_eq!(
-            determine_cache_control("favicon.ico"),
-            "public, max-age=3600"
-        );
-    }
-
-    #[test]
-    fn index_html_gets_the_configured_base_href() {
-        let html = r#"<head><base href="/" /><script src="./assets/index.js"></script></head>"#;
-
-        assert_eq!(with_base_href(html, "/"), html);
-        assert_eq!(
-            with_base_href(html, "/pipedash/"),
-            r#"<head><base href="/pipedash/" /><script src="./assets/index.js"></script></head>"#
-        );
-    }
-
-    #[test]
-    fn test_serve_static_root() {
-        let uri: Uri = "/".parse().unwrap();
-        let response = serve_static(uri, "/");
-        assert!(
-            response.status() == StatusCode::OK
-                || response.status() == StatusCode::INTERNAL_SERVER_ERROR
-        );
-    }
-
-    #[test]
-    fn test_serve_static_missing_file() {
-        let uri: Uri = "/nonexistent.xyz".parse().unwrap();
-        let response = serve_static(uri, "/");
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    }
-
-    #[test]
-    fn test_serve_static_spa_route() {
-        let uri: Uri = "/pipelines".parse().unwrap();
-        let response = serve_static(uri, "/");
-        assert!(
-            response.status() == StatusCode::OK
-                || response.status() == StatusCode::INTERNAL_SERVER_ERROR
-        );
-    }
-
-    #[test]
-    fn pipeline_links_with_dots_in_the_id_open_the_app() {
-        for uri in [
-            "/pipelines/gitea__3__acme%2Fapi%2Fci.yml",
-            "/pipelines/web.prod",
-        ] {
-            let response = serve_static(uri.parse().unwrap(), "/");
-
-            assert_eq!(response.status(), StatusCode::OK, "{uri}");
-            assert_eq!(
-                response.headers()[header::CONTENT_TYPE],
-                "text/html; charset=utf-8",
-                "{uri}"
-            );
-        }
-    }
-
-    #[test]
-    fn missing_files_in_built_asset_folders_are_not_found() {
-        let index = StaticAssets::get(INDEX_HTML).expect("dist/index.html");
-        if String::from_utf8_lossy(&index.data).contains("Frontend not built") {
-            return;
-        }
-
-        for uri in ["/assets/missing-abc123.js", "/provider-icons/missing.svg"] {
-            let response = serve_static(uri.parse().unwrap(), "/");
-
-            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
-        }
-    }
-
-    #[tokio::test]
-    async fn built_index_html_carries_the_configured_base_href() {
-        let index = StaticAssets::get(INDEX_HTML).expect("dist/index.html");
-        if String::from_utf8_lossy(&index.data).contains("Frontend not built") {
-            return;
-        }
-
-        for uri in ["/", "/pipelines/some-id"] {
-            let response = serve_static(uri.parse().unwrap(), "/pipedash/");
-            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                .unwrap();
-            let html = String::from_utf8_lossy(&body);
-
-            assert!(
-                html.contains(r#"<base href="/pipedash/" />"#),
-                "{uri}: {html}"
-            );
-        }
-    }
-}
+mod tests;

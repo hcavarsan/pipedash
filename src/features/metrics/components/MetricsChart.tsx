@@ -1,16 +1,17 @@
-import { Badge, Box, Card, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core'
+import { Box, Card, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core'
 import { type ReactNode, type RefObject, useRef } from 'react'
 
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
-import type { AggregatedMetrics, AggregationPeriod, MetricType } from '../../../types/domain'
+import type { AggregationPeriod, MetricsDashboard, MetricType } from '../../../types/metrics'
 import { formatCount } from '../../../utils/formatCount'
 import { useMetricsScrub } from '../hooks/useMetricsScrub'
-import { formatMetricValue, formatNumber, getMetricStats, hasObservation, METRIC_CONFIG } from '../lib/metricsUtils'
-import { type ChartPoint, MetricsPlot, SHELL_Y_WIDTH } from './MetricsPlot'
+import { formatMetricValue, formatNumber, METRIC_CONFIG } from '../lib/metricsUtils'
+import { MetricsPlot, SHELL_Y_WIDTH } from './MetricsPlot'
+import type { ChartPoint } from './metricPlotTypes'
 import classes from './metrics.module.css'
 
 export interface MetricsChartProps {
-  data: AggregatedMetrics
+  data: MetricsDashboard
   compact?: boolean
   selectedIndex?: number | null
   onDataPointClick?: (index: number | null) => void
@@ -43,6 +44,23 @@ const StatCard = ({ label, value, metricType }: { label: string; value: number |
   </Card>
 )
 
+function getSeriesColor(mobileShell: boolean, metricType: MetricType, color: string): string {
+  if (!mobileShell) {
+    return `var(--mantine-color-${color}-filled)`
+  }
+  return metricType === 'success_rate' ? 'var(--status-success)' : 'var(--ios-tint)'
+}
+
+function getChartHeight(compact: boolean, mobileShell: boolean, isMobile: boolean): number {
+  if (compact) {
+    return mobileShell ? 100 : 150
+  }
+  if (mobileShell) {
+    return 240
+  }
+  return isMobile ? 300 : 450
+}
+
 export const MetricsChart = ({
   data,
   compact = false,
@@ -53,17 +71,13 @@ export const MetricsChart = ({
 }: MetricsChartProps): ReactNode => {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
-  const metricType = data.metric_type
+  const { metric_type: metricType, aggregation_period: aggregationPeriod, metrics } = data.data
   const { color } = METRIC_CONFIG[metricType]
-  const seriesColor = mobileShell
-    ? metricType === 'success_rate'
-      ? 'var(--status-success)'
-      : 'var(--ios-tint)'
-    : `var(--mantine-color-${color}-filled)`
-  const chartHeight = compact ? (mobileShell ? 100 : 150) : mobileShell ? 240 : isMobile ? 300 : 450
+  const seriesColor = getSeriesColor(mobileShell, metricType, color)
+  const chartHeight = getChartHeight(compact, mobileShell, isMobile)
   const dateFormatter = new Intl.DateTimeFormat(
     undefined,
-    (mobileShell ? SHELL_DATE_FORMATS : DATE_FORMATS)[data.aggregation_period]
+    (mobileShell ? SHELL_DATE_FORMATS : DATE_FORMATS)[aggregationPeriod]
   )
   const textScale = mobileShell
     ? Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ios-text-scale')) || 1
@@ -71,9 +85,9 @@ export const MetricsChart = ({
   const yAxisWidth = mobileShell ? Math.round(SHELL_Y_WIDTH * textScale) : 80
   const plotRef = useRef<HTMLDivElement>(null)
 
-  const points: ChartPoint[] = data.metrics.map((metric, index) => {
+  const points: ChartPoint[] = metrics.map((metric, index) => {
     const date = dateFormatter.format(new Date(metric.timestamp))
-    const value = hasObservation(metric, metricType) ? Math.round(metric.value * 100) / 100 : null
+    const value = data.observed[index] ? Math.round(metric.value * 100) / 100 : null
 
     return {
       date,
@@ -126,7 +140,7 @@ export const MetricsChart = ({
     return plot
   }
 
-  const stats = getMetricStats(data)
+  const { stats } = data
 
   if (mobileShell) {
     const summary =
@@ -167,6 +181,11 @@ export const MetricsChart = ({
     )
   }
 
+  let observation = formatCount(stats.total, 'period')
+  if (stats.observed !== stats.total) {
+    observation = `${stats.observed} of ${formatCount(stats.total, 'period')} have runs`
+  }
+
   return (
     <Stack gap={isMobile ? 'xs' : 'md'}>
       <SimpleGrid cols={3} spacing={isMobile ? 'xs' : 'sm'}>
@@ -180,15 +199,13 @@ export const MetricsChart = ({
           <div>
             <Text fw={600}>{chartTitle}</Text>
             <Text size="xs" c="dimmed">
-              {stats.observed === stats.total
-                ? formatCount(stats.total, 'period')
-                : `${stats.observed} of ${formatCount(stats.total, 'period')} have runs`}
+              {observation}
             </Text>
           </div>
           {selectedPoint && (
-            <Badge size="lg" color={color} variant="light">
+            <Text size="sm" c="dimmed">
               {selectedPoint.label}
-            </Badge>
+            </Text>
           )}
         </Group>
         {plot}

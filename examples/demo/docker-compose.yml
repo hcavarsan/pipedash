@@ -2,7 +2,7 @@ name: pipedash-demo
 
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:3540c0362c809df084ffac0ae69fe794515f9de92692f02178bcdce0ef0302ac
     environment:
       POSTGRES_USER: pipedash
       POSTGRES_PASSWORD: ${DEMO_READER_PASSWORD:-pipedash-reader}
@@ -20,7 +20,7 @@ services:
     restart: unless-stopped
 
   gitea:
-    image: gitea/gitea:1.25.5
+    image: gitea/gitea:28.3.0@sha256:8967bf9deaf3c5c4adae13519436dc1b20c646ac83fe37ae810c933a1045227d
     environment:
       GITEA__security__INSTALL_LOCK: "true"
       GITEA__server__ROOT_URL: http://gitea:3000/
@@ -41,7 +41,7 @@ services:
     restart: unless-stopped
 
   gitea-seed:
-    image: gitea/gitea:1.25.5
+    image: gitea/gitea:28.3.0@sha256:8967bf9deaf3c5c4adae13519436dc1b20c646ac83fe37ae810c933a1045227d
     entrypoint: ["/bin/sh", "/seed/seed.sh"]
     environment:
       GITEA_PASSWORD: ${DEMO_ADMIN_PASSWORD:-pipedash-admin}
@@ -56,7 +56,7 @@ services:
     restart: "no"
 
   runner:
-    image: gitea/act_runner:0.6.1
+    image: gitea/act_runner:0.6.1@sha256:b5c35d6bdbb9bb25e531230bfc7cc663cb751406cbec90a2a891b85fea54de86
     environment:
       CONFIG_FILE: /config.yaml
       GITEA_INSTANCE_URL: http://gitea:3000
@@ -91,7 +91,7 @@ services:
     restart: unless-stopped
 
   k3s:
-    image: rancher/k3s:v1.37.1-k3s1
+    image: rancher/k3s:v1.37.1-k3s1@sha256:ca7f37d993d82ef0dcdcfecb2e0e2618ea541dbaffc620c8cedebe01a82acd0d
     hostname: k3s
     command: server --disable=traefik --disable=metrics-server --tls-san=k3s
     privileged: true
@@ -110,7 +110,7 @@ services:
     restart: unless-stopped
 
   k8s-seed:
-    image: alpine/k8s:1.37.1
+    image: alpine/k8s:1.37.2@sha256:dcb7185e112a453aa72f426754849a97357727ef8f40168fb208c8cf59952042
     entrypoint: ["/bin/sh", "/seed/seed.sh"]
     environment:
       KUBECONFIG: /shared/kubeconfig
@@ -129,7 +129,7 @@ services:
     restart: "no"
 
   komodo-mongo:
-    image: mongo:8.0
+    image: mongo:9.0@sha256:452bdaf2127b8ff851e31410a267809b9829eded219979f2210e7c7efb85a058
     command: --quiet --wiredTigerCacheSizeGB 0.25
     environment:
       MONGO_INITDB_ROOT_USERNAME: komodo
@@ -140,7 +140,7 @@ services:
     restart: unless-stopped
 
   komodo:
-    image: ghcr.io/moghtech/komodo-core:2.3.4
+    image: ghcr.io/moghtech/komodo-core:2.3.4@sha256:91b2afd7b3bb2abea0ebd3046d65ec457eb1f3d505868d1d60cb0f8562490ef9
     init: true
     environment:
       KOMODO_DATABASE_ADDRESS: komodo-mongo:27017
@@ -163,7 +163,7 @@ services:
     restart: unless-stopped
 
   komodo-docker:
-    image: docker:28-dind
+    image: docker:28-dind@sha256:2a232a42256f70d78e3cc5d2b5d6b3276710a0de0596c145f627ecfae90282ac
     privileged: true
     environment:
       DOCKER_TLS_CERTDIR: ""
@@ -173,7 +173,7 @@ services:
     restart: unless-stopped
 
   komodo-periphery:
-    image: ghcr.io/moghtech/komodo-periphery:2.3.4
+    image: ghcr.io/moghtech/komodo-periphery:2.3.4@sha256:fb4b52961fcce7a31e3776930e422967b6640f653de876f59f26dea243e29beb
     init: true
     environment:
       DOCKER_HOST: tcp://komodo-docker:2375
@@ -189,7 +189,7 @@ services:
     restart: unless-stopped
 
   komodo-seed:
-    image: alpine/k8s:1.37.1
+    image: alpine/k8s:1.37.2@sha256:dcb7185e112a453aa72f426754849a97357727ef8f40168fb208c8cf59952042
     entrypoint: ["/bin/sh", "/seed/seed.sh"]
     environment:
       KOMODO_PASSWORD: ${DEMO_ADMIN_PASSWORD:-pipedash-admin}
@@ -219,7 +219,8 @@ services:
       JENKINS_PASSWORD: ${DEMO_READER_PASSWORD:-pipedash-reader}
       KOMODO_API_KEY_FILE: /credentials/komodo-api-key
       KOMODO_API_SECRET_FILE: /credentials/komodo-api-secret
-      SSL_CERT_FILE: /status-ca/root.crt
+      SSL_CERT_FILE: /status-ca/bundle.crt
+      PIPEDASH_PUSH_RELAY_URL: ${PIPEDASH_PUSH_RELAY_URL:-}
     volumes:
       - ./config.toml:/config/config.toml:ro
       - credentials:/credentials:ro
@@ -244,14 +245,16 @@ services:
     restart: unless-stopped
 
   status:
-    image: caddy:2.11.7-alpine
+    image: caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5
     entrypoint:
       - sh
       - -c
       - |
         caddy run --config /etc/caddy/Caddyfile --adapter caddyfile &
         until [ -s /data/caddy/pki/authorities/local/root.crt ]; do sleep 1; done
-        install -m 644 /data/caddy/pki/authorities/local/root.crt /ca/root.crt
+        cat /etc/ssl/certs/ca-certificates.crt /data/caddy/pki/authorities/local/root.crt > /ca/bundle.tmp
+        chmod 644 /ca/bundle.tmp
+        mv /ca/bundle.tmp /ca/bundle.crt
         wait
     volumes:
       - ./status:/srv:ro
@@ -263,13 +266,35 @@ services:
         aliases: [status.gitea.demo, status.jenkins.demo, status.argocd.demo]
     mem_limit: 64m
     healthcheck:
-      test: ["CMD", "test", "-s", "/ca/root.crt"]
+      test: ["CMD", "test", "-s", "/ca/bundle.crt"]
       interval: 2s
       retries: 30
     restart: unless-stopped
 
+  relay-egress:
+    image: nginx:1.31.8-alpine@sha256:713fc2ebfd92e8217db451477182ee91944b123d2b1ee9fd5a8c6e91ca6c3a11
+    entrypoint: ["nginx", "-e", "stderr", "-c", "/etc/nginx/egress.conf", "-g", "daemon off;"]
+    user: "101:101"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    volumes:
+      - ./egress/nginx.conf:/etc/nginx/egress.conf:ro
+    tmpfs:
+      - /tmp:uid=101,gid=101
+      - /var/cache/nginx:uid=101,gid=101
+    networks:
+      default:
+      apis:
+        aliases: [relay.pipedash.app]
+    mem_limit: 32m
+    pids_limit: 32
+    restart: unless-stopped
+
   gateway:
-    image: nginx:1.31.8-alpine
+    image: nginx:1.31.8-alpine@sha256:713fc2ebfd92e8217db451477182ee91944b123d2b1ee9fd5a8c6e91ca6c3a11
     user: "101:101"
     read_only: true
     cap_drop: [ALL]
@@ -293,7 +318,7 @@ services:
     restart: unless-stopped
 
   tunnel:
-    image: cloudflare/cloudflared:2026.10.5
+    image: cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
     command: tunnel --no-autoupdate run
     profiles: [public]
     environment:
@@ -305,7 +330,7 @@ services:
     restart: unless-stopped
 
   views-seed:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:3540c0362c809df084ffac0ae69fe794515f9de92692f02178bcdce0ef0302ac
     entrypoint: ["/bin/sh", "/seed/seed.sh"]
     environment:
       PGHOST: postgres

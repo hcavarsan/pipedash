@@ -1,0 +1,5 @@
+- Choose alert types per device and mute providers or pipelines in Settings > Notifications.
+- Watch all runs or get one alert when the next run finishes.
+- Force cancel GitHub runs that ignore normal cancellation.
+- Get an alert when a failed pipeline passes again.
+- Run history updates when another connected client finds runs.

@@ -10,6 +10,7 @@ import { nextArmed, settleDecision } from './swipeArmed'
 
 interface SwipeActionsController {
   slideRef: RefObject<HTMLDivElement | null>
+  underlayRef: RefObject<HTMLDivElement | null>
   primaryRef: RefObject<HTMLButtonElement | null>
   isOpen: () => boolean
   close: () => void
@@ -24,6 +25,7 @@ let closeOpenRow: (() => void) | null = null
 
 export function useSwipeActions(actions: SwipeAction[]): SwipeActionsController {
   const slideRef = useRef<HTMLDivElement>(null)
+  const underlayRef = useRef<HTMLDivElement>(null)
   const primaryRef = useRef<HTMLButtonElement>(null)
   const open = useRef(false)
   const armed = useRef(false)
@@ -48,6 +50,7 @@ export function useSwipeActions(actions: SwipeAction[]): SwipeActionsController 
 
     slide.style.transform = shown === 0 ? '' : `translateX(${-shown}px)`
     slide.toggleAttribute('data-revealed', shown > 0)
+    underlayRef.current?.style.setProperty('clip-path', `inset(0 0 0 calc(100% - ${shown}px))`)
     primaryRef.current?.style.setProperty('transform', `translateX(calc(100% - ${visible}px))`)
   }, [])
 
@@ -206,14 +209,14 @@ export function useSwipeActions(actions: SwipeAction[]): SwipeActionsController 
       },
       move: (context, { dx }) => {
         position.current = rowPosition(context.start - dx, maxWidth, context.rowWidth)
-        if (actionsRef.current.some((action) => action.primary)) {
+        if (actionsRef.current.some((action) => action.primary && !action.disabled)) {
           setArmed(nextArmed(armed.current, position.current, context.rowWidth))
         }
         draw()
       },
       end: (context, _drag, { vx }) => {
         const leftward = -vx
-        const target = actionsRef.current.find((action) => action.primary)
+        const target = actionsRef.current.find((action) => action.primary && !action.disabled)
         const decision = settleDecision(
           decideRowSwipe(position.current, leftward, maxWidth, context.rowWidth),
           armed.current
@@ -275,5 +278,5 @@ export function useSwipeActions(actions: SwipeAction[]): SwipeActionsController 
 
   const isOpen = useCallback(() => open.current, [])
 
-  return { slideRef, primaryRef, isOpen, close }
+  return { slideRef, underlayRef, primaryRef, isOpen, close }
 }

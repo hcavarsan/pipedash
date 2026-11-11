@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["src/**", "vite.config.ts", "*.json"]
+    "includes": ["src/**", "ios/app-store-screenshots/src/**", "vite.config.ts", "*.json"]
   },
   "formatter": {
     "enabled": true,
@@ -48,7 +48,8 @@
       "style": {
         "useBlockStatements": "error",
         "useConst": "error",
-        "noNonNullAssertion": "error"
+        "noNonNullAssertion": "error",
+        "noNestedTernary": "error"
       },
       "correctness": {
         "useExhaustiveDependencies": "error",
@@ -69,7 +70,8 @@
       "suspicious": {
         "noExplicitAny": "error",
         "noArrayIndexKey": "error",
-        "noReactForwardRef": "error"
+        "noReactForwardRef": "error",
+        "noImportCycles": { "level": "error", "options": { "ignoreTypes": false } }
       },
       "nursery": {
         "noUnsafeTypeAssertion": "error",
