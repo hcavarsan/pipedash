@@ -845,6 +845,32 @@ async fn latest_runs_come_from_one_repo_runs_page() {
 }
 
 #[tokio::test]
+async fn a_refused_repo_runs_page_falls_back_and_a_rate_limit_fails_the_fetch() {
+    let (plugin, _recorded, server) =
+        serve(&[("selected_items", "acme/ok")], |_, path| match path {
+            "/api/v3/repos/acme/ok/actions/workflows" => workflows_of_ok_repo(),
+            "/api/v3/repos/acme/ok/actions/runs" => failure(404, "Not Found", &[]),
+            "/api/v3/repos/acme/ok/actions/workflows/42/runs" => runs_of_ok_repo(),
+            path => panic!("Unexpected stub request: {path}"),
+        })
+        .await;
+    let pipelines = plugin.fetch_pipelines().await.unwrap();
+    server.abort();
+    assert!(pipelines[0].last_run.is_some());
+
+    let (plugin, _recorded, server) =
+        serve(&[("selected_items", "acme/ok")], |_, path| match path {
+            "/api/v3/repos/acme/ok/actions/workflows" => workflows_of_ok_repo(),
+            "/api/v3/repos/acme/ok/actions/runs" => rate_limited(),
+            path => panic!("Unexpected stub request: {path}"),
+        })
+        .await;
+    let error = plugin.fetch_pipelines().await.unwrap_err();
+    server.abort();
+    assert!(matches!(error, PluginError::RateLimited { .. }), "{error}");
+}
+
+#[tokio::test]
 async fn enable_puts_the_enable_endpoint_of_that_workflow() {
     let (plugin, recorded, server) = serve(&[], |method, path| match (method, path) {
         ("PUT", "/api/v3/repos/acme/app/actions/workflows/42/enable") => Reply {
