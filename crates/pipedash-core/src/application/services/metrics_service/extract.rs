@@ -110,7 +110,13 @@ impl MetricsService {
         let mut new_runs: Vec<_> = finished
             .iter()
             .copied()
-            .filter(|run| !stored.contains(&run.run_number))
+            .filter(|run| {
+                !stored.contains(&run.run_number)
+                    && record_metrics(pipeline_id, run)
+                        .entries
+                        .iter()
+                        .any(Option::is_some)
+            })
             .collect();
         new_runs.sort_by_key(|run| run.run_number);
 
