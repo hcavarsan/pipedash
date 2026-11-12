@@ -146,6 +146,79 @@ async fn run_that_finishes_after_a_newer_run_gets_metrics() {
     );
 }
 
+#[tokio::test]
+async fn an_older_run_found_after_a_newer_one_gets_metrics() {
+    let dir = tempfile::tempdir().unwrap();
+    let service = sqlite_service(&dir).await;
+    service.update_global_config(true, 30).await.unwrap();
+    let pipeline_id = "stub__1__app";
+    let run = |run_number: i64, status: &str, days_ago: i64| -> PipelineRun {
+        serde_json::from_value(json!({
+            "id": format!("{pipeline_id}__{run_number}"), "pipeline_id": pipeline_id,
+            "run_number": run_number, "status": status,
+            "started_at": (Utc::now() - chrono::Duration::days(days_ago)).to_rfc3339(),
+            "logs_url": "", "duration_seconds": 60
+        }))
+        .unwrap()
+    };
+
+    let first = service
+        .extract_and_store_metrics(pipeline_id, &[run(2, "success", 1)])
+        .await
+        .unwrap();
+    let deeper = [run(2, "success", 1), run(1, "failed", 2)];
+    let second = service
+        .extract_and_store_metrics(pipeline_id, &deeper)
+        .await
+        .unwrap();
+    let repeated = service
+        .extract_and_store_metrics(pipeline_id, &deeper)
+        .await
+        .unwrap();
+
+    assert_eq!((first, second, repeated), (3, 3, 0));
+    let entries = stored(&service, pipeline_id).await;
+    assert_eq!(entries.len(), 6);
+    assert_eq!(
+        find(&entries, 1, MetricType::SuccessRate).unwrap().value,
+        0.0
+    );
+}
+
+#[tokio::test]
+async fn older_runs_without_metrics_do_not_crowd_out_a_newer_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let service = sqlite_service(&dir).await;
+    service.update_global_config(true, 30).await.unwrap();
+    let pipeline_id = "stub__1__app";
+    let run = |run_number: i64, status: &str| -> PipelineRun {
+        serde_json::from_value(json!({
+            "id": format!("{pipeline_id}__{run_number}"), "pipeline_id": pipeline_id,
+            "run_number": run_number, "status": status,
+            "started_at": Utc::now().to_rfc3339(), "logs_url": ""
+        }))
+        .unwrap()
+    };
+    service
+        .extract_and_store_metrics(pipeline_id, &[run(300, "success")])
+        .await
+        .unwrap();
+
+    let mut deeper: Vec<_> = (1..=200).map(|number| run(number, "skipped")).collect();
+    deeper.push(run(250, "failed"));
+    let inserted = service
+        .extract_and_store_metrics(pipeline_id, &deeper)
+        .await
+        .unwrap();
+
+    assert_eq!(inserted, 2);
+    let entries = stored(&service, pipeline_id).await;
+    assert_eq!(
+        find(&entries, 250, MetricType::SuccessRate).unwrap().value,
+        0.0
+    );
+}
+
 fn native_run(
     pipeline_id: &str, run_number: i64, started_at: &str, duration_seconds: Option<i64>,
 ) -> PipelineRun {
