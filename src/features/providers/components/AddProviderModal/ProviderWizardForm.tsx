@@ -29,6 +29,8 @@ const FORM_STYLE = {
   minHeight: 0,
 } as const
 
+const FIELDSET_STYLE = { border: 0, padding: 0, margin: 0, minInlineSize: 0, display: 'contents' } as const
+
 export function ProviderWizardForm({
   model,
   plugins,
@@ -98,12 +100,14 @@ export function ProviderWizardForm({
     }
 
     return selectedPlugin ? (
-      <PipelinesStep
-        state={state}
-        dispatch={dispatch}
-        providerConfig={providerConfig}
-        terms={selectedPlugin.presentation.terminology}
-      />
+      <fieldset disabled={isPending} style={FIELDSET_STYLE}>
+        <PipelinesStep
+          state={state}
+          dispatch={dispatch}
+          providerConfig={providerConfig}
+          terms={selectedPlugin.presentation.terminology}
+        />
+      </fieldset>
     ) : null
   }
 
