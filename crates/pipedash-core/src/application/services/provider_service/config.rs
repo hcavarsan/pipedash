@@ -101,18 +101,19 @@ impl ProviderService {
     }
 
     pub async fn apply_config_file(&self, config_state: &ConfigState) -> DomainResult<SyncResult> {
+        let _apply = self.config_apply.lock().await;
         let loaded = config_state.load_file().await?;
 
         self.apply_loaded_config(config_state, loaded).await
     }
 
-    pub(crate) async fn apply_loaded_config(
+    async fn apply_loaded_config(
         &self, config_state: &ConfigState, loaded: PipedashConfig,
     ) -> DomainResult<SyncResult> {
-        let _apply = self.config_apply.lock().await;
         let PipedashConfig {
             providers: file,
             views,
+            general,
             ..
         } = loaded;
         let current = config_state.get().await;
@@ -174,6 +175,13 @@ impl ProviderService {
             self.event_bus.emit(CoreEvent::PipelineViewsChanged).await;
         }
         config_state.remember_providers(file).await;
+        if current.general != general {
+            let proxy_changed = self.http_client_manager.set_proxy(&general.proxy_url)?;
+            config_state.remember_general(general).await;
+            if proxy_changed {
+                self.rebuild_loaded_providers().await;
+            }
+        }
 
         Ok(result)
     }
@@ -181,6 +189,7 @@ impl ProviderService {
     pub async fn update_general_settings(
         &self, config_state: &ConfigState, update: GeneralSettingsUpdate,
     ) -> DomainResult<()> {
+        let _apply = self.config_apply.lock().await;
         let proxy_url = update.proxy_url.clone();
         config_state.update_general_settings(update).await?;
         if self.http_client_manager.set_proxy(&proxy_url)? {

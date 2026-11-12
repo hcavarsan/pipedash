@@ -47,7 +47,10 @@ use crate::domain::{
     SIGN_IN_CONFIG_KEY,
 };
 use crate::event::CoreEvent;
-use crate::infrastructure::config::ConfigLoader;
+use crate::infrastructure::config::{
+    ConfigLoader,
+    GeneralSettingsUpdate,
+};
 use crate::infrastructure::oauth::test_idp::{
     jwt,
     Idp,
@@ -1141,6 +1144,106 @@ async fn provider_id(h: &Harness, key: &str) -> Option<i64> {
         .into_iter()
         .find(|p| p.name == key)
         .and_then(|p| p.id)
+}
+
+#[tokio::test]
+async fn general_settings_saved_in_the_config_file_survive_a_later_toggle() {
+    let h = Harness::new().await;
+    std::fs::write(
+        h.config_state.config_path(),
+        "[general]\nmetrics_enabled = false\ndefault_refresh_interval = 77\nstatus_pages_enabled = false\n",
+    )
+    .unwrap();
+    h.provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .unwrap();
+
+    let general = h.config_state.get().await.general.clone();
+    assert_eq!(
+        (general.metrics_enabled, general.default_refresh_interval),
+        (false, 77)
+    );
+    h.provider_service
+        .update_general_settings(
+            &h.config_state,
+            GeneralSettingsUpdate {
+                metrics_enabled: general.metrics_enabled,
+                default_refresh_interval: general.default_refresh_interval,
+                status_pages_enabled: true,
+                proxy_url: general.proxy_url,
+            },
+        )
+        .await
+        .unwrap();
+
+    let saved = h.config_state.load_file().await.unwrap().general;
+    assert_eq!(
+        (
+            saved.metrics_enabled,
+            saved.default_refresh_interval,
+            saved.status_pages_enabled
+        ),
+        (false, 77, true)
+    );
+}
+
+#[tokio::test]
+async fn a_proxy_the_http_client_rejects_keeps_failing_on_every_apply() {
+    let h = Harness::new().await;
+    std::fs::write(
+        h.config_state.config_path(),
+        "[general]\nproxy_url = \"socks5://localhost:1080\"\n",
+    )
+    .unwrap();
+
+    let first = h.provider_service.apply_config_file(&h.config_state).await;
+    let retry = h.provider_service.apply_config_file(&h.config_state).await;
+
+    assert!(matches!(first, Err(DomainError::InvalidConfig(_))));
+    assert!(matches!(retry, Err(DomainError::InvalidConfig(_))));
+    assert_eq!(h.config_state.get().await.general.proxy_url, "");
+}
+
+#[tokio::test]
+async fn a_settings_save_during_a_file_apply_is_not_replaced_by_the_older_file() {
+    let h = Harness::new().await;
+    std::fs::write(
+        h.config_state.config_path(),
+        "[general]\ndefault_refresh_interval = 77\n",
+    )
+    .unwrap();
+    let held = h.provider_service.config_apply.lock().await;
+    let applying = tokio::spawn({
+        let (service, state) = (Arc::clone(&h.provider_service), Arc::clone(&h.config_state));
+        async move { service.apply_config_file(&state).await }
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let saving = tokio::spawn({
+        let (service, state) = (Arc::clone(&h.provider_service), Arc::clone(&h.config_state));
+        async move {
+            let update = GeneralSettingsUpdate {
+                metrics_enabled: true,
+                default_refresh_interval: 90,
+                status_pages_enabled: true,
+                proxy_url: String::new(),
+            };
+            service.update_general_settings(&state, update).await
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    drop(held);
+    applying.await.unwrap().unwrap();
+    saving.await.unwrap().unwrap();
+
+    let saved = h.config_state.load_file().await.unwrap().general;
+    assert_eq!(
+        (
+            h.config_state.get().await.general.default_refresh_interval,
+            saved.default_refresh_interval
+        ),
+        (90, 90)
+    );
 }
 
 #[tokio::test]

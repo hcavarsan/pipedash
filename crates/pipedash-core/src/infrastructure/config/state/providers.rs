@@ -14,6 +14,7 @@ use crate::domain::{
 };
 use crate::infrastructure::config::loader::ConfigLoader;
 use crate::infrastructure::config::schema::{
+    GeneralConfig,
     PipedashConfig,
     ProviderFileConfig,
     ViewFileConfig,
@@ -132,5 +133,15 @@ impl ConfigState {
         let mut next = (**config).clone();
         next.views = views;
         *config = Arc::new(next);
+    }
+
+    pub async fn remember_general(&self, general: GeneralConfig) {
+        {
+            let mut config = self.config.write().await;
+            let mut next = (**config).clone();
+            next.general = general;
+            *config = Arc::new(next);
+        }
+        self.notify_settings_changed();
     }
 }
