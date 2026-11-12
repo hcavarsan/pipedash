@@ -492,6 +492,26 @@ async fn definitions_of_selected_projects_become_pipelines_across_continuation_p
 }
 
 #[tokio::test]
+async fn a_deleted_project_keeps_the_other_projects_pipelines() {
+    let stub = serve(azure_reply).await;
+
+    let pipelines = plugin_for(&stub, "", "Alpha, Gone")
+        .fetch_pipelines()
+        .await
+        .unwrap();
+    let only_deleted = plugin_for(&stub, "", "Gone").fetch_pipelines().await;
+
+    assert_eq!(
+        pipelines.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+        ["Alpha/1", "Alpha/2", "Alpha/3", "Alpha/4"]
+    );
+    assert!(
+        matches!(only_deleted, Err(PluginError::PipelineNotFound(_))),
+        "{only_deleted:?}"
+    );
+}
+
+#[tokio::test]
 async fn fetching_pipelines_without_selected_projects_is_a_configuration_error() {
     let stub = serve(azure_reply).await;
     let error = plugin_for(&stub, "", "")

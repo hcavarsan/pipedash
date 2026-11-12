@@ -338,15 +338,30 @@ async fn capped_run_pages_without_total_preserve_history_until_empty_page() {
 }
 
 #[tokio::test]
-async fn one_failing_repository_fails_the_whole_fetch() {
+async fn a_missing_repository_keeps_the_other_repositories_pipelines() {
     let (mut plugin, server) = stub_gitea().await;
     plugin.config.insert(
         "selected_items".to_string(),
         "claude/smoke__ci,claude/missing".to_string(),
     );
-    let error = plugin.fetch_pipelines().await.unwrap_err();
-    assert!(matches!(error, PluginError::PipelineNotFound(_)), "{error}");
+    let pipelines = plugin.fetch_pipelines().await.unwrap();
+    plugin
+        .config
+        .insert("selected_items".to_string(), "claude/missing".to_string());
+    let only_missing = plugin.fetch_pipelines().await;
     server.abort();
+
+    assert_eq!(
+        pipelines.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+        [
+            "claude/smoke__ci/build__test.yaml",
+            "claude/smoke__ci/lint.yaml"
+        ]
+    );
+    assert!(
+        matches!(only_missing, Err(PluginError::PipelineNotFound(_))),
+        "{only_missing:?}"
+    );
 }
 
 #[tokio::test]
