@@ -138,7 +138,7 @@ impl PipedashConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GeneralConfig {
     #[serde(default = "default_metrics_enabled")]
     pub metrics_enabled: bool,

@@ -113,6 +113,7 @@ impl ProviderService {
         let PipedashConfig {
             providers: file,
             views,
+            general,
             ..
         } = loaded;
         let current = config_state.get().await;
@@ -174,6 +175,13 @@ impl ProviderService {
             self.event_bus.emit(CoreEvent::PipelineViewsChanged).await;
         }
         config_state.remember_providers(file).await;
+        if current.general != general {
+            let proxy_url = general.proxy_url.clone();
+            config_state.remember_general(general).await;
+            if self.http_client_manager.set_proxy(&proxy_url)? {
+                self.rebuild_loaded_providers().await;
+            }
+        }
 
         Ok(result)
     }

@@ -47,7 +47,10 @@ use crate::domain::{
     SIGN_IN_CONFIG_KEY,
 };
 use crate::event::CoreEvent;
-use crate::infrastructure::config::ConfigLoader;
+use crate::infrastructure::config::{
+    ConfigLoader,
+    GeneralSettingsUpdate,
+};
 use crate::infrastructure::oauth::test_idp::{
     jwt,
     Idp,
@@ -1141,6 +1144,48 @@ async fn provider_id(h: &Harness, key: &str) -> Option<i64> {
         .into_iter()
         .find(|p| p.name == key)
         .and_then(|p| p.id)
+}
+
+#[tokio::test]
+async fn general_settings_saved_in_the_config_file_survive_a_later_toggle() {
+    let h = Harness::new().await;
+    std::fs::write(
+        h.config_state.config_path(),
+        "[general]\nmetrics_enabled = false\ndefault_refresh_interval = 77\nstatus_pages_enabled = false\n",
+    )
+    .unwrap();
+    h.provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .unwrap();
+
+    let general = h.config_state.get().await.general.clone();
+    assert_eq!(
+        (general.metrics_enabled, general.default_refresh_interval),
+        (false, 77)
+    );
+    h.provider_service
+        .update_general_settings(
+            &h.config_state,
+            GeneralSettingsUpdate {
+                metrics_enabled: general.metrics_enabled,
+                default_refresh_interval: general.default_refresh_interval,
+                status_pages_enabled: true,
+                proxy_url: general.proxy_url,
+            },
+        )
+        .await
+        .unwrap();
+
+    let saved = h.config_state.load_file().await.unwrap().general;
+    assert_eq!(
+        (
+            saved.metrics_enabled,
+            saved.default_refresh_interval,
+            saved.status_pages_enabled
+        ),
+        (false, 77, true)
+    );
 }
 
 #[tokio::test]
