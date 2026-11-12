@@ -711,7 +711,7 @@ async fn rate_limit_on_one_repo_fails_the_whole_fetch() {
         &[("selected_items", "acme/ok,acme/limited")],
         |_, path| match path {
             "/api/v3/repos/acme/ok/actions/workflows" => workflows_of_ok_repo(),
-            "/api/v3/repos/acme/ok/actions/workflows/42/runs" => runs_of_ok_repo(),
+            "/api/v3/repos/acme/ok/actions/runs" => runs_of_ok_repo(),
             "/api/v3/repos/acme/limited/actions/workflows" => rate_limited(),
             path => panic!("Unexpected stub request: {path}"),
         },
@@ -730,7 +730,7 @@ async fn missing_repo_is_skipped_while_the_others_are_returned() {
         &[("selected_items", "acme/ok,acme/gone")],
         |_, path| match path {
             "/api/v3/repos/acme/ok/actions/workflows" => workflows_of_ok_repo(),
-            "/api/v3/repos/acme/ok/actions/workflows/42/runs" => runs_of_ok_repo(),
+            "/api/v3/repos/acme/ok/actions/runs" => runs_of_ok_repo(),
             "/api/v3/repos/acme/gone/actions/workflows" => failure(404, "Not Found", &[]),
             path => panic!("Unexpected stub request: {path}"),
         },
@@ -749,6 +749,9 @@ async fn rate_limit_on_latest_run_fails_instead_of_reporting_pending() {
     let (plugin, _recorded, server) =
         serve(&[("selected_items", "acme/ok")], |_, path| match path {
             "/api/v3/repos/acme/ok/actions/workflows" => workflows_of_ok_repo(),
+            "/api/v3/repos/acme/ok/actions/runs" => {
+                ok(serde_json::json!({"total_count": 0, "workflow_runs": []}))
+            }
             "/api/v3/repos/acme/ok/actions/workflows/42/runs" => rate_limited(),
             path => panic!("Unexpected stub request: {path}"),
         })
@@ -769,8 +772,11 @@ async fn disabled_workflow_shows_why_and_offers_enable_instead_of_its_last_statu
                 nightly["state"] = serde_json::json!("disabled_inactivity");
                 ok(serde_json::json!({"total_count": 2, "workflows": [workflow(42), nightly]}))
             }
-            "/api/v3/repos/acme/app/actions/workflows/42/runs"
-            | "/api/v3/repos/acme/app/actions/workflows/43/runs" => ok(serde_json::json!({
+            "/api/v3/repos/acme/app/actions/runs" => ok(serde_json::json!({
+                "total_count": 1,
+                "workflow_runs": [finished_run(9001, 7, "completed", Some("success"))]
+            })),
+            "/api/v3/repos/acme/app/actions/workflows/43/runs" => ok(serde_json::json!({
                 "total_count": 1,
                 "workflow_runs": [finished_run(9001, 7, "completed", Some("success"))]
             })),
@@ -796,6 +802,72 @@ async fn disabled_workflow_shows_why_and_offers_enable_instead_of_its_last_statu
     assert_eq!(nightly.metadata["can_enable"], serde_json::json!(true));
     assert_eq!(nightly.last_run, active.last_run);
     server.abort();
+}
+
+#[tokio::test]
+async fn latest_runs_come_from_one_repo_runs_page() {
+    let (plugin, recorded, server) =
+        serve(&[("selected_items", "acme/app,acme/web")], |_, path| {
+            if path.ends_with("/actions/workflows") {
+                let workflows: Vec<_> = (1..=3).map(workflow).collect();
+                return ok(serde_json::json!({"total_count": 3, "workflows": workflows}));
+            }
+            if path.ends_with("/actions/runs") {
+                let runs: Vec<_> = [
+                    (3, "failure"),
+                    (1, "success"),
+                    (2, "success"),
+                    (3, "success"),
+                ]
+                .into_iter()
+                .map(|(workflow_id, conclusion)| {
+                    let mut run =
+                        finished_run(9000 + workflow_id, 7, "completed", Some(conclusion));
+                    run["workflow_id"] = serde_json::json!(workflow_id);
+                    run
+                })
+                .collect();
+                return ok(serde_json::json!({"total_count": 4, "workflow_runs": runs}));
+            }
+            panic!("Unexpected stub request: {path}")
+        })
+        .await;
+
+    let pipelines = plugin.fetch_pipelines().await.unwrap();
+    let requests = recorded.lock().await.len();
+    server.abort();
+
+    let status = |id: &str| pipelines.iter().find(|p| p.id == id).unwrap().status;
+    assert_eq!(pipelines.len(), 6);
+    assert_eq!(status("acme__app__1"), PipelineStatus::Success);
+    assert_eq!(status("acme__web__3"), PipelineStatus::Failed);
+    assert_eq!(requests, 4);
+}
+
+#[tokio::test]
+async fn a_refused_repo_runs_page_falls_back_and_a_rate_limit_fails_the_fetch() {
+    let (plugin, _recorded, server) =
+        serve(&[("selected_items", "acme/ok")], |_, path| match path {
+            "/api/v3/repos/acme/ok/actions/workflows" => workflows_of_ok_repo(),
+            "/api/v3/repos/acme/ok/actions/runs" => failure(404, "Not Found", &[]),
+            "/api/v3/repos/acme/ok/actions/workflows/42/runs" => runs_of_ok_repo(),
+            path => panic!("Unexpected stub request: {path}"),
+        })
+        .await;
+    let pipelines = plugin.fetch_pipelines().await.unwrap();
+    server.abort();
+    assert!(pipelines[0].last_run.is_some());
+
+    let (plugin, _recorded, server) =
+        serve(&[("selected_items", "acme/ok")], |_, path| match path {
+            "/api/v3/repos/acme/ok/actions/workflows" => workflows_of_ok_repo(),
+            "/api/v3/repos/acme/ok/actions/runs" => rate_limited(),
+            path => panic!("Unexpected stub request: {path}"),
+        })
+        .await;
+    let error = plugin.fetch_pipelines().await.unwrap_err();
+    server.abort();
+    assert!(matches!(error, PluginError::RateLimited { .. }), "{error}");
 }
 
 #[tokio::test]
