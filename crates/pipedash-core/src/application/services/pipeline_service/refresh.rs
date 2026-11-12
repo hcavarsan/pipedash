@@ -4,13 +4,16 @@ use std::time::Duration;
 use chrono::Utc;
 use futures::future::FutureExt;
 use tokio::time::{
+    timeout,
     timeout_at,
     Instant,
 };
 
+use super::background::InflightGuard;
 use super::{
     PipelineService,
     RefreshFlight,
+    FETCH_TIMEOUT,
     FORCE_FEEDS_MIN_AGE,
 };
 use crate::application::fetch_scheduler::{
@@ -31,9 +34,13 @@ use crate::event::CoreEvent;
 
 impl PipelineService {
     pub(super) async fn refresh_overdue(&self, lease: &ProviderLease) {
-        if !self.update_overdue_pipelines(lease.id).await {
+        let Some(_guard) = InflightGuard::claim(&self.overdue_inflight, lease.id.to_string())
+        else {
             return;
-        }
+        };
+        let Ok(true) = timeout(FETCH_TIMEOUT, self.update_overdue_pipelines(lease.id)).await else {
+            return;
+        };
 
         self.provider_service
             .commit(lease, || async {
