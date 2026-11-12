@@ -1189,6 +1189,64 @@ async fn general_settings_saved_in_the_config_file_survive_a_later_toggle() {
 }
 
 #[tokio::test]
+async fn a_proxy_the_http_client_rejects_keeps_failing_on_every_apply() {
+    let h = Harness::new().await;
+    std::fs::write(
+        h.config_state.config_path(),
+        "[general]\nproxy_url = \"socks5://localhost:1080\"\n",
+    )
+    .unwrap();
+
+    let first = h.provider_service.apply_config_file(&h.config_state).await;
+    let retry = h.provider_service.apply_config_file(&h.config_state).await;
+
+    assert!(matches!(first, Err(DomainError::InvalidConfig(_))));
+    assert!(matches!(retry, Err(DomainError::InvalidConfig(_))));
+    assert_eq!(h.config_state.get().await.general.proxy_url, "");
+}
+
+#[tokio::test]
+async fn a_settings_save_during_a_file_apply_is_not_replaced_by_the_older_file() {
+    let h = Harness::new().await;
+    std::fs::write(
+        h.config_state.config_path(),
+        "[general]\ndefault_refresh_interval = 77\n",
+    )
+    .unwrap();
+    let held = h.provider_service.config_apply.lock().await;
+    let applying = tokio::spawn({
+        let (service, state) = (Arc::clone(&h.provider_service), Arc::clone(&h.config_state));
+        async move { service.apply_config_file(&state).await }
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let saving = tokio::spawn({
+        let (service, state) = (Arc::clone(&h.provider_service), Arc::clone(&h.config_state));
+        async move {
+            let update = GeneralSettingsUpdate {
+                metrics_enabled: true,
+                default_refresh_interval: 90,
+                status_pages_enabled: true,
+                proxy_url: String::new(),
+            };
+            service.update_general_settings(&state, update).await
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    drop(held);
+    applying.await.unwrap().unwrap();
+    saving.await.unwrap().unwrap();
+
+    let saved = h.config_state.load_file().await.unwrap().general;
+    assert_eq!(
+        (
+            h.config_state.get().await.general.default_refresh_interval,
+            saved.default_refresh_interval
+        ),
+        (90, 90)
+    );
+}
+
+#[tokio::test]
 async fn removal_preserves_the_provider_and_toml_when_token_deletion_fails() {
     let h = Harness::new().await;
     config_file(&h, &[("ci-a", "CI A", 30)]);
