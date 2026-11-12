@@ -87,10 +87,7 @@ impl MetricsService {
         let candidates: Vec<_> = runs
             .iter()
             .filter(|run| {
-                !is_snapshot(run)
-                    && !is_native_history(run)
-                    && run.run_number > last_processed
-                    && run.started_at >= retention_cutoff
+                !is_snapshot(run) && !is_native_history(run) && run.started_at >= retention_cutoff
             })
             .collect();
         let oldest_unfinished = candidates
@@ -102,12 +99,13 @@ impl MetricsService {
             .into_iter()
             .filter(|run| is_final(&run.status))
             .collect();
-        let stored = if finished.is_empty() {
-            HashSet::new()
-        } else {
-            self.repository
-                .get_stored_run_numbers_after(pipeline_id, last_processed)
-                .await?
+        let stored = match finished.iter().map(|run| run.run_number).min() {
+            Some(oldest) => {
+                self.repository
+                    .get_stored_run_numbers_after(pipeline_id, oldest - 1)
+                    .await?
+            }
+            None => HashSet::new(),
         };
         let mut new_runs: Vec<_> = finished
             .iter()
