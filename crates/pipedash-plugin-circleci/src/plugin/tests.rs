@@ -423,6 +423,23 @@ async fn an_empty_selection_reads_nothing_and_one_failing_project_fails_the_fetc
 }
 
 #[tokio::test]
+async fn a_deleted_project_keeps_the_other_projects_pipelines() {
+    let stub = stub(&[("selected_items", "gh/acme/web,gh/acme/gone")]).await;
+    let pipelines = stub.plugin.fetch_pipelines().await.unwrap();
+    assert_eq!(
+        pipelines.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+        [WEB]
+    );
+
+    let stub = self::stub(&[("selected_items", "gh/acme/gone")]).await;
+    let only_deleted = stub.plugin.fetch_pipelines().await;
+    assert!(
+        matches!(only_deleted, Err(PluginError::PipelineNotFound(_))),
+        "{only_deleted:?}"
+    );
+}
+
+#[tokio::test]
 async fn discovery_groups_followed_projects_by_organization() {
     let stub = stub(&[]).await;
 
