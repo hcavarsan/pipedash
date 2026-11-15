@@ -1462,6 +1462,74 @@ async fn test_apply_config_file_adds_and_updates_changed_blocks_only() {
 }
 
 #[tokio::test]
+async fn test_apply_config_file_removes_a_deleted_block_and_keeps_ui_providers() {
+    let h = Harness::new().await;
+    let ui = h.add_provider("ui-only").await;
+    config_file(&h, &[("ci-a", "CI A", 30), ("ci-b", "CI B", 30)]);
+    h.provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .unwrap();
+    let a = provider_id(&h, "ci-a").await.unwrap();
+    let b = provider_id(&h, "ci-b").await.unwrap();
+
+    std::fs::write(h.config_state.config_path(), "[providers.ci-a\n").unwrap();
+    assert!(h
+        .provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .is_err());
+    assert!(h.repository.get_provider(b).await.is_ok());
+
+    config_file(&h, &[("ci-a", "CI A", 30)]);
+    let applied = h
+        .provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .unwrap();
+
+    assert_eq!(applied.removed, ["ci-b"]);
+    assert!(h.repository.get_provider(b).await.is_err());
+    assert!(h.provider_service.generation_of(b).await.is_none());
+    let tokens = h.token_store.get_all_tokens().await.unwrap();
+    assert!(!tokens.contains_key(&b));
+    assert!(h.repository.get_provider(a).await.is_ok());
+    assert!(h.repository.get_provider(ui).await.is_ok());
+    assert!(h
+        .bus
+        .events()
+        .iter()
+        .any(|e| matches!(e, CoreEvent::ProviderRemoved { provider, .. } if provider.id == b)));
+}
+
+#[tokio::test]
+async fn test_block_deleted_while_stopped_is_removed_on_the_next_start() {
+    let h = Harness::new().await;
+    config_file(&h, &[("ci-a", "CI A", 30), ("ci-b", "CI B", 30)]);
+    h.provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .unwrap();
+    let b = provider_id(&h, "ci-b").await.unwrap();
+
+    config_file(&h, &[("ci-a", "CI A", 30)]);
+    h.config_state.reload().await.unwrap();
+    h.config_state
+        .sync_providers_from_toml(h.repository.config_backend().as_ref(), false)
+        .await
+        .unwrap();
+    let first_apply = h
+        .provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .unwrap();
+
+    assert_eq!(first_apply.removed, ["ci-b"]);
+    assert!(h.repository.get_provider(b).await.is_err());
+    assert!(provider_id(&h, "ci-a").await.is_some());
+}
+
+#[tokio::test]
 async fn test_apply_config_file_rejects_an_invalid_file_and_keeps_providers() {
     let h = Harness::new().await;
     config_file(&h, &[("ci-a", "CI A", 30)]);

@@ -201,6 +201,10 @@ impl ProviderService {
 
     pub async fn remove_provider(&self, id: i64) -> DomainResult<()> {
         let _apply = self.config_apply.lock().await;
+        self.remove_provider_locked(id).await
+    }
+
+    pub(super) async fn remove_provider_locked(&self, id: i64) -> DomainResult<()> {
         let lock = self.commit_lock(id);
         let _guard = lock.lock().await;
 

@@ -48,6 +48,10 @@ pub trait ConfigBackend: Send + Sync {
 
     async fn delete_provider(&self, id: i64) -> DomainResult<()>;
 
+    async fn mark_config_file_providers(&self, names: &[String]) -> DomainResult<()>;
+
+    async fn list_config_file_providers(&self) -> DomainResult<Vec<(i64, String)>>;
+
     async fn get_table_preferences(
         &self, provider_id: i64, table_id: &str,
     ) -> DomainResult<Option<String>>;
