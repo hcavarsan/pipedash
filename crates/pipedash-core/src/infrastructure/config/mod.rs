@@ -21,6 +21,7 @@ pub use loader::{
 pub use manager::StorageManager;
 pub use schema::{
     ConfigKey,
+    GeneralConfig,
     GeneralSettingsUpdate,
     PipedashConfig,
     PostgresConfig,

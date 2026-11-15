@@ -18,7 +18,6 @@ import { type ComponentProps, type ReactNode, useState } from 'react'
 
 import { useMobileShell } from '@/hooks/useIsMobile'
 import { queryKeys } from '@/lib/queryKeys'
-import { useStorageConfig } from '@/queries/useStorageQueries'
 import { isRemoteClient } from '@/services/connection'
 import { isOneOf } from '@/utils/isOneOf'
 import { getPlatformOverride, isDesktopTauri, isMobilePlatform, platform, setPlatformOverride } from '@/utils/platform'
@@ -29,7 +28,7 @@ import { LiveStatus } from '../../../components/forms/LiveStatus'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { FieldRow, RowSelect, SwitchRow } from '../../../components/ios/mobileParts'
 import { useFactoryResetConfirm } from '../hooks/useFactoryResetConfirm'
-import { useUpdateGeneralSettings } from '../queries/useGeneralSettingsQueries'
+import { useGeneralSettings, useUpdateGeneralSettings } from '../queries/useGeneralSettingsQueries'
 
 import { DesktopIntegrationCard } from './DesktopIntegrationCard'
 import { ProxySettingsForm } from './ProxySettingsForm'
@@ -103,8 +102,8 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps): ReactNode {
     await onRefresh?.()
   })
 
-  const storageConfig = useStorageConfig()
-  const general = storageConfig.data?.config.general
+  const generalQuery = useGeneralSettings()
+  const general = generalQuery.data
   const generalMutation = useUpdateGeneralSettings()
   const proxyMutation = useUpdateGeneralSettings({ toastErrors: false })
   const setStatusPages = (checked: boolean): void => {
@@ -116,15 +115,15 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps): ReactNode {
     ? generalMutation.variables.status_pages_enabled
     : (general?.status_pages_enabled ?? false)
   let statusPagesControl: ReactNode
-  if (storageConfig.isLoading) {
+  if (generalQuery.isLoading) {
     statusPagesControl = <LoadingState variant="compact" message="Loading provider status page setting…" />
-  } else if (storageConfig.error || !general) {
+  } else if (generalQuery.error || !general) {
     statusPagesControl = (
       <ErrorState
         title="Couldn't load provider status page setting"
-        error={storageConfig.error ?? 'The storage configuration did not include general settings.'}
-        onRetry={() => void storageConfig.refetch()}
-        retrying={storageConfig.isRefetching}
+        error={generalQuery.error ?? 'The server did not return general settings.'}
+        onRetry={() => void generalQuery.refetch()}
+        retrying={generalQuery.isRefetching}
       />
     )
   } else if (mobileShell) {

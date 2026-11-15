@@ -6,6 +6,7 @@ import type { RefreshResult } from '../../types/health'
 import type { Pipeline, PipelineRun, TriggerDraft, TriggerResult } from '../../types/pipelines'
 import type { CancellationBatch, CancellationTargets } from '../../types/run_action_batch'
 import type { RunHistoryPage } from '../../types/run_history'
+import type { GeneralConfig } from '../../types/storage'
 import { invokeWithTimeout } from '../invoke'
 import type { RunsService } from '../types'
 
@@ -42,6 +43,8 @@ export const runsTauriService: RunsService = {
   refreshProvider: async (id) => invokeWithTimeout<RefreshResult>('refresh_provider', { id }, REFRESH_TIMEOUT_MS),
 
   refreshAll: async () => invokeWithTimeout<RefreshResult[]>('refresh_all', undefined, REFRESH_TIMEOUT_MS),
+
+  getGeneralSettings: async () => invoke<GeneralConfig>('get_general_settings'),
 
   updateGeneralSettings: async (update) => invokeWithTimeout<void>('update_general_settings', { update }),
 

@@ -16,6 +16,7 @@ use crate::infrastructure::config::sync::{
 use crate::infrastructure::config::{
     ConfigLoader,
     ConfigState,
+    GeneralConfig,
     GeneralSettingsUpdate,
     PipedashConfig,
     ProviderFileConfig,
@@ -176,6 +177,10 @@ impl ProviderService {
         config_state.remember_providers(file).await;
 
         Ok(result)
+    }
+
+    pub async fn general_settings(&self, config_state: &ConfigState) -> GeneralConfig {
+        config_state.get().await.general.clone()
     }
 
     pub async fn update_general_settings(

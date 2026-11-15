@@ -3,6 +3,7 @@ import type { RefreshResult } from '../../types/health'
 import type { Pipeline, PipelineRun, TriggerDraft, TriggerResult } from '../../types/pipelines'
 import type { CancellationBatch, CancellationTargets } from '../../types/run_action_batch'
 import type { RunHistoryPage } from '../../types/run_history'
+import type { GeneralConfig } from '../../types/storage'
 import type { HttpClient, RequestOptions } from '../http'
 import type { RunsService } from '../types'
 
@@ -43,6 +44,8 @@ export function createRunsApi(client: HttpClient): RunsService {
     refreshProvider: async (id) => client.post<RefreshResult>(`/providers/${id}/refresh`, undefined, REFRESH_REQUEST),
 
     refreshAll: async () => client.post<RefreshResult[]>('/refresh/all', undefined, REFRESH_REQUEST),
+
+    getGeneralSettings: async () => client.get<GeneralConfig>('/settings/general'),
 
     updateGeneralSettings: async (update) => {
       await client.requestVoid('PUT', '/settings/general', update)

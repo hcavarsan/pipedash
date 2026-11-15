@@ -163,6 +163,24 @@ async fn a_device_token_is_resolved_on_a_server_without_an_api_token() {
 }
 
 #[tokio::test]
+async fn a_paired_device_reads_the_general_settings_it_can_save() {
+    for (name, host) in [
+        ("server", test_support::server("lib-general-server").await),
+        ("hosted", test_support::hosted("lib-general-hosted").await),
+    ] {
+        let core = host.state.core().await.unwrap();
+        let (_, token) = core.pair_device("Pixel", "android").await.unwrap();
+        let app = app(host.state.clone(), None);
+
+        let (status, body) = get_json(&app, "/api/v1/settings/general", Some(&token)).await;
+
+        assert_eq!(status, StatusCode::OK, "{name}: {body}");
+        let general = core.config_state.get().await.general.clone();
+        assert_eq!(body, serde_json::to_value(general).unwrap(), "{name}");
+    }
+}
+
+#[tokio::test]
 async fn a_failed_device_lookup_is_a_retryable_503_not_a_401() {
     let host = test_support::hosted("lib-lookup-failure").await;
     let core = host.state.core().await.unwrap();

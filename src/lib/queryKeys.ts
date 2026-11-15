@@ -80,6 +80,7 @@ export const queryKeys = {
   storage: {
     all: ['storage'] as const,
     config: () => [...queryKeys.storage.all, 'config'] as const,
+    general: () => [...queryKeys.storage.all, 'general'] as const,
     paths: () => [...queryKeys.storage.all, 'paths'] as const,
     configContent: () => [...queryKeys.storage.all, 'configContent'] as const,
     defaultDataDir: () => [...queryKeys.storage.all, 'defaultDataDir'] as const,

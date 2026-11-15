@@ -56,7 +56,7 @@ test('a failed proxy save keeps the typed address and a retry saves it trimmed',
   const config = storageConfig()
   const writes: GeneralConfig[] = []
   let fail = true
-  context.mock.method(apiService, 'getStorageConfig', async () => config)
+  context.mock.method(apiService, 'getGeneralSettings', async () => config.config.general)
   context.mock.method(apiService, 'updateGeneralSettings', async (general: GeneralConfig) => {
     writes.push(general)
     if (fail) {
@@ -88,7 +88,7 @@ test('a failed status page save returns the switch to the confirmed value and ca
   const config = storageConfig()
   let writes = 0
   let fail = true
-  context.mock.method(apiService, 'getStorageConfig', async () => config)
+  context.mock.method(apiService, 'getGeneralSettings', async () => config.config.general)
   context.mock.method(apiService, 'updateGeneralSettings', async (general: GeneralConfig) => {
     writes += 1
     if (fail) {
