@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{
     AtomicBool,
+    AtomicUsize,
     Ordering,
 };
 use std::sync::Arc;
@@ -26,7 +27,10 @@ use pipedash_plugin_api::build_watch::{
 
 #[cfg(desktop)]
 use super::native::unavailable_status;
-use super::session::BuildWatchState;
+use super::session::{
+    BuildWatchState,
+    StopTarget,
+};
 use super::*;
 
 fn run(status: PipelineStatus) -> PipelineRun {
@@ -312,4 +316,28 @@ fn native_end_notifications_cannot_cancel_a_replacement_session() {
     status.watch = None;
     state.native_changed(&status);
     assert!(current.is_current());
+}
+
+#[tokio::test]
+async fn each_interruption_is_stopped_once_and_a_drained_queue_starts_a_new_worker() {
+    let state = BuildWatchState::default();
+    let starts = AtomicUsize::new(0);
+    let start = || {
+        starts.fetch_add(1, Ordering::SeqCst);
+        tauri::async_runtime::spawn(async {})
+    };
+    let session = |id: &str| StopTarget::Session(id.to_string());
+
+    state.queue_interruption(session("a"), start);
+    state.queue_interruption(session("a"), start);
+    state.queue_interruption(StopTarget::Orphan, start);
+    assert_eq!(starts.load(Ordering::SeqCst), 1);
+
+    assert!(state.next_interruption() == Some(session("a")));
+    assert!(state.next_interruption() == Some(StopTarget::Orphan));
+    assert!(state.next_interruption().is_none());
+
+    state.queue_interruption(session("b"), start);
+    assert_eq!(starts.load(Ordering::SeqCst), 2);
+    assert!(state.next_interruption() == Some(session("b")));
 }
