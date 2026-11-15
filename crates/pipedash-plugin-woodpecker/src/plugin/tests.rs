@@ -286,6 +286,42 @@ async fn pipelines_follow_the_latest_pipeline_of_each_selected_repository() {
 }
 
 #[tokio::test]
+async fn a_deleted_repository_keeps_the_other_repositories_pipelines() {
+    let stub = serve(|request| match request.url.path() {
+        "/api/repos/lookup/acme/web" => Reply::json(200, repo_json(5, "acme", "web")),
+        "/api/repos/5/pipelines" => Reply::json(200, json!([pipeline_json(12, "failure")])),
+        _ => Reply::not_found(request),
+    })
+    .await;
+
+    let pipelines = plugin_for(&stub, "acme/web,acme/gone")
+        .fetch_pipelines()
+        .await
+        .unwrap();
+
+    let ids: Vec<_> = pipelines.iter().map(|p| p.id.as_str()).collect();
+    assert_eq!(ids, ["5"]);
+}
+
+#[tokio::test]
+async fn an_unavailable_repository_still_fails_the_pipeline_fetch() {
+    let stub = serve(|request| match request.url.path() {
+        "/api/repos/lookup/acme/web" => Reply::json(200, repo_json(5, "acme", "web")),
+        "/api/repos/5/pipelines" => Reply::json(200, json!([pipeline_json(12, "failure")])),
+        "/api/repos/lookup/acme/busy" => Reply::empty(503),
+        _ => Reply::not_found(request),
+    })
+    .await;
+
+    let error = plugin_for(&stub, "acme/web,acme/busy")
+        .fetch_pipelines()
+        .await
+        .unwrap_err();
+
+    assert!(error.is_transient(), "{error}");
+}
+
+#[tokio::test]
 async fn run_history_reads_past_a_server_page_cap_until_an_empty_page() {
     let stub = serve(capped_history).await;
     let plugin = plugin_for(&stub, "acme/web");
