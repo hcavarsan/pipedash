@@ -19,6 +19,7 @@ export interface SkippedPipeline {
 
 export interface CancellationTargets {
   groups: CancelGroup[]
+  batches: RunTarget[][]
   failed_pipeline_ids: string[]
   skipped: SkippedPipeline[]
   run_count: number
