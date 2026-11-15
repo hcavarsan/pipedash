@@ -31,6 +31,7 @@ pub struct SkippedPipeline {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CancellationTargets {
     pub groups: Vec<CancelGroup>,
+    pub batches: Vec<Vec<RunTarget>>,
     pub failed_pipeline_ids: Vec<String>,
     pub skipped: Vec<SkippedPipeline>,
     pub run_count: usize,
