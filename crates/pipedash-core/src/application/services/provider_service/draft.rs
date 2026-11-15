@@ -84,7 +84,7 @@ impl ProviderService {
         &self, plugin: &dyn Plugin, draft: &ProviderDraft, stored: Option<&ProviderConfig>,
     ) -> ProviderDraftResult {
         let metadata = plugin.metadata();
-        let values = rules::effective_values(draft, stored);
+        let values = rules::effective_values(&metadata.config_schema, draft, stored);
         let selection_required = plugin.selection_required(&values);
         let mut errors = BTreeMap::new();
         let mut active_field_keys = Vec::new();
@@ -135,7 +135,7 @@ impl ProviderService {
             credentials_complete,
             selection_required,
             selection_needs_refresh: selection_required
-                && (rules::selection_needs_refresh(draft, stored)
+                && (rules::selection_needs_refresh(&metadata.config_schema, draft, stored)
                     || (stored.is_some() && !rules::has_selection(&values))),
         }
     }

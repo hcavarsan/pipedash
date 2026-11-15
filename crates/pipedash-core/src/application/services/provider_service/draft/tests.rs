@@ -54,6 +54,12 @@ fn config_of(draft: &ProviderDraft, stored: Option<&ProviderConfig>) -> Provider
     rules::provider_config(metadata, draft, stored, true)
 }
 
+fn needs_refresh(draft: &ProviderDraft, stored: Option<&ProviderConfig>) -> bool {
+    let registry = plugins::registry();
+    let metadata = registry.get(STUB_DRAFT).unwrap().metadata();
+    rules::selection_needs_refresh(&metadata.config_schema, draft, stored)
+}
+
 async fn validate(h: &Harness, draft: &ProviderDraft) -> ProviderDraftResult {
     h.provider_service.validate_draft(draft).await.unwrap()
 }
@@ -675,18 +681,54 @@ fn changing_the_kubeconfig_clears_its_previous_context() {
 
 #[test]
 fn changing_a_scope_key_clears_saved_resource_selections() {
-    for key in ["kubeconfig", "context", "namespaces"] {
+    for key in ["kubeconfig", "cluster_file", "context", "namespaces"] {
         let saved = stored(&[(key, "old-scope"), ("selected_items", "id-1")]);
         let changed = editing(1, &[(key, "new-scope"), ("selected_items", "id-1")]);
 
-        assert!(
-            rules::selection_needs_refresh(&changed, Some(&saved)),
-            "{key}"
-        );
+        assert!(needs_refresh(&changed, Some(&saved)), "{key}");
         assert!(!config_of(&changed, Some(&saved))
             .config
             .contains_key("selected_items"));
     }
+}
+
+#[test]
+fn moving_any_cluster_field_clears_the_saved_context_and_selection() {
+    let saved = stored(&[
+        ("cluster_file", "/tmp/cluster-a.yaml"),
+        ("context", "production"),
+        ("selected_items", "ci__build"),
+    ]);
+    let moved = editing(
+        1,
+        &[
+            ("cluster_file", "/tmp/cluster-b.yaml"),
+            ("context", "production"),
+            ("selected_items", "ci__build"),
+        ],
+    );
+
+    assert!(needs_refresh(&moved, Some(&saved)));
+    assert_eq!(
+        config_of(&moved, Some(&saved)).config,
+        map(&[
+            ("cluster_file", "/tmp/cluster-b.yaml"),
+            ("context", ""),
+            ("auth_mode", "token")
+        ])
+    );
+}
+
+#[test]
+fn fields_without_a_scope_never_reset_the_selection() {
+    let saved = stored(&[("pattern", "https://a"), ("selected_items", "id-1")]);
+    let edited = editing(1, &[("pattern", "https://b"), ("selected_items", "id-1")]);
+
+    assert!(!needs_refresh(&edited, Some(&saved)));
+    assert_eq!(
+        config_of(&edited, Some(&saved)).config["selected_items"],
+        "id-1"
+    );
 }
 
 #[test]
@@ -702,7 +744,7 @@ fn editing_credentials_without_changing_scope_preserves_the_selection() {
     ] {
         let unchanged = editing(1, &values);
 
-        assert!(!rules::selection_needs_refresh(&unchanged, Some(&saved)));
+        assert!(!needs_refresh(&unchanged, Some(&saved)));
         assert_eq!(
             config_of(&unchanged, Some(&saved)).config["selected_items"],
             "id-1"
@@ -715,7 +757,7 @@ fn a_missing_scope_value_equals_an_empty_one() {
     let saved = stored(&[("selected_items", "id-1")]);
     let blank = editing(1, &[("namespaces", ""), ("selected_items", "id-1")]);
 
-    assert!(!rules::selection_needs_refresh(&blank, Some(&saved)));
+    assert!(!needs_refresh(&blank, Some(&saved)));
 }
 
 #[test]
@@ -723,21 +765,18 @@ fn a_draft_without_a_selection_needs_a_refresh_only_when_one_was_saved() {
     let saved = stored(&[("selected_items", "id-1")]);
     let mut lost = editing(1, &[]);
 
-    assert!(rules::selection_needs_refresh(&lost, Some(&saved)));
+    assert!(needs_refresh(&lost, Some(&saved)));
     lost.selected_pipeline_ids = Some(vec![]);
-    assert!(rules::selection_needs_refresh(&lost, Some(&saved)));
+    assert!(needs_refresh(&lost, Some(&saved)));
     lost.selected_pipeline_ids = Some(vec!["id-2".to_string()]);
-    assert!(!rules::selection_needs_refresh(&lost, Some(&saved)));
+    assert!(!needs_refresh(&lost, Some(&saved)));
 
     let nothing_saved = stored(&[("namespaces", "a")]);
-    assert!(!rules::selection_needs_refresh(
+    assert!(!needs_refresh(
         &editing(1, &[("namespaces", "b")]),
         Some(&nothing_saved)
     ));
-    assert!(!rules::selection_needs_refresh(
-        &draft(AuthMode::Token, &[]),
-        None
-    ));
+    assert!(!needs_refresh(&draft(AuthMode::Token, &[]), None));
 }
 
 #[test]
