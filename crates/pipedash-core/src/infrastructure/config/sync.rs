@@ -113,6 +113,9 @@ impl ProviderSyncService {
         let provider_config =
             Self::provider_config(key, toml_provider, toml_provider.token.clone());
         let id = config_backend.create_provider(&provider_config).await?;
+        config_backend
+            .mark_config_file_providers(&[provider_config.name])
+            .await?;
 
         tracing::info!(provider = %key, "Synced provider from TOML to database (new)");
         Ok(id)

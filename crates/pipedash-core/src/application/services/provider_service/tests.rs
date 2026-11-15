@@ -1615,6 +1615,35 @@ async fn test_apply_config_file_retry_replaces_providers_saved_by_a_failed_apply
 }
 
 #[tokio::test]
+async fn test_provider_added_by_a_failed_apply_is_removed_with_its_block() {
+    let h = Harness::new().await;
+    execute(
+        &h,
+        "CREATE TRIGGER fail_ci_b BEFORE INSERT ON providers WHEN NEW.name = 'ci-b' \
+             BEGIN SELECT RAISE(ABORT, 'write failed'); END",
+    )
+    .await;
+    config_file(&h, &[("ci-a", "CI A", 30), ("ci-b", "CI B", 30)]);
+    assert!(h
+        .provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .is_err());
+    let a = provider_id(&h, "ci-a").await.unwrap();
+
+    execute(&h, "DROP TRIGGER fail_ci_b").await;
+    config_file(&h, &[]);
+    let applied = h
+        .provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .unwrap();
+
+    assert_eq!(applied.removed, ["ci-a"]);
+    assert!(h.repository.get_provider(a).await.is_err());
+}
+
+#[tokio::test]
 async fn test_apply_config_file_stores_an_empty_token_for_a_new_provider_without_one() {
     let h = Harness::new().await;
     config_file(&h, &[("ci-a", "CI A", 30)]);

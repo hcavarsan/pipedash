@@ -169,9 +169,8 @@ async fn test_config_file_origin_migration_upgrades_existing_providers() {
         .await
         .unwrap();
     let migrator = sqlx::migrate!("./migrations/sqlite");
-    let (latest, previous) = migrator.iter().as_slice().split_last().unwrap();
-    assert!(latest.description.contains("config file origin"));
-    for migration in previous {
+    let origin = 20261115000001;
+    for migration in migrator.iter().filter(|m| m.version < origin) {
         sqlx::raw_sql(migration.sql.clone())
             .execute(&pool)
             .await
@@ -182,7 +181,8 @@ async fn test_config_file_origin_migration_upgrades_existing_providers() {
         .await
         .unwrap();
 
-    sqlx::raw_sql(latest.sql.clone())
+    let added = migrator.iter().find(|m| m.version == origin).unwrap();
+    sqlx::raw_sql(added.sql.clone())
         .execute(&pool)
         .await
         .unwrap();
