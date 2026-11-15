@@ -140,6 +140,7 @@ fn block_run_actions(actions: &mut RunActionState) {
         &mut actions.force_cancel,
         &mut actions.rerun,
         &mut actions.rerun_failed,
+        &mut actions.rerun_job,
         &mut actions.review,
     ] {
         *action = read_only_block();

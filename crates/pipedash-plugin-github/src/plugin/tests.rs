@@ -568,6 +568,58 @@ fn only_failed_and_timed_out_runs_offer_a_failed_jobs_rerun() {
     }
 }
 
+#[test]
+fn only_completed_runs_offer_a_single_job_rerun() {
+    let cases = [
+        ("completed", Some("success"), true),
+        ("completed", Some("failure"), true),
+        ("in_progress", None, false),
+        ("queued", None, false),
+        ("waiting", None, false),
+    ];
+    for (status, conclusion, expected) in cases {
+        let run: crate::types::Run =
+            serde_json::from_value(finished_run(9001, 7, status, conclusion)).unwrap();
+
+        let run = crate::mapper::run_to_pipeline_run(run, PIPELINE_ID);
+
+        assert_eq!(
+            run.metadata.get("can_rerun_jobs") == Some(&serde_json::json!(true)),
+            expected,
+            "{status} {conclusion:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn rerun_job_posts_only_the_selected_job_endpoint() {
+    let (plugin, recorded, server) = serve(&[], |method, path| match (method, path) {
+        ("POST", "/api/v3/repos/acme/app/actions/jobs/502/rerun") => Reply {
+            status: 201,
+            headers: Vec::new(),
+            body: serde_json::json!({}),
+        },
+        (method, path) => panic!("Unexpected stub request: {method} {path}"),
+    })
+    .await;
+
+    plugin.rerun_job(PIPELINE_ID, 7, "502").await.unwrap();
+    let invalid = plugin.rerun_job(PIPELINE_ID, 7, "build").await.unwrap_err();
+
+    assert!(
+        matches!(invalid, PluginError::InvalidConfig(_)),
+        "{invalid}"
+    );
+    let paths: Vec<String> = recorded
+        .lock()
+        .await
+        .iter()
+        .map(|(_, path, _)| path.clone())
+        .collect();
+    assert_eq!(paths, ["/api/v3/repos/acme/app/actions/jobs/502/rerun"]);
+    server.abort();
+}
+
 fn failure(status: u16, message: &str, headers: &[(&'static str, &'static str)]) -> Reply {
     Reply {
         status,

@@ -95,7 +95,7 @@ fn create_features() -> Vec<Feature> {
         Feature::new(
             "rerun_failed_jobs",
             "Re-run runs",
-            "POST /repos/{owner}/{repo}/actions/runs/{id}/rerun and /rerun-failed-jobs - Re-run a whole run, or only its failed jobs and the jobs that depend on them",
+            "POST /repos/{owner}/{repo}/actions/runs/{id}/rerun, /rerun-failed-jobs and /actions/jobs/{id}/rerun - Re-run a whole run, only its failed jobs, or one job, plus the jobs that depend on them",
             &["repo"],
         ),
         Feature::new(

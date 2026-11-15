@@ -85,6 +85,10 @@ pub fn router() -> Router<AppState> {
             "/{id}/runs/{run_number}/rerun-failed-jobs",
             post(rerun_failed_jobs),
         )
+        .route(
+            "/{id}/runs/{run_number}/jobs/{job_id}/rerun",
+            post(rerun_job),
+        )
         .route("/{id}/runs/{run_number}/rerun", post(rerun_run))
         .route("/{id}/enable", post(enable_pipeline))
 }
@@ -201,6 +205,17 @@ async fn rerun_failed_jobs(
     let pipeline_service = state.pipeline_service().await?;
     pipeline_service
         .rerun_failed_jobs(&pipeline_id, run_number)
+        .await?;
+    Ok(())
+}
+
+async fn rerun_job(
+    State(state): State<AppState>,
+    Path((pipeline_id, run_number, job_id)): Path<(String, i64, String)>,
+) -> ApiResult<()> {
+    let pipeline_service = state.pipeline_service().await?;
+    pipeline_service
+        .rerun_job(&pipeline_id, run_number, &job_id)
         .await?;
     Ok(())
 }

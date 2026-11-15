@@ -9,6 +9,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query'
 import { createElement } from 'react'
+import { confirmBody } from '../components/common/ActionTargetRows'
 import { CancelRunConfirm } from '../features/runs/components/CancelRunConfirm'
 import { cancelTargetRows } from '../features/runs/lib/cancelTargetRows'
 import { invalidateRunHistory } from '../features/runs/lib/runHistoryCache'
@@ -205,6 +206,62 @@ export function useRerunFailedJobs(): UseMutationResult<
       displayErrorNotification(error, "Couldn't re-run failed jobs")
     },
   })
+}
+
+interface RerunJobVariables {
+  pipelineId: string
+  runNumber: number
+  jobId: string
+  jobName: string
+  confirmation: string
+}
+
+type UseRerunJobResult = Omit<UseMutationResult<void, Error, RerunJobVariables, unknown>, 'mutateAsync'> & {
+  mutateAsync: (variables: RerunJobVariables) => Promise<boolean>
+}
+
+export function useRerunJob(): UseRerunJobResult {
+  const queryClient = useQueryClient()
+
+  const mutation = useMutation({
+    mutationFn: ({ pipelineId, runNumber, jobId }: RerunJobVariables) => service.rerunJob(pipelineId, runNumber, jobId),
+
+    onSuccess: async (_data, { pipelineId, runNumber, jobName }) => {
+      await Promise.all([
+        invalidateRunHistory(queryClient, pipelineId, runNumber),
+        queryClient.invalidateQueries({ queryKey: queryKeys.runLogs.tree(pipelineId, runNumber) }),
+      ])
+
+      displaySuccessNotification(`Run #${runNumber} is re-running ${jobName}`, 'Re-running job')
+    },
+
+    onError: (error: Error) => {
+      displayErrorNotification(error, "Couldn't re-run job")
+    },
+  })
+
+  const rerun = async (variables: RerunJobVariables) => {
+    const { promise, resolve } = Promise.withResolvers<boolean>()
+
+    openConfirm({
+      title: 'Re-run job',
+      children: confirmBody(variables.confirmation, [{ label: 'Job', value: variables.jobName }]),
+      labels: { confirm: 'Re-run job', cancel: 'Cancel' },
+      onConfirm: () => resolve(true),
+      onCancel: () => resolve(false),
+      onClose: () => resolve(false),
+    })
+
+    if (!(await promise)) {
+      return false
+    }
+
+    await mutation.mutateAsync(variables)
+
+    return true
+  }
+
+  return { ...mutation, mutateAsync: rerun }
 }
 
 export function useRerunRun(): UseMutationResult<

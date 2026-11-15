@@ -9,12 +9,14 @@ import { LogViewer } from '../../logs/components/LogViewer'
 import type { LogViewerHandle } from '../../logs/lib/logViewerTypes'
 import { resolveLogGroups } from '../lib/logTree'
 import { LogJobList } from './LogJobList'
+import { RerunJobBar } from './RerunJobBar'
 
 interface RunLogsPanelProps {
   pipelineId: string
   pipelineName: string
   runNumber: number
   providerName: string
+  providerType: string
   narrow: boolean
   viewerRef: Ref<LogViewerHandle>
 }
@@ -24,6 +26,7 @@ export const RunLogsPanel = ({
   pipelineName,
   runNumber,
   providerName,
+  providerType,
   narrow,
   viewerRef,
 }: RunLogsPanelProps): ReactNode => {
@@ -77,6 +80,8 @@ export const RunLogsPanel = ({
     />
   )
 
+  const rerunBar = <RerunJobBar pipelineId={pipelineId} runNumber={runNumber} providerType={providerType} node={node} />
+
   const body = narrow ? (
     <Box display="flex" flex={1} mih={0} style={{ flexDirection: 'column' }}>
       <Box p="sm" flex="none">
@@ -91,6 +96,7 @@ export const RunLogsPanel = ({
         />
       </Box>
       <Box flex={1} mih={0} display="flex" style={{ flexDirection: 'column' }}>
+        {rerunBar}
         {viewer}
       </Box>
     </Box>
@@ -98,6 +104,7 @@ export const RunLogsPanel = ({
     <Box display="flex" flex={1} mih={0}>
       <LogJobList nodes={tree.nodes} selectedId={node.id} onSelect={setSelectedId} />
       <Box flex={1} miw={0} mih={0} display="flex" style={{ flexDirection: 'column' }}>
+        {rerunBar}
         {viewer}
       </Box>
     </Box>

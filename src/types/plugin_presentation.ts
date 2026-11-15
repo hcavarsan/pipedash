@@ -18,6 +18,7 @@ export interface PluginPresentation {
   progress_title: string
   archived_notice: Notice | null
   force_cancel_confirmation: string
+  rerun_job_confirmation: string
 }
 
 export interface ViewPresentation {

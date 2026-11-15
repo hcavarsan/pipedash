@@ -24,6 +24,7 @@ export interface RunActionState {
   force_cancel: ActionAvailability
   rerun: ActionAvailability
   rerun_failed: ActionAvailability
+  rerun_job: ActionAvailability
   review: ActionAvailability
   watch: boolean
 }

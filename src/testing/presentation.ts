@@ -23,6 +23,7 @@ export function runActionsFixture(overrides: Partial<RunActionState> = {}): RunA
     force_cancel: { allowed: false, reason: null },
     rerun: allowed,
     rerun_failed: allowed,
+    rerun_job: { allowed: false, reason: null },
     review: { allowed: false, reason: null },
     watch: true,
     ...overrides,
@@ -103,5 +104,6 @@ export function pluginPresentationFixture(): PluginPresentation {
     progress_title: 'Run in progress',
     archived_notice: null,
     force_cancel_confirmation: "You can't undo this.",
+    rerun_job_confirmation: 'Runs this job again.',
   }
 }

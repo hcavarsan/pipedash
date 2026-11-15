@@ -58,6 +58,8 @@ export const runsTauriService: RunsService = {
 
   rerunFailedJobs: async (pipelineId, runNumber) => invoke<void>('rerun_failed_jobs', { pipelineId, runNumber }),
 
+  rerunJob: async (pipelineId, runNumber, jobId) => invoke<void>('rerun_job', { pipelineId, runNumber, jobId }),
+
   rerunRun: async (pipelineId, runNumber) => invoke<TriggerResult>('rerun_pipeline_run', { pipelineId, runNumber }),
 
   enablePipeline: async (pipelineId) => invoke<void>('enable_pipeline', { pipelineId }),
