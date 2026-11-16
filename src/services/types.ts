@@ -118,6 +118,7 @@ export interface RunsService {
   cancelPipelineRuns(targets: RunTarget[]): Promise<CancellationBatch>
   refreshProvider(id: number): Promise<RefreshResult>
   refreshAll(): Promise<RefreshResult[]>
+  getGeneralSettings(): Promise<GeneralConfig>
   updateGeneralSettings(update: GeneralConfig): Promise<void>
   getWorkflowRunDetails(pipelineId: string, runNumber: number): Promise<PipelineRun>
   cancelPipelineRun(pipelineId: string, runNumber: number): Promise<void>

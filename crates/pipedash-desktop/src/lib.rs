@@ -128,6 +128,7 @@ pub fn run() {
             commands::refresh::refresh_all,
             commands::refresh::refresh_provider,
             commands::refresh::set_refresh_mode,
+            commands::settings::get_general_settings,
             commands::settings::update_general_settings,
             commands::cache::get_cache_stats,
             commands::cache::clear_pipelines_cache,
