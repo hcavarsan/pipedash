@@ -7,6 +7,7 @@ use pipedash_plugin_api::{
     AuthMode,
     ConfigField,
     ConfigSchema,
+    ConfigScope,
     PluginMetadata,
     AUTH_MODE_KEY,
 };
@@ -22,9 +23,6 @@ pub(super) const NAME_KEY: &str = "providerName";
 pub(super) const NAME_ERROR: &str = "Provider name is required";
 pub(super) const SELECTION_KEY: &str = "selected_items";
 const TOKEN_KEY: &str = "token";
-const CONTEXT_KEY: &str = "context";
-const KUBECONFIG_KEY: &str = "kubeconfig";
-const SCOPE_KEYS: [&str; 3] = [KUBECONFIG_KEY, CONTEXT_KEY, "namespaces"];
 const DEFAULT_REFRESH_INTERVAL: i64 = 30;
 const REGEX_SIZE_LIMIT: usize = 1 << 20;
 const REGEX_NEST_LIMIT: u32 = 64;
@@ -94,14 +92,31 @@ pub(super) fn normalize_ids(ids: &[String]) -> Vec<String> {
         .collect()
 }
 
-fn scope_changed(values: &HashMap<String, String>, stored: &ProviderConfig) -> bool {
-    SCOPE_KEYS
+fn scope_fields(
+    schema: &ConfigSchema, matches: impl Fn(ConfigScope) -> bool,
+) -> impl Iterator<Item = &ConfigField> {
+    schema
+        .fields
         .iter()
-        .any(|key| value_of(values, key) != value_of(&stored.config, key))
+        .filter(move |field| field.scope.is_some_and(&matches))
+}
+
+fn scope_moved(
+    schema: &ConfigSchema, values: &HashMap<String, String>, stored: &ProviderConfig,
+    matches: impl Fn(ConfigScope) -> bool,
+) -> bool {
+    scope_fields(schema, matches)
+        .any(|field| value_of(values, &field.key) != value_of(&stored.config, &field.key))
+}
+
+fn scope_changed(
+    schema: &ConfigSchema, values: &HashMap<String, String>, stored: &ProviderConfig,
+) -> bool {
+    scope_moved(schema, values, stored, |_| true)
 }
 
 pub(super) fn selection_needs_refresh(
-    draft: &ProviderDraft, stored: Option<&ProviderConfig>,
+    schema: &ConfigSchema, draft: &ProviderDraft, stored: Option<&ProviderConfig>,
 ) -> bool {
     let Some(stored) = stored else {
         return false;
@@ -115,21 +130,28 @@ pub(super) fn selection_needs_refresh(
         .is_some_and(|ids| !ids.is_empty())
         || !value_of(&draft.values, SELECTION_KEY).trim().is_empty();
 
-    !carries_selection || scope_changed(&draft.values, stored)
+    !carries_selection || scope_changed(schema, &draft.values, stored)
 }
 
 pub(super) fn effective_values(
-    draft: &ProviderDraft, stored: Option<&ProviderConfig>,
+    schema: &ConfigSchema, draft: &ProviderDraft, stored: Option<&ProviderConfig>,
 ) -> HashMap<String, String> {
     let mut values = draft.values.clone();
-    let Some(stored) = stored.filter(|stored| scope_changed(&values, stored)) else {
+    let Some(stored) = stored.filter(|stored| scope_changed(schema, &values, stored)) else {
         return values;
     };
     values.remove(SELECTION_KEY);
-    let moved = |key: &str| value_of(&values, key) != value_of(&stored.config, key);
-    let stale_context = moved(KUBECONFIG_KEY) && !moved(CONTEXT_KEY);
-    if stale_context && values.contains_key(CONTEXT_KEY) {
-        values.insert(CONTEXT_KEY.to_string(), String::new());
+    let is_context = |scope| scope == ConfigScope::Context;
+    let stale_context = scope_moved(schema, &values, stored, |scope| {
+        scope == ConfigScope::Cluster
+    }) && !scope_moved(schema, &values, stored, is_context);
+    if !stale_context {
+        return values;
+    }
+    for field in scope_fields(schema, is_context) {
+        if let Some(value) = values.get_mut(&field.key) {
+            value.clear();
+        }
     }
     values
 }
@@ -140,7 +162,7 @@ pub(super) fn provider_config(
 ) -> ProviderConfig {
     let mode = draft.auth_mode;
     let schema = &metadata.config_schema;
-    let mut values = effective_values(draft, stored);
+    let mut values = effective_values(schema, draft, stored);
     values.retain(|key, _| key_in_mode(schema, key, mode));
 
     let token = values.remove(TOKEN_KEY).unwrap_or_default();
@@ -159,7 +181,9 @@ pub(super) fn provider_config(
         Some(ids) if selection_required || !ids.is_empty() => Some(ids.join(",")),
         _ => kept.or_else(|| {
             stored
-                .filter(|stored| !selection_required && !scope_changed(&draft.values, stored))
+                .filter(|stored| {
+                    !selection_required && !scope_changed(schema, &draft.values, stored)
+                })
                 .and_then(|stored| stored.config.get(SELECTION_KEY))
                 .cloned()
         }),

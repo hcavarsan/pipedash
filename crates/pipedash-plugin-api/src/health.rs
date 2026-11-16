@@ -88,6 +88,7 @@ pub fn status_page_field() -> ConfigField {
         ),
         section: ConfigSection::Settings,
         auth_modes: Vec::new(),
+        scope: None,
     }
 }
 
