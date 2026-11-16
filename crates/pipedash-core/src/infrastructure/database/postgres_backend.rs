@@ -143,6 +143,24 @@ impl ConfigBackend for PostgresConfigBackend {
         ensure_found(affected, id)
     }
 
+    async fn mark_config_file_providers(&self, names: &[String]) -> DomainResult<()> {
+        sqlx::query(
+            "UPDATE providers SET from_config_file = TRUE WHERE NOT from_config_file AND name = ANY($1)",
+        )
+        .bind(names)
+        .execute(&self.pool)
+        .await
+        .map(|_| ())
+        .map_err(failed("mark config file providers"))
+    }
+
+    async fn list_config_file_providers(&self) -> DomainResult<Vec<(i64, String)>> {
+        sqlx::query_as("SELECT id, name FROM providers WHERE from_config_file")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(failed("list config file providers"))
+    }
+
     async fn get_table_preferences(
         &self, provider_id: i64, table_id: &str,
     ) -> DomainResult<Option<String>> {
@@ -214,3 +232,6 @@ impl ConfigBackend for PostgresConfigBackend {
         config_transfer::import_config(self, &DatabasePool::Postgres(self.pool.clone()), data).await
     }
 }
+
+#[cfg(all(test, feature = "postgres"))]
+mod tests;

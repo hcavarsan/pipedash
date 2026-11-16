@@ -160,3 +160,44 @@ async fn test_sqlite_backend_export_import() {
     assert_eq!(imported.len(), 1);
     assert_eq!(imported[0].name, "Export Test");
 }
+
+#[tokio::test]
+async fn test_config_file_origin_migration_upgrades_existing_providers() {
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    let migrator = sqlx::migrate!("./migrations/sqlite");
+    let origin = 20261115000001;
+    for migration in migrator.iter().filter(|m| m.version < origin) {
+        sqlx::raw_sql(migration.sql.clone())
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    sqlx::query("INSERT INTO providers (name, provider_type, token_encrypted) VALUES ('ci-a', 'stub', ''), ('ci-b', 'stub', '')")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let added = migrator.iter().find(|m| m.version == origin).unwrap();
+    sqlx::raw_sql(added.sql.clone())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let backend = SqliteConfigBackend::new(pool);
+
+    assert!(backend
+        .list_config_file_providers()
+        .await
+        .unwrap()
+        .is_empty());
+    backend
+        .mark_config_file_providers(&["ci-b".to_string()])
+        .await
+        .unwrap();
+    let marked = backend.list_config_file_providers().await.unwrap();
+    assert_eq!(marked.len(), 1);
+    assert_eq!(marked[0].1, "ci-b");
+}

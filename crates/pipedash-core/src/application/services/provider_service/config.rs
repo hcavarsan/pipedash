@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use indexmap::IndexMap;
+
 use super::ProviderService;
 use crate::application::services::health_service::HealthInput;
 use crate::domain::{
@@ -169,6 +171,7 @@ impl ProviderService {
                 return Err(e);
             }
         }
+        result.removed = self.remove_dropped_file_providers(&file).await?;
         if current.views != views {
             config_state.remember_views(views).await;
             self.event_bus.emit(CoreEvent::PipelineViewsChanged).await;
@@ -176,6 +179,26 @@ impl ProviderService {
         config_state.remember_providers(file).await;
 
         Ok(result)
+    }
+
+    async fn remove_dropped_file_providers(
+        &self, file: &IndexMap<String, ProviderFileConfig>,
+    ) -> DomainResult<Vec<String>> {
+        let backend = self.repository.config_backend();
+        let listed: Vec<String> = file.keys().cloned().collect();
+        backend.mark_config_file_providers(&listed).await?;
+
+        let mut removed = Vec::new();
+        for (id, name) in backend.list_config_file_providers().await? {
+            if file.contains_key(&name) {
+                continue;
+            }
+            self.remove_provider_locked(id).await?;
+            tracing::info!(provider = %name, "Removed provider deleted from config file");
+            removed.push(name);
+        }
+
+        Ok(removed)
     }
 
     pub async fn update_general_settings(
@@ -240,6 +263,7 @@ impl ProviderService {
                 .await?
                 .ok_or_else(|| DomainError::ProviderNotFound(id.to_string()))?;
             sync.update_from_toml(key, provider, &row, backend).await?;
+            backend.mark_config_file_providers(&[row.name]).await?;
         }
         ProviderSyncService::store_resolved_token(
             id,
