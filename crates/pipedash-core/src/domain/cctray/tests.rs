@@ -113,14 +113,14 @@ fn links_keep_the_frontend_base_path() {
 #[test]
 fn pipelines_sharing_a_name_get_their_workflow_file_or_id() {
     let mut first = pipeline("svc__1__a.yml", "ci", "acme/api", PipelineStatus::Success);
-    first.workflow_file = Some(".github/workflows/a.yml".into());
+    first.workflow_file = Some("pipelines/a.yml".into());
     let second = pipeline("svc__1__b.yml", "ci", "acme/api", PipelineStatus::Success);
     let other = pipeline("svc__1__c.yml", "lint", "acme/api", PipelineStatus::Success);
 
     let xml = cctray_feed(&[first, second, other], "http://h");
 
     assert!(
-        xml.contains("name=\"acme/api · ci · .github/workflows/a.yml\""),
+        xml.contains("name=\"acme/api · ci · pipelines/a.yml\""),
         "{xml}"
     );
     assert!(
