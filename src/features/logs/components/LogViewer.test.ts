@@ -282,6 +282,30 @@ test('a refresh failure keeps the lines and offers Retry instead of Live', async
   assert.equal(view().queryByText('Live'), null)
 })
 
+test('a rejected refresh of a live log keeps the lines and offers Retry instead of Live', async (context) => {
+  let reads = 0
+  const open: Open = async () => {
+    reads += 1
+    if (reads > 1) {
+      throw new Error('Document refresh unavailable')
+    }
+
+    return { state: 'ready', ...meta, complete: false, updated_at_ms: Date.now() }
+  }
+
+  stubService(context, () => matches(), open)
+  mount(createRef<LogViewerHandle>())
+  await waitFor(() => assert.ok(lineButton(199)))
+  assert.ok(view().getByText('Live'))
+
+  await act(async () => client.refetchQueries())
+
+  await view().findByText('Document refresh unavailable')
+  assert.ok(lineButton(199))
+  assert.ok(view().getByRole('button', { name: 'Retry' }))
+  assert.equal(view().queryByText('Live'), null)
+})
+
 test('Retry asks the backend once and shows loading while it is pending', async (context) => {
   const calls: boolean[] = []
   const gate = Promise.withResolvers<RunLogDocument>()

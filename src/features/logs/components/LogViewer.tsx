@@ -6,6 +6,7 @@ import { ErrorState } from '../../../components/common/ErrorState'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import { useRetryRunLog, useRunLogDocument } from '../../../queries/useRunLogQueries'
+import { errorMessage } from '../../../utils/errorDisplay'
 import { formatBytes } from '../../../utils/formatBytes'
 import { openLink } from '../../../utils/openExternal'
 import type { LogViewerProps } from '../lib/logViewerTypes'
@@ -94,20 +95,24 @@ function LogSession({ ref, ...props }: LogViewerProps): ReactNode {
     )
   }
 
-  if (data.line_count === 0) {
-    if (data.complete) {
+  const meta = docQuery.error
+    ? { ...data, refresh_error: errorMessage(docQuery.error, "Couldn't refresh the job log") }
+    : data
+
+  if (meta.line_count === 0) {
+    if (meta.complete) {
       return <EmptyState title="This job didn't write any output" description="The provider returned an empty log." />
     }
 
     return (
       <Stack gap={0}>
-        {data.refresh_error !== null && (
-          <LiveMarker meta={data} target={{ pipelineId, runNumber, nodeId: node.id }} variant={props.variant} />
+        {meta.refresh_error !== null && (
+          <LiveMarker meta={meta} target={{ pipelineId, runNumber, nodeId: node.id }} variant={props.variant} />
         )}
         <LoadingState message="Waiting for output…" />
       </Stack>
     )
   }
 
-  return <ReadyViewer {...props} meta={data} ref={ref} />
+  return <ReadyViewer {...props} meta={meta} ref={ref} />
 }
