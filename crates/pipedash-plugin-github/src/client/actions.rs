@@ -59,6 +59,17 @@ impl GitHubClient {
         Ok(())
     }
 
+    pub async fn rerun_job(&self, owner: &str, repo: &str, job_id: u64) -> PluginResult<()> {
+        let url = format!("/repos/{owner}/{repo}/actions/jobs/{job_id}/rerun");
+        let _: serde_json::Value = self
+            .octocrab
+            .post(url, None::<&()>)
+            .await
+            .map_err(|e| map_octocrab_error("Failed to re-run job", e))?;
+
+        Ok(())
+    }
+
     pub async fn enable_workflow(
         &self, owner: &str, repo: &str, workflow_id: u64,
     ) -> PluginResult<()> {

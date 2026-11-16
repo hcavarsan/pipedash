@@ -187,6 +187,7 @@ pub(crate) struct StubProvider {
     cancels_in_flight: AtomicUsize,
     cancels_peak: AtomicUsize,
     pub(crate) run_action_result: Mutex<DomainResult<()>>,
+    pub(crate) rerun_jobs: Mutex<Vec<String>>,
     pub(crate) parameters: Mutex<DomainResult<Vec<WorkflowParameter>>>,
     pub(crate) rate_limit: Mutex<Option<RateLimit>>,
     pub(crate) rate_limit_gate: Option<Arc<Gate>>,
@@ -237,6 +238,7 @@ impl StubProvider {
             cancels_in_flight: AtomicUsize::new(0),
             cancels_peak: AtomicUsize::new(0),
             run_action_result: Mutex::new(Err(DomainError::NotSupported("stub".to_string()))),
+            rerun_jobs: Mutex::new(Vec::new()),
             parameters: Mutex::new(Ok(vec![parameter("branch")])),
             rate_limit: Mutex::new(None),
             rate_limit_gate: None,
@@ -516,6 +518,13 @@ impl Provider for StubProvider {
     }
 
     async fn rerun_failed_jobs(&self, _pipeline_id: &str, _run_number: i64) -> DomainResult<()> {
+        self.run_action_result.lock().unwrap().clone()
+    }
+
+    async fn rerun_job(
+        &self, _pipeline_id: &str, _run_number: i64, job_id: &str,
+    ) -> DomainResult<()> {
+        self.rerun_jobs.lock().unwrap().push(job_id.to_string());
         self.run_action_result.lock().unwrap().clone()
     }
 

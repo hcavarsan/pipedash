@@ -72,6 +72,7 @@ pub fn run_actions(capabilities: &PluginCapabilities, run: &RunFacts<'_>) -> Run
         rerun_failed: ActionAvailability::allowed(
             !active && flag(run.metadata, "can_rerun_failed_jobs"),
         ),
+        rerun_job: ActionAvailability::allowed(!active && flag(run.metadata, "can_rerun_jobs")),
         review: ActionAvailability::allowed(awaiting_review),
         watch: active,
     }

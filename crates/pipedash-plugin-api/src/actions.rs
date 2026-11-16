@@ -61,6 +61,7 @@ pub struct RunActionState {
     pub force_cancel: ActionAvailability,
     pub rerun: ActionAvailability,
     pub rerun_failed: ActionAvailability,
+    pub rerun_job: ActionAvailability,
     pub review: ActionAvailability,
     pub watch: bool,
 }

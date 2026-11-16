@@ -146,6 +146,18 @@ pub async fn rerun_failed_jobs(
 }
 
 #[tauri::command]
+pub async fn rerun_job(
+    maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: String, run_number: i64,
+    job_id: String,
+) -> Result<(), ErrorResponse> {
+    let core = maybe_core.get().await.map_err(unavailable)?;
+    core.pipeline_service
+        .rerun_job(&pipeline_id, run_number, &job_id)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn rerun_pipeline_run(
     maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: String, run_number: i64,
 ) -> Result<TriggerResult, ErrorResponse> {

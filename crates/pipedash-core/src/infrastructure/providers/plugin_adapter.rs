@@ -281,6 +281,15 @@ impl Provider for PluginAdapter {
             .map_err(Self::map_error)
     }
 
+    async fn rerun_job(
+        &self, pipeline_id: &str, run_number: i64, job_id: &str,
+    ) -> DomainResult<()> {
+        self.plugin
+            .rerun_job(self.local_id(pipeline_id)?, run_number, job_id)
+            .await
+            .map_err(Self::map_error)
+    }
+
     async fn rerun_run(&self, pipeline_id: &str, run_number: i64) -> DomainResult<()> {
         self.plugin
             .rerun_run(self.local_id(pipeline_id)?, run_number)

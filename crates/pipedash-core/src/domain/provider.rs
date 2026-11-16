@@ -247,6 +247,9 @@ pub trait Provider: Send + Sync {
 
     async fn rerun_failed_jobs(&self, pipeline_id: &str, run_number: i64) -> DomainResult<()>;
 
+    async fn rerun_job(&self, pipeline_id: &str, run_number: i64, job_id: &str)
+        -> DomainResult<()>;
+
     async fn rerun_run(&self, pipeline_id: &str, run_number: i64) -> DomainResult<()>;
 
     async fn enable_pipeline(&self, pipeline_id: &str) -> DomainResult<()>;

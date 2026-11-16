@@ -49,7 +49,7 @@
   </tr>
   <tr>
     <td align="center" width="120"><img src="./.github/icons/investigate.svg" width="32" height="32" alt="" /><br><b>Investigate</b></td>
-    <td width="420">Find out why a run failed.</td>
+    <td width="420">Find out why a run failed and rerun one GitHub Actions job from its log.</td>
     <td width="264"><a href="https://pipedash.app/docs/features/run-logs">Run logs</a><br><a href="https://pipedash.app/docs/features/metrics">Metrics</a></td>
   </tr>
   <tr>
