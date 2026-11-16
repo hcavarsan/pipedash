@@ -101,6 +101,10 @@ It runs as a desktop app, as a self-hosted web server in Docker or as an iOS and
 
 ## Get started
 
+### One-Click Deploy
+
+[![Deploy on RepoCloud](https://d16t0pc4846x52.cloudfront.net/deploylobe.svg)](https://repocloud.io/details/Pipedash/)
+
 - **Install** it with the [installation guide](https://pipedash.app/docs/getting-started/installation).
 - **Add a provider** with the [quick start](https://pipedash.app/docs/getting-started/quick-start).
 - **Run** it on [desktop](https://pipedash.app/docs/deployment/desktop), [mobile](https://pipedash.app/docs/deployment/mobile) or [Docker](https://pipedash.app/docs/deployment/docker).
