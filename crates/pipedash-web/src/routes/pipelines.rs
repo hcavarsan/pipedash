@@ -13,6 +13,7 @@ use axum::{
         get,
         post,
     },
+    Extension,
     Json,
     Router,
 };
@@ -35,6 +36,7 @@ use serde::Deserialize;
 
 use crate::error::ApiResult;
 use crate::state::AppState;
+use crate::FrontendBasePath;
 
 #[derive(Debug, Deserialize)]
 pub struct ListPipelinesQuery {
@@ -111,15 +113,20 @@ async fn list_pipelines(
 
 async fn cctray_feed(
     State(state): State<AppState>, headers: HeaderMap,
+    base_path: Option<Extension<FrontendBasePath>>,
 ) -> ApiResult<impl IntoResponse> {
     let header_value = |name| headers.get(name).and_then(|v| v.to_str().ok());
     let scheme = header_value("x-forwarded-proto")
         .and_then(|p| p.split(',').next())
         .map_or("http", str::trim);
     let host = header_value(header::HOST.as_str()).unwrap_or_default();
+    let base_path = base_path.map(|Extension(FrontendBasePath(path))| path);
     let pipeline_service = state.pipeline_service().await?;
     let feed = pipeline_service
-        .cctray_feed(&format!("{scheme}://{host}"))
+        .cctray_feed(&format!(
+            "{scheme}://{host}{}",
+            base_path.unwrap_or_default()
+        ))
         .await?;
     Ok(([(header::CONTENT_TYPE, "application/xml")], feed))
 }

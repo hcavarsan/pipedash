@@ -82,14 +82,50 @@ fn names_and_links_are_escaped() {
 }
 
 #[test]
-fn a_pipeline_that_never_ran_uses_its_last_update() {
+fn a_pipeline_that_never_ran_sleeps_and_uses_its_last_update() {
     let mut never_ran = pipeline("id", "n", "", PipelineStatus::Pending);
     never_ran.last_run = None;
 
     let xml = cctray_feed(&[never_ran], "not a url");
 
     assert!(
-        xml.contains("lastBuildTime=\"2026-11-16T13:00:00+00:00\"/>"),
+        xml.contains(
+            "activity=\"Sleeping\" lastBuildStatus=\"Unknown\" \
+             lastBuildTime=\"2026-11-16T13:00:00+00:00\"/>"
+        ),
         "{xml}"
     );
+}
+
+#[test]
+fn links_keep_the_frontend_base_path() {
+    let xml = cctray_feed(
+        &[pipeline("svc__1__ci", "ci", "", PipelineStatus::Success)],
+        "https://h/pipedash/",
+    );
+
+    assert!(
+        xml.contains("webUrl=\"https://h/pipedash/pipelines/svc__1__ci\""),
+        "{xml}"
+    );
+}
+
+#[test]
+fn pipelines_sharing_a_name_get_their_workflow_file_or_id() {
+    let mut first = pipeline("svc__1__a.yml", "ci", "acme/api", PipelineStatus::Success);
+    first.workflow_file = Some(".github/workflows/a.yml".into());
+    let second = pipeline("svc__1__b.yml", "ci", "acme/api", PipelineStatus::Success);
+    let other = pipeline("svc__1__c.yml", "lint", "acme/api", PipelineStatus::Success);
+
+    let xml = cctray_feed(&[first, second, other], "http://h");
+
+    assert!(
+        xml.contains("name=\"acme/api · ci · .github/workflows/a.yml\""),
+        "{xml}"
+    );
+    assert!(
+        xml.contains("name=\"acme/api · ci · svc__1__b.yml\""),
+        "{xml}"
+    );
+    assert!(xml.contains("name=\"acme/api · lint\""), "{xml}");
 }

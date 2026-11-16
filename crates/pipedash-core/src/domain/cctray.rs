@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt::Write;
 
 use url::Url;
@@ -9,30 +10,45 @@ use super::pipeline::{
 
 pub fn cctray_feed(pipelines: &[Pipeline], origin: &str) -> String {
     let base = Url::parse(origin).ok();
+    let labels: Vec<String> = pipelines.iter().map(label).collect();
+    let mut uses: HashMap<&str, usize> = HashMap::new();
+    for label in &labels {
+        *uses.entry(label).or_default() += 1;
+    }
     let mut xml = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Projects>\n");
-    for pipeline in pipelines {
-        project(&mut xml, pipeline, base.as_ref());
+    for (pipeline, label) in pipelines.iter().zip(&labels) {
+        let name = if uses[label.as_str()] > 1 {
+            let suffix = pipeline.workflow_file.as_deref().unwrap_or(&pipeline.id);
+            format!("{label} · {suffix}")
+        } else {
+            label.clone()
+        };
+        project(&mut xml, pipeline, &name, base.as_ref());
     }
     xml.push_str("</Projects>\n");
     xml
 }
 
-fn project(xml: &mut String, pipeline: &Pipeline, base: Option<&Url>) {
-    let name = if pipeline.repository.is_empty() {
+fn label(pipeline: &Pipeline) -> String {
+    if pipeline.repository.is_empty() {
         pipeline.name.clone()
     } else {
         format!("{} · {}", pipeline.repository, pipeline.name)
+    }
+}
+
+fn project(xml: &mut String, pipeline: &Pipeline, name: &str, base: Option<&Url>) {
+    let building = match pipeline.status {
+        PipelineStatus::Running => true,
+        PipelineStatus::Pending => pipeline.last_run.is_some(),
+        _ => false,
     };
-    let activity = if pipeline.status.is_terminal() {
-        "Sleeping"
-    } else {
-        "Building"
-    };
+    let activity = if building { "Building" } else { "Sleeping" };
     let time = pipeline.last_run.unwrap_or(pipeline.last_updated);
     let _ = write!(
         xml,
         "  <Project name=\"{}\" activity=\"{activity}\" lastBuildStatus=\"{}\" lastBuildTime=\"{}\"",
-        escape(&name),
+        escape(name),
         last_build_status(&pipeline.status),
         time.to_rfc3339(),
     );
@@ -57,7 +73,7 @@ fn pipeline_url(base: &Url, id: &str) -> Option<Url> {
     let mut url = base.clone();
     url.path_segments_mut()
         .ok()?
-        .clear()
+        .pop_if_empty()
         .extend(["pipelines", id]);
     Some(url)
 }
