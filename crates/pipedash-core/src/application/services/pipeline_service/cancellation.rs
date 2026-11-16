@@ -75,6 +75,21 @@ impl PipelineService {
             targets.failed_pipeline_ids.extend(scan.failed);
             if let Some(group) = scan.group {
                 targets.run_count += group.runs.len();
+                for run in &group.runs {
+                    if targets
+                        .batches
+                        .last()
+                        .is_none_or(|batch| batch.len() == MAX_TARGETS)
+                    {
+                        targets.batches.push(Vec::new());
+                    }
+                    if let Some(batch) = targets.batches.last_mut() {
+                        batch.push(RunTarget {
+                            pipeline_id: group.pipeline.id.clone(),
+                            run_number: run.run_number,
+                        });
+                    }
+                }
                 targets.groups.push(group);
             }
         }
