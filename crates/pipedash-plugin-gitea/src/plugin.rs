@@ -10,11 +10,11 @@ use pipedash_plugin_api::config::{
     selected_items,
 };
 use pipedash_plugin_api::support::{
+    collect_tolerant,
     digit_id,
     require_configured,
     resume_position,
     string_parameter,
-    try_buffered,
     CONCURRENCY,
 };
 use pipedash_plugin_api::*;
@@ -69,7 +69,7 @@ impl GiteaPlugin {
             .iter()
             .map(|repo| self.fetch_repo_pipelines(repo))
             .collect();
-        let results = try_buffered(requests, CONCURRENCY).await?;
+        let results = collect_tolerant(requests, CONCURRENCY, |_| {}).await?;
 
         Ok(results.into_iter().flatten().collect())
     }
