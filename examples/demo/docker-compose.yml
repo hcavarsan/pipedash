@@ -91,7 +91,7 @@ services:
     restart: unless-stopped
 
   k3s:
-    image: rancher/k3s:v1.37.1-k3s1@sha256:ca7f37d993d82ef0dcdcfecb2e0e2618ea541dbaffc620c8cedebe01a82acd0d
+    image: rancher/k3s:v1.37.2-k3s1@sha256:21ea6e0fac4e3930c2ce8aa40ddd41a8b18cb3e9a0222c030dc005e7e88c4332
     hostname: k3s
     command: server --disable=traefik --disable=metrics-server --tls-san=k3s
     privileged: true
@@ -245,7 +245,7 @@ services:
     restart: unless-stopped
 
   status:
-    image: caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5
+    image: caddy:2.11.8-alpine@sha256:f6228111e5fafa1a5238258d0858e103f10599b8d1659a146e7726681a002bb9
     entrypoint:
       - sh
       - -c
