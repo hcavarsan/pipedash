@@ -171,3 +171,31 @@ pub struct TriggerSelector {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pattern: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Commit {
+    pub hash: String,
+    pub date: DateTime<Utc>,
+    #[serde(default)]
+    pub message: String,
+    #[serde(default)]
+    pub parents: Vec<CommitHash>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommitHash {
+    pub hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiffStat {
+    #[serde(default)]
+    pub old: Option<DiffPath>,
+    #[serde(default)]
+    pub new: Option<DiffPath>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiffPath {
+    pub path: String,
+}

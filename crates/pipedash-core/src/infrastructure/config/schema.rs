@@ -12,6 +12,13 @@ use crate::domain::{
     ViewDisplay,
 };
 
+pub mod applications;
+
+use applications::{
+    ApplicationFileConfig,
+    CorrelationFileConfig,
+};
+
 pub(super) const DEFAULT_REFRESH_INTERVAL_SECS: u32 = 30;
 
 pub const MIN_REFRESH_INTERVAL_SECS: u32 = 5;
@@ -89,6 +96,12 @@ pub struct PipedashConfig {
 
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub views: IndexMap<String, ViewFileConfig>,
+
+    #[serde(default, skip_serializing_if = "CorrelationFileConfig::is_default")]
+    pub correlation: CorrelationFileConfig,
+
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub applications: IndexMap<String, ApplicationFileConfig>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]

@@ -1,3 +1,4 @@
+import { applicationsTauriService } from './tauri/applications'
 import { devicesTauriService } from './tauri/devices'
 import { logsTauriService } from './tauri/logs'
 import { metricsTauriService } from './tauri/metrics'
@@ -15,6 +16,7 @@ export const tauriService: PipedashService & NativeOnlyService = {
   ...logsTauriService,
   ...metricsTauriService,
   ...viewsTauriService,
+  ...applicationsTauriService,
   ...storageTauriService,
   ...devicesTauriService,
   ...notificationsTauriService,

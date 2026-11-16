@@ -107,7 +107,10 @@ async fn watch(
                 };
                 let applying = match loaded {
                     Ok(loaded) => provider_service.apply_loaded_config(&config_state, loaded).await,
-                    Err(e) => Err(e),
+                    Err(e) => {
+                        provider_service.config_failed(e.to_string()).await;
+                        Err(e)
+                    }
                 };
                 match applying {
                     Ok(_) => applied = current,

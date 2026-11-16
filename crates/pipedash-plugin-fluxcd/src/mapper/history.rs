@@ -5,9 +5,12 @@ use chrono::{
 };
 use pipedash_plugin_api::logs::content_hash;
 use pipedash_plugin_api::{
+    Correlation,
+    Observed,
     PipelineRun,
     PipelineStatus,
     PluginResult,
+    RunEvidence,
 };
 
 use super::metadata::{
@@ -38,6 +41,14 @@ pub(super) struct Candidate {
     pub(super) run: PipelineRun,
 }
 
+fn timing_of(recorded: bool) -> Observed {
+    if recorded {
+        Observed::Recorded
+    } else {
+        Observed::Absent
+    }
+}
+
 pub(super) fn seconds_major(time: DateTime<Utc>) -> i64 {
     time.timestamp().clamp(0, MAX_SECONDS) * MINOR_BASE
 }
@@ -50,6 +61,8 @@ pub(super) fn new_run(
     pipeline_id: &str, status: PipelineStatus, started_at: DateTime<Utc>, metadata: Metadata,
 ) -> PipelineRun {
     PipelineRun {
+        correlation: Correlation::default(),
+        evidence: RunEvidence::default(),
         id: String::new(),
         pipeline_id: pipeline_id.to_string(),
         run_number: 0,
@@ -77,10 +90,10 @@ pub(super) fn kustomization_candidate(
         .last_reconciled_duration
         .as_deref()
         .and_then(parse_go_duration);
-    let (started_at, time_source) = match duration
+    let derived_start = duration
         .and_then(|duration| Duration::from_std(duration).ok())
-        .and_then(|span| concluded.checked_sub_signed(span))
-    {
+        .and_then(|span| concluded.checked_sub_signed(span));
+    let (started_at, time_source) = match derived_start {
         Some(started) => (
             started,
             "status.history.lastReconciled - lastReconciledDuration",
@@ -144,7 +157,10 @@ pub(super) fn kustomization_candidate(
     );
     run.id = format!("{pipeline_id}__{}", run.run_number);
     run.concluded_at = Some(concluded);
-    run.duration_seconds = duration.map(|duration| duration.as_secs_f64().round() as i64);
+    run.duration_seconds = duration
+        .filter(|_| derived_start.is_some())
+        .map(|duration| duration.as_secs_f64().round() as i64);
+    run.evidence.timing = timing_of(derived_start.is_some());
     run.branch = branch.map(str::to_string);
     run.commit_sha = commit_sha.map(str::to_string);
 
@@ -245,6 +261,7 @@ pub(super) fn helm_candidate(
     run.run_number = record_number(deployed, minor);
     run.id = format!("{pipeline_id}__{}", run.run_number);
     run.duration_seconds = duration.map(|duration| duration.as_secs_f64().round() as i64);
+    run.evidence.timing = timing_of(duration.is_some());
 
     Ok(Candidate {
         reason: release_status,

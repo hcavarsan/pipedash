@@ -178,3 +178,149 @@ fn registering_a_plugin_makes_its_type_valid() {
         0
     );
 }
+
+fn with_providers(application_toml: &str) -> String {
+    format!("[providers.ci]\ntype = \"stub\"\n\n{application_toml}")
+}
+
+fn application_errors(toml: &str) -> Vec<String> {
+    let config =
+        crate::infrastructure::config::loader::ConfigLoader::parse(&with_providers(toml)).unwrap();
+    check(&config)
+        .errors
+        .into_iter()
+        .filter(|e| e.field.starts_with("applications") || e.field.starts_with("correlation"))
+        .map(|e| format!("{}: {}", e.field, e.message))
+        .collect()
+}
+
+const MEMBER: &str = "[[applications.x.members]]\nprovider = \"ci\"\npipeline = \"a-*\"\n";
+
+#[test]
+fn valid_application_has_no_errors() {
+    let errors = application_errors(&format!("[applications.x]\nname = \"X\"\n{MEMBER}"));
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+#[test]
+fn unknown_provider_key_is_an_error() {
+    let errors = application_errors(
+        "[applications.x]\nname = \"X\"\n[[applications.x.members]]\nprovider = \"nope\"\npipeline = \"a\"\n",
+    );
+    assert!(
+        errors.iter().any(|e| e.contains("members[0].provider")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn unknown_stage_is_a_parse_error() {
+    let content = with_providers(
+        "[applications.x]\nname = \"X\"\n[[applications.x.members]]\nprovider = \"ci\"\npipeline = \"a\"\nstage = \"sideways\"\n",
+    );
+    assert!(crate::infrastructure::config::loader::ConfigLoader::parse(&content).is_err());
+}
+
+#[test]
+fn cycle_in_after_is_an_error() {
+    let errors = application_errors(&format!(
+        "[applications.x]\nname = \"X\"\n{MEMBER}[applications.x.targets.a]\nname = \"A\"\nafter = [\"b\"]\n[applications.x.targets.b]\nname = \"B\"\nafter = [\"a\"]\n"
+    ));
+    assert!(errors.iter().any(|e| e.contains("cycle")), "{errors:?}");
+}
+
+#[test]
+fn unknown_after_target_is_an_error() {
+    let errors = application_errors(&format!(
+        "[applications.x]\nname = \"X\"\n{MEMBER}[applications.x.targets.a]\nname = \"A\"\nafter = [\"ghost\"]\n"
+    ));
+    assert!(
+        errors.iter().any(|e| e.contains("Unknown target")),
+        "{errors:?}"
+    );
+}
+
+fn group_errors(tables: &str) -> Vec<String> {
+    application_errors(&format!("[applications.x]\nname = \"X\"\n{MEMBER}{tables}"))
+}
+
+const OWNER: &str = "[applications.x.targets.o]\nname = \"O\"\nclusters = [\"c\"]\n";
+
+#[test]
+fn member_table_without_a_name_is_valid() {
+    let errors = group_errors(&format!(
+        "{OWNER}[applications.x.targets.m]\ngroup = \"o\"\nclusters = [\"d\"]\n"
+    ));
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+#[test]
+fn table_without_group_or_name_is_still_an_error() {
+    let errors = group_errors("[applications.x.targets.a]\nclusters = [\"c\"]\n");
+    assert!(errors.iter().any(|e| e.contains("name")), "{errors:?}");
+}
+
+#[test]
+fn group_naming_an_unknown_table_is_an_error() {
+    let errors = group_errors("[applications.x.targets.m]\ngroup = \"ghost\"\n");
+    assert!(
+        errors.iter().any(|e| e.contains("Unknown group table")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn group_naming_itself_is_an_error() {
+    let errors = group_errors("[applications.x.targets.m]\ngroup = \"m\"\n");
+    assert!(errors.iter().any(|e| e.contains("own group")), "{errors:?}");
+}
+
+#[test]
+fn group_chain_is_an_error() {
+    let errors = group_errors(&format!(
+        "{OWNER}[applications.x.targets.m]\ngroup = \"o\"\n[applications.x.targets.n]\ngroup = \"m\"\n"
+    ));
+    assert!(
+        errors.iter().any(|e| e.contains("do not chain")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn member_table_with_after_is_an_error() {
+    let errors = group_errors(&format!(
+        "{OWNER}[applications.x.targets.p]\nname = \"P\"\n[applications.x.targets.m]\ngroup = \"o\"\nafter = [\"p\"]\n"
+    ));
+    assert!(
+        errors.iter().any(|e| e.contains("cannot set `after`")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn after_naming_a_member_table_counts_as_its_group_in_a_cycle() {
+    let errors = group_errors(
+        "[applications.x.targets.o]\nname = \"O\"\nafter = [\"m\"]\n[applications.x.targets.m]\ngroup = \"o\"\n",
+    );
+    assert!(errors.iter().any(|e| e.contains("cycle")), "{errors:?}");
+}
+
+#[test]
+fn empty_members_is_an_error() {
+    let errors = application_errors("[applications.x]\nname = \"X\"\n");
+    assert!(
+        errors.iter().any(|e| e.contains("applications.x.members")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn invalid_glob_is_an_error() {
+    let errors = application_errors(
+        "[applications.x]\nname = \"X\"\n[[applications.x.members]]\nprovider = \"ci\"\npipeline = \"[unclosed\"\n",
+    );
+    assert!(
+        errors.iter().any(|e| e.contains("Invalid pattern")),
+        "{errors:?}"
+    );
+}

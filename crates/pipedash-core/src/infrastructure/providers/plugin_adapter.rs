@@ -7,7 +7,16 @@ use chrono::{
     Utc,
 };
 use pipedash_plugin_api::{
+    ArtifactRepository,
+    ChangedFile,
+    CommitComparison,
+    CommitInfo,
+    CommitSha,
+    Digest,
     Plugin as PluginTrait,
+    Provenance,
+    RegistryAuth,
+    RepoId,
     RunRef,
     TriggerResult,
 };
@@ -15,7 +24,6 @@ use pipedash_plugin_api::{
 use super::status::plugin_status;
 use crate::domain::pipeline_id;
 use crate::domain::{
-    DomainError,
     DomainResult,
     LogCursor,
     LogDialect,
@@ -48,48 +56,6 @@ impl PluginAdapter {
         }
     }
 
-    pub(crate) fn map_error(e: pipedash_plugin_api::PluginError) -> DomainError {
-        match e {
-            pipedash_plugin_api::PluginError::AuthenticationFailed(msg) => {
-                DomainError::ProviderAuthenticationFailed(msg)
-            }
-            pipedash_plugin_api::PluginError::PermissionDenied(msg) => {
-                DomainError::PermissionDenied(msg)
-            }
-            pipedash_plugin_api::PluginError::ApiError(msg) => DomainError::ApiError(msg),
-            pipedash_plugin_api::PluginError::InvalidConfig(msg) => DomainError::InvalidConfig(msg),
-            pipedash_plugin_api::PluginError::PipelineNotFound(msg) => {
-                DomainError::PipelineNotFound(msg)
-            }
-            pipedash_plugin_api::PluginError::ProviderNotSupported(msg) => {
-                DomainError::InvalidProviderType(msg)
-            }
-            pipedash_plugin_api::PluginError::NetworkError(msg) => DomainError::NetworkError(msg),
-            pipedash_plugin_api::PluginError::SerializationError(msg) => {
-                DomainError::ApiError(format!("Serialization error: {}", msg))
-            }
-            pipedash_plugin_api::PluginError::DatabaseError(msg) => DomainError::DatabaseError(msg),
-            pipedash_plugin_api::PluginError::NotSupported(msg) => DomainError::NotSupported(msg),
-            pipedash_plugin_api::PluginError::Internal(msg) => DomainError::InternalError(msg),
-            pipedash_plugin_api::PluginError::RateLimited {
-                message,
-                retry_after,
-            } => DomainError::RateLimited {
-                message,
-                retry_after,
-            },
-            pipedash_plugin_api::PluginError::ServiceUnavailable {
-                message,
-                retry_after,
-            } => DomainError::ServiceUnavailable {
-                message,
-                retry_after,
-            },
-            pipedash_plugin_api::PluginError::Tls(msg) => DomainError::Tls(msg),
-            e => DomainError::ApiError(e.to_string()),
-        }
-    }
-
     pub fn global_id(&self, local: &str) -> String {
         pipeline_id::compose(&self.provider_type, self.provider_id, local)
     }
@@ -119,24 +85,7 @@ impl PluginAdapter {
             overdue_run: None,
             typical_duration_seconds: None,
             actions: Default::default(),
-        }
-    }
-
-    fn convert_status(
-        status: pipedash_plugin_api::PipelineStatus,
-    ) -> crate::domain::PipelineStatus {
-        match status {
-            pipedash_plugin_api::PipelineStatus::Success => crate::domain::PipelineStatus::Success,
-            pipedash_plugin_api::PipelineStatus::Failed => crate::domain::PipelineStatus::Failed,
-            pipedash_plugin_api::PipelineStatus::Degraded => {
-                crate::domain::PipelineStatus::Degraded
-            }
-            pipedash_plugin_api::PipelineStatus::Running => crate::domain::PipelineStatus::Running,
-            pipedash_plugin_api::PipelineStatus::Pending => crate::domain::PipelineStatus::Pending,
-            pipedash_plugin_api::PipelineStatus::Cancelled => {
-                crate::domain::PipelineStatus::Cancelled
-            }
-            pipedash_plugin_api::PipelineStatus::Skipped => crate::domain::PipelineStatus::Skipped,
+            correlation: plugin_pipeline.correlation,
         }
     }
 
@@ -159,6 +108,8 @@ impl PluginAdapter {
             actions: Default::default(),
             display: Default::default(),
             pace: Default::default(),
+            correlation: plugin_run.correlation,
+            evidence: plugin_run.evidence,
         }
     }
 
@@ -311,6 +262,56 @@ impl Provider for PluginAdapter {
             .map_err(Self::map_error)
     }
 
+    fn source_hosts(&self, config: &HashMap<String, String>) -> Vec<String> {
+        self.plugin.source_hosts(config)
+    }
+
+    async fn resolve_commit(&self, repo: &RepoId, rev: &str) -> DomainResult<CommitInfo> {
+        self.plugin
+            .resolve_commit(repo, rev)
+            .await
+            .map_err(Self::map_error)
+    }
+
+    async fn compare_commits(
+        &self, repo: &RepoId, base: &CommitSha, head: &CommitSha,
+    ) -> DomainResult<CommitComparison> {
+        self.plugin
+            .compare_commits(repo, base, head)
+            .await
+            .map_err(Self::map_error)
+    }
+
+    async fn commit_changes(
+        &self, repo: &RepoId, sha: &CommitSha,
+    ) -> DomainResult<Vec<ChangedFile>> {
+        self.plugin
+            .commit_changes(repo, sha)
+            .await
+            .map_err(Self::map_error)
+    }
+
+    async fn artifact_provenance(
+        &self, repository: &ArtifactRepository, digest: &Digest,
+    ) -> DomainResult<Option<Provenance>> {
+        let provenance = self
+            .plugin
+            .artifact_provenance(repository, digest)
+            .await
+            .map_err(Self::map_error)?;
+        Ok(provenance.map(|mut provenance| {
+            provenance.pipeline_id = provenance.pipeline_id.map(|id| self.global_id(&id));
+            provenance
+        }))
+    }
+
+    async fn registry_auth(&self, host: &str) -> DomainResult<Option<RegistryAuth>> {
+        self.plugin
+            .registry_auth(host)
+            .await
+            .map_err(Self::map_error)
+    }
+
     fn capabilities(&self) -> &pipedash_plugin_api::PluginCapabilities {
         &self.plugin.metadata().capabilities
     }
@@ -379,5 +380,6 @@ impl Provider for PluginAdapter {
     }
 }
 
+mod convert;
 #[cfg(test)]
 mod tests;

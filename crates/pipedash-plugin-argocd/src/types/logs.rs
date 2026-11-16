@@ -2,7 +2,10 @@ use chrono::{
     DateTime,
     Utc,
 };
-use serde::Deserialize;
+use serde::{
+    Deserialize,
+    Serialize,
+};
 
 use super::{
     null_as_empty,
@@ -114,7 +117,7 @@ pub struct PodMetadata {
     pub owner_references: Vec<OwnerReference>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct OwnerReference {
     pub kind: String,
@@ -153,6 +156,9 @@ pub struct ContainerStatus {
     pub ready: bool,
     pub state: ContainerState,
     pub last_state: ContainerState,
+    pub image: Option<String>,
+    #[serde(rename = "imageID")]
+    pub image_id: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]

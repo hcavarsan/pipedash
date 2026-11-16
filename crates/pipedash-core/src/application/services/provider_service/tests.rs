@@ -679,7 +679,8 @@ async fn a_removal_during_a_blocked_fetch_leaves_nothing_behind() {
     assert!(h.cached_names(id).await.is_empty());
     assert!(h.scheduler.view(id, Instant::now()).is_none());
     assert!(h.bus.names()[removed_at..].is_empty());
-    assert_eq!(h.bus.names()[removed_at - 1], "provider-removed");
+    assert_eq!(h.bus.names()[removed_at - 2], "provider-removed");
+    assert_eq!(h.bus.names()[removed_at - 1], "applications-changed");
     assert!(matches!(
         inputs.as_slice(),
         [HealthInput::ProvidersChanged { changed }]
@@ -1496,7 +1497,7 @@ async fn execute(h: &Harness, sql: &'static str) {
 }
 
 #[tokio::test]
-async fn test_apply_config_file_retry_replaces_providers_saved_by_a_failed_apply() {
+async fn test_apply_config_file_failed_apply_changes_no_provider_and_retry_applies_all() {
     let h = Harness::new().await;
     config_file(&h, &[("ci-a", "CI A", 30), ("ci-b", "CI B", 30)]);
     h.provider_service
@@ -1523,9 +1524,15 @@ async fn test_apply_config_file_retry_replaces_providers_saved_by_a_failed_apply
         .is_err());
     assert_eq!(
         h.repository.get_provider(a).await.unwrap().display_name(),
-        "CI A2"
+        "CI A"
     );
-    assert_eq!(h.bus.count("providers-changed"), announced + 1);
+    assert_eq!(h.provider_service.generation_of(a).await, Some(loaded_a));
+    assert_eq!(h.provider_service.generation_of(b).await, Some(loaded_b));
+    assert_eq!(
+        h.config_state.get().await.providers["ci-a"].name.as_deref(),
+        Some("CI A")
+    );
+    assert_eq!(h.bus.count("providers-changed"), announced);
 
     execute(&h, "DROP TRIGGER fail_ci_b").await;
     h.provider_service
@@ -1537,7 +1544,7 @@ async fn test_apply_config_file_retry_replaces_providers_saved_by_a_failed_apply
         h.repository.get_provider(b).await.unwrap().display_name(),
         "CI B2"
     );
-    assert_eq!(h.bus.count("providers-changed"), announced + 2);
+    assert_eq!(h.bus.count("providers-changed"), announced + 1);
     assert_ne!(h.provider_service.generation_of(a).await, Some(loaded_a));
     assert_ne!(h.provider_service.generation_of(b).await, Some(loaded_b));
     assert_eq!(

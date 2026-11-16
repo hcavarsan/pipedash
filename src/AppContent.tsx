@@ -42,6 +42,9 @@ interface PageTitleContext {
 }
 
 function resolvePageTitle(ctx: PageTitleContext): string {
+  if (ctx.pathname.startsWith('/applications')) {
+    return 'Applications'
+  }
   if (ctx.pathname.startsWith('/settings')) {
     return `${ctx.sectionTitle} Settings`
   }

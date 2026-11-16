@@ -171,6 +171,17 @@ impl TektonClient {
         Ok(list.items)
     }
 
+    pub async fn list_pipeline_taskruns(
+        &self, namespace: &str, pipeline_name: &str,
+    ) -> PluginResult<Vec<TektonTaskRun>> {
+        let list: TaskRunList = self
+            .request_json(&format!(
+                "/apis/tekton.dev/v1/namespaces/{namespace}/taskruns?labelSelector=tekton.dev/pipeline={pipeline_name}"
+            ))
+            .await?;
+        Ok(list.items)
+    }
+
     pub async fn create_pipelinerun(
         &self, namespace: &str, pipelinerun: &TektonPipelineRun,
     ) -> PluginResult<TektonPipelineRun> {

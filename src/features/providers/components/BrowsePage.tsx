@@ -7,6 +7,7 @@ import {
   IconLogin,
   IconPlus,
   IconStack2,
+  IconTopologyStar3,
   IconTrash,
 } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
@@ -162,6 +163,9 @@ export function BrowsePage(): ReactNode {
         />
       )}
       {loadingViews && <LoadingState variant="compact" message="Loading views…" />}
+      <IosGroup>
+        <IosRow icon={<IconTopologyStar3 size={16} />} title="Applications" to="/applications" />
+      </IosGroup>
       {browsableViews.length > 0 && (
         <IosGroup header="Views">
           {browsableViews.map((view) => (

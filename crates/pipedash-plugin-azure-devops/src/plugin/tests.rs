@@ -1658,3 +1658,131 @@ async fn cursor_that_cannot_continue_the_log_restarts_with_the_whole_log() {
         }
     }
 }
+
+const SHA_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const SHA_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+const GIT_BASE: &str = "/acme/Web%20App/_apis/git/repositories/shop";
+
+fn shop() -> RepoId {
+    RepoId::from_host_path("dev.azure.com", "acme/Web%20App/_git/shop").unwrap()
+}
+
+fn git_reply(request: &Request) -> Reply {
+    let Some(path) = request.url.path().strip_prefix(GIT_BASE) else {
+        return Reply::not_found(request);
+    };
+    let by_branch = request
+        .query("searchCriteria.itemVersion.versionType")
+        .as_deref()
+        == Some("branch");
+    match path {
+        "/commits" if by_branch => Reply::json(200, json!({"value": [{"commitId": SHA_B}]})),
+        "/commits" => Reply::json(
+            200,
+            json!({"value": [{"commitId": SHA_B}, {"commitId": SHA_A}]}),
+        ),
+        "/diffs/commits" => Reply::json(200, json!({"aheadCount": 2, "behindCount": 1})),
+        _ if path == format!("/commits/{SHA_B}") => Reply::json(
+            200,
+            json!({
+                "commitId": SHA_B,
+                "author": {"date": "2026-10-28T10:00:00Z"},
+                "committer": {"date": "2026-10-28T10:01:00Z"},
+                "comment": "Fix",
+                "parents": [SHA_A]
+            }),
+        ),
+        _ if path == format!("/commits/{SHA_B}/changes") => Reply::json(
+            200,
+            json!({"changes": [
+                {"item": {"path": "/apps/api/values.yaml"}},
+                {"item": {"path": "/apps", "isFolder": true}}
+            ]}),
+        ),
+        _ => Reply::not_found(request),
+    }
+}
+
+#[tokio::test]
+async fn commit_hooks_read_the_git_endpoints_of_the_repository() {
+    let stub = serve(git_reply).await;
+    let plugin = plugin_for(&stub, "", "");
+    let base = CommitSha::parse(SHA_A).unwrap();
+    let head = CommitSha::parse(SHA_B).unwrap();
+
+    let info = plugin.resolve_commit(&shop(), SHA_B).await.unwrap();
+    assert_eq!(info.sha, head);
+    assert_eq!(info.message, "Fix");
+    assert_eq!(info.parents, vec![base.clone()]);
+    assert_eq!(info.authored_at.to_rfc3339(), "2026-10-28T10:00:00+00:00");
+    assert_eq!(info.committed_at.to_rfc3339(), "2026-10-28T10:01:00+00:00");
+
+    let by_branch = plugin.resolve_commit(&shop(), "main").await.unwrap();
+    assert_eq!(by_branch.sha, head);
+
+    let comparison = plugin.compare_commits(&shop(), &base, &head).await.unwrap();
+    assert_eq!(
+        comparison,
+        CommitComparison {
+            ahead: 2,
+            behind: 1,
+            commits: vec![base.clone(), head.clone()],
+        }
+    );
+    let diff = stub
+        .requests()
+        .iter()
+        .find(|request| request.url.path().ends_with("/diffs/commits"))
+        .map(|request| (request.query("baseVersion"), request.query("targetVersion")))
+        .unwrap();
+    assert_eq!(diff, (Some(SHA_A.to_string()), Some(SHA_B.to_string())));
+
+    let files = plugin.commit_changes(&shop(), &head).await.unwrap();
+    assert_eq!(
+        files,
+        vec![ChangedFile {
+            path: "apps/api/values.yaml".to_string(),
+            patch: None,
+        }]
+    );
+}
+
+#[tokio::test]
+async fn a_repository_of_another_organization_is_refused_without_a_request() {
+    let stub = serve(git_reply).await;
+    let plugin = plugin_for(&stub, "", "");
+    let other = RepoId::from_host_path("dev.azure.com", "other/Web%20App/_git/shop").unwrap();
+
+    let error = plugin.resolve_commit(&other, SHA_B).await.unwrap_err();
+
+    assert!(matches!(error, PluginError::PipelineNotFound(_)), "{error}");
+    assert!(stub.requests().is_empty());
+}
+
+#[tokio::test]
+async fn commit_hooks_on_an_uninitialized_plugin_fail_as_not_initialized() {
+    let plugin = AzureDevOpsPlugin::new();
+    let sha = CommitSha::parse(SHA_A).unwrap();
+    let errors = [
+        plugin.resolve_commit(&shop(), SHA_A).await.unwrap_err(),
+        plugin
+            .compare_commits(&shop(), &sha, &sha)
+            .await
+            .unwrap_err(),
+        plugin.commit_changes(&shop(), &sha).await.unwrap_err(),
+    ];
+    for error in errors {
+        assert!(matches!(error, PluginError::Internal(_)), "{error}");
+    }
+}
+
+#[test]
+fn source_hosts_are_empty_without_configuration_and_the_cloud_host_with_it() {
+    let plugin = AzureDevOpsPlugin::new();
+    assert!(plugin.source_hosts(&HashMap::new()).is_empty());
+    let config = HashMap::from([("token".to_string(), "t".to_string())]);
+    assert_eq!(
+        plugin.source_hosts(&config),
+        vec!["dev.azure.com".to_string()]
+    );
+}

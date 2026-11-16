@@ -32,6 +32,8 @@ use crate::types::{
     Workspace,
 };
 
+mod commits;
+
 pub struct BitbucketClient {
     http_client: std::sync::Arc<reqwest::Client>,
     api_url: String,

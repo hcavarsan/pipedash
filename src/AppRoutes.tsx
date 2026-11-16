@@ -19,6 +19,18 @@ const PipelineDetailRoute = lazy(() =>
   }))
 )
 
+const ApplicationsRoute = lazy(() =>
+  import('./features/applications/routes/ApplicationsRoute').then((m) => ({
+    default: m.ApplicationsRoute,
+  }))
+)
+
+const ApplicationDetailRoute = lazy(() =>
+  import('./features/applications/routes/ApplicationDetailRoute').then((m) => ({
+    default: m.ApplicationDetailRoute,
+  }))
+)
+
 const SettingsRoute = lazy(() =>
   import('./features/settings/routes/SettingsRoute').then((m) => ({
     default: m.SettingsRoute,
@@ -108,6 +120,24 @@ export function AppRoutes({
               onRetry={() => void onRetry()}
               onBack={onBack}
             />
+          </LazyRoute>
+        }
+      />
+
+      <Route
+        path="/applications"
+        element={
+          <LazyRoute>
+            <ApplicationsRoute />
+          </LazyRoute>
+        }
+      />
+
+      <Route
+        path="/applications/:applicationId"
+        element={
+          <LazyRoute>
+            <ApplicationDetailRoute />
           </LazyRoute>
         }
       />

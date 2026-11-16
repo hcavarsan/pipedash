@@ -51,6 +51,7 @@ impl CoreContext {
             health_service: services.health_service,
             log_service: services.log_service,
             pipeline_view_service: services.pipeline_view_service,
+            correlation_service: services.correlation_service,
             config_state,
         }
     }

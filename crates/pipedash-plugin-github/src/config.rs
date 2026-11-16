@@ -22,6 +22,8 @@ const GITHUB_STATUS_COMPONENTS: [&str; 4] = [
     "4230lsnqdsld",
 ];
 
+pub(crate) const DYNAMIC_WORKFLOW_PREFIX: &str = "dynamic/";
+
 pub(crate) fn get_repositories(config: &HashMap<String, String>) -> Vec<String> {
     csv_list(config, "selected_items")
         .or_else(|| csv_list(config, "repositories")) // Fallback for backward compatibility
@@ -49,6 +51,31 @@ fn parse_base_url(base_url: &str) -> PluginResult<Url> {
 
 fn is_github_com(host: &str) -> bool {
     matches!(host, "github.com" | "www.github.com" | "api.github.com")
+}
+
+pub(crate) fn source_host(config: &HashMap<String, String>) -> Option<String> {
+    let url = parse_base_url(&get_base_url(config)).ok()?;
+    let host = url.host_str()?;
+    let host = if is_github_com(host) {
+        "github.com"
+    } else {
+        host
+    };
+    Some(match url.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_string(),
+    })
+}
+
+pub(crate) fn source_hosts(config: &HashMap<String, String>) -> Vec<String> {
+    if config.is_empty() {
+        return Vec::new();
+    }
+    source_host(config).into_iter().collect()
+}
+
+pub(crate) fn pipeline_id(owner: &str, repo: &str, workflow_id: u64) -> String {
+    format!("{owner}__{repo}__{workflow_id}")
 }
 
 pub(crate) fn build_api_url(base_url: &str) -> PluginResult<String> {

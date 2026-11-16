@@ -13,7 +13,7 @@ use tokio::sync::broadcast;
 
 use super::session::protocol::ClientHello;
 
-static CONFIG_ENV: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+pub(crate) static CONFIG_ENV: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub struct Host {
     pub url: ServerUrl,

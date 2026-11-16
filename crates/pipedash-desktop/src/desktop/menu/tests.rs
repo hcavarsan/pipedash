@@ -279,6 +279,7 @@ fn the_status_row_follows_the_device_preferences() {
                 overdue_run: None,
                 typical_duration_seconds: None,
                 actions: Default::default(),
+                correlation: Default::default(),
             }),
             provider_name: None,
         }],

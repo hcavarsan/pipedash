@@ -161,3 +161,44 @@ pub(crate) struct JobList {
     #[serde(default)]
     pub total_count: Option<usize>,
 }
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct Commit {
+    pub sha: String,
+    pub commit: CommitDetail,
+    #[serde(default)]
+    pub parents: Vec<CommitRef>,
+    #[serde(default)]
+    pub files: Vec<CommitFile>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct CommitDetail {
+    #[serde(default)]
+    pub message: String,
+    pub author: CommitSignature,
+    pub committer: CommitSignature,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct CommitSignature {
+    pub date: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct CommitRef {
+    pub sha: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct CommitFile {
+    pub filename: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct Compare {
+    #[serde(default)]
+    pub total_commits: u64,
+    #[serde(default)]
+    pub commits: Vec<CommitRef>,
+}

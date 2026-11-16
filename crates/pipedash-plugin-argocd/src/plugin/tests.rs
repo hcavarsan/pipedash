@@ -806,12 +806,20 @@ fn cluster_reply(method: &str, target: &str) -> (&'static str, String) {
         "/apis/argoproj.io/v1alpha1/namespaces/team/applications" => {
             ok(serde_json::json!({"items": []}))
         }
+        "/apis/argoproj.io/v1alpha1/namespaces/edge/applications" => ok(
+            serde_json::json!({"items": [cluster_app("edge", "https://kubernetes.default.svc")]}),
+        ),
+        "/api/v1/namespaces/kube-system" => {
+            ok(serde_json::json!({"metadata": {"name": "kube-system", "uid": "kube-uid"}}))
+        }
         "/api/v1/namespaces/web/pods" => ok(serde_json::json!({"items": [
             {"metadata": {"name": "api-7f-a", "namespace": "web", "uid": "u1",
                 "ownerReferences": [{"kind": "ReplicaSet", "name": "api-7f"}]},
                 "spec": {"containers": [{"name": "app"}]},
                 "status": {"phase": "Running", "containerStatuses": [
-                    {"name": "app", "ready": true, "restartCount": 0, "state": {"running": {}}}]}},
+                    {"name": "app", "ready": true, "restartCount": 0, "state": {"running": {}},
+                        "image": "registry.test/shop/api:1.2",
+                        "imageID": format!("docker-pullable://registry.test/shop/api@sha256:{}", "a".repeat(64))}]}},
             {"metadata": {"name": "stranger", "namespace": "web", "uid": "u2"},
                 "spec": {"containers": [{"name": "app"}]}, "status": {"phase": "Running"}},
         ]})),
@@ -926,7 +934,53 @@ async fn kubernetes_mode_lists_each_configured_namespace_and_never_cluster_wide(
         [
             format!("{APPS_API}/namespaces/argocd/applications"),
             format!("{APPS_API}/namespaces/team/applications"),
+            "/api/v1/namespaces/kube-system".to_string(),
         ]
+    );
+    assert_eq!(
+        pipelines[0].correlation.targets[0].cluster,
+        ClusterId::from_uid("kube-uid").unwrap()
+    );
+}
+
+#[tokio::test]
+async fn kubernetes_mode_reports_the_cluster_and_the_images_its_pods_run() {
+    let (plugin, _) = cluster_plugin(&[("namespaces", "edge")]).await;
+
+    let pipelines = plugin.fetch_pipelines().await.unwrap();
+
+    let correlation = &pipelines[0].correlation;
+    assert_eq!(correlation.unit, UnitId::new("argocd/edge"));
+    assert_eq!(
+        correlation
+            .targets
+            .iter()
+            .map(|target| &target.cluster)
+            .collect::<Vec<_>>(),
+        [&ClusterId::from_uid("kube-uid").unwrap()]
+    );
+    let digest = format!("sha256:{}", "a".repeat(64));
+    let consumed: Vec<_> = correlation
+        .consumed
+        .iter()
+        .map(|consumed| {
+            let artifact = &consumed.artifact;
+            (
+                artifact.repository.as_str(),
+                artifact.tag.as_deref(),
+                artifact.digest.as_ref().map(Digest::as_str),
+                consumed.target,
+            )
+        })
+        .collect();
+    assert_eq!(
+        consumed,
+        [(
+            "registry.test/shop/api",
+            Some("1.2"),
+            Some(digest.as_str()),
+            Some(0)
+        )]
     );
 }
 

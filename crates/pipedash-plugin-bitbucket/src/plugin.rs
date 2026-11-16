@@ -274,6 +274,40 @@ plugin_impl!(BitbucketPlugin [
             .await
     }
 
+    fn source_hosts(&self, config: &HashMap<String, String>) -> Vec<String> {
+        config::source_hosts(config)
+    }
+
+    async fn resolve_commit(&self, repo: &RepoId, rev: &str) -> PluginResult<CommitInfo> {
+        let client = self.client()?;
+        let (workspace, repo_slug) = config::parse_repo(repo)?;
+        mapper::commits::commit_info(&client.get_commit(workspace, repo_slug, rev).await?)
+    }
+
+    async fn compare_commits(
+        &self, repo: &RepoId, base: &CommitSha, head: &CommitSha,
+    ) -> PluginResult<CommitComparison> {
+        let client = self.client()?;
+        let (workspace, repo_slug) = config::parse_repo(repo)?;
+        let ahead = client
+            .commits_between(workspace, repo_slug, head, base)
+            .await?;
+        let behind = client
+            .commits_between(workspace, repo_slug, base, head)
+            .await?;
+        Ok(mapper::commits::comparison(&ahead, &behind))
+    }
+
+    async fn commit_changes(
+        &self, repo: &RepoId, sha: &CommitSha,
+    ) -> PluginResult<Vec<ChangedFile>> {
+        let client = self.client()?;
+        let (workspace, repo_slug) = config::parse_repo(repo)?;
+        let stats = client.commit_diffstat(workspace, repo_slug, sha).await?;
+        let diff = client.commit_diff(workspace, repo_slug, sha).await?;
+        Ok(mapper::commits::changed_files(&stats, &diff))
+    }
+
 
 });
 

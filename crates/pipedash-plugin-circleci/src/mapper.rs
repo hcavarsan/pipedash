@@ -4,12 +4,16 @@ use chrono::Utc;
 use pipedash_plugin_api::utils::duration_seconds;
 use pipedash_plugin_api::{
     AvailablePipeline,
+    CommitSha,
+    Correlation,
     LogAvailability,
     LogNode,
     LogNodeKind,
     Pipeline,
     PipelineRun,
     PipelineStatus,
+    RepoId,
+    RunEvidence,
 };
 
 use crate::config;
@@ -204,6 +208,13 @@ pub fn to_run(
         ),
     ]);
     PipelineRun {
+        correlation: Correlation::single_source(
+            vcs.and_then(|vcs| vcs.target_repository_url.as_deref())
+                .and_then(RepoId::parse),
+            vcs.and_then(|vcs| vcs.revision.as_deref())
+                .and_then(CommitSha::parse),
+        ),
+        evidence: RunEvidence::default(),
         id: format!("{pipeline_id}__{}", pipeline.id),
         pipeline_id: pipeline_id.into(),
         run_number: pipeline.number,
@@ -240,6 +251,7 @@ pub fn to_pipeline(project: &Project, latest: Option<&PipelineRun>) -> Pipeline 
         );
     }
     Pipeline {
+        correlation: Correlation::single_source(RepoId::parse(&project.repository_url), None),
         id: project.slug.clone(),
         name: project.name.clone(),
         status: latest.map_or(PipelineStatus::Pending, |run| run.status),

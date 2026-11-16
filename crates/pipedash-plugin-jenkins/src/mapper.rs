@@ -11,12 +11,17 @@ use pipedash_plugin_api::{
     LogAvailability,
     LogNode,
     LogNodeKind,
+    Observed,
     PipelineRun,
     PipelineStatus,
+    RunEvidence,
     WorkflowParameter,
     WorkflowParameterType,
 };
 
+pub(crate) mod correlation;
+
+use self::correlation::build_correlation;
 use crate::types;
 
 pub(crate) fn map_jenkins_result(result: Option<&str>) -> PipelineStatus {
@@ -166,7 +171,21 @@ pub(crate) fn build_to_pipeline_run(
         metadata.insert("trigger_cause".to_string(), serde_json::json!(cause));
     }
 
+    let correlation = build_correlation(&build);
+    let timed = build.timestamp > 0;
+    let duration_seconds = duration_seconds.filter(|_| timed);
+    let evidence = RunEvidence {
+        timing: if timed {
+            Observed::Recorded
+        } else {
+            Observed::Absent
+        },
+        ..RunEvidence::default()
+    };
+
     PipelineRun {
+        correlation,
+        evidence,
         id: format!("jenkins-build-{}", build.number),
         pipeline_id: pipeline_id.to_string(),
         run_number: build.number,

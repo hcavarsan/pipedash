@@ -132,6 +132,7 @@ plugin_impl!(WoodpeckerPlugin [metadata, status_source, available_from_filtered]
     ) -> PluginResult<Vec<PipelineRun>> {
         let repo_id = config::parse_pipeline_id(pipeline_id)?;
         let client = self.client()?;
+        let source = mapper::source_repo(&client.get_repo(repo_id).await?);
         let runs = client.list_pipelines(repo_id, limit).await?;
         Ok(runs
             .iter()
@@ -140,6 +141,7 @@ plugin_impl!(WoodpeckerPlugin [metadata, status_source, available_from_filtered]
                     run,
                     pipeline_id,
                     config::pipeline_web_url(client.base_url(), repo_id, run.number),
+                    source.as_ref(),
                 )
             })
             .collect())
@@ -150,11 +152,13 @@ plugin_impl!(WoodpeckerPlugin [metadata, status_source, available_from_filtered]
     ) -> PluginResult<PipelineRun> {
         let repo_id = config::parse_pipeline_id(pipeline_id)?;
         let client = self.client()?;
+        let source = mapper::source_repo(&client.get_repo(repo_id).await?);
         let run = client.get_pipeline(repo_id, run_number).await?;
         Ok(mapper::map_run(
             &run,
             pipeline_id,
             config::pipeline_web_url(client.base_url(), repo_id, run.number),
+            source.as_ref(),
         ))
     }
 

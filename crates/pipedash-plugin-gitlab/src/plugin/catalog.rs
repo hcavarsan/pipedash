@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use pipedash_plugin_api::config::selected_items;
 use pipedash_plugin_api::support::join_buffered;
 use pipedash_plugin_api::utils::collect_partial;
@@ -123,6 +125,22 @@ impl GitLabPlugin {
         Ok(Some(mapper::map_pipeline(project, latest_pipeline)))
     }
 
+    pub(super) async fn run_targets(
+        &self, project: &types::Project, limit: usize,
+    ) -> PluginResult<HashMap<i64, Vec<TargetObservation>>> {
+        let client = self.client()?;
+        let deployments = readable(client.project_deployments(project.id, limit).await)?;
+        if deployments.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let environments = readable(client.project_environments(project.id).await)?;
+        Ok(mapper::targets::run_targets(
+            project,
+            &deployments,
+            &environments,
+        ))
+    }
+
     pub(super) async fn fetch_run_history_impl(
         &self, pipeline_id: &str, limit: usize,
     ) -> PluginResult<Vec<PipelineRun>> {
@@ -144,10 +162,24 @@ impl GitLabPlugin {
             detailed_results,
             |error| tracing::warn!(%error, item = "pipeline run", "Skipping failed GitLab item"),
         )?;
+        let mut targets = self.run_targets(&project, limit).await?;
 
         Ok(detailed_pipelines
             .into_iter()
-            .map(|p| mapper::map_pipeline_run(&p, project_id, namespace.as_deref()))
+            .map(|p| {
+                let run_targets = targets.remove(&p.id).unwrap_or_default();
+                mapper::map_pipeline_run(&p, &project, namespace.as_deref(), run_targets)
+            })
             .collect())
+    }
+}
+
+fn readable<T>(result: PluginResult<Vec<T>>) -> PluginResult<Vec<T>> {
+    match result {
+        Err(error) if !error.is_transient() => {
+            tracing::warn!(%error, "GitLab deployments are not readable");
+            Ok(Vec::new())
+        }
+        other => other,
     }
 }

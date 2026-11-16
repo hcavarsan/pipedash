@@ -22,6 +22,7 @@ pipedash-plugin-gitlab = { version = "0.14.0", path = "../pipedash-plugin-gitlab
 pipedash-plugin-jenkins = { version = "0.14.0", path = "../pipedash-plugin-jenkins" }
 pipedash-plugin-komodo = { version = "0.14.0", path = "../pipedash-plugin-komodo" }
 pipedash-plugin-prow = { version = "0.14.0", path = "../pipedash-plugin-prow" }
+pipedash-plugin-ociregistry = { version = "0.14.0", path = "../pipedash-plugin-ociregistry" }
 pipedash-plugin-tekton = { version = "0.14.0", path = "../pipedash-plugin-tekton" }
 pipedash-plugin-woodpecker = { version = "0.14.0", path = "../pipedash-plugin-woodpecker" }
 
@@ -32,6 +33,22 @@ workspace = true
 bytes.workspace = true
 chrono.workspace = true
 pipedash-core = { path = "../pipedash-core" }
+pipedash-plugin-argocd = { path = "../pipedash-plugin-argocd", features = ["fixtures"] }
+pipedash-plugin-azure-devops = { path = "../pipedash-plugin-azure-devops", features = ["fixtures"] }
+pipedash-plugin-bitbucket = { path = "../pipedash-plugin-bitbucket", features = ["fixtures"] }
+pipedash-plugin-buildkite = { path = "../pipedash-plugin-buildkite", features = ["fixtures"] }
+pipedash-plugin-circleci = { path = "../pipedash-plugin-circleci", features = ["fixtures"] }
+pipedash-plugin-coolify = { path = "../pipedash-plugin-coolify", features = ["fixtures"] }
+pipedash-plugin-fluxcd = { path = "../pipedash-plugin-fluxcd", features = ["fixtures"] }
+pipedash-plugin-gitea = { path = "../pipedash-plugin-gitea", features = ["fixtures"] }
+pipedash-plugin-github = { path = "../pipedash-plugin-github", features = ["fixtures"] }
+pipedash-plugin-gitlab = { path = "../pipedash-plugin-gitlab", features = ["fixtures"] }
+pipedash-plugin-jenkins = { path = "../pipedash-plugin-jenkins", features = ["fixtures"] }
+pipedash-plugin-komodo = { path = "../pipedash-plugin-komodo", features = ["fixtures"] }
+pipedash-plugin-ociregistry = { path = "../pipedash-plugin-ociregistry", features = ["fixtures"] }
+pipedash-plugin-prow = { path = "../pipedash-plugin-prow", features = ["fixtures"] }
+pipedash-plugin-tekton = { path = "../pipedash-plugin-tekton", features = ["fixtures"] }
+pipedash-plugin-woodpecker = { path = "../pipedash-plugin-woodpecker", features = ["fixtures"] }
 regex.workspace = true
 rustls.workspace = true
 serde_json.workspace = true

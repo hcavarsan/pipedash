@@ -13,6 +13,10 @@ use crate::domain::{
     DomainResult,
 };
 use crate::infrastructure::config::loader::ConfigLoader;
+use crate::infrastructure::config::schema::applications::{
+    ApplicationFileConfig,
+    CorrelationFileConfig,
+};
 use crate::infrastructure::config::schema::{
     PipedashConfig,
     ProviderFileConfig,
@@ -131,6 +135,17 @@ impl ConfigState {
         let mut config = self.config.write().await;
         let mut next = (**config).clone();
         next.views = views;
+        *config = Arc::new(next);
+    }
+
+    pub async fn remember_applications(
+        &self, correlation: CorrelationFileConfig,
+        applications: IndexMap<String, ApplicationFileConfig>,
+    ) {
+        let mut config = self.config.write().await;
+        let mut next = (**config).clone();
+        next.correlation = correlation;
+        next.applications = applications;
         *config = Arc::new(next);
     }
 }

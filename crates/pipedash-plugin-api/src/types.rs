@@ -9,6 +9,9 @@ use serde::{
     Serialize,
 };
 
+use crate::correlation::evidence::RunEvidence;
+use crate::correlation::Correlation;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PipelineStatus {
@@ -72,6 +75,8 @@ pub struct Pipeline {
     pub resource_state: Option<ResourceState>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub metadata: HashMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Correlation::is_empty")]
+    pub correlation: Correlation,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,6 +97,10 @@ pub struct PipelineRun {
     pub inputs: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub metadata: HashMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Correlation::is_empty")]
+    pub correlation: Correlation,
+    #[serde(default)]
+    pub evidence: RunEvidence,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

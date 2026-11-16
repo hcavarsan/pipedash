@@ -122,6 +122,7 @@ async fn stub_github(
         ("GET", "/api/v3/repos/acme/app/actions/workflows/42/runs") => {
             ok(serde_json::json!({"total_count": 1, "workflow_runs": [waiting_run()]}))
         }
+        ("GET", "/api/v3/repos/acme/app/deployments") => ok(serde_json::json!([])),
         ("GET", PENDING_PATH) => ok(pending_deployments.clone()),
         ("POST", PENDING_PATH) => ok(serde_json::json!([])),
         (method, path) => panic!("Unexpected stub request: {method} {path}"),
@@ -558,7 +559,7 @@ fn only_failed_and_timed_out_runs_offer_a_failed_jobs_rerun() {
         let run: crate::types::Run =
             serde_json::from_value(finished_run(9001, 7, status, conclusion)).unwrap();
 
-        let run = crate::mapper::run_to_pipeline_run(run, PIPELINE_ID);
+        let run = crate::mapper::run_to_pipeline_run(run, PIPELINE_ID, None, Vec::new());
 
         assert_eq!(
             run.metadata.get("can_rerun_failed_jobs") == Some(&serde_json::json!(true)),
@@ -599,6 +600,10 @@ fn workflows_of_ok_repo() -> Reply {
 
 fn runs_of_ok_repo() -> Reply {
     ok(serde_json::json!({"total_count": 1, "workflow_runs": [waiting_run()]}))
+}
+
+fn workflow_file() -> Reply {
+    ok(serde_json::json!("on:\n  push:\n    paths: ['src/**']\n"))
 }
 
 fn rate_limited() -> Reply {
@@ -712,6 +717,7 @@ async fn rate_limit_on_one_repo_fails_the_whole_fetch() {
         |_, path| match path {
             "/api/v3/repos/acme/ok/actions/workflows" => workflows_of_ok_repo(),
             "/api/v3/repos/acme/ok/actions/workflows/42/runs" => runs_of_ok_repo(),
+            "/api/v3/repos/acme/ok/contents/.github/workflows/ci.yml" => workflow_file(),
             "/api/v3/repos/acme/limited/actions/workflows" => rate_limited(),
             path => panic!("Unexpected stub request: {path}"),
         },
@@ -731,6 +737,7 @@ async fn missing_repo_is_skipped_while_the_others_are_returned() {
         |_, path| match path {
             "/api/v3/repos/acme/ok/actions/workflows" => workflows_of_ok_repo(),
             "/api/v3/repos/acme/ok/actions/workflows/42/runs" => runs_of_ok_repo(),
+            "/api/v3/repos/acme/ok/contents/.github/workflows/ci.yml" => workflow_file(),
             "/api/v3/repos/acme/gone/actions/workflows" => failure(404, "Not Found", &[]),
             path => panic!("Unexpected stub request: {path}"),
         },
@@ -774,6 +781,7 @@ async fn disabled_workflow_shows_why_and_offers_enable_instead_of_its_last_statu
                 "total_count": 1,
                 "workflow_runs": [finished_run(9001, 7, "completed", Some("success"))]
             })),
+            "/api/v3/repos/acme/app/contents/.github/workflows/ci.yml" => workflow_file(),
             path => panic!("Unexpected stub request: {path}"),
         })
         .await;
@@ -1524,4 +1532,494 @@ fn metadata_should_expose_token_prefixes_and_force_cancel_warning() {
         .presentation
         .force_cancel_confirmation
         .contains("GitHub bypasses conditions such as always()"));
+}
+
+const COMMIT_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+const PARENT_SHA: &str = "89abcdef0123456789abcdef0123456789abcdef";
+
+fn uninitialized_inputs() -> (RepoId, CommitSha, Digest, ArtifactRepository) {
+    (
+        RepoId::parse("https://github.com/acme/app").unwrap(),
+        CommitSha::parse(COMMIT_SHA).unwrap(),
+        Digest::parse(&format!("sha256:{}", "b".repeat(64))).unwrap(),
+        ImageRef::parse("ghcr.io/acme/app").unwrap().repository,
+    )
+}
+
+fn initialized(pairs: &[(&str, &str)]) -> GitHubPlugin {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let mut plugin = GitHubPlugin::new();
+    plugin
+        .initialize(1, config_with(pairs), test_client())
+        .unwrap();
+    plugin
+}
+
+fn commit_json() -> serde_json::Value {
+    serde_json::json!({
+        "sha": COMMIT_SHA,
+        "commit": {
+            "message": "ship it",
+            "author": {"name": "Ada", "date": "2026-10-20T09:00:00Z"},
+            "committer": {"name": "Bob", "date": "2026-10-20T09:30:00Z"}
+        },
+        "parents": [{"sha": PARENT_SHA}],
+        "files": [
+            {"filename": "deploy/values.yaml", "patch": "+image: ghcr.io/acme/app:1"},
+            {"filename": "logo.png"}
+        ]
+    })
+}
+
+fn app_repo() -> RepoId {
+    RepoId::parse("https://github.com/acme/app").unwrap()
+}
+
+async fn paths(recorded: &Recorded) -> Vec<String> {
+    recorded
+        .lock()
+        .await
+        .iter()
+        .map(|(_, path, _)| path.clone())
+        .collect()
+}
+
+#[tokio::test]
+async fn correlation_hooks_on_an_uninitialized_plugin_are_not_initialized_errors() {
+    let plugin = GitHubPlugin::new();
+    let (repo, sha, digest, artifact) = uninitialized_inputs();
+
+    let errors = [
+        plugin.resolve_commit(&repo, "main").await.unwrap_err(),
+        plugin.compare_commits(&repo, &sha, &sha).await.unwrap_err(),
+        plugin.commit_changes(&repo, &sha).await.unwrap_err(),
+        plugin
+            .artifact_provenance(&artifact, &digest)
+            .await
+            .unwrap_err(),
+        plugin.registry_auth("ghcr.io").await.unwrap_err(),
+    ];
+
+    for error in errors {
+        assert!(
+            matches!(&error, PluginError::Internal(message) if message == "Plugin not initialized"),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn source_hosts_come_from_the_given_config_not_from_initialization() {
+    let plugin = GitHubPlugin::new();
+
+    assert!(plugin.source_hosts(&HashMap::new()).is_empty());
+    assert_eq!(
+        plugin.source_hosts(&config_with(&[("base_url", "https://example.test")])),
+        ["example.test"]
+    );
+    assert_eq!(
+        plugin.source_hosts(&HashMap::from([("token".to_string(), "t".to_string())])),
+        ["github.com"]
+    );
+}
+
+#[tokio::test]
+async fn resolve_commit_reads_the_commit_endpoint() {
+    let (plugin, recorded, server) = serve(&[], |_, path| match path {
+        "/api/v3/repos/acme/app/commits/main" => ok(commit_json()),
+        path => panic!("Unexpected stub request: {path}"),
+    })
+    .await;
+
+    let info = plugin.resolve_commit(&app_repo(), "main").await.unwrap();
+    server.abort();
+
+    assert_eq!(
+        info,
+        CommitInfo {
+            sha: CommitSha::parse(COMMIT_SHA).unwrap(),
+            authored_at: "2026-10-20T09:00:00Z".parse().unwrap(),
+            committed_at: "2026-10-20T09:30:00Z".parse().unwrap(),
+            message: "ship it".to_string(),
+            parents: vec![CommitSha::parse(PARENT_SHA).unwrap()],
+        }
+    );
+    assert_eq!(
+        paths(&recorded).await,
+        ["/api/v3/repos/acme/app/commits/main"]
+    );
+}
+
+#[tokio::test]
+async fn commit_hooks_reject_repositories_that_are_not_owner_and_name() {
+    let (plugin, recorded, server) =
+        serve(&[], |_, path| panic!("Unexpected request: {path}")).await;
+    let nested = RepoId::parse("https://github.com/group/sub/app").unwrap();
+
+    let error = plugin.resolve_commit(&nested, "main").await.unwrap_err();
+    server.abort();
+
+    assert!(matches!(error, PluginError::InvalidConfig(_)), "{error}");
+    assert!(recorded.lock().await.is_empty());
+}
+
+#[tokio::test]
+async fn compare_commits_maps_the_ahead_and_behind_counts() {
+    let base = CommitSha::parse(PARENT_SHA).unwrap();
+    let head = CommitSha::parse(COMMIT_SHA).unwrap();
+    let (plugin, recorded, server) = serve(&[], |_, path| match path {
+        path if path.starts_with("/api/v3/repos/acme/app/compare/") => ok(serde_json::json!({
+            "ahead_by": 2, "behind_by": 1, "total_commits": 2,
+            "commits": [{"sha": PARENT_SHA}, {"sha": COMMIT_SHA}]
+        })),
+        path => panic!("Unexpected stub request: {path}"),
+    })
+    .await;
+
+    let comparison = plugin
+        .compare_commits(&app_repo(), &base, &head)
+        .await
+        .unwrap();
+    server.abort();
+
+    assert_eq!(
+        comparison,
+        CommitComparison {
+            ahead: 2,
+            behind: 1,
+            commits: vec![base, head],
+        }
+    );
+    assert_eq!(
+        paths(&recorded).await,
+        [format!(
+            "/api/v3/repos/acme/app/compare/{PARENT_SHA}...{COMMIT_SHA}"
+        )]
+    );
+}
+
+#[tokio::test]
+async fn commit_changes_lists_the_files_of_the_commit() {
+    let sha = CommitSha::parse(COMMIT_SHA).unwrap();
+    let (plugin, recorded, server) = serve(&[], |_, path| match path {
+        path if path.starts_with("/api/v3/repos/acme/app/commits/") => ok(commit_json()),
+        path => panic!("Unexpected stub request: {path}"),
+    })
+    .await;
+
+    let files = plugin.commit_changes(&app_repo(), &sha).await.unwrap();
+    server.abort();
+
+    assert_eq!(
+        files,
+        [
+            ChangedFile {
+                path: "deploy/values.yaml".to_string(),
+                patch: Some("+image: ghcr.io/acme/app:1".to_string()),
+            },
+            ChangedFile {
+                path: "logo.png".to_string(),
+                patch: None,
+            },
+        ]
+    );
+    assert_eq!(
+        paths(&recorded).await,
+        [format!("/api/v3/repos/acme/app/commits/{COMMIT_SHA}")]
+    );
+}
+
+fn attestation_body(predicate_type: &str) -> serde_json::Value {
+    use base64::Engine as _;
+
+    let statement = serde_json::json!({
+        "_type": "https://in-toto.io/Statement/v1",
+        "predicateType": predicate_type,
+        "predicate": {
+            "buildDefinition": {
+                "externalParameters": {"workflow": {
+                    "ref": "refs/heads/main",
+                    "repository": "https://github.com/acme/app",
+                    "path": ".github/workflows/ci.yml"
+                }},
+                "resolvedDependencies": [{"digest": {"gitCommit": COMMIT_SHA}}]
+            },
+            "runDetails": {"metadata": {
+                "invocationId": "https://github.com/acme/app/actions/runs/9001/attempts/1"
+            }}
+        }
+    });
+    let payload = base64::engine::general_purpose::STANDARD.encode(statement.to_string());
+    serde_json::json!({"attestations": [
+        {"repository_id": 1, "bundle": {"dsseEnvelope": {"payload": payload}}},
+        {"repository_id": 1, "bundle_url": "https://example.test/bundle"}
+    ]})
+}
+
+#[tokio::test]
+async fn artifact_provenance_links_the_digest_to_the_attested_run() {
+    let (_, _, digest, artifact) = uninitialized_inputs();
+    let attestations = format!("/api/v3/repos/acme/app/attestations/{}", digest.as_str());
+    let skipped = format!("/api/v3/repos/acme/aaa/attestations/{}", digest.as_str());
+    let (plugin, recorded, server) = serve(
+        &[("selected_items", "acme/app,acme/aaa")],
+        move |_, path| match path {
+            path if path == skipped => failure(404, "Not Found", &[]),
+            path if path == attestations => ok(attestation_body("https://slsa.dev/provenance/v1")),
+            "/api/v3/repos/acme/app/actions/runs/9001" => ok(waiting_run()),
+            path => panic!("Unexpected stub request: {path}"),
+        },
+    )
+    .await;
+
+    let provenance = plugin
+        .artifact_provenance(&artifact, &digest)
+        .await
+        .unwrap();
+    server.abort();
+
+    assert_eq!(
+        provenance,
+        Some(Provenance {
+            pipeline_id: Some(PIPELINE_ID.to_string()),
+            run_number: Some(7),
+            source: SourceObservation {
+                repo: app_repo(),
+                path_scopes: Vec::new(),
+                commit: CommitSha::parse(COMMIT_SHA),
+            },
+        })
+    );
+    assert_eq!(
+        paths(&recorded).await,
+        [
+            format!("/api/v3/repos/acme/aaa/attestations/{}", digest.as_str()),
+            format!("/api/v3/repos/acme/app/attestations/{}", digest.as_str()),
+            "/api/v3/repos/acme/app/actions/runs/9001".to_string(),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn artifact_provenance_ignores_other_predicates_and_transient_failures_surface() {
+    let (_, _, digest, artifact) = uninitialized_inputs();
+    let (plugin, _, server) = serve(&[("selected_items", "acme/app")], |_, _| {
+        ok(attestation_body("https://spdx.dev/Document/v2.3"))
+    })
+    .await;
+    assert_eq!(
+        plugin
+            .artifact_provenance(&artifact, &digest)
+            .await
+            .unwrap(),
+        None
+    );
+    server.abort();
+
+    let (plugin, _, server) = serve(&[("selected_items", "acme/app")], |_, _| rate_limited()).await;
+    let error = plugin
+        .artifact_provenance(&artifact, &digest)
+        .await
+        .unwrap_err();
+    server.abort();
+    assert!(matches!(error, PluginError::RateLimited { .. }), "{error}");
+}
+
+#[tokio::test]
+async fn registry_credentials_go_only_to_ghcr_for_github_com() {
+    let github_com = initialized(&[]);
+
+    assert_eq!(
+        github_com.registry_auth("GHCR.io").await.unwrap(),
+        Some(RegistryAuth {
+            username: None,
+            secret: "stub-token".to_string(),
+            bearer: true,
+            token_hosts: Vec::new(),
+        })
+    );
+    assert_eq!(
+        github_com.registry_auth("registry.example").await.unwrap(),
+        None
+    );
+
+    let enterprise = initialized(&[("base_url", "https://ghe.example.test")]);
+    assert_eq!(enterprise.registry_auth("ghcr.io").await.unwrap(), None);
+}
+
+fn workflow_at(updated_at: &str) -> serde_json::Value {
+    let mut workflow = workflow(42);
+    workflow["updated_at"] = serde_json::json!(updated_at);
+    workflow
+}
+
+#[tokio::test]
+async fn pipelines_carry_the_repository_and_the_workflow_path_filters() {
+    let (plugin, _, server) = serve(&[("selected_items", "acme/app")], |_, path| match path {
+        "/api/v3/repos/acme/app/actions/workflows" => ok(serde_json::json!({
+            "total_count": 1, "workflows": [workflow_at("2026-10-20T10:00:00Z")]
+        })),
+        "/api/v3/repos/acme/app/actions/workflows/42/runs" => runs_of_ok_repo(),
+        "/api/v3/repos/acme/app/contents/.github/workflows/ci.yml" => ok(serde_json::json!(
+            "on:\n  push:\n    paths: ['services/api/**', 'Cargo.toml']\n  pull_request:\n    paths: ['services/api/**']\n"
+        )),
+        path => panic!("Unexpected stub request: {path}"),
+    })
+    .await;
+
+    let pipelines = plugin.fetch_pipelines().await.unwrap();
+    server.abort();
+
+    let host = config::source_host(&plugin.config).unwrap();
+    assert_eq!(
+        pipelines[0].correlation,
+        Correlation {
+            sources: vec![SourceObservation {
+                repo: RepoId::from_host_path(&host, "acme/app").unwrap(),
+                path_scopes: vec![PathScope::new("Cargo.toml"), PathScope::new("services/api")],
+                commit: None,
+            }],
+            ..Correlation::default()
+        }
+    );
+}
+
+#[tokio::test]
+async fn workflow_files_are_read_again_only_when_the_workflow_changes() {
+    let updated_at = Arc::new(std::sync::Mutex::new("2026-10-20T10:00:00Z".to_string()));
+    let current = updated_at.clone();
+    let (plugin, recorded, server) =
+        serve(
+            &[("selected_items", "acme/app")],
+            move |_, path| match path {
+                "/api/v3/repos/acme/app/actions/workflows" => ok(serde_json::json!({
+                    "total_count": 1, "workflows": [workflow_at(&current.lock().unwrap())]
+                })),
+                "/api/v3/repos/acme/app/actions/workflows/42/runs" => runs_of_ok_repo(),
+                "/api/v3/repos/acme/app/contents/.github/workflows/ci.yml" => workflow_file(),
+                path => panic!("Unexpected stub request: {path}"),
+            },
+        )
+        .await;
+    let reads = |recorded: Recorded| async move {
+        paths(&recorded)
+            .await
+            .iter()
+            .filter(|path| path.contains("/contents/"))
+            .count()
+    };
+
+    plugin.fetch_pipelines().await.unwrap();
+    plugin.fetch_pipelines().await.unwrap();
+    assert_eq!(reads(recorded.clone()).await, 1);
+
+    *updated_at.lock().unwrap() = "2026-10-21T10:00:00Z".to_string();
+    plugin.fetch_pipelines().await.unwrap();
+    assert_eq!(reads(recorded).await, 2);
+    server.abort();
+}
+
+#[tokio::test]
+async fn workflows_without_a_readable_file_report_no_path_filter() {
+    let (plugin, _, server) = serve(&[("selected_items", "acme/app")], |_, path| match path {
+        "/api/v3/repos/acme/app/actions/workflows" => workflows_of_ok_repo(),
+        "/api/v3/repos/acme/app/actions/workflows/42/runs" => runs_of_ok_repo(),
+        "/api/v3/repos/acme/app/contents/.github/workflows/ci.yml" => {
+            failure(404, "Not Found", &[])
+        }
+        path => panic!("Unexpected stub request: {path}"),
+    })
+    .await;
+
+    let pipelines = plugin.fetch_pipelines().await.unwrap();
+    server.abort();
+
+    assert_eq!(pipelines[0].correlation.sources.len(), 1);
+    assert!(pipelines[0].correlation.sources[0].path_scopes.is_empty());
+}
+
+fn deployments_reply(created_at: &str) -> Reply {
+    ok(serde_json::json!([
+        {"environment": "production", "created_at": created_at},
+        {
+            "environment": "preview-7", "created_at": created_at,
+            "transient_environment": true
+        },
+        {"environment": "staging", "created_at": "2026-10-20T11:00:00Z"}
+    ]))
+}
+
+#[tokio::test]
+async fn run_history_reports_the_deployments_made_during_each_run() {
+    let (plugin, recorded, server) = serve(&[], |_, path| match path {
+        "/api/v3/repos/acme/app/actions/workflows/42/runs" => ok(serde_json::json!({
+            "total_count": 1,
+            "workflow_runs": [finished_run(9001, 7, "completed", Some("success"))]
+        })),
+        "/api/v3/repos/acme/app/deployments" => deployments_reply("2026-10-20T10:00:30Z"),
+        path => panic!("Unexpected stub request: {path}"),
+    })
+    .await;
+
+    let first = plugin.fetch_run_history(PIPELINE_ID, 5).await.unwrap();
+    let second = plugin.fetch_run_history(PIPELINE_ID, 5).await.unwrap();
+    server.abort();
+
+    let host = config::source_host(&plugin.config).unwrap();
+    let cluster = ClusterId::from_host(&format!("{host}/acme/app")).unwrap();
+    let expected = Correlation {
+        sources: vec![SourceObservation {
+            repo: RepoId::from_host_path(&host, "acme/app").unwrap(),
+            path_scopes: Vec::new(),
+            commit: None,
+        }],
+        targets: vec![
+            TargetObservation {
+                cluster: cluster.clone(),
+                namespace: None,
+                name: "preview-7".to_string(),
+                lifetime: TargetLifetime::ShortLived,
+            },
+            TargetObservation {
+                cluster,
+                namespace: None,
+                name: "production".to_string(),
+                lifetime: TargetLifetime::Standing,
+            },
+        ],
+        ..Correlation::default()
+    };
+    assert_eq!(first[0].correlation, expected);
+    assert_eq!(second[0].correlation, expected);
+    let deployment_reads = paths(&recorded)
+        .await
+        .iter()
+        .filter(|path| path.ends_with("/deployments"))
+        .count();
+    assert_eq!(deployment_reads, 1);
+}
+
+#[tokio::test]
+async fn unreadable_deployments_leave_the_run_without_targets_but_rate_limits_surface() {
+    let forbidden: fn() -> Reply = || failure(403, "Resource not accessible", &[]);
+    for (reply, rate_limited_run) in [(forbidden, false), (rate_limited as fn() -> Reply, true)] {
+        let (plugin, _, server) = serve(&[], move |_, path| match path {
+            "/api/v3/repos/acme/app/actions/workflows/42/runs" => ok(serde_json::json!({
+                "total_count": 1,
+                "workflow_runs": [finished_run(9001, 7, "completed", Some("success"))]
+            })),
+            "/api/v3/repos/acme/app/deployments" => reply(),
+            path => panic!("Unexpected stub request: {path}"),
+        })
+        .await;
+
+        let result = plugin.fetch_run_history(PIPELINE_ID, 5).await;
+        server.abort();
+
+        if rate_limited_run {
+            assert!(matches!(result, Err(PluginError::RateLimited { .. })));
+        } else {
+            assert!(result.unwrap()[0].correlation.targets.is_empty());
+        }
+    }
 }

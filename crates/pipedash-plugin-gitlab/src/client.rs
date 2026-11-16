@@ -28,6 +28,7 @@ use crate::types::{
 };
 
 mod logs;
+mod repository;
 
 pub struct GitLabClient {
     http_client: std::sync::Arc<reqwest::Client>,
@@ -168,32 +169,14 @@ impl GitLabClient {
     pub async fn get_project_pipelines(
         &self, project_id: i64, limit: usize,
     ) -> PluginResult<Vec<Pipeline>> {
-        let per_page = limit.clamp(1, 100);
-        let mut pipelines = Vec::new();
-        let mut page = Some(1);
-
-        while let Some(current) = page.filter(|_| pipelines.len() < limit) {
-            let (mut items, next_page) = self
-                .retry_policy
-                .retry(|| async {
-                    let response = self
-                        .get(&format!(
-                            "{}/projects/{}/pipelines?per_page={}&page={}&order_by=updated_at",
-                            self.api_url, project_id, per_page, current
-                        ))
-                        .await?;
-                    let next_page = Self::next_page(&response);
-                    let items: Vec<Pipeline> = decode_json(response, "GitLab API response").await?;
-
-                    Ok((items, next_page))
-                })
-                .await?;
-            pipelines.append(&mut items);
-            page = next_page.filter(|next| *next > current);
-        }
-
-        pipelines.truncate(limit);
-        Ok(pipelines)
+        self.get_paged(
+            format!(
+                "{}/projects/{}/pipelines?order_by=updated_at",
+                self.api_url, project_id
+            ),
+            limit,
+        )
+        .await
     }
 
     pub async fn has_ci_config(&self, project: &Project) -> PluginResult<bool> {
@@ -286,6 +269,37 @@ impl GitLabClient {
             .get("x-next-page")
             .and_then(|v| v.to_str().ok())
             .and_then(|s| s.parse::<usize>().ok())
+    }
+
+    async fn get_paged<T: serde::de::DeserializeOwned>(
+        &self, url: String, limit: usize,
+    ) -> PluginResult<Vec<T>> {
+        let per_page = limit.clamp(1, 100);
+        let separator = if url.contains('?') { '&' } else { '?' };
+        let mut items = Vec::new();
+        let mut page = Some(1);
+
+        while let Some(current) = page.filter(|_| items.len() < limit) {
+            let (mut batch, next_page) = self
+                .retry_policy
+                .retry(|| async {
+                    let response = self
+                        .get(&format!(
+                            "{url}{separator}per_page={per_page}&page={current}"
+                        ))
+                        .await?;
+                    let next_page = Self::next_page(&response);
+                    let batch: Vec<T> = decode_json(response, "GitLab API response").await?;
+
+                    Ok((batch, next_page))
+                })
+                .await?;
+            items.append(&mut batch);
+            page = next_page.filter(|next| *next > current);
+        }
+
+        items.truncate(limit);
+        Ok(items)
     }
 
     fn parse_url(url: &str) -> PluginResult<Url> {

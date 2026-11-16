@@ -36,7 +36,7 @@ pub(super) fn base_metadata(resource: &FluxResource) -> Metadata {
     metadata
 }
 
-fn source_reference(resource: &FluxResource) -> Option<&Reference> {
+pub(super) fn source_reference(resource: &FluxResource) -> Option<&Reference> {
     match resource.kind {
         Kind::Kustomization => resource.spec.source_ref.as_ref(),
         Kind::HelmRelease => resource

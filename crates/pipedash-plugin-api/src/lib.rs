@@ -3,6 +3,7 @@ pub mod build_watch;
 pub mod builders;
 pub mod columns;
 pub mod config;
+pub mod correlation;
 pub mod defaults;
 pub mod delegate;
 pub mod error;
@@ -32,6 +33,39 @@ pub use actions::{
     RerunStrategy,
     RunActionState,
     TriggerResult,
+};
+pub use correlation::evidence::{
+    Observed,
+    RunEvidence,
+};
+pub use correlation::hooks::{
+    ChangedFile,
+    CommitComparison,
+    CommitInfo,
+    Provenance,
+    RegistryAuth,
+};
+pub use correlation::ids::{
+    ClusterId,
+    CommitSha,
+    Digest,
+    RepoId,
+    UnitId,
+};
+pub use correlation::image::{
+    ArtifactRepository,
+    ImageRef,
+};
+pub use correlation::log_scan::pushed_digests;
+pub use correlation::path::PathScope;
+pub use correlation::{
+    AppRef,
+    ArtifactObservation,
+    ConsumedArtifact,
+    Correlation,
+    SourceObservation,
+    TargetLifetime,
+    TargetObservation,
 };
 pub use error::{
     PluginError,

@@ -1,3 +1,4 @@
+import type { ApplicationListQuery, ApplicationMetricsQuery } from '../types/applications'
 import type { LogSearchQuery } from '../types/logs'
 import type { MetricsDashboardQuery } from '../types/metrics'
 import type { RunHistoryQuery } from '../types/run_history'
@@ -151,4 +152,16 @@ export const queryKeys = {
     all: ['sharing'] as const,
     status: () => [...queryKeys.sharing.all, 'status'] as const,
   },
+
+  applicationsAll: ['applications'] as const,
+  applications: (query: ApplicationListQuery) => [...queryKeys.applicationsAll, 'list', query] as const,
+  application: (id: number) => [...queryKeys.applicationsAll, 'detail', id] as const,
+  applicationChanges: (id: number) => [...queryKeys.applicationsAll, 'changes', id] as const,
+  applicationMetrics: (query: ApplicationMetricsQuery) => [...queryKeys.applicationsAll, 'metrics', query] as const,
+  applicationSuggestions: () => [...queryKeys.applicationsAll, 'suggestions'] as const,
+  pipelineApplications: (pipelineId: string) => [...queryKeys.applicationsAll, 'forPipeline', pipelineId] as const,
+  commitLocations: (pipelineId: string, runNumber: number) =>
+    [...queryKeys.applicationsAll, 'commitLocations', pipelineId, runNumber] as const,
+  deployChanges: (pipelineId: string, runNumber: number) =>
+    [...queryKeys.applicationsAll, 'deployChanges', pipelineId, runNumber] as const,
 } as const

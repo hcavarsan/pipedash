@@ -37,7 +37,7 @@ fn unset_timestamps_fall_back_to_created_and_leave_duration_empty() {
         "finished": 0,
         "message": "  fix build  \nbody",
     }));
-    let mapped = map_run(&run, "5", String::new());
+    let mapped = map_run(&run, "5", String::new(), None);
     assert_eq!(mapped.started_at.timestamp(), 1_761_645_600);
     assert_eq!(mapped.concluded_at, None);
     assert_eq!(mapped.duration_seconds, None);
@@ -106,5 +106,77 @@ fn steps_nest_under_their_workflow_with_log_availability() {
     assert_eq!(
         nodes[1].web_url.as_deref(),
         Some("http://ci/repos/5/pipeline/4/2")
+    );
+}
+
+const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+fn repo(value: serde_json::Value) -> types::Repo {
+    serde_json::from_value(value).unwrap()
+}
+
+fn forge() -> RepoId {
+    RepoId::from_host_path("forge.test", "acme/web").unwrap()
+}
+
+fn run_at(commit: &str) -> types::Pipeline {
+    pipeline(json!({"id": 9, "number": 4, "status": "success", "commit": commit}))
+}
+
+#[test]
+fn run_observes_the_repository_and_its_commit() {
+    let source = forge();
+
+    let mapped = map_run(&run_at(SHA), "5", String::new(), Some(&source));
+
+    assert_eq!(
+        mapped.correlation,
+        Correlation::single_source(Some(forge()), CommitSha::parse(SHA))
+    );
+    assert_eq!(mapped.evidence, RunEvidence::default());
+    assert_eq!(
+        map_run(&run_at(SHA), "5", String::new(), Some(&source)).correlation,
+        mapped.correlation
+    );
+}
+
+#[test]
+fn run_without_a_repository_or_a_commit_id_omits_those_observations() {
+    let source = forge();
+    assert!(map_run(&run_at(SHA), "5", String::new(), None)
+        .correlation
+        .is_empty());
+    assert_eq!(
+        map_run(&run_at("abc"), "5", String::new(), Some(&source)).correlation,
+        Correlation::single_source(Some(forge()), None)
+    );
+}
+
+#[test]
+fn repository_comes_from_the_forge_url_then_the_clone_url() {
+    let base = |extra: serde_json::Value| {
+        let mut value = json!({"id": 5, "owner": "acme", "name": "web", "full_name": "acme/web"});
+        value
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        repo(value)
+    };
+
+    for extra in [
+        json!({"forge_url": "https://forge.test/acme/web", "clone_url": "https://other.test/x/y.git"}),
+        json!({"forge_url": "", "clone_url": "https://forge.test/acme/web.git"}),
+        json!({"clone_url": "git@forge.test:acme/web.git"}),
+    ] {
+        assert_eq!(source_repo(&base(extra.clone())), Some(forge()), "{extra}");
+    }
+    assert_eq!(source_repo(&base(json!({}))), None);
+    assert_eq!(
+        map_pipeline(
+            &base(json!({"forge_url": "https://forge.test/acme/web"})),
+            None
+        )
+        .correlation,
+        Correlation::single_source(Some(forge()), None)
     );
 }

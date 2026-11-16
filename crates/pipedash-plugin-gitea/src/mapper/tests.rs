@@ -24,7 +24,7 @@ fn epoch_zero_timestamps_are_treated_as_unset() {
         "started_at": "1970-01-01T00:00:00Z", "completed_at": "1970-01-01T00:00:00Z"
     }))
     .unwrap();
-    let mapped = map_run(&run, "o/r/ci.yaml", "o");
+    let mapped = map_run(&run, "o/r/ci.yaml", "o", None);
     assert_eq!(mapped.concluded_at, None);
     assert_eq!(mapped.duration_seconds, None);
     assert_eq!(run.workflow_file(), "ci.yaml");
@@ -186,4 +186,85 @@ fn steps_become_children_of_their_job_without_a_log_of_their_own() {
     assert_eq!(nodes[3].started_at, None);
     assert_eq!(nodes[3].finished_at, None);
     assert_eq!(nodes[3].web_url, None);
+}
+
+#[test]
+fn pipeline_and_runs_carry_repository_commit_and_timing_evidence() {
+    let (pipeline, runs) = crate::fixtures::correlation_fixtures().remove(0);
+    let repo = RepoId::from_host_path(crate::fixtures::HOST, "acme/api");
+    let commit = CommitSha::parse(crate::fixtures::COMMIT);
+
+    assert_eq!(
+        pipeline.correlation,
+        Correlation::single_source(repo.clone(), None)
+    );
+    assert_eq!(
+        runs[0].correlation,
+        Correlation::single_source(repo.clone(), commit.clone())
+    );
+    assert_eq!(runs[0].evidence, RunEvidence::default());
+    assert_eq!(
+        runs[1].correlation,
+        Correlation::single_source(repo, commit)
+    );
+    assert_eq!(
+        runs[1].evidence,
+        RunEvidence {
+            timing: Observed::Absent,
+            ..RunEvidence::default()
+        }
+    );
+    assert_eq!(runs[1].duration_seconds, None);
+}
+
+#[test]
+fn an_unparseable_head_sha_keeps_the_repository_without_a_commit() {
+    let source = RepoId::from_host_path(crate::fixtures::HOST, "acme/api");
+    let raw: types::Run = serde_json::from_value(serde_json::json!({
+        "id": 3, "run_number": 3, "status": "queued", "path": "ci.yaml",
+        "html_url": "http://g/o/r/actions/runs/3", "head_sha": "abc"
+    }))
+    .unwrap();
+
+    let mapped = map_run(&raw, "o/r/ci.yaml", "o", source.clone());
+
+    assert_eq!(mapped.correlation, Correlation::single_source(source, None));
+}
+
+#[test]
+fn commit_payloads_become_commit_info_comparisons_and_changed_files() {
+    let commit: types::Commit = serde_json::from_value(serde_json::json!({
+        "sha": crate::fixtures::COMMIT,
+        "commit": {
+            "message": "fix it",
+            "author": {"date": "2026-10-01T12:00:00+02:00"},
+            "committer": {"date": "2026-10-01T11:00:00Z"}
+        },
+        "parents": [{"sha": "fedcba9876543210fedcba9876543210fedcba98"}, {"sha": "bad"}],
+        "files": [{"filename": "deploy/values.yaml", "status": "modified"}]
+    }))
+    .unwrap();
+
+    let info = commits::commit_info(&commit).unwrap();
+    assert_eq!(info.sha.as_str(), crate::fixtures::COMMIT);
+    assert_eq!(info.authored_at.to_rfc3339(), "2026-10-01T10:00:00+00:00");
+    assert_eq!(info.committed_at.to_rfc3339(), "2026-10-01T11:00:00+00:00");
+    assert_eq!(info.parents.len(), 1);
+
+    let changes = commits::changed_files(commit);
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].path, "deploy/values.yaml");
+    assert_eq!(changes[0].patch, None);
+
+    let compare: types::Compare = serde_json::from_value(serde_json::json!({
+        "total_commits": 3, "commits": [{"sha": crate::fixtures::COMMIT}, {"sha": "bad"}]
+    }))
+    .unwrap();
+    let behind = types::Compare {
+        total_commits: 1,
+        commits: Vec::new(),
+    };
+    let comparison = commits::comparison(&compare, &behind);
+    assert_eq!((comparison.ahead, comparison.behind), (3, 1));
+    assert_eq!(comparison.commits.len(), 1);
 }

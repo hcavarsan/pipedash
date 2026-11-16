@@ -6,6 +6,7 @@ use std::sync::{
 
 use pipedash_core::application::services::push_service::PushService;
 use pipedash_core::application::{
+    CorrelationService,
     LogService,
     PipelineService,
     PipelineViewService,
@@ -231,6 +232,12 @@ impl AppState {
         let inner = self.inner.read().await;
         let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
         Ok(Arc::clone(&core.pipeline_view_service))
+    }
+
+    pub async fn correlation_service(&self) -> ApiResult<Arc<CorrelationService>> {
+        let inner = self.inner.read().await;
+        let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
+        Ok(Arc::clone(&core.correlation_service))
     }
 
     pub async fn log_service(&self) -> ApiResult<Arc<LogService>> {

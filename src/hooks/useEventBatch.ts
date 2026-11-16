@@ -1,6 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { useCallback, useRef } from 'react'
 
+import { invalidateApplications } from '../features/applications/queries/useApplicationQueries'
 import { invalidateViews } from '../features/pipelines/queries/usePipelineViewQueries'
 import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
@@ -13,12 +14,14 @@ interface BatchedInvalidation {
   runHistoryPipelineIds: Set<string>
   invalidateAll: boolean
   views: boolean
+  applications: boolean
 }
 
 interface EventBatch {
   scheduleBatchedInvalidation: (providerId?: number) => void
   scheduleRunHistoryInvalidation: (pipelineIds: readonly string[]) => void
   scheduleViewsInvalidation: () => void
+  scheduleApplicationsInvalidation: () => void
   cancel: () => void
 }
 
@@ -27,6 +30,7 @@ const emptyBatch = (): BatchedInvalidation => ({
   runHistoryPipelineIds: new Set(),
   invalidateAll: false,
   views: false,
+  applications: false,
 })
 
 export function useEventBatch(queryClient: QueryClient): EventBatch {
@@ -58,6 +62,10 @@ export function useEventBatch(queryClient: QueryClient): EventBatch {
 
     if (batch.views) {
       void invalidateViews(queryClient)
+    }
+
+    if (batch.applications) {
+      void invalidateApplications(queryClient)
     }
   }, [queryClient])
 
@@ -96,11 +104,22 @@ export function useEventBatch(queryClient: QueryClient): EventBatch {
     scheduleBatch()
   }, [scheduleBatch])
 
+  const scheduleApplicationsInvalidation = useCallback(() => {
+    pending.current.applications = true
+    scheduleBatch()
+  }, [scheduleBatch])
+
   const cancel = useCallback(() => {
     clearTimeout(timeout.current)
     timeout.current = undefined
     pending.current = emptyBatch()
   }, [])
 
-  return { scheduleBatchedInvalidation, scheduleRunHistoryInvalidation, scheduleViewsInvalidation, cancel }
+  return {
+    scheduleBatchedInvalidation,
+    scheduleRunHistoryInvalidation,
+    scheduleViewsInvalidation,
+    scheduleApplicationsInvalidation,
+    cancel,
+  }
 }

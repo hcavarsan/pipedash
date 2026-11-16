@@ -128,6 +128,11 @@ impl PipelineService {
                 .await;
         }
 
+        if let Some(observer) = self.observer.get() {
+            observer
+                .runs_fetched(pipeline.provider_id, pipeline_id, api_runs)
+                .await;
+        }
         Ok(())
     }
 

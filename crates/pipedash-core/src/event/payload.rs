@@ -5,6 +5,7 @@ impl CoreEvent {
         match self {
             CoreEvent::ProvidersChanged => serde_json::json!({}),
             CoreEvent::PipelineViewsChanged => serde_json::json!({}),
+            CoreEvent::ApplicationsChanged => serde_json::json!({}),
             CoreEvent::PipelinesUpdated {
                 pipelines,
                 provider_id,

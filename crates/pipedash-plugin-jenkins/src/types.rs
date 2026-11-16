@@ -62,6 +62,9 @@ pub(crate) struct BuildAction {
     #[serde(rename = "lastBuiltRevision")]
     #[serde(default)]
     pub last_built_revision: Option<Revision>,
+    #[serde(rename = "remoteUrls")]
+    #[serde(default)]
+    pub remote_urls: Vec<String>,
     #[serde(default)]
     pub parameters: Vec<BuildParameter>,
 }
@@ -88,6 +91,9 @@ pub(crate) struct BuildCause {
 pub(crate) struct Revision {
     #[serde(default)]
     pub branch: Vec<Branch>,
+    #[serde(rename = "SHA1")]
+    #[serde(default)]
+    pub sha1: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

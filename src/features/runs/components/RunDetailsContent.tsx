@@ -10,6 +10,7 @@ import { TYPOGRAPHY } from '../../../theme/typography'
 import type { PipelineRun } from '../../../types/pipelines'
 import type { PluginPresentation } from '../../../types/plugin_presentation'
 import { isLiveRun } from '../../../utils/runTiming'
+import { CommitLocationsSection } from './CommitLocationsSection'
 import { RunDetailFields, useDetailRows } from './RunDetailFields'
 
 interface RunDetailsContentProps {
@@ -109,6 +110,7 @@ function LoadedRunDetails({
       {failure}
       {notices}
       <RunDetailFields rows={rows} run={run} mobileShell={mobileShell} isMobile={isMobile} />
+      <CommitLocationsSection pipelineId={pipelineId} runNumber={runNumber} failed={run.status === 'failed'} />
       {children}
     </Stack>
   )

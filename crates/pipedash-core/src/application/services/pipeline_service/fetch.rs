@@ -190,6 +190,9 @@ impl PipelineService {
         self.repository
             .update_pipelines_cache(id, &pipelines)
             .await?;
+        if let Some(observer) = self.observer.get() {
+            observer.pipelines_applied(id, &old, &pipelines).await;
+        }
         self.present_for_event(&mut pipelines).await;
 
         let old_by_id: HashMap<&str, &Pipeline> = old

@@ -13,7 +13,6 @@ use pipedash_plugin_api::support::{
     try_buffered,
     CONCURRENCY,
 };
-use pipedash_plugin_api::utils::deployed_status;
 use pipedash_plugin_api::*;
 use tracing::{
     debug,
@@ -41,17 +40,15 @@ plugin_struct!(
 );
 
 impl CoolifyPlugin {
-    async fn live_status(&self, app_uuid: &str) -> PluginResult<PipelineStatus> {
+    async fn application(&self, app_uuid: &str) -> PluginResult<Option<types::Application>> {
         let applications = self.client()?.applications().await?;
-        let app = applications
-            .iter()
-            .find(|app| app.uuid == app_uuid)
-            .ok_or_else(|| {
-                PluginError::PipelineNotFound(format!("Application {app_uuid} not found"))
-            })?;
-
-        Ok(mapper::map_app_state(&app.status).0)
+        Ok(applications.into_iter().find(|app| app.uuid == app_uuid))
     }
+}
+
+fn live_status(app: Option<&types::Application>, app_uuid: &str) -> PluginResult<PipelineStatus> {
+    app.map(|app| mapper::map_app_state(&app.status).0)
+        .ok_or_else(|| PluginError::PipelineNotFound(format!("Application {app_uuid} not found")))
 }
 
 plugin_impl!(CoolifyPlugin [
@@ -132,11 +129,18 @@ plugin_impl!(CoolifyPlugin [
             .map(|app| client.deployments(&app.uuid, 0, 1))
             .collect();
         let latest: Vec<Vec<types::Deployment>> = try_buffered(requests, CONCURRENCY).await?;
+        let placements = self.placements().await.unwrap_or_else(|error| {
+            warn!(error = %error, "Coolify environments unavailable; targets use server names");
+            HashMap::new()
+        });
 
         let pipelines: Vec<Pipeline> = listed
             .iter()
             .zip(&latest)
-            .map(|(app, page)| mapper::map_pipeline(app, page.first()))
+            .map(|(app, page)| {
+                let placement = app.environment_id.and_then(|id| placements.get(&id));
+                mapper::map_pipeline(app, page.first(), placement)
+            })
             .collect();
 
         debug!(
@@ -151,15 +155,18 @@ plugin_impl!(CoolifyPlugin [
         &self, pipeline_id: &str, limit: usize,
     ) -> PluginResult<Vec<PipelineRun>> {
         let app_uuid = config::parse_pipeline_id(pipeline_id)?;
+        let app = self.application(app_uuid).await?;
         let deployments = self.client()?.recent_deployments(app_uuid, limit).await?;
 
         let mut runs: Vec<PipelineRun> = deployments
             .iter()
-            .map(|deployment| mapper::map_run(pipeline_id, &self.server_url, deployment))
+            .map(|deployment| {
+                mapper::map_run(pipeline_id, &self.server_url, deployment, app.as_ref())
+            })
             .collect();
         let latest = runs.iter_mut().max_by_key(|run| run.run_number);
         if let Some(latest) = latest.filter(|run| run.status == PipelineStatus::Success) {
-            latest.status = deployed_status(latest.status, self.live_status(app_uuid).await?);
+            mapper::apply_live_status(latest, live_status(app.as_ref(), app_uuid)?);
         }
 
         Ok(runs)
@@ -170,10 +177,13 @@ plugin_impl!(CoolifyPlugin [
     ) -> PluginResult<PipelineRun> {
         let app_uuid = config::parse_pipeline_id(pipeline_id)?;
         let client = self.client()?;
-        let (deployment, newest) = client.find_deployment(app_uuid, run_number).await?;
-        let mut run = mapper::map_run(pipeline_id, &self.server_url, &deployment);
+        let (app, (deployment, newest)) = futures::try_join!(
+            self.application(app_uuid),
+            client.find_deployment(app_uuid, run_number)
+        )?;
+        let mut run = mapper::map_run(pipeline_id, &self.server_url, &deployment, app.as_ref());
         if newest && run.status == PipelineStatus::Success {
-            run.status = deployed_status(run.status, self.live_status(app_uuid).await?);
+            mapper::apply_live_status(&mut run, live_status(app.as_ref(), app_uuid)?);
         }
 
         Ok(run)

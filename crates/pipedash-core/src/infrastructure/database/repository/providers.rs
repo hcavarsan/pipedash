@@ -139,7 +139,7 @@ impl Repository {
         Ok(updated)
     }
 
-    async fn stored_token(&self, id: i64) -> DomainResult<Option<String>> {
+    pub(crate) async fn stored_token(&self, id: i64) -> DomainResult<Option<String>> {
         match self.token_store.get_token(id).await {
             Ok(token) => Ok(Some(token)),
             Err(DomainError::NotFound(_)) => Ok(None),
@@ -182,6 +182,18 @@ impl Repository {
         };
 
         with_cleanup(error, cleanup)
+    }
+
+    pub async fn restore_provider(
+        &self, id: i64, row: &ProviderConfig, token: Option<String>, error: DomainError,
+    ) -> DomainError {
+        let error = with_cleanup(error, self.config_backend.update_provider(id, row).await);
+        let restore = match token {
+            Some(token) => self.token_store.store_token(id, &token).await,
+            None => self.token_store.delete_token(id).await,
+        };
+
+        with_cleanup(error, restore)
     }
 
     pub async fn remove_provider(&self, id: i64, config_state: &ConfigState) -> DomainResult<()> {

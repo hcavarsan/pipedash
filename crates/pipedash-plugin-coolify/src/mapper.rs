@@ -4,16 +4,21 @@ use chrono::{
     DateTime,
     Utc,
 };
-use pipedash_plugin_api::utils::duration_seconds;
+use pipedash_plugin_api::utils::{
+    deployed_status,
+    duration_seconds,
+};
 use pipedash_plugin_api::{
     AvailablePipeline,
     LogAvailability,
     LogNode,
     LogNodeKind,
+    Observed,
     Pipeline,
     PipelineRun,
     PipelineStatus,
     ResourceState,
+    RunEvidence,
 };
 use serde_json::{
     json,
@@ -25,6 +30,8 @@ use crate::types::{
     Deployment,
     DeploymentDetail,
 };
+
+mod correlation;
 
 pub(crate) const LOG_NODE_ID: &str = "deployment";
 
@@ -122,7 +129,9 @@ fn source(deployment: &Deployment) -> &'static str {
     }
 }
 
-pub(crate) fn map_pipeline(app: &Application, latest: Option<&Deployment>) -> Pipeline {
+pub(crate) fn map_pipeline(
+    app: &Application, latest: Option<&Deployment>, placement: Option<&Placement>,
+) -> Pipeline {
     let (live, state) = map_app_state(&app.status);
     let mut metadata = HashMap::from([
         ("application_uuid".to_string(), json!(app.uuid)),
@@ -150,6 +159,7 @@ pub(crate) fn map_pipeline(app: &Application, latest: Option<&Deployment>) -> Pi
     }
 
     Pipeline {
+        correlation: correlation::pipeline(app, placement),
         id: app.uuid.clone(),
         name: app.name.clone(),
         status,
@@ -187,7 +197,9 @@ pub(crate) fn map_available_pipeline(
     }
 }
 
-pub(crate) fn map_run(pipeline_id: &str, server_url: &str, deployment: &Deployment) -> PipelineRun {
+pub(crate) fn map_run(
+    pipeline_id: &str, server_url: &str, deployment: &Deployment, app: Option<&Application>,
+) -> PipelineRun {
     let started_at = deployment.created_at;
     let concluded = concluded_at(
         &deployment.status,
@@ -214,6 +226,8 @@ pub(crate) fn map_run(pipeline_id: &str, server_url: &str, deployment: &Deployme
     }
 
     PipelineRun {
+        correlation: correlation::run(app, deployment),
+        evidence: RunEvidence::default(),
         id: format!("{pipeline_id}__{}", deployment.deployment_uuid),
         pipeline_id: pipeline_id.to_string(),
         run_number: deployment.id,
@@ -231,6 +245,15 @@ pub(crate) fn map_run(pipeline_id: &str, server_url: &str, deployment: &Deployme
         actor: None,
         inputs: None,
         metadata,
+    }
+}
+
+pub(crate) fn apply_live_status(run: &mut PipelineRun, live: PipelineStatus) {
+    let status = deployed_status(run.status, live);
+    if status != run.status {
+        run.status = status;
+        run.evidence.outcome = Observed::Absent;
+        run.evidence.attempt = false;
     }
 }
 

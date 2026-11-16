@@ -86,3 +86,33 @@ fn build_without_a_start_time_has_no_times() {
     assert_eq!(node.started_at, None);
     assert_eq!(node.finished_at, None);
 }
+
+#[test]
+fn git_build_data_becomes_a_source_with_its_commit() {
+    let (pipeline, runs) = crate::fixtures::correlation_fixtures().remove(0);
+    let expected = pipedash_plugin_api::Correlation {
+        sources: vec![pipedash_plugin_api::SourceObservation {
+            repo: pipedash_plugin_api::RepoId::parse("https://git.test/Shop/Api").unwrap(),
+            path_scopes: Vec::new(),
+            commit: pipedash_plugin_api::CommitSha::parse(
+                "0123456789abcdef0123456789abcdef01234567",
+            ),
+        }],
+        ..Default::default()
+    };
+
+    assert_eq!(pipeline.correlation, expected);
+    assert_eq!(runs[0].correlation, expected);
+    assert_eq!(runs[0].evidence, RunEvidence::default());
+}
+
+#[test]
+fn build_without_git_data_or_timestamp_has_no_sources_and_no_timing() {
+    let build: types::Build =
+        serde_json::from_str(r#"{"number":1,"result":"SUCCESS","duration":5000}"#).unwrap();
+    let run = build_to_pipeline_run(build, "app", "http://ci.test", "app");
+
+    assert!(run.correlation.is_empty());
+    assert_eq!(run.evidence.timing, Observed::Absent);
+    assert_eq!(run.duration_seconds, None);
+}

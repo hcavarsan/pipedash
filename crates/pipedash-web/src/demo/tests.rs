@@ -33,6 +33,17 @@ fn blocks_configuration_and_pipeline_actions() {
         (Method::GET, "/api/v1/providers/export".to_string()),
         (Method::GET, "/api/v1/push/subscriptions".to_string()),
         (Method::DELETE, "/api/v1/devices/abc".to_string()),
+        (Method::POST, "/api/v1/applications".to_string()),
+        (Method::POST, "/api/v1/applications/1/edits".to_string()),
+        (Method::DELETE, "/api/v1/applications/1".to_string()),
+        (
+            Method::DELETE,
+            "/api/v1/applications/1/overrides/2".to_string(),
+        ),
+        (
+            Method::POST,
+            "/api/v1/applications/suggestions/accept".to_string(),
+        ),
         (Method::PUT, "/api/v1/push/relay".to_string()),
     ];
 
@@ -64,6 +75,9 @@ fn allows_reads_and_queries() {
         (Method::POST, "/api/v1/refresh/all"),
         (Method::POST, "/api/v1/vault/unlock"),
         (Method::POST, "/api/v1/devices/pairing"),
+        (Method::GET, "/api/v1/applications"),
+        (Method::GET, "/api/v1/applications/suggestions"),
+        (Method::GET, "/api/v1/applications/1/metrics"),
         (Method::GET, "/api/v1/push/relay"),
     ];
 

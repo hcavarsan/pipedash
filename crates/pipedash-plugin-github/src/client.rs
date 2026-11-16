@@ -1,12 +1,20 @@
-use chrono::Utc;
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+use chrono::{
+    DateTime,
+    Utc,
+};
 use octocrab::Octocrab;
 use pipedash_plugin_api::{
     http,
+    PathScope,
     PermissionStatus,
     PluginError,
     PluginResult,
     RateLimit,
     RetryPolicy,
+    TargetObservation,
 };
 use reqwest::header::RETRY_AFTER;
 use secrecy::SecretString;
@@ -15,6 +23,7 @@ use crate::permissions::PermissionChecker;
 
 mod actions;
 mod catalog;
+mod correlation;
 mod runs;
 mod workflows;
 
@@ -49,6 +58,8 @@ pub(crate) fn map_octocrab_error(context: &str, error: octocrab::Error) -> Plugi
     }
 }
 
+type ScopeCache = Mutex<HashMap<u64, (DateTime<Utc>, Vec<PathScope>)>>;
+
 pub(crate) struct GitHubClient {
     pub(crate) octocrab: Octocrab,
     pub(crate) retry_policy: RetryPolicy,
@@ -56,6 +67,8 @@ pub(crate) struct GitHubClient {
     http: reqwest::Client,
     token: SecretString,
     api_url: String,
+    scope_cache: ScopeCache,
+    target_cache: Mutex<HashMap<u64, Vec<TargetObservation>>>,
 }
 
 impl GitHubClient {
@@ -77,6 +90,8 @@ impl GitHubClient {
             http: http_client,
             token: token_secret,
             api_url: api_url.trim_end_matches('/').to_string(),
+            scope_cache: Mutex::default(),
+            target_cache: Mutex::default(),
         })
     }
 

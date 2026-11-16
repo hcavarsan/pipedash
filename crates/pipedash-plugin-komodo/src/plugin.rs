@@ -15,7 +15,6 @@ use pipedash_plugin_api::support::{
     run_metadata_str,
     write_in_chunks,
 };
-use pipedash_plugin_api::utils::deployed_status;
 use pipedash_plugin_api::*;
 use tracing::{
     debug,
@@ -41,14 +40,9 @@ plugin_struct!(
 );
 
 impl KomodoPlugin {
-    async fn live_status(&self, stack_id: &str) -> PluginResult<PipelineStatus> {
+    async fn stack(&self, stack_id: &str) -> PluginResult<Option<types::StackListItem>> {
         let stacks = self.client()?.list_stacks().await?;
-        let stack = stacks
-            .iter()
-            .find(|stack| stack.id == stack_id)
-            .ok_or_else(|| PluginError::PipelineNotFound(format!("Stack {stack_id} not found")))?;
-
-        Ok(mapper::map_stack_state(&stack.info).0)
+        Ok(stacks.into_iter().find(|stack| stack.id == stack_id))
     }
 
     async fn update_started_at(
@@ -91,6 +85,14 @@ impl KomodoPlugin {
         })
         .await
     }
+}
+
+fn live_status(
+    stack: Option<&types::StackListItem>, stack_id: &str,
+) -> PluginResult<PipelineStatus> {
+    stack
+        .map(|stack| mapper::map_stack_state(&stack.info).0)
+        .ok_or_else(|| PluginError::PipelineNotFound(format!("Stack {stack_id} not found")))
 }
 
 plugin_impl!(KomodoPlugin [
@@ -211,15 +213,17 @@ plugin_impl!(KomodoPlugin [
     ) -> PluginResult<Vec<PipelineRun>> {
         let stack_id = config::parse_pipeline_id(pipeline_id)?;
         let client = self.client()?;
+        let stack = self.stack(stack_id).await?;
+        let info = stack.as_ref().map(|stack| &stack.info);
         let updates = client.stack_updates(stack_id, limit).await?;
 
         let mut runs: Vec<PipelineRun> = updates
             .iter()
-            .map(|update| mapper::map_run(stack_id, &self.server_url, update, None))
+            .map(|update| mapper::map_run(stack_id, &self.server_url, update, None, info))
             .collect();
         let latest = runs.iter_mut().max_by_key(|run| run.run_number);
         if let Some(latest) = latest.filter(|run| run.status == PipelineStatus::Success) {
-            latest.status = deployed_status(latest.status, self.live_status(stack_id).await?);
+            mapper::apply_live_status(latest, live_status(stack.as_ref(), stack_id)?);
         }
 
         Ok(runs)
@@ -237,11 +241,13 @@ plugin_impl!(KomodoPlugin [
         } else {
             Some(client.update(&item.id).await?)
         };
-        let mut run = mapper::map_run(stack_id, &self.server_url, &item, detail.as_ref());
+        let stack = self.stack(stack_id).await?;
+        let info = stack.as_ref().map(|stack| &stack.info);
+        let mut run = mapper::map_run(stack_id, &self.server_url, &item, detail.as_ref(), info);
         if run.status == PipelineStatus::Success {
             let latest = client.latest_update_starts(&[stack_id]).await?;
             if latest.get(stack_id) == Some(&run_number) {
-                run.status = deployed_status(run.status, self.live_status(stack_id).await?);
+                mapper::apply_live_status(&mut run, live_status(stack.as_ref(), stack_id)?);
             }
         }
 

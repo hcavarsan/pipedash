@@ -1,8 +1,11 @@
+use pipedash_plugin_api::kubernetes::{
+    ObjectKey,
+    OwnedObject,
+};
 use serde::Deserialize;
 
 use crate::types::logs::{
     ApplicationTree,
-    OwnerReference,
     Pod,
     PodMetadata,
     ResourceNode,
@@ -28,44 +31,50 @@ pub(crate) fn in_cluster(destination: &ApplicationDestination) -> bool {
         || destination.name.as_deref() == Some(IN_CLUSTER_NAME)
 }
 
-fn managed(resources: &[ResourceStatus], kind: &str, namespace: &str, name: &str) -> bool {
-    resources.iter().any(|resource| {
-        resource.kind == kind
-            && resource.name == name
-            && resource.namespace.as_deref().unwrap_or_default() == namespace
-    })
-}
-
-fn owned_by_managed(
-    resources: &[ResourceStatus], namespace: &str, owner: &OwnerReference, parents: &[Owned],
-) -> bool {
-    managed(resources, &owner.kind, namespace, &owner.name)
-        || parents
-            .iter()
-            .filter(|parent| {
-                parent.metadata.namespace == namespace && parent.metadata.name == owner.name
-            })
-            .flat_map(|parent| &parent.metadata.owner_references)
-            .any(|grand| managed(resources, &grand.kind, namespace, &grand.name))
-}
-
-pub(crate) fn owned_pods(
-    resources: &[ResourceStatus], pods: Vec<Pod>, replica_sets: &[Owned], jobs: &[Owned],
-) -> Vec<Pod> {
-    pods.into_iter()
-        .filter(|pod| {
-            let meta = &pod.metadata;
-            managed(resources, "Pod", &meta.namespace, &meta.name)
-                || meta.owner_references.iter().any(|owner| {
-                    let parents = match owner.kind.as_str() {
-                        "ReplicaSet" => replica_sets,
-                        "Job" => jobs,
-                        _ => &[],
-                    };
-                    owned_by_managed(resources, &meta.namespace, owner, parents)
-                })
+pub(crate) fn managed(resources: &[ResourceStatus]) -> Vec<ObjectKey<'_>> {
+    resources
+        .iter()
+        .map(|resource| ObjectKey {
+            kind: &resource.kind,
+            namespace: resource.namespace.as_deref().unwrap_or_default(),
+            name: &resource.name,
         })
         .collect()
+}
+
+fn references(metadata: &PodMetadata) -> impl Iterator<Item = (&str, &str)> {
+    metadata
+        .owner_references
+        .iter()
+        .map(|owner| (owner.kind.as_str(), owner.name.as_str()))
+}
+
+impl OwnedObject for Pod {
+    fn namespace(&self) -> &str {
+        &self.metadata.namespace
+    }
+
+    fn name(&self) -> &str {
+        &self.metadata.name
+    }
+
+    fn owner_references(&self) -> impl Iterator<Item = (&str, &str)> {
+        references(&self.metadata)
+    }
+}
+
+impl OwnedObject for Owned {
+    fn namespace(&self) -> &str {
+        &self.metadata.namespace
+    }
+
+    fn name(&self) -> &str {
+        &self.metadata.name
+    }
+
+    fn owner_references(&self) -> impl Iterator<Item = (&str, &str)> {
+        references(&self.metadata)
+    }
 }
 
 fn failing_container(pod: &Pod) -> Option<String> {

@@ -11,6 +11,24 @@ use tokio::io::{
 
 use super::*;
 
+const STUB_COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+const STUB_PARENT: &str = "fedcba9876543210fedcba9876543210fedcba98";
+const STUB_DIFF: &str = "diff --git a/deploy/values.yaml b/deploy/values.yaml\n\
+index 1..2 100644\n\
+--- a/deploy/values.yaml\n\
++++ b/deploy/values.yaml\n\
+@@ -1 +1 @@\n\
+-tag: a\n\
++tag: b\n\
+diff --git a/old.txt b/old.txt\n\
+deleted file mode 100644\n\
+--- a/old.txt\n\
++++ /dev/null\n\
+@@ -1 +0,0 @@\n\
+-gone\n\
+diff --git a/logo.png b/logo.png\n\
+Binary files differ\n";
+
 async fn serve_runs(total: i64) -> (BitbucketPlugin, mpsc::Receiver<String>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -97,6 +115,42 @@ async fn serve_runs(total: i64) -> (BitbucketPlugin, mpsc::Receiver<String>) {
                 ),
                 (false, "/repositories/ws/repo/pipelines/%7B1%7D/stopPipeline") => {
                     ("204 No Content", String::new())
+                }
+                (true, "/repositories/ws/repo/commit/main") => (
+                    "200 OK",
+                    serde_json::json!({
+                        "hash": STUB_COMMIT, "date": "2026-10-01T10:00:00+02:00",
+                        "message": "ship it", "parents": [{"hash": STUB_PARENT}]
+                    })
+                    .to_string(),
+                ),
+                (true, "/repositories/ws/repo/commits") => {
+                    let include = url.query_pairs().find(|(key, _)| key == "include");
+                    let ahead = include.is_some_and(|(_, value)| value == STUB_COMMIT);
+                    let values = if ahead {
+                        vec![serde_json::json!({"hash": STUB_COMMIT})]
+                    } else {
+                        Vec::new()
+                    };
+                    (
+                        "200 OK",
+                        serde_json::json!({"values": values, "pagelen": 100}).to_string(),
+                    )
+                }
+                (true, path) if path == format!("/repositories/ws/repo/diffstat/{STUB_COMMIT}") => (
+                    "200 OK",
+                    serde_json::json!({
+                        "values": [
+                            {"old": {"path": "deploy/values.yaml"}, "new": {"path": "deploy/values.yaml"}},
+                            {"old": {"path": "old.txt"}, "new": null},
+                            {"old": null, "new": {"path": "logo.png"}}
+                        ],
+                        "pagelen": 500
+                    })
+                    .to_string(),
+                ),
+                (true, path) if path == format!("/repositories/ws/repo/diff/{STUB_COMMIT}") => {
+                    ("200 OK", STUB_DIFF.to_string())
                 }
                 _ => ("404 Not Found", "{}".to_string()),
             };
@@ -758,4 +812,83 @@ async fn cursors_of_another_step_or_shape_restart_without_a_range_request() {
         storage_requests(&log),
         [(None, None), (None, None), (None, None)]
     );
+}
+
+#[tokio::test]
+async fn commit_hooks_read_the_repository_through_the_cloud_api() {
+    let (plugin, _requests) = serve_runs(1).await;
+    let repo = RepoId::from_host_path("bitbucket.org", "ws/repo").unwrap();
+    let commit = CommitSha::parse(STUB_COMMIT).unwrap();
+    let parent = CommitSha::parse(STUB_PARENT).unwrap();
+
+    let info = plugin.resolve_commit(&repo, "main").await.unwrap();
+    let comparison = plugin
+        .compare_commits(&repo, &parent, &commit)
+        .await
+        .unwrap();
+    let changes = plugin.commit_changes(&repo, &commit).await.unwrap();
+
+    assert_eq!(info.sha, commit);
+    assert_eq!(info.parents, [parent]);
+    assert_eq!(info.authored_at, info.committed_at);
+    assert_eq!(info.authored_at.to_rfc3339(), "2026-10-01T08:00:00+00:00");
+    assert_eq!(
+        (comparison.ahead, comparison.behind, comparison.commits),
+        (1, 0, vec![commit])
+    );
+    let patches: Vec<_> = changes
+        .iter()
+        .map(|file| (file.path.as_str(), file.patch.as_deref()))
+        .collect();
+    assert_eq!(
+        patches,
+        [
+            (
+                "deploy/values.yaml",
+                Some("@@ -1 +1 @@\n-tag: a\n+tag: b\n")
+            ),
+            ("old.txt", Some("@@ -1 +0,0 @@\n-gone\n")),
+            ("logo.png", None),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn commit_hooks_reject_repositories_outside_bitbucket_cloud() {
+    let (plugin, _requests) = serve_runs(1).await;
+    let sha = CommitSha::parse(STUB_COMMIT).unwrap();
+
+    for repo in [
+        RepoId::from_host_path("git.example.test", "ws/repo").unwrap(),
+        RepoId::from_host_path("bitbucket.org", "ws/repo/extra").unwrap(),
+    ] {
+        let error = plugin.commit_changes(&repo, &sha).await.unwrap_err();
+        assert!(matches!(error, PluginError::InvalidConfig(_)), "{error}");
+    }
+}
+
+#[tokio::test]
+async fn hooks_on_an_uninitialized_plugin_report_it_instead_of_unsupported() {
+    let plugin = BitbucketPlugin::new();
+    let repo = RepoId::from_host_path("bitbucket.org", "ws/repo").unwrap();
+    let sha = CommitSha::parse(STUB_COMMIT).unwrap();
+
+    let errors = [
+        plugin.resolve_commit(&repo, "main").await.unwrap_err(),
+        plugin.compare_commits(&repo, &sha, &sha).await.unwrap_err(),
+        plugin.commit_changes(&repo, &sha).await.unwrap_err(),
+    ];
+
+    for error in errors {
+        assert!(matches!(error, PluginError::Internal(_)), "{error}");
+    }
+}
+
+#[test]
+fn source_hosts_are_empty_without_configuration_and_bitbucket_cloud_otherwise() {
+    let plugin = BitbucketPlugin::new();
+    let configured = HashMap::from([("email".to_string(), "a@b.test".to_string())]);
+
+    assert!(plugin.source_hosts(&HashMap::new()).is_empty());
+    assert_eq!(plugin.source_hosts(&configured), ["bitbucket.org"]);
 }

@@ -7,6 +7,19 @@ use crate::actions::{
     RunActionState,
     TriggerResult,
 };
+use crate::correlation::hooks::{
+    ChangedFile,
+    CommitComparison,
+    CommitInfo,
+    Provenance,
+    RegistryAuth,
+};
+use crate::correlation::ids::{
+    CommitSha,
+    Digest,
+    RepoId,
+};
+use crate::correlation::image::ArtifactRepository;
 use crate::error::PluginResult;
 use crate::health::{
     ClientOptions,
@@ -277,6 +290,42 @@ pub trait Plugin: Send + Sync {
 
     fn configured_repositories(&self, config: &HashMap<String, String>) -> Vec<String> {
         selected_items(config).map(str::to_string).collect()
+    }
+
+    fn source_hosts(&self, _config: &HashMap<String, String>) -> Vec<String> {
+        Vec::new()
+    }
+
+    async fn resolve_commit(&self, _repo: &RepoId, _rev: &str) -> PluginResult<CommitInfo> {
+        Err(crate::error::PluginError::NotSupported(
+            "Commit lookup not supported by this provider".to_string(),
+        ))
+    }
+
+    async fn compare_commits(
+        &self, _repo: &RepoId, _base: &CommitSha, _head: &CommitSha,
+    ) -> PluginResult<CommitComparison> {
+        Err(crate::error::PluginError::NotSupported(
+            "Commit comparison not supported by this provider".to_string(),
+        ))
+    }
+
+    async fn commit_changes(
+        &self, _repo: &RepoId, _sha: &CommitSha,
+    ) -> PluginResult<Vec<ChangedFile>> {
+        Err(crate::error::PluginError::NotSupported(
+            "Commit changes not supported by this provider".to_string(),
+        ))
+    }
+
+    async fn artifact_provenance(
+        &self, _repository: &ArtifactRepository, _digest: &Digest,
+    ) -> PluginResult<Option<Provenance>> {
+        Ok(None)
+    }
+
+    async fn registry_auth(&self, _host: &str) -> PluginResult<Option<RegistryAuth>> {
+        Ok(None)
     }
 
     fn pipeline_actions(&self, pipeline: &PipelineFacts<'_>) -> PipelineActionState {
