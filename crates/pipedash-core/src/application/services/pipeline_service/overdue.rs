@@ -16,6 +16,7 @@ use super::{
     OVERDUE_CONCURRENT_CHECKS,
     OVERDUE_RECENT_RUNS,
 };
+use crate::domain::cctray::cctray_feed;
 use crate::domain::{
     DomainError,
     DomainResult,
@@ -35,6 +36,11 @@ impl PipelineService {
         let mut pipelines = self.cached_pipelines(provider_id).await?;
         self.presenter.pipelines(&mut pipelines).await?;
         Ok(pipelines)
+    }
+
+    pub async fn cctray_feed(&self, origin: &str) -> DomainResult<String> {
+        let pipelines = self.get_cached_pipelines(None).await?;
+        Ok(cctray_feed(&pipelines, origin))
     }
 
     pub(crate) async fn cached_pipelines(

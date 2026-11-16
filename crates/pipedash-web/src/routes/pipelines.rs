@@ -4,6 +4,11 @@ use axum::{
         Query,
         State,
     },
+    http::{
+        header,
+        HeaderMap,
+    },
+    response::IntoResponse,
     routing::{
         get,
         post,
@@ -69,6 +74,7 @@ pub struct CancelRunsRequest {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/cached", get(list_pipelines))
+        .route("/cctray.xml", get(cctray_feed))
         .route("/cancellation-targets", post(cancellation_targets))
         .route("/cancel-runs", post(cancel_runs))
         .route("/{id}/runs/query", post(query_run_history))
@@ -101,6 +107,21 @@ async fn list_pipelines(
         .get_cached_pipelines(query.provider_id)
         .await?;
     Ok(Json(pipelines))
+}
+
+async fn cctray_feed(
+    State(state): State<AppState>, headers: HeaderMap,
+) -> ApiResult<impl IntoResponse> {
+    let header_value = |name| headers.get(name).and_then(|v| v.to_str().ok());
+    let scheme = header_value("x-forwarded-proto")
+        .and_then(|p| p.split(',').next())
+        .map_or("http", str::trim);
+    let host = header_value(header::HOST.as_str()).unwrap_or_default();
+    let pipeline_service = state.pipeline_service().await?;
+    let feed = pipeline_service
+        .cctray_feed(&format!("{scheme}://{host}"))
+        .await?;
+    Ok(([(header::CONTENT_TYPE, "application/xml")], feed))
 }
 
 async fn query_run_history(
