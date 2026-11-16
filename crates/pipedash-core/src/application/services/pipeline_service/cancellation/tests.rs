@@ -341,3 +341,67 @@ async fn cancel_runs_should_run_in_parallel_within_the_limit_and_keep_input_orde
         numbers
     );
 }
+
+#[tokio::test]
+async fn cancellation_scopes_should_execute_every_run_in_bounded_batches() {
+    for count in [1000, 1001] {
+        let h = Harness::new().await;
+        let runs = (1..=count)
+            .map(|number| run_as("stub__1__build", number, PipelineStatus::Running))
+            .collect::<Vec<_>>();
+        let (provider_id, _) = h
+            .add_stub(|id| {
+                let mut stub = StubProvider::new(id).with_runs(runs.clone());
+                *stub.cancelled.get_mut().unwrap() = Some(Vec::new());
+                stub
+            })
+            .await;
+        let build = pipeline(provider_id, "build", PipelineStatus::Running);
+        cache(&h, &build, runs).await;
+
+        let discovered = h
+            .pipeline_service
+            .cancellation_targets(vec![build.id.clone()])
+            .await
+            .unwrap();
+        assert_eq!(discovered.run_count, count as usize);
+        let batches = discovered.batches;
+        assert_eq!(
+            batches.iter().map(Vec::len).collect::<Vec<_>>(),
+            if count == 1000 {
+                vec![1000]
+            } else {
+                vec![1000, 1]
+            }
+        );
+
+        let mut results = Vec::new();
+        for batch in batches {
+            results.extend(h.pipeline_service.cancel_runs(batch).await.unwrap().results);
+        }
+        assert_eq!(results.len(), count as usize);
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| result.error.is_some())
+                .count(),
+            1
+        );
+        assert_eq!(
+            results
+                .iter()
+                .find(|result| result.error.is_some())
+                .unwrap()
+                .target
+                .run_number,
+            13
+        );
+        let mut numbers = results
+            .iter()
+            .map(|result| result.target.run_number)
+            .collect::<Vec<_>>();
+        numbers.sort_unstable();
+        assert_eq!(numbers, (1..=count).collect::<Vec<_>>());
+        h.pipeline_service.settle().await;
+    }
+}

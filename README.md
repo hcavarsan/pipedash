@@ -54,7 +54,7 @@
   </tr>
   <tr>
     <td align="center" width="120"><img src="./.github/icons/act.svg" width="32" height="32" alt="" /><br><b>Act</b></td>
-    <td width="420">Start a workflow with inputs or stop a run.</td>
+    <td width="420">Start a workflow with inputs or cancel active runs in batches.</td>
     <td width="264"><a href="https://pipedash.app/docs/features/trigger-and-cancel">Trigger and cancel</a></td>
   </tr>
   <tr>
@@ -105,7 +105,7 @@ It runs as a desktop app, as a self-hosted web server in Docker or as an iOS and
 - **Add a provider** with the [quick start](https://pipedash.app/docs/getting-started/quick-start).
 - **Run** it on [desktop](https://pipedash.app/docs/deployment/desktop), [mobile](https://pipedash.app/docs/deployment/mobile) or [Docker](https://pipedash.app/docs/deployment/docker).
 - **Share** one server through [Server mode](https://pipedash.app/docs/deployment/server-mode), a [reverse proxy](https://pipedash.app/docs/deployment/reverse-proxy) or the [REST API](https://pipedash.app/docs/deployment/rest-api).
-- **Configure** [settings](https://pipedash.app/docs/configuration), [storage](https://pipedash.app/docs/configuration/storage-backends), [tokens](https://pipedash.app/docs/configuration/token-storage) and the [cache](https://pipedash.app/docs/features/cache).
+- **Configure** [settings](https://pipedash.app/docs/configuration), [tokens](https://pipedash.app/docs/configuration/token-storage) and the [cache](https://pipedash.app/docs/features/cache), or move providers and run history between [storage backends](https://pipedash.app/docs/configuration/storage-backends).
 
 ## Screenshots
 
@@ -154,6 +154,7 @@ It runs as a desktop app, as a self-hosted web server in Docker or as an iOS and
 </table>
 
 </details>
+
 
 ## Contributing
 
