@@ -97,6 +97,7 @@ pub struct PipelineService {
     background: StdMutex<JoinSet<()>>,
     root: CancellationToken,
     metrics_inflight: Arc<StdMutex<HashSet<String>>>,
+    overdue_inflight: Arc<StdMutex<HashSet<String>>>,
     metrics_permits: Arc<Semaphore>,
     presenter: Arc<Presenter>,
 }
@@ -125,6 +126,7 @@ impl PipelineService {
             background: StdMutex::new(JoinSet::new()),
             root: CancellationToken::new(),
             metrics_inflight: Arc::new(StdMutex::new(HashSet::new())),
+            overdue_inflight: Arc::new(StdMutex::new(HashSet::new())),
             metrics_permits: Arc::new(Semaphore::new(METRICS_CONCURRENCY)),
             presenter,
         }

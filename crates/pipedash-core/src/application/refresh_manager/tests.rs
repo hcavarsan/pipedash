@@ -129,3 +129,68 @@ async fn a_stopped_manager_hands_new_claims_back_as_cancelled() {
 
     assert_eq!(results[0].state, RefreshState::Pending);
 }
+
+#[tokio::test]
+async fn slow_overdue_history_does_not_block_a_healthy_provider() {
+    use crate::application::fetch_scheduler::ForcedClaim;
+    use crate::application::services::pipeline_service::FETCH_CONCURRENCY;
+    use crate::application::test_support::pipeline;
+    use crate::domain::PipelineStatus;
+
+    let h = Harness::new().await;
+    let gate = Gate::new();
+    let (id, slow) = h
+        .add_stub(|id| {
+            StubProvider::new(id)
+                .returning(vec![pipeline(id, "active", PipelineStatus::Running)])
+                .run_gated(&gate)
+        })
+        .await;
+    h.provider_service.load_all_providers().await.unwrap();
+    let lease = h.provider_service.acquire(id).await.unwrap();
+    let (dispatcher, commands) = RefreshDispatcher::channel();
+    let cancel = CancellationToken::new();
+    let manager = tokio::spawn(run(
+        Arc::clone(&h.pipeline_service),
+        None,
+        watch::channel(RefreshMode::Idle).1,
+        cancel.clone(),
+        commands,
+    ));
+    for attempt in 1..=FETCH_CONCURRENCY {
+        let ForcedClaim::Claimed(claim) = h.scheduler.claim_forced(
+            id,
+            lease.generation,
+            Instant::now() + Duration::from_secs(attempt as u64 * 60),
+        ) else {
+            panic!("claim was not admitted");
+        };
+        let handle = claim.handle();
+        dispatcher.fetch_now(vec![claim]);
+        handle.wait().await;
+    }
+    gate.arrived().await;
+    let (healthy_id, healthy) = h.add_stub(StubProvider::new).await;
+    let lease = h.provider_service.acquire(healthy_id).await.unwrap();
+    let ForcedClaim::Claimed(claim) =
+        h.scheduler
+            .claim_forced(healthy_id, lease.generation, Instant::now())
+    else {
+        panic!("healthy claim was not admitted");
+    };
+    let handle = claim.handle();
+    dispatcher.fetch_now(vec![claim]);
+    let outcome = tokio::time::timeout(Duration::from_millis(300), handle.wait()).await;
+    let fetches = healthy.fetch_count();
+    let slow_fetches = slow.fetch_count();
+    gate.open();
+    cancel.cancel();
+    manager.await.unwrap();
+
+    assert!(
+        outcome.is_ok(),
+        "healthy refresh timed out with {fetches} provider calls"
+    );
+    assert_eq!(slow_fetches, FETCH_CONCURRENCY);
+    assert_eq!(slow.history_fetch_count(), 1);
+}
