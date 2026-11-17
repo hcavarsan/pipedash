@@ -1,4 +1,5 @@
 import { type ReactNode, useState } from 'react'
+import { ErrorState } from '../../../components/common/ErrorState'
 import { IosRow } from '../../../components/ios/IosList'
 import { useStorageConfig } from '../../../queries/useStorageQueries'
 import { RetentionDaysInput } from '../../metrics/components/RetentionDaysInput'
@@ -8,7 +9,8 @@ const TITLE = 'Queue limit (minutes)'
 const DESCRIPTION = 'A queued run past this limit is marked as stuck.'
 
 export function QueueLimitInput({ mobileShell }: { mobileShell: boolean }): ReactNode {
-  const general = useStorageConfig().data?.config.general
+  const storageConfig = useStorageConfig()
+  const general = storageConfig.data?.config.general
   const mutation = useUpdateGeneralSettings()
   const [draft, setDraft] = useState<string | number | null>(null)
   const saved = general?.queue_alert_minutes ?? 15
@@ -20,6 +22,17 @@ export function QueueLimitInput({ mobileShell }: { mobileShell: boolean }): Reac
       mutation.mutate({ ...general, queue_alert_minutes: value })
     }
   }
+  if (storageConfig.error) {
+    return (
+      <ErrorState
+        title="Couldn't load the queue limit"
+        error={storageConfig.error}
+        onRetry={() => void storageConfig.refetch()}
+        retrying={storageConfig.isRefetching}
+      />
+    )
+  }
+
   const input = (
     <RetentionDaysInput
       row={mobileShell}

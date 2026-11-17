@@ -84,3 +84,23 @@ for (const mobileShell of [false, true]) {
     await waitFor(() => assert.equal(input.value, '30'))
   })
 }
+
+test('a failed load shows the error and a retry loads the saved limit', async (context) => {
+  const user = userEvent.setup({ document })
+  let fail = true
+  context.mock.method(apiService, 'getStorageConfig', async () => {
+    if (fail) {
+      throw new Error('server unreachable')
+    }
+    return storageConfig()
+  })
+  await renderInput(false)
+
+  await view().findByText("Couldn't load the queue limit")
+  fail = false
+  await user.click(view().getByRole('button', { name: /retry/i }))
+
+  const input = await view().findByRole('textbox', { name: 'Queue limit (minutes)' })
+  assert.ok(input instanceof HTMLInputElement)
+  await waitFor(() => assert.equal(input.value, '15'))
+})
