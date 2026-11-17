@@ -13,6 +13,7 @@ use pipedash_plugin_api::{
 };
 use regex::RegexBuilder;
 
+use super::super::auth::editing_mode;
 use crate::domain::provider_draft::ProviderDraft;
 use crate::domain::{
     ProviderConfig,
@@ -133,10 +134,31 @@ pub(super) fn selection_needs_refresh(
     !carries_selection || scope_changed(schema, &draft.values, stored)
 }
 
+fn kept_token(
+    schema: &ConfigSchema, draft: &ProviderDraft, stored: &ProviderConfig,
+) -> Option<String> {
+    let token_mode = draft.auth_mode == AuthMode::Token
+        && editing_mode(schema, &stored.config) == AuthMode::Token;
+    let unrelated = [TOKEN_KEY, SELECTION_KEY, AUTH_MODE_KEY];
+    let same_connection = draft
+        .values
+        .keys()
+        .chain(stored.config.keys())
+        .filter(|key| !unrelated.contains(&key.as_str()))
+        .all(|key| value_of(&draft.values, key) == value_of(&stored.config, key));
+    let blank = value_of(&draft.values, TOKEN_KEY).trim().is_empty();
+
+    (token_mode && same_connection && blank && !stored.token.is_empty())
+        .then(|| stored.token.clone())
+}
+
 pub(super) fn effective_values(
     schema: &ConfigSchema, draft: &ProviderDraft, stored: Option<&ProviderConfig>,
 ) -> HashMap<String, String> {
     let mut values = draft.values.clone();
+    if let Some(token) = stored.and_then(|stored| kept_token(schema, draft, stored)) {
+        values.insert(TOKEN_KEY.to_string(), token);
+    }
     let Some(stored) = stored.filter(|stored| scope_changed(schema, &values, stored)) else {
         return values;
     };
