@@ -25,6 +25,10 @@ fn flag(metadata: &std::collections::HashMap<String, Value>, key: &str) -> bool 
     metadata.get(key) == Some(&Value::Bool(true))
 }
 
+pub fn awaits_review(metadata: &std::collections::HashMap<String, Value>) -> bool {
+    flag(metadata, "awaiting_review")
+}
+
 fn truthy(value: Option<&Value>) -> bool {
     match value {
         None | Some(Value::Null) => false,
@@ -61,7 +65,7 @@ pub fn run_actions(capabilities: &PluginCapabilities, run: &RunFacts<'_>) -> Run
         run.status,
         PipelineStatus::Running | PipelineStatus::Pending
     );
-    let awaiting_review = flag(run.metadata, "awaiting_review");
+    let awaiting_review = awaits_review(run.metadata);
 
     RunActionState {
         cancel: ActionAvailability::allowed(active && capabilities.cancel && !awaiting_review),

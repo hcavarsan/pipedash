@@ -78,6 +78,7 @@ pub(super) async fn scan_providers(
         &authorization.providers,
         &authorization.proxy_url,
         authorization.status_pages_enabled,
+        authorization.queue_alert_minutes,
         observations,
         REFRESH_BUDGET,
         crate::plugin_registry::plugin_registry(),

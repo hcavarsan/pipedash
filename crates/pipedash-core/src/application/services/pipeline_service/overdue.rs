@@ -10,6 +10,7 @@ use pipedash_plugin_api::{
 };
 use tokio::sync::Semaphore;
 
+use super::timing::waits_in_queue;
 use super::{
     PipelineService,
     RunTiming,
@@ -51,11 +52,13 @@ impl PipelineService {
 
     pub(super) fn mark_overdue(&self, mut pipelines: Vec<Pipeline>) -> Vec<Pipeline> {
         for pipeline in &mut pipelines {
-            let timing = (pipeline.status == PipelineStatus::Running)
-                .then(|| self.run_timings.get(&pipeline.id))
-                .flatten();
-            pipeline.overdue_run = timing.as_ref().and_then(|t| t.overdue.clone());
-            pipeline.typical_duration_seconds = timing.as_ref().map(|t| t.typical);
+            let timing = self.run_timings.get(&pipeline.id);
+            let timing = timing.as_deref();
+            let running = timing.filter(|_| pipeline.status == PipelineStatus::Running);
+            let queued = timing.filter(|_| pipeline.status == PipelineStatus::Pending);
+            pipeline.overdue_run = running.and_then(|t| t.overdue.clone());
+            pipeline.typical_duration_seconds = running.and_then(|t| t.typical);
+            pipeline.stuck_queue_run = queued.and_then(|t| t.stuck.clone());
         }
 
         pipelines
@@ -74,6 +77,7 @@ impl PipelineService {
             }
         };
         let now = Utc::now();
+        let queue_limit = self.provider_service.queue_limit_seconds().await;
         let policy = pipelines
             .first()
             .map(|p| self.provider_service.run_history_policy(&p.provider_type))
@@ -91,15 +95,13 @@ impl PipelineService {
                 let runs = self
                     .runs_for_overdue(&pipeline.id, policy.order, prefetched, permits)
                     .await?;
-                typical_duration(&runs).map(|typical| {
-                    (
-                        pipeline.id.clone(),
-                        RunTiming {
-                            typical,
-                            overdue: overdue_run(&runs, now),
-                        },
-                    )
-                })
+                let timing = RunTiming {
+                    typical: typical_duration(&runs),
+                    overdue: overdue_run(&runs, now),
+                    stuck: stuck_queue_run(&runs, now, queue_limit),
+                };
+                (timing.typical.is_some() || timing.stuck.is_some())
+                    .then(|| (pipeline.id.clone(), timing))
             }
         });
         let timings: HashMap<String, RunTiming> = futures::future::join_all(checks)
@@ -225,7 +227,16 @@ pub(crate) fn provider_id_of(pipeline_id: &str) -> Option<i64> {
 }
 
 pub(crate) fn tracks_overdue(pipeline: &Pipeline, policy: RunHistoryPolicy) -> bool {
-    pipeline.status == PipelineStatus::Running && policy.tracks_overdue
+    let queued = pipeline.status == PipelineStatus::Pending && pipeline.last_run.is_some();
+    (pipeline.status == PipelineStatus::Running || queued) && policy.tracks_overdue
+}
+
+pub(crate) fn stuck_queue_run(
+    runs: &[PipelineRun], now: DateTime<Utc>, limit_seconds: i64,
+) -> Option<String> {
+    runs.iter()
+        .find(|run| waits_in_queue(run) && (now - run.started_at).num_seconds() > limit_seconds)
+        .map(|run| run.id.clone())
 }
 
 pub(crate) fn overdue_run(runs: &[PipelineRun], now: DateTime<Utc>) -> Option<String> {

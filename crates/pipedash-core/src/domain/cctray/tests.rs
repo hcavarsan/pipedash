@@ -22,6 +22,7 @@ fn pipeline(id: &str, name: &str, repository: &str, status: PipelineStatus) -> P
         resource_state: None,
         metadata: HashMap::new(),
         overdue_run: None,
+        stuck_queue_run: None,
         typical_duration_seconds: None,
         actions: Default::default(),
     }

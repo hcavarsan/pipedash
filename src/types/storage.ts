@@ -15,6 +15,7 @@ export interface GeneralConfig {
   default_refresh_interval: number
   status_pages_enabled: boolean
   proxy_url: string
+  queue_alert_minutes: number
 }
 
 export interface ServerConfig {
