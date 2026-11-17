@@ -507,6 +507,19 @@ async fn an_edit_that_moves_the_connection_asks_for_the_token_again() {
     }
 }
 
+#[test]
+fn the_stored_token_stays_with_its_own_provider_type() {
+    let values = [("deck_url", "https://deck.example")];
+    let mut other_type = stored(&values);
+    other_type.provider_type = STUB.to_string();
+
+    assert_eq!(
+        config_of(&editing(1, &values), Some(&stored(&values))).token,
+        "stored"
+    );
+    assert_eq!(config_of(&editing(1, &values), Some(&other_type)).token, "");
+}
+
 #[tokio::test]
 async fn a_scope_change_drops_the_saved_selection() {
     let h = Harness::new().await;

@@ -3,6 +3,11 @@ use std::io::{
     Read,
     Write,
 };
+use std::sync::atomic::{
+    AtomicBool,
+    AtomicUsize,
+    Ordering,
+};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -2421,4 +2426,62 @@ async fn editing_during_a_renewal_keeps_the_renewed_session() {
             .renew_at(),
         renewed.renew_at()
     );
+}
+
+fn held_server(arrived: Arc<AtomicUsize>, released: Arc<AtomicBool>) -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let arrived = Arc::clone(&arrived);
+            let released = Arc::clone(&released);
+            std::thread::spawn(move || {
+                let mut buffer = [0; 4096];
+                let _ = stream.read(&mut buffer);
+                arrived.fetch_add(1, Ordering::SeqCst);
+                while !released.load(Ordering::SeqCst) {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                let body = r#"{"items":[]}"#;
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            });
+        }
+    });
+    url
+}
+
+#[tokio::test]
+async fn an_edit_keeps_a_token_rotated_while_it_was_validating() {
+    let h = Harness::with_real_plugins().await;
+    let arrived = Arc::new(AtomicUsize::new(0));
+    let released = Arc::new(AtomicBool::new(false));
+    let url = held_server(Arc::clone(&arrived), Arc::clone(&released));
+    let mut config = h.config("held", 30);
+    config.provider_type = STUB_HTTP.to_string();
+    config.config = http_settings(&url, false);
+    config.config.remove("token");
+    config.token = "original".to_string();
+    let id = h.repository.add_provider(&config).await.unwrap();
+    let mut edit = h.repository.get_provider(id).await.unwrap();
+    edit.name = "renamed".to_string();
+
+    let rotate = async {
+        while arrived.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let mut rotated = h.repository.get_provider(id).await.unwrap();
+        rotated.token = "rotated".to_string();
+        h.repository.update_provider(id, &rotated).await.unwrap();
+        released.store(true, Ordering::SeqCst);
+    };
+    let (saved, ()) = tokio::join!(h.provider_service.update_provider(id, edit), rotate);
+
+    saved.unwrap();
+    let stored = h.repository.get_provider(id).await.unwrap();
+    assert_eq!(stored.name, "renamed");
+    assert_eq!(stored.token, "rotated");
 }

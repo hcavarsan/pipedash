@@ -138,6 +138,7 @@ fn kept_token(
     schema: &ConfigSchema, draft: &ProviderDraft, stored: &ProviderConfig,
 ) -> Option<String> {
     let token_mode = draft.auth_mode == AuthMode::Token
+        && draft.provider_type == stored.provider_type
         && editing_mode(schema, &stored.config) == AuthMode::Token;
     let unrelated = [TOKEN_KEY, SELECTION_KEY, AUTH_MODE_KEY];
     let same_connection = draft

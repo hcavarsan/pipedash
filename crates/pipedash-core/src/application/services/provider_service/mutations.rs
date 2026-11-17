@@ -95,7 +95,9 @@ impl ProviderService {
     }
 
     pub async fn update_provider(&self, id: i64, mut config: ProviderConfig) -> DomainResult<()> {
-        let saved_name = self.repository.get_provider(id).await?.name;
+        let saved = self.repository.get_provider(id).await?;
+        let token_unchanged = config.token == saved.token;
+        let saved_name = saved.name;
         if self
             .config_state
             .get()
@@ -128,7 +130,7 @@ impl ProviderService {
         let guard = lock.lock().await;
 
         let current = self.repository.get_provider(id).await?;
-        if matches!(sign_in, TakenSignIn::Kept) {
+        if token_unchanged || matches!(sign_in, TakenSignIn::Kept) {
             config.token.clone_from(&current.token);
         }
         let mut config_with_id = config.clone();
