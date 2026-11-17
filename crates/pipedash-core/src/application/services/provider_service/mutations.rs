@@ -2,6 +2,7 @@ use chrono::Utc;
 use tokio::time::Instant;
 
 use super::auth::TakenSignIn;
+use super::draft::rules::same_connection;
 use super::plugin::keep_selection_with_ci;
 use super::runtime::interval_of;
 use super::{
@@ -130,7 +131,16 @@ impl ProviderService {
         let guard = lock.lock().await;
 
         let current = self.repository.get_provider(id).await?;
-        if token_unchanged || matches!(sign_in, TakenSignIn::Kept) {
+        let keeps_current_token = match &sign_in {
+            TakenSignIn::Kept => true,
+            TakenSignIn::Flow(_) => false,
+            TakenSignIn::None => {
+                token_unchanged
+                    && config.provider_type == current.provider_type
+                    && same_connection(&config.config, &current.config)
+            }
+        };
+        if keeps_current_token {
             config.token.clone_from(&current.token);
         }
         let mut config_with_id = config.clone();

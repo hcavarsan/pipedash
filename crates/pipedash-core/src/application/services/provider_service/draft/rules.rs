@@ -134,19 +134,24 @@ pub(super) fn selection_needs_refresh(
     !carries_selection || scope_changed(schema, &draft.values, stored)
 }
 
+pub(in super::super) fn same_connection(
+    values: &HashMap<String, String>, stored: &HashMap<String, String>,
+) -> bool {
+    let unrelated = [TOKEN_KEY, SELECTION_KEY, AUTH_MODE_KEY];
+    values
+        .keys()
+        .chain(stored.keys())
+        .filter(|key| !unrelated.contains(&key.as_str()))
+        .all(|key| value_of(values, key) == value_of(stored, key))
+}
+
 fn kept_token(
     schema: &ConfigSchema, draft: &ProviderDraft, stored: &ProviderConfig,
 ) -> Option<String> {
     let token_mode = draft.auth_mode == AuthMode::Token
         && draft.provider_type == stored.provider_type
         && editing_mode(schema, &stored.config) == AuthMode::Token;
-    let unrelated = [TOKEN_KEY, SELECTION_KEY, AUTH_MODE_KEY];
-    let same_connection = draft
-        .values
-        .keys()
-        .chain(stored.config.keys())
-        .filter(|key| !unrelated.contains(&key.as_str()))
-        .all(|key| value_of(&draft.values, key) == value_of(&stored.config, key));
+    let same_connection = same_connection(&draft.values, &stored.config);
     let blank = value_of(&draft.values, TOKEN_KEY).trim().is_empty();
 
     (token_mode && same_connection && blank && !stored.token.is_empty())
