@@ -11,7 +11,11 @@ use super::{
     is_quiet,
     usual_gap,
 };
-use crate::application::test_support::Harness;
+use crate::application::services::pipeline_service::PipelineService;
+use crate::application::test_support::{
+    Harness,
+    StubProvider,
+};
 use crate::domain::{
     Pipeline,
     PipelineCadence,
@@ -30,6 +34,20 @@ fn daily_runs(pipeline_id: &str, last: DateTime<Utc>, count: i64) -> Vec<Pipelin
             .unwrap()
         })
         .collect()
+}
+
+async fn learn(service: &PipelineService, provider_id: i64) -> bool {
+    let staged = service.stage_provider_gaps(provider_id).await.unwrap();
+    service.apply_gaps(staged)
+}
+
+fn nightly(provider_id: i64, last_run: DateTime<Utc>) -> Pipeline {
+    serde_json::from_value(json!({
+        "id": format!("stub__{provider_id}__nightly"), "provider_id": provider_id,
+        "provider_type": "stub", "name": "nightly", "status": "success",
+        "repository": "acme/app", "last_run": last_run, "last_updated": Utc::now()
+    }))
+    .unwrap()
 }
 
 async fn harness_with(last_run: DateTime<Utc>, runs: i64) -> (Harness, i64) {
@@ -90,8 +108,8 @@ async fn a_nightly_pipeline_that_stopped_firing_is_marked_quiet_once() {
     let (h, provider_id) = harness_with(Utc::now() - Duration::days(3), 6).await;
     let service = &h.pipeline_service;
 
-    let changed = service.update_provider_gaps(provider_id).await;
-    let unchanged = service.update_provider_gaps(provider_id).await;
+    let changed = learn(service, provider_id).await;
+    let unchanged = learn(service, provider_id).await;
     let pipelines = service.get_cached_pipelines(None).await.unwrap();
 
     assert!(changed);
@@ -110,18 +128,8 @@ async fn a_pipeline_on_schedule_or_with_too_few_runs_is_not_quiet() {
     let (on_time, on_time_provider) = harness_with(Utc::now() - Duration::hours(12), 6).await;
     let (sparse, sparse_provider) = harness_with(Utc::now() - Duration::days(3), 3).await;
 
-    assert!(
-        !on_time
-            .pipeline_service
-            .update_provider_gaps(on_time_provider)
-            .await
-    );
-    assert!(
-        !sparse
-            .pipeline_service
-            .update_provider_gaps(sparse_provider)
-            .await
-    );
+    assert!(!learn(&on_time.pipeline_service, on_time_provider).await);
+    assert!(!learn(&sparse.pipeline_service, sparse_provider).await);
     let on_time_pipelines = on_time
         .pipeline_service
         .get_cached_pipelines(None)
@@ -138,4 +146,40 @@ async fn a_pipeline_on_schedule_or_with_too_few_runs_is_not_quiet() {
         Some(false)
     );
     assert_eq!(sparse_pipelines[0].cadence, None);
+}
+
+#[tokio::test]
+async fn a_pipeline_seen_with_too_few_runs_learns_its_gap_after_the_next_run() {
+    let h = Harness::new().await;
+    let first_last = Utc::now() - Duration::days(4);
+    let (provider_id, stub) = h.add_stub(StubProvider::new).await;
+    let id = format!("stub__{provider_id}__nightly");
+    *stub.runs.lock().unwrap() = daily_runs(&id, first_last, 3);
+    h.repository
+        .update_pipelines_cache(provider_id, &[nightly(provider_id, first_last)])
+        .await
+        .unwrap();
+    let service = &h.pipeline_service;
+    learn(service, provider_id).await;
+    let unlearned = service.get_cached_pipelines(None).await.unwrap();
+
+    let next_last = first_last + Duration::days(1);
+    *stub.runs.lock().unwrap() = daily_runs(&id, next_last, 4);
+    h.repository.clear_cached_run_history(&id).await.unwrap();
+    h.repository
+        .update_pipelines_cache(provider_id, &[nightly(provider_id, next_last)])
+        .await
+        .unwrap();
+    let changed = learn(service, provider_id).await;
+    let learned = service.get_cached_pipelines(None).await.unwrap();
+
+    assert_eq!(unlearned[0].cadence, None);
+    assert!(changed);
+    assert_eq!(
+        learned[0].cadence,
+        Some(PipelineCadence {
+            usual_gap_seconds: 86_400,
+            quiet: true,
+        })
+    );
 }

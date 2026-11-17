@@ -31,6 +31,12 @@ pub(super) struct LearnedGap {
     quiet: bool,
 }
 
+pub(super) struct StagedGaps {
+    provider_id: i64,
+    current: HashSet<String>,
+    learned: Vec<(String, LearnedGap)>,
+}
+
 impl PipelineService {
     pub(super) fn cadence_of(
         &self, pipeline: &Pipeline, now: DateTime<Utc>,
@@ -42,7 +48,7 @@ impl PipelineService {
         })
     }
 
-    pub(super) async fn update_provider_gaps(&self, provider_id: i64) -> bool {
+    pub(super) async fn stage_provider_gaps(&self, provider_id: i64) -> Option<StagedGaps> {
         let pipelines = match self
             .repository
             .get_cached_pipelines(Some(provider_id))
@@ -51,7 +57,7 @@ impl PipelineService {
             Ok(pipelines) => pipelines,
             Err(e) => {
                 tracing::warn!(error = %e, "Failed to load pipelines for the cadence check");
-                return false;
+                return None;
             }
         };
         let order = pipelines
@@ -59,19 +65,37 @@ impl PipelineService {
             .map(|p| self.provider_service.run_history_policy(&p.provider_type))
             .unwrap_or_default()
             .order;
-        let current: HashSet<&str> = pipelines.iter().map(|p| p.id.as_str()).collect();
-        self.run_gaps.retain(|id, _| {
-            provider_id_of(id) != Some(provider_id) || current.contains(id.as_str())
-        });
 
-        self.update_run_gaps(&pipelines, order, Utc::now()).await
+        Some(StagedGaps {
+            provider_id,
+            current: pipelines.iter().map(|p| p.id.clone()).collect(),
+            learned: self.learn_gaps(&pipelines, order, Utc::now()).await,
+        })
     }
 
-    pub(super) async fn update_run_gaps(
-        &self, pipelines: &[Pipeline], order: RunHistoryOrder, now: DateTime<Utc>,
-    ) -> bool {
-        let mut fetches_left = CADENCE_FETCHES_PER_PASS;
+    pub(super) fn apply_gaps(&self, staged: StagedGaps) -> bool {
+        let StagedGaps {
+            provider_id,
+            current,
+            learned,
+        } = staged;
+        self.run_gaps
+            .retain(|id, _| provider_id_of(id) != Some(provider_id) || current.contains(id));
         let mut changed = false;
+        for (id, next) in learned {
+            let was_quiet = self.run_gaps.get(&id).is_some_and(|known| known.quiet);
+            changed |= was_quiet != next.quiet;
+            self.run_gaps.insert(id, next);
+        }
+
+        changed
+    }
+
+    async fn learn_gaps(
+        &self, pipelines: &[Pipeline], order: RunHistoryOrder, now: DateTime<Utc>,
+    ) -> Vec<(String, LearnedGap)> {
+        let mut fetches_left = CADENCE_FETCHES_PER_PASS;
+        let mut learned = Vec::new();
         for pipeline in pipelines
             .iter()
             .filter(|pipeline| pipeline.last_run.is_some())
@@ -79,31 +103,40 @@ impl PipelineService {
             let known = self.run_gaps.get(&pipeline.id).map(|entry| entry.clone());
             let usual_gap_seconds = match &known {
                 Some(known) if known.last_run == pipeline.last_run => known.usual_gap_seconds,
-                Some(known) => self
+                Some(LearnedGap {
+                    usual_gap_seconds: Some(gap),
+                    ..
+                }) => self
                     .learned_gap(&pipeline.id, order, false)
                     .await
-                    .or(known.usual_gap_seconds),
-                None if fetches_left > 0 => {
+                    .flatten()
+                    .or(Some(*gap)),
+                _ if fetches_left > 0 => {
                     fetches_left -= 1;
-                    self.learned_gap(&pipeline.id, order, true).await
+                    let Some(gap) = self.learned_gap(&pipeline.id, order, true).await else {
+                        continue;
+                    };
+                    gap
                 }
-                None => continue,
+                _ => continue,
             };
-            let next = LearnedGap {
-                usual_gap_seconds,
-                last_run: pipeline.last_run,
-                quiet: usual_gap_seconds.is_some_and(|gap| is_quiet(pipeline.last_run, gap, now)),
-            };
-            changed |= known.is_some_and(|known| known.quiet) != next.quiet;
-            self.run_gaps.insert(pipeline.id.clone(), next);
+            learned.push((
+                pipeline.id.clone(),
+                LearnedGap {
+                    usual_gap_seconds,
+                    last_run: pipeline.last_run,
+                    quiet: usual_gap_seconds
+                        .is_some_and(|gap| is_quiet(pipeline.last_run, gap, now)),
+                },
+            ));
         }
 
-        changed
+        learned
     }
 
     async fn learned_gap(
         &self, pipeline_id: &str, order: RunHistoryOrder, may_fetch: bool,
-    ) -> Option<i64> {
+    ) -> Option<Option<i64>> {
         let cached = self
             .repository
             .get_cached_run_count(pipeline_id)
@@ -111,10 +144,10 @@ impl PipelineService {
             .ok()?
             > 0;
         if !cached && !may_fetch {
-            return None;
+            return Some(None);
         }
         match self.recent_runs(pipeline_id, order).await {
-            Ok(runs) => usual_gap(&runs),
+            Ok(runs) => Some(usual_gap(&runs)),
             Err(e) => {
                 tracing::debug!(pipeline_id = %pipeline_id, error = %e, "Cadence check failed");
                 None
