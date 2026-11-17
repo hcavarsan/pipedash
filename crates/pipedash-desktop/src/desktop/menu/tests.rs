@@ -278,6 +278,7 @@ fn the_status_row_follows_the_device_preferences() {
                 metadata: Default::default(),
                 overdue_run: None,
                 typical_duration_seconds: None,
+                cadence: None,
                 actions: Default::default(),
             }),
             provider_name: None,

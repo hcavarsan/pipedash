@@ -20,6 +20,7 @@ pub enum AlertKind {
     Outage,
     Recovered,
     Finished,
+    Quiet,
     Test,
 }
 
@@ -32,6 +33,7 @@ impl AlertKind {
             Self::Outage => "outage",
             Self::Recovered => "recovered",
             Self::Finished => "finished",
+            Self::Quiet => "quiet",
             Self::Test => "test",
         }
     }
@@ -44,6 +46,7 @@ impl AlertKind {
             "outage" => Self::Outage,
             "recovered" => Self::Recovered,
             "finished" => Self::Finished,
+            "quiet" => Self::Quiet,
             "test" => Self::Test,
             _ => return None,
         })
@@ -97,6 +100,7 @@ pub struct NotificationPreferences {
     pub muted_pipelines: Vec<String>,
     pub watched_pipelines: Vec<String>,
     pub watch_once: Vec<OnceWatch>,
+    pub quiet_pipelines: Vec<String>,
 }
 
 impl Default for NotificationPreferences {
@@ -111,6 +115,7 @@ impl Default for NotificationPreferences {
             muted_pipelines: Vec::new(),
             watched_pipelines: Vec::new(),
             watch_once: Vec::new(),
+            quiet_pipelines: Vec::new(),
         }
     }
 }
@@ -123,6 +128,9 @@ impl NotificationPreferences {
         if let Some(id) = pipeline_id {
             if kind != AlertKind::Test && self.muted_pipelines.iter().any(|muted| muted == id) {
                 return false;
+            }
+            if kind == AlertKind::Quiet {
+                return self.quiet_pipelines.iter().any(|quiet| quiet == id);
             }
             if self.watched_pipelines.iter().any(|watched| watched == id)
                 || finish.is_some_and(|finish| {
@@ -138,7 +146,7 @@ impl NotificationPreferences {
             AlertKind::LongRun => self.long_run,
             AlertKind::Outage => self.outage,
             AlertKind::Recovered => self.recovered,
-            AlertKind::Finished => false,
+            AlertKind::Finished | AlertKind::Quiet => false,
             AlertKind::Test => return true,
         };
 
@@ -186,6 +194,7 @@ impl NotificationPreferences {
             muted_providers: Vec::new(),
             muted_pipelines: Vec::new(),
             watched_pipelines: Vec::new(),
+            quiet_pipelines: Vec::new(),
             watch_once: Vec::new(),
             ..self.clone()
         }

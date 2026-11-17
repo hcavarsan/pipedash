@@ -6,11 +6,12 @@ import { FetchInfo } from '../../../components/common/PipelineFetchInfo'
 import { WorkflowActions } from '../../../components/common/PipelineRowActions'
 import { PipelineStatusBadge } from '../../../components/common/PipelineStatusBadge'
 import { VirtualList } from '../../../components/common/VirtualList'
+import { usePipelineStatusLabel } from '../../../hooks/usePipelineStatusLabel'
 import { SPACING_PX } from '../../../theme/theme'
 import type { PipelineActions, PipelineSelection } from '../../../types/pipelineRows'
 import type { ProviderSummary } from '../../../types/providers'
 import type { ViewPipeline } from '../../../types/views'
-import { getPipelineStatusLabel, pipelineStatusKey } from '../../../utils/pipelinePresentation'
+import { pipelineStatusKey } from '../../../utils/pipelinePresentation'
 import { historyLabel, workflowMenuItems } from '../../../utils/pipelineRowActions'
 import { PipelineCardMeta } from './PipelineCardMeta'
 
@@ -78,6 +79,7 @@ interface PipelineItemProps {
 }
 
 function PipelineCard({ pipeline, getProvider, actions, selection, pinned }: PipelineItemProps): ReactNode {
+  const statusLabel = usePipelineStatusLabel()
   const contextMenu = useContextMenu()
   const provider = getProvider(pipeline.provider_id)
 
@@ -111,7 +113,7 @@ function PipelineCard({ pipeline, getProvider, actions, selection, pinned }: Pip
           </UnstyledButton>
           <Group gap="xs" wrap="nowrap" style={{ flexShrink: 0 }}>
             {pinned ? (
-              <StatusIcon focusable status={pipelineStatusKey(pipeline)} label={getPipelineStatusLabel(pipeline)} />
+              <StatusIcon focusable status={pipelineStatusKey(pipeline)} label={statusLabel(pipeline)} />
             ) : (
               <PipelineStatusBadge pipeline={pipeline} provider={provider} />
             )}

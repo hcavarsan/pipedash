@@ -38,9 +38,9 @@ export interface LocalNotificationSettings {
   pushProblem: string | null
 }
 
-export type AlertKind = 'failed' | 'degraded' | 'long_run' | 'outage' | 'recovered' | 'finished' | 'test'
+export type AlertKind = 'failed' | 'degraded' | 'long_run' | 'outage' | 'recovered' | 'finished' | 'quiet' | 'test'
 
-export type PreferenceKind = Exclude<AlertKind, 'test' | 'finished'>
+export type PreferenceKind = Exclude<AlertKind, 'test' | 'finished' | 'quiet'>
 
 export interface WatchOnce {
   pipeline_id: string
@@ -53,6 +53,7 @@ export type NotificationPreferences = Record<PreferenceKind, boolean> & {
   muted_pipelines: string[]
   watched_pipelines: string[]
   watch_once: WatchOnce[]
+  quiet_pipelines: string[]
 }
 
 export interface RunFinish {

@@ -31,6 +31,7 @@ pub enum PreferenceChange {
     PipelineWatched { pipeline_id: String, watched: bool },
     WatchNextFinish { pipeline_id: String },
     CancelNextFinish { pipeline_id: String },
+    QuietAlert { pipeline_id: String, enabled: bool },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -133,7 +134,7 @@ pub fn change_preferences(
                 AlertKind::LongRun => &mut preferences.long_run,
                 AlertKind::Outage => &mut preferences.outage,
                 AlertKind::Recovered => &mut preferences.recovered,
-                AlertKind::Finished | AlertKind::Test => {
+                AlertKind::Finished | AlertKind::Quiet | AlertKind::Test => {
                     return Err(DomainError::InvalidConfig(format!(
                         "{} notifications can't be switched on or off",
                         kind.as_str()
@@ -174,6 +175,12 @@ pub fn change_preferences(
         }
         PreferenceChange::CancelNextFinish { pipeline_id } => {
             without_once(&mut preferences.watch_once, &pipeline_id);
+        }
+        PreferenceChange::QuietAlert {
+            pipeline_id,
+            enabled,
+        } => {
+            toggled(&mut preferences.quiet_pipelines, pipeline_id, enabled);
         }
     }
 

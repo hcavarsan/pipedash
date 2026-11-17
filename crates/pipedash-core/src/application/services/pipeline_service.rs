@@ -43,6 +43,7 @@ use crate::infrastructure::deduplication::RequestDeduplicator;
 mod actions;
 mod background;
 mod cache;
+mod cadence;
 mod cancellation;
 mod fetch;
 mod history;
@@ -88,6 +89,7 @@ pub struct PipelineService {
     event_bus: Arc<dyn EventBus>,
     run_deduplicator: Arc<RequestDeduplicator<Vec<PipelineRun>, DomainError>>,
     run_timings: Arc<DashMap<String, RunTiming>>,
+    run_gaps: Arc<DashMap<String, cadence::LearnedGap>>,
     scheduler: Arc<FetchScheduler>,
     fetch_permits: Arc<Semaphore>,
     health: HealthHandle,
@@ -120,6 +122,7 @@ impl PipelineService {
             event_bus,
             run_deduplicator: Arc::new(RequestDeduplicator::new()),
             run_timings: Arc::new(DashMap::new()),
+            run_gaps: Arc::new(DashMap::new()),
             fetch_permits: Arc::new(Semaphore::new(FETCH_CONCURRENCY)),
             mode,
             refresh_flight: Mutex::new(None),

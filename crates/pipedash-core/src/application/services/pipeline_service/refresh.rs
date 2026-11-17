@@ -38,9 +38,14 @@ impl PipelineService {
         else {
             return;
         };
-        let Ok(true) = timeout(FETCH_TIMEOUT, self.update_overdue_pipelines(lease.id)).await else {
+        let (overdue, cadence) = futures::future::join(
+            timeout(FETCH_TIMEOUT, self.update_overdue_pipelines(lease.id)),
+            timeout(FETCH_TIMEOUT, self.update_provider_gaps(lease.id)),
+        )
+        .await;
+        if !matches!(overdue, Ok(true)) && !matches!(cadence, Ok(true)) {
             return;
-        };
+        }
 
         self.provider_service
             .commit(lease, || async {

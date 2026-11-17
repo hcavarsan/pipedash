@@ -38,8 +38,14 @@ export interface Pipeline {
   metadata?: Record<string, unknown>
   overdue_run?: string | null
   typical_duration_seconds?: number
+  cadence?: PipelineCadence | null
   resource_state?: ResourceState
   actions: PipelineActionState
+}
+
+export interface PipelineCadence {
+  usual_gap_seconds: number
+  quiet: boolean
 }
 
 export interface PipelineRun {

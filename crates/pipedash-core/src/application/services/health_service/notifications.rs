@@ -126,6 +126,8 @@ struct PipelineMark {
     awaiting_success: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     finished_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    quiet: bool,
 }
 
 impl PipelineMark {
@@ -137,6 +139,7 @@ impl PipelineMark {
             checked_at: None,
             awaiting_success: pipeline.status == PipelineStatus::Failed,
             finished_at: None,
+            quiet: pipeline.cadence.is_some_and(|cadence| cadence.quiet),
         }
     }
 

@@ -71,6 +71,7 @@ fn watched_run(run: PipelineRun) -> WatchedRun {
         metadata: HashMap::new(),
         overdue_run: None,
         typical_duration_seconds: None,
+        cadence: None,
         actions: Default::default(),
     };
     WatchedRun {
