@@ -1,15 +1,21 @@
 use std::collections::{
+    BTreeMap,
     HashMap,
     HashSet,
 };
 
 use indexmap::IndexMap;
 use pipedash_plugin_api::PluginRegistry;
+use sha2::{
+    Digest,
+    Sha256,
+};
 
 use super::schema::ProviderFileConfig;
 use super::state::ConfigState;
 use super::token_ref::TokenReference;
 use crate::domain::{
+    DomainError,
     DomainResult,
     ProviderConfig,
 };
@@ -60,6 +66,12 @@ impl ProviderSyncService {
                     let Some(db_id) = db_provider.id else {
                         continue;
                     };
+                    if !self
+                        .file_block_changed(db_id, &toml_provider, config_backend)
+                        .await?
+                    {
+                        continue;
+                    }
                     if !self
                         .update_from_toml(&id, &toml_provider, db_provider, config_backend)
                         .await?
@@ -114,7 +126,7 @@ impl ProviderSyncService {
             Self::provider_config(key, toml_provider, toml_provider.token.clone());
         let id = config_backend.create_provider(&provider_config).await?;
         config_backend
-            .mark_config_file_providers(&[provider_config.name])
+            .record_config_file_hash(id, &Self::block_hash(toml_provider)?)
             .await?;
 
         tracing::info!(provider = %key, "Synced provider from TOML to database (new)");
@@ -128,21 +140,54 @@ impl ProviderSyncService {
         let Some(db_id) = db_provider.id else {
             return Ok(false);
         };
-        if !self.needs_update(toml_provider, db_provider) {
-            return Ok(false);
+        let changed = self.needs_update(toml_provider, db_provider);
+        if changed {
+            let provider_config = ProviderConfig {
+                id: db_provider.id,
+                version: db_provider.version,
+                ..Self::provider_config(key, toml_provider, toml_provider.token.clone())
+            };
+            config_backend
+                .update_provider(db_id, &provider_config)
+                .await?;
+            tracing::info!(provider = %key, "Synced provider from TOML to database (updated)");
         }
-
-        let provider_config = ProviderConfig {
-            id: db_provider.id,
-            version: db_provider.version,
-            ..Self::provider_config(key, toml_provider, toml_provider.token.clone())
-        };
         config_backend
-            .update_provider(db_id, &provider_config)
+            .record_config_file_hash(db_id, &Self::block_hash(toml_provider)?)
             .await?;
+        Ok(changed)
+    }
 
-        tracing::info!(provider = %key, "Synced provider from TOML to database (updated)");
-        Ok(true)
+    async fn file_block_changed(
+        &self, db_id: i64, toml_provider: &ProviderFileConfig, config_backend: &dyn ConfigBackend,
+    ) -> DomainResult<bool> {
+        let hash = Self::block_hash(toml_provider)?;
+        match config_backend.config_file_hash(db_id).await? {
+            Some(applied) => Ok(applied != hash),
+            None => {
+                config_backend.record_config_file_hash(db_id, &hash).await?;
+                Ok(false)
+            }
+        }
+    }
+
+    fn block_hash(file: &ProviderFileConfig) -> DomainResult<String> {
+        let config: BTreeMap<&String, &String> = file.config.iter().collect();
+        let block = (
+            &file.name,
+            &file.provider_type,
+            &file.token,
+            file.refresh_interval,
+            config,
+        );
+        let canonical = serde_json::to_vec(&block).map_err(|e| {
+            DomainError::InternalError(format!("Couldn't hash the config file block: {e}"))
+        })?;
+
+        Ok(Sha256::digest(canonical)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect())
     }
 
     pub(crate) async fn store_resolved_token(

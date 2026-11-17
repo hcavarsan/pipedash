@@ -61,16 +61,27 @@ async fn test_sync_toml_to_db_update_provider() {
     let (backend, token_store, _temp) = create_test_backend().await;
     let sync_service = ProviderSyncService::new();
 
-    let initial_provider = ProviderConfig {
-        id: None,
-        name: "test-stub".to_string(),
-        provider_type: "stub".to_string(),
-        token: "${OLD_TOKEN}".to_string(),
-        config: Default::default(),
-        refresh_interval: 30,
-        version: None,
-    };
-    backend.create_provider(&initial_provider).await.unwrap();
+    let mut initial_toml = IndexMap::new();
+    initial_toml.insert(
+        "test-stub".to_string(),
+        ProviderFileConfig {
+            name: None,
+            provider_type: "stub".to_string(),
+            token: "${OLD_TOKEN}".to_string(),
+            refresh_interval: 30,
+            config: Default::default(),
+        },
+    );
+    sync_service
+        .sync_toml_to_db(
+            initial_toml,
+            &backend,
+            token_store.as_ref(),
+            true,
+            &registry(),
+        )
+        .await
+        .unwrap();
 
     let mut updated_toml = IndexMap::new();
     updated_toml.insert(

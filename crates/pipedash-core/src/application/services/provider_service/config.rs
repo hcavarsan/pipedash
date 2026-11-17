@@ -272,7 +272,6 @@ impl ProviderService {
                 .await?
                 .ok_or_else(|| DomainError::ProviderNotFound(id.to_string()))?;
             sync.update_from_toml(key, provider, &row, backend).await?;
-            backend.mark_config_file_providers(&[row.name]).await?;
         }
         ProviderSyncService::store_resolved_token(
             id,

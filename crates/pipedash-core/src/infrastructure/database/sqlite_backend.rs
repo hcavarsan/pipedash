@@ -190,6 +190,35 @@ impl ConfigBackend for SqliteConfigBackend {
         .await
     }
 
+    async fn record_config_file_hash(&self, id: i64, hash: &str) -> DomainResult<()> {
+        retry_on_busy(|| async {
+            sqlx::query(
+                "UPDATE providers SET from_config_file = 1, config_file_hash = ? WHERE id = ?",
+            )
+            .bind(hash)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map(|_| ())
+            .map_err(failed("record config file hash"))
+        })
+        .await
+    }
+
+    async fn config_file_hash(&self, id: i64) -> DomainResult<Option<String>> {
+        retry_on_busy(|| async {
+            sqlx::query_scalar::<_, Option<String>>(
+                "SELECT config_file_hash FROM providers WHERE id = ?",
+            )
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map(Option::flatten)
+            .map_err(failed("read config file hash"))
+        })
+        .await
+    }
+
     async fn get_table_preferences(
         &self, provider_id: i64, table_id: &str,
     ) -> DomainResult<Option<String>> {
