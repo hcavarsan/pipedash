@@ -527,9 +527,9 @@ async fn assert_cleanup_keeps_each_pipeline_retention(
     let now = Utc::now();
     let old = (now - chrono::Duration::days(60)).to_rfc3339();
     let recent = (now - chrono::Duration::hours(1)).to_rfc3339();
-    for (pipeline_id, days) in [(long, 90), (short, 30)] {
+    for pipeline_id in [long, short] {
         service
-            .update_pipeline_config(pipeline_id, true, days)
+            .update_pipeline_config(pipeline_id, true, 90)
             .await
             .unwrap();
         service
@@ -542,7 +542,12 @@ async fn assert_cleanup_keeps_each_pipeline_retention(
             )
             .await
             .unwrap();
+        assert_eq!(stored(service, pipeline_id).await.len(), 6);
     }
+    service
+        .update_pipeline_config(short, true, 30)
+        .await
+        .unwrap();
 
     service.cleanup_old_metrics().await.unwrap();
 
