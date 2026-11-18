@@ -298,7 +298,7 @@ fn the_trace_span_never_carries_a_download_ticket() {
 }
 
 #[tokio::test]
-async fn the_server_closes_sockets_and_returns_once_shutdown_resolves() {
+async fn the_server_flags_closing_and_returns_once_shutdown_resolves() {
     let state = AppState::setup_mode(
         Arc::new(WebSocketEventBus::new()),
         Arc::new(pipedash_plugins::registry()),
