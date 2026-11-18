@@ -80,6 +80,7 @@ async fn serve_runs(total: i64) -> (BitbucketPlugin, mpsc::Receiver<String>) {
                         .to_string(),
                     )
                 }
+                (true, "/repositories/ws/denied") => ("401 Unauthorized", "{}".to_string()),
                 (true, "/repositories") => (
                     "200 OK",
                     serde_json::json!({
@@ -181,7 +182,7 @@ async fn a_selection_reads_only_the_selected_repositories() {
     let (mut plugin, requests) = serve_runs(3).await;
     plugin.config.insert(
         "selected_items".to_string(),
-        "ws/repo,ws/configured,ws/gone".to_string(),
+        "ws/repo,ws/configured,ws/gone,ws/repo".to_string(),
     );
 
     let pipelines = plugin.fetch_pipelines().await.unwrap();
@@ -192,8 +193,8 @@ async fn a_selection_reads_only_the_selected_repositories() {
             .map(|pipeline| (pipeline.id.as_str(), pipeline.status))
             .collect::<Vec<_>>(),
         [
-            ("ws__repo", PipelineStatus::Success),
-            ("ws__configured", PipelineStatus::Pending)
+            ("ws__configured", PipelineStatus::Pending),
+            ("ws__repo", PipelineStatus::Success)
         ]
     );
     let lines: Vec<_> = requests.try_iter().collect();
@@ -201,6 +202,19 @@ async fn a_selection_reads_only_the_selected_repositories() {
     assert!(lines
         .iter()
         .any(|line| line.starts_with("GET /repositories/ws/repo ")));
+}
+
+#[tokio::test]
+async fn a_rejected_token_fails_a_selected_refresh_instead_of_emptying_it() {
+    let (mut plugin, _requests) = serve_runs(3).await;
+    plugin.config.insert(
+        "selected_items".to_string(),
+        "ws/repo,ws/denied".to_string(),
+    );
+
+    let error = plugin.fetch_pipelines().await.unwrap_err();
+
+    assert!(matches!(error, PluginError::AuthenticationFailed(_)));
 }
 
 #[tokio::test]

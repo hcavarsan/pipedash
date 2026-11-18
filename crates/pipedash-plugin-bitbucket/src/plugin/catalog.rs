@@ -146,8 +146,10 @@ impl BitbucketPlugin {
     }
 
     pub(super) async fn fetch_pipelines_impl(&self) -> PluginResult<Vec<Pipeline>> {
-        let results: Vec<_> = match selected_items(&self.config) {
-            Some(selected) => {
+        let mut results: Vec<_> = match selected_items(&self.config) {
+            Some(mut selected) => {
+                selected.sort_unstable();
+                selected.dedup();
                 let requests: Vec<_> = selected
                     .iter()
                     .map(|full_name| self.selected_pipeline(full_name))
@@ -163,6 +165,13 @@ impl BitbucketPlugin {
                 join_buffered(requests, 8).await
             }
         };
+
+        if let Some(denied) = results
+            .iter()
+            .position(|result| matches!(result, Err(PluginError::AuthenticationFailed(_))))
+        {
+            return results.swap_remove(denied).map(|_| Vec::new());
+        }
 
         Ok(collect_partial(
             results,
