@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
 use chrono::Utc;
+use pipedash_plugin_api::plugin::defaults;
 use pipedash_plugin_api::utils::duration_seconds;
 use pipedash_plugin_api::{
+    ActionAvailability,
     AvailablePipeline,
     LogAvailability,
     LogNode,
@@ -10,6 +12,9 @@ use pipedash_plugin_api::{
     Pipeline,
     PipelineRun,
     PipelineStatus,
+    PluginCapabilities,
+    RunActionState,
+    RunFacts,
 };
 
 use crate::config;
@@ -19,6 +24,8 @@ use crate::types::{
     Project,
     Workflow,
 };
+
+const CAN_CANCEL: &str = "can_cancel";
 
 pub(crate) fn pipeline_url(base_url: &str, project_slug: &str, number: i64) -> String {
     let base_url = match base_url.trim_end_matches('/') {
@@ -108,6 +115,14 @@ pub fn is_active(status: &str) -> bool {
     )
 }
 
+pub(crate) fn run_actions(capabilities: &PluginCapabilities, run: &RunFacts<'_>) -> RunActionState {
+    let mut state = defaults::run_actions(capabilities, run);
+    if run.metadata.get(CAN_CANCEL) != Some(&serde_json::Value::Bool(true)) {
+        state.cancel = ActionAvailability::allowed(false);
+    }
+    state
+}
+
 fn workflow_status(status: &str) -> PipelineStatus {
     match status {
         "success" => PipelineStatus::Success,
@@ -177,6 +192,7 @@ pub fn to_run(
             .or(pipeline.updated_at)
     };
     let vcs = pipeline.vcs.as_ref();
+    let any_active = workflows.iter().any(|workflow| is_active(&workflow.status));
     let metadata = HashMap::from([
         (
             "circleci_pipeline_id".into(),
@@ -186,12 +202,10 @@ pub fn to_run(
             "workflow_ids".into(),
             serde_json::json!(workflows.iter().map(|w| &w.id).collect::<Vec<_>>()),
         ),
+        (CAN_CANCEL.into(), serde_json::json!(any_active)),
         (
             "can_rerun".into(),
-            serde_json::json!(
-                !workflows.is_empty()
-                    && !workflows.iter().any(|workflow| is_active(&workflow.status))
-            ),
+            serde_json::json!(!workflows.is_empty() && !any_active),
         ),
         (
             "can_rerun_failed_jobs".into(),
@@ -199,7 +213,7 @@ pub fn to_run(
                 workflows
                     .iter()
                     .any(|workflow| matches!(workflow.status.as_str(), "failed" | "error"))
-                    && !workflows.iter().any(|workflow| is_active(&workflow.status))
+                    && !any_active
             ),
         ),
     ]);
