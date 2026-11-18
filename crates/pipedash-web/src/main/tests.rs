@@ -296,3 +296,31 @@ fn the_trace_span_never_carries_a_download_ticket() {
     assert_eq!(redact_ticket(&ticket), "/api/v1/downloads/[redacted]");
     assert_eq!(redact_ticket(&other), "/api/v1/providers?x=1");
 }
+
+#[tokio::test]
+async fn the_server_closes_sockets_and_returns_once_shutdown_resolves() {
+    let state = AppState::setup_mode(
+        Arc::new(WebSocketEventBus::new()),
+        Arc::new(pipedash_plugins::registry()),
+    );
+    let closing = state.closing.subscribe();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let server = tokio::spawn(serve_until(
+        listener,
+        app(state.clone(), None),
+        state,
+        async move {
+            let _ = stopped.await;
+        },
+    ));
+
+    assert!(!*closing.borrow());
+    stop.send(()).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), server)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(*closing.borrow());
+}
