@@ -183,3 +183,45 @@ async fn a_pipeline_seen_with_too_few_runs_learns_its_gap_after_the_next_run() {
         })
     );
 }
+
+#[tokio::test]
+async fn pipelines_whose_history_keeps_failing_do_not_starve_the_rest() {
+    let h = Harness::new().await;
+    let last_run = Utc::now() - Duration::days(3);
+    let (provider_id, stub) = h.add_stub(StubProvider::new).await;
+    let ids: Vec<String> = (0..5)
+        .map(|n| format!("stub__{provider_id}__job{n}"))
+        .collect();
+    let pipelines: Vec<Pipeline> = ids
+        .iter()
+        .enumerate()
+        .map(|(n, id)| {
+            serde_json::from_value(json!({
+                "id": id, "provider_id": provider_id, "provider_type": "stub",
+                "name": id, "status": "success", "repository": "acme/app",
+                "last_run": last_run, "last_updated": Utc::now() - Duration::minutes(n as i64)
+            }))
+            .unwrap()
+        })
+        .collect();
+    *stub.runs.lock().unwrap() = daily_runs(&ids[4], last_run, 6);
+    *stub.failing_histories.lock().unwrap() = ids[..4].to_vec();
+    h.repository
+        .update_pipelines_cache(provider_id, &pipelines)
+        .await
+        .unwrap();
+    let service = &h.pipeline_service;
+
+    learn(service, provider_id).await;
+    learn(service, provider_id).await;
+    let cached = service.get_cached_pipelines(None).await.unwrap();
+    let healthy = cached.iter().find(|p| p.id == ids[4]).unwrap();
+
+    assert_eq!(
+        healthy.cadence,
+        Some(PipelineCadence {
+            usual_gap_seconds: 86_400,
+            quiet: true,
+        })
+    );
+}

@@ -29,6 +29,7 @@ pub(super) struct LearnedGap {
     usual_gap_seconds: Option<i64>,
     last_run: Option<DateTime<Utc>>,
     quiet: bool,
+    failed_at: Option<DateTime<Utc>>,
 }
 
 pub(super) struct StagedGaps {
@@ -96,10 +97,16 @@ impl PipelineService {
     ) -> Vec<(String, LearnedGap)> {
         let mut fetches_left = CADENCE_FETCHES_PER_PASS;
         let mut learned = Vec::new();
-        for pipeline in pipelines
+        let mut pending: Vec<&Pipeline> = pipelines
             .iter()
             .filter(|pipeline| pipeline.last_run.is_some())
-        {
+            .collect();
+        pending.sort_by_cached_key(|pipeline| {
+            self.run_gaps
+                .get(&pipeline.id)
+                .and_then(|known| known.failed_at)
+        });
+        for pipeline in pending {
             let known = self.run_gaps.get(&pipeline.id).map(|entry| entry.clone());
             let usual_gap_seconds = match &known {
                 Some(known) if known.last_run == pipeline.last_run => known.usual_gap_seconds,
@@ -114,6 +121,7 @@ impl PipelineService {
                 _ if fetches_left > 0 => {
                     fetches_left -= 1;
                     let Some(gap) = self.learned_gap(&pipeline.id, order, true).await else {
+                        learned.push((pipeline.id.clone(), failed_fetch(now)));
                         continue;
                     };
                     gap
@@ -127,6 +135,7 @@ impl PipelineService {
                     last_run: pipeline.last_run,
                     quiet: usual_gap_seconds
                         .is_some_and(|gap| is_quiet(pipeline.last_run, gap, now)),
+                    failed_at: None,
                 },
             ));
         }
@@ -153,6 +162,15 @@ impl PipelineService {
                 None
             }
         }
+    }
+}
+
+fn failed_fetch(now: DateTime<Utc>) -> LearnedGap {
+    LearnedGap {
+        usual_gap_seconds: None,
+        last_run: None,
+        quiet: false,
+        failed_at: Some(now),
     }
 }
 
