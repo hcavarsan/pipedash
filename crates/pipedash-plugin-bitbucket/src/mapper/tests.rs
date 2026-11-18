@@ -136,3 +136,71 @@ fn steps_become_job_nodes_with_the_availability_of_their_log() {
     assert!(nodes[2].started_at.is_some() && nodes[2].finished_at.is_none());
     assert!(nodes[3].started_at.is_none());
 }
+
+#[test]
+fn rerun_of_a_custom_pipeline_replays_its_selector() {
+    let pipeline: types::Pipeline = serde_json::from_value(serde_json::json!({
+        "uuid": "{1}",
+        "build_number": 42,
+        "state": {"name": "COMPLETED", "result": {"name": "SUCCESSFUL"}},
+        "target": {
+            "type": "pipeline_ref_target",
+            "ref_name": "main",
+            "ref_type": "branch",
+            "selector": {"type": "custom", "pattern": "deploy-prod"}
+        },
+        "created_on": "2026-11-17T10:00:00Z",
+        "links": {}
+    }))
+    .unwrap();
+    let run = map_pipeline_run(&pipeline, "acme", "api");
+    let facts = pipedash_plugin_api::RunFacts {
+        run_number: run.run_number,
+        status: run.status,
+        branch: run.branch.as_deref(),
+        actor: run.actor.as_deref(),
+        inputs: run.inputs.as_ref(),
+        metadata: &run.metadata,
+    };
+    let parameters = [
+        pipedash_plugin_api::support::string_parameter(
+            "ref",
+            "Branch",
+            "",
+            Some("main".into()),
+            true,
+        ),
+        pipedash_plugin_api::support::string_parameter(
+            "custom_pipeline",
+            "Custom Pipeline",
+            "",
+            None,
+            false,
+        ),
+    ];
+    let values = pipedash_plugin_api::plugin::defaults::trigger_values(Some(&facts), &parameters);
+    assert_eq!(
+        values.get("custom_pipeline"),
+        Some(&serde_json::json!("deploy-prod"))
+    );
+    assert_eq!(values.get("ref"), Some(&serde_json::json!("main")));
+}
+
+#[test]
+fn a_branch_run_has_no_replayed_inputs() {
+    let pipeline: types::Pipeline = serde_json::from_value(serde_json::json!({
+        "uuid": "{2}",
+        "build_number": 43,
+        "state": {"name": "COMPLETED", "result": {"name": "SUCCESSFUL"}},
+        "target": {
+            "type": "pipeline_ref_target",
+            "ref_name": "main",
+            "ref_type": "branch",
+            "selector": {"type": "branches", "pattern": "main"}
+        },
+        "created_on": "2026-11-17T10:00:00Z",
+        "links": {}
+    }))
+    .unwrap();
+    assert_eq!(map_pipeline_run(&pipeline, "acme", "api").inputs, None);
+}
