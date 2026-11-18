@@ -159,6 +159,7 @@ impl PipelineService {
             return HashMap::new();
         };
         let ids: Vec<String> = uncached.iter().map(|p| p.id.clone()).collect();
+        let epochs: Vec<u64> = ids.iter().map(|id| self.run_cache_epoch(id)).collect();
         let mut fetched = match lease
             .provider
             .fetch_recent_runs(&ids, OVERDUE_HISTORY_FETCH)
@@ -173,13 +174,18 @@ impl PipelineService {
         };
 
         let mut prefetched = HashMap::new();
-        for pipeline in uncached {
+        for (pipeline, epoch) in uncached.into_iter().zip(epochs) {
             let runs = fetched.remove(&pipeline.id);
             if let Some(api_runs) = &runs {
                 if let Some(Err(e)) = self
                     .provider_service
                     .commit(&lease, || {
-                        self.merge_run_cache(lease.provider.as_ref(), pipeline, api_runs)
+                        self.merge_run_cache_since(
+                            epoch,
+                            lease.provider.as_ref(),
+                            pipeline,
+                            api_runs,
+                        )
                     })
                     .await
                 {
