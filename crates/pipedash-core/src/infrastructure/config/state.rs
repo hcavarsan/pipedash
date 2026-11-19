@@ -15,6 +15,7 @@ use super::schema::{
     ConfigKey,
     GeneralSettingsUpdate,
     PipedashConfig,
+    MAX_QUEUE_ALERT_MINUTES,
     MAX_REFRESH_INTERVAL_SECS,
     MIN_REFRESH_INTERVAL_SECS,
 };
@@ -176,6 +177,11 @@ impl ConfigState {
                  {MAX_REFRESH_INTERVAL_SECS} seconds"
             )));
         }
+        if !(1..=MAX_QUEUE_ALERT_MINUTES).contains(&update.queue_alert_minutes) {
+            return Err(DomainError::InvalidConfig(format!(
+                "queue_alert_minutes must be between 1 and {MAX_QUEUE_ALERT_MINUTES} minutes"
+            )));
+        }
         let proxy_url = parse_proxy_url(&update.proxy_url)?
             .map(|_| update.proxy_url.trim().to_string())
             .unwrap_or_default();
@@ -186,6 +192,7 @@ impl ConfigState {
         config.general.default_refresh_interval = update.default_refresh_interval;
         config.general.status_pages_enabled = update.status_pages_enabled;
         config.general.proxy_url = proxy_url;
+        config.general.queue_alert_minutes = update.queue_alert_minutes;
 
         self.persist_general(&config).await?;
 

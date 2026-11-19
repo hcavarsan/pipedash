@@ -84,6 +84,7 @@ fn revocation_removes_authorized_credentials_and_observations() {
         providers: vec![provider],
         proxy_url: String::new(),
         status_pages_enabled: true,
+        queue_alert_minutes: 15,
     })
     .unwrap();
     save_observations(&NotificationState::default()).unwrap();

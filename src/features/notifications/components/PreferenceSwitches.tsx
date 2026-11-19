@@ -12,6 +12,7 @@ const KINDS: Record<PreferenceKind, { title: string; description: string }> = {
   failed: { title: 'Failed runs', description: 'A pipeline run fails.' },
   degraded: { title: 'Degraded workloads', description: 'A deployed workload reports it is unhealthy.' },
   long_run: { title: 'Slow runs', description: 'A run takes far longer than usual.' },
+  stuck_queue: { title: 'Stuck in queue', description: 'A run waits in the queue past the limit below.' },
   outage: { title: 'Provider outages', description: "A provider can't be reached or reports an incident." },
   recovered: { title: 'Recoveries', description: 'A failed pipeline passes again or a provider outage ends.' },
 }

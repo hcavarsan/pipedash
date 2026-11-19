@@ -160,6 +160,7 @@ fn settings(status_pages_enabled: bool) -> GeneralSettingsUpdate {
         default_refresh_interval: 30,
         status_pages_enabled,
         proxy_url: String::new(),
+        queue_alert_minutes: 15,
     }
 }
 

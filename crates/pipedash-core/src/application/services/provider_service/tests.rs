@@ -1177,6 +1177,7 @@ async fn general_settings_saved_in_the_config_file_survive_a_later_toggle() {
                 default_refresh_interval: general.default_refresh_interval,
                 status_pages_enabled: true,
                 proxy_url: general.proxy_url,
+                queue_alert_minutes: general.queue_alert_minutes,
             },
         )
         .await
@@ -1232,6 +1233,7 @@ async fn a_settings_save_during_a_file_apply_is_not_replaced_by_the_older_file()
                 default_refresh_interval: 90,
                 status_pages_enabled: true,
                 proxy_url: String::new(),
+                queue_alert_minutes: 15,
             };
             service.update_general_settings(&state, update).await
         }

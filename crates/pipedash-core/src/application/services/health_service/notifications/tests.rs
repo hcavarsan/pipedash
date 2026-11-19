@@ -17,7 +17,10 @@ use serde_json::{
 };
 
 use super::super::feed_subject;
-use super::scan::scan;
+use super::scan::{
+    scan,
+    ScanOptions,
+};
 use super::*;
 use crate::application::services::provider_service::ProviderFactory;
 use crate::application::test_support::{
@@ -224,13 +227,17 @@ impl Rig {
         let factory = Arc::clone(&self.factory);
         let build: ProviderFactory = Arc::new(move |config| factory.provide(config));
         let controller = self.controller;
+        let options = ScanOptions {
+            status_pages_enabled: self.status_pages,
+            queue_limit: 15 * 60,
+        };
 
         scan(
             &configs,
             &build,
             &move |_| controller,
             &self.http,
-            self.status_pages,
+            &options,
             &mut self.state,
             deadline,
         )
@@ -949,6 +956,7 @@ async fn a_bad_proxy_is_a_fatal_configuration_error() {
         &[],
         "not a proxy url",
         true,
+        15,
         &mut state,
         Duration::from_secs(1),
         crate::application::test_support::plugins::registry(),
@@ -1217,4 +1225,28 @@ fn notices_carry_the_kind_that_matches_their_cause() {
     assert_eq!(kinds(&long_run), [AlertKind::LongRun]);
     assert_eq!(kinds(&outage), [AlertKind::Outage]);
     assert_eq!(kinds(&recovered), [AlertKind::Recovered]);
+}
+
+#[test]
+fn a_run_stuck_in_the_queue_notifies_once_per_run() {
+    let mut state = NotificationState::default();
+    state.seed(&[run(1, "api", PipelineStatus::Success, 1)], &[summary(1)]);
+    let queued = |stuck: Option<&str>| {
+        let mut pipeline = run(1, "api", PipelineStatus::Pending, 2);
+        pipeline.stuck_queue_run = stuck.map(str::to_owned);
+        pipeline
+    };
+
+    let waiting = state.observe_event(&updated(1, vec![queued(None)]));
+    let stuck = state.observe_event(&updated(1, vec![queued(Some("run-7"))]));
+    let again = state.observe_event(&updated(1, vec![queued(Some("run-7"))]));
+
+    assert!(waiting.is_empty());
+    assert_eq!(stuck.len(), 1);
+    assert_eq!(stuck[0].kind, AlertKind::StuckQueue);
+    assert_eq!(
+        stuck[0].title,
+        "api is waiting in the queue too long · acme/app"
+    );
+    assert!(again.is_empty());
 }

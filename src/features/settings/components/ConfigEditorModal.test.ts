@@ -21,7 +21,13 @@ const { apiService } = await import('../../../services/api')
 const view = () => within(document.body)
 
 const config: PipedashConfig = {
-  general: { metrics_enabled: true, default_refresh_interval: 30, status_pages_enabled: false, proxy_url: '' },
+  general: {
+    metrics_enabled: true,
+    default_refresh_interval: 30,
+    status_pages_enabled: false,
+    proxy_url: '',
+    queue_alert_minutes: 15,
+  },
   server: { bind_addr: '127.0.0.1:8080', cors_allow_all: false },
   storage: { data_dir: '/tmp/pipedash-test', backend: 'sqlite' },
 }

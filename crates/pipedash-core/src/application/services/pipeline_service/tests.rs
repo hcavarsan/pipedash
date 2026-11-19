@@ -329,6 +329,53 @@ fn typical_duration_is_the_median_of_positive_successful_durations() {
 }
 
 #[tokio::test]
+async fn refresh_marks_a_pipeline_whose_run_waits_in_the_queue_past_the_limit() {
+    let h = Harness::new().await;
+    let (provider_id, _) = h.add_stub(StubProvider::new).await;
+    let id = format!("stub__{provider_id}__build");
+    let queued: Pipeline = serde_json::from_value(json!({
+        "id": id, "provider_id": provider_id, "provider_type": "stub",
+        "name": "build", "status": "pending", "repository": "build",
+        "last_run": Utc::now(), "last_updated": Utc::now()
+    }))
+    .unwrap();
+    h.repository
+        .update_pipelines_cache(provider_id, &[queued])
+        .await
+        .unwrap();
+    let history = |waiting_minutes: i64, awaiting_review: bool| {
+        let mut waiting = run(2, "pending", waiting_minutes, None);
+        waiting.pipeline_id = id.clone();
+        if awaiting_review {
+            waiting
+                .metadata
+                .insert("awaiting_review".into(), json!(true));
+        }
+        let mut done = run(1, "success", 120, Some(5));
+        done.pipeline_id = id.clone();
+        vec![waiting, done]
+    };
+    for (runs, expected) in [
+        (history(20, false), Some("2")),
+        (history(10, false), None),
+        (history(20, true), None),
+    ] {
+        h.repository.clear_cached_run_history(&id).await.unwrap();
+        h.repository.cache_run_history(&id, &runs).await.unwrap();
+        h.pipeline_service
+            .update_overdue_pipelines(provider_id)
+            .await;
+        let cached = h
+            .pipeline_service
+            .get_cached_pipelines(Some(provider_id))
+            .await
+            .unwrap();
+
+        assert_eq!(cached[0].stuck_queue_run.as_deref(), expected);
+    }
+}
+
+#[tokio::test]
 async fn refresh_flags_a_running_pipeline_far_past_its_usual_duration() {
     let h = Harness::new().await;
     let repository = &h.repository;

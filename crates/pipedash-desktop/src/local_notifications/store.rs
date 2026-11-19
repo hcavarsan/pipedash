@@ -9,6 +9,7 @@ use pipedash_core::domain::{
     ProviderConfig,
     RunFinish,
 };
+use pipedash_core::infrastructure::PipedashConfig;
 use serde::{
     de::DeserializeOwned,
     Deserialize,
@@ -32,6 +33,12 @@ pub(super) struct Authorization {
     pub providers: Vec<ProviderConfig>,
     pub proxy_url: String,
     pub status_pages_enabled: bool,
+    #[serde(default = "default_queue_alert_minutes")]
+    pub queue_alert_minutes: u32,
+}
+
+fn default_queue_alert_minutes() -> u32 {
+    PipedashConfig::default().general.queue_alert_minutes
 }
 
 pub(super) fn authorization() -> Result<Option<Authorization>> {

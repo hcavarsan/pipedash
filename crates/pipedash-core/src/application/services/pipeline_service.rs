@@ -77,8 +77,9 @@ type RefreshFlight = Shared<BoxFuture<'static, DomainResult<Vec<RefreshResult>>>
 
 #[derive(Clone, PartialEq)]
 struct RunTiming {
-    typical: i64,
+    typical: Option<i64>,
     overdue: Option<String>,
+    stuck: Option<String>,
 }
 
 pub struct PipelineService {
