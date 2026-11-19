@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, afterEach, test } from 'node:test'
+import { after, afterEach, type TestContext, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement } from 'react'
@@ -15,6 +15,8 @@ const { MantineProvider } = await import('@mantine/core')
 const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 const { MemoryRouter } = await import('react-router-dom')
 const { ConfigEditorModal } = await import('./ConfigEditorModal')
+const { ModalsProvider } = await import('@mantine/modals')
+const { notifications } = await import('../../../lib/notifications')
 const { apiService } = await import('../../../services/api')
 const view = () => within(document.body)
 
@@ -77,7 +79,15 @@ const renderEditor = async (onClose: () => void = () => undefined): Promise<void
         createElement(
           QueryClientProvider,
           { client },
-          createElement(MemoryRouter, null, createElement(ConfigEditorModal, { onClose, initialContent: 'a = 1\n' }))
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(
+              ModalsProvider,
+              null,
+              createElement(ConfigEditorModal, { onClose, initialContent: 'a = 1\n' })
+            )
+          )
         )
       )
     )
@@ -146,4 +156,54 @@ test('migration confirmation keeps the editor locked and migrates the submitted 
 
   assert.deepEqual(migrations, [submittedPlan])
   assert.deepEqual(saved, ['b = 2'])
+})
+
+const recordNotifications = (context: TestContext): string[] => {
+  const shown: string[] = []
+  context.mock.method(notifications, 'show', (data: { title?: unknown; message?: unknown }) => {
+    shown.push(`${String(data.title)}: ${String(data.message)}`)
+
+    return 'id'
+  })
+
+  return shown
+}
+
+const typeAndSave = async (): Promise<void> => {
+  const user = userEvent.setup({ document })
+  const field = await editor()
+  await user.clear(field)
+  await user.type(field, 'b = 2')
+  await user.click(view().getByRole('button', { name: 'Save' }))
+}
+
+test('a failed save tells the phone user why', async (context) => {
+  const shown = recordNotifications(context)
+  context.mock.method(apiService, 'analyzeConfig', async () => ({ valid: true, errors: [], warnings: [] }))
+  context.mock.method(apiService, 'saveConfigContent', async () => {
+    throw new Error('disk full')
+  })
+  await renderEditor()
+
+  await typeAndSave()
+
+  await waitFor(() => assert.deepEqual(shown, ["Couldn't save configuration: disk full"]))
+})
+
+test('a failed save anyway tells the phone user why', async (context) => {
+  const shown = recordNotifications(context)
+  context.mock.method(apiService, 'analyzeConfig', async () => ({
+    valid: true,
+    errors: [],
+    warnings: [{ field: 'general', message: 'unused key', code: 'unused' }],
+  }))
+  context.mock.method(apiService, 'saveConfigContent', async () => {
+    throw new Error('disk full')
+  })
+  await renderEditor()
+
+  await typeAndSave()
+  await userEvent.setup({ document }).click(await view().findByRole('button', { name: 'Save anyway' }))
+
+  await waitFor(() => assert.deepEqual(shown, ["Couldn't save configuration: disk full"]))
 })
