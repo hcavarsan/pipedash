@@ -46,16 +46,18 @@ impl PipelineService {
     pub(crate) async fn cached_pipelines(
         &self, provider_id: Option<i64>,
     ) -> DomainResult<Vec<Pipeline>> {
-        Ok(self.mark_overdue(self.repository.get_cached_pipelines(provider_id).await?))
+        Ok(self.mark_timing(self.repository.get_cached_pipelines(provider_id).await?))
     }
 
-    pub(super) fn mark_overdue(&self, mut pipelines: Vec<Pipeline>) -> Vec<Pipeline> {
+    pub(super) fn mark_timing(&self, mut pipelines: Vec<Pipeline>) -> Vec<Pipeline> {
+        let now = Utc::now();
         for pipeline in &mut pipelines {
             let timing = (pipeline.status == PipelineStatus::Running)
                 .then(|| self.run_timings.get(&pipeline.id))
                 .flatten();
             pipeline.overdue_run = timing.as_ref().and_then(|t| t.overdue.clone());
             pipeline.typical_duration_seconds = timing.as_ref().map(|t| t.typical);
+            pipeline.cadence = self.cadence_of(pipeline, now);
         }
 
         pipelines
@@ -157,6 +159,7 @@ impl PipelineService {
             return HashMap::new();
         };
         let ids: Vec<String> = uncached.iter().map(|p| p.id.clone()).collect();
+        let epochs: Vec<u64> = ids.iter().map(|id| self.run_cache_epoch(id)).collect();
         let mut fetched = match lease
             .provider
             .fetch_recent_runs(&ids, OVERDUE_HISTORY_FETCH)
@@ -171,13 +174,18 @@ impl PipelineService {
         };
 
         let mut prefetched = HashMap::new();
-        for pipeline in uncached {
+        for (pipeline, epoch) in uncached.into_iter().zip(epochs) {
             let runs = fetched.remove(&pipeline.id);
             if let Some(api_runs) = &runs {
                 if let Some(Err(e)) = self
                     .provider_service
                     .commit(&lease, || {
-                        self.merge_run_cache(lease.provider.as_ref(), pipeline, api_runs)
+                        self.merge_run_cache_since(
+                            epoch,
+                            lease.provider.as_ref(),
+                            pipeline,
+                            api_runs,
+                        )
                     })
                     .await
                 {
@@ -193,7 +201,7 @@ impl PipelineService {
         prefetched
     }
 
-    async fn recent_runs(
+    pub(super) async fn recent_runs(
         &self, pipeline_id: &str, order: RunHistoryOrder,
     ) -> DomainResult<Vec<PipelineRun>> {
         if self.repository.get_cached_run_count(pipeline_id).await? > 0 {
@@ -238,21 +246,26 @@ pub(crate) fn overdue_run(runs: &[PipelineRun], now: DateTime<Utc>) -> Option<St
 }
 
 pub(crate) fn typical_duration(runs: &[PipelineRun]) -> Option<i64> {
-    let mut durations: Vec<i64> = runs
+    let durations: Vec<i64> = runs
         .iter()
         .filter(|run| run.status == PipelineStatus::Success)
         .filter_map(|run| run.duration_seconds)
         .filter(|seconds| *seconds > 0)
         .collect();
-    if durations.len() < OVERDUE_MIN_SUCCESSFUL_RUNS {
+
+    median(durations, OVERDUE_MIN_SUCCESSFUL_RUNS)
+}
+
+pub(super) fn median(mut values: Vec<i64>, min: usize) -> Option<i64> {
+    if values.len() < min {
         return None;
     }
-    durations.sort_unstable();
-    let middle = durations.len() / 2;
+    values.sort_unstable();
+    let middle = values.len() / 2;
 
-    Some(if durations.len() % 2 == 0 {
-        (durations[middle - 1] + durations[middle]) / 2
+    Some(if values.len() % 2 == 0 {
+        (values[middle - 1] + values[middle]) / 2
     } else {
-        durations[middle]
+        values[middle]
     })
 }

@@ -32,6 +32,7 @@ use crate::application::test_support::{
 use crate::domain::{
     DomainError,
     HealthLevel,
+    PipelineCadence,
     PipelineRun,
     ProviderConfig,
 };
@@ -578,6 +579,46 @@ fn an_overdue_event_notifies_once_per_run() {
     );
     assert!(repeated.is_empty());
     assert_eq!(next.len(), 1);
+}
+
+#[test]
+fn a_pipeline_that_goes_quiet_notifies_once_until_it_runs_again() {
+    let mut state = NotificationState::default();
+    state.seed(
+        &[run(1, "nightly", PipelineStatus::Success, 1)],
+        &[summary(1)],
+    );
+    let mut quiet = run(1, "nightly", PipelineStatus::Success, 1);
+    quiet.cadence = Some(PipelineCadence {
+        usual_gap_seconds: 86_400,
+        quiet: true,
+    });
+    let mut ran_again = run(1, "nightly", PipelineStatus::Success, 2);
+    ran_again.cadence = Some(PipelineCadence {
+        usual_gap_seconds: 86_400,
+        quiet: false,
+    });
+
+    let first = state.observe_event(&updated(1, vec![quiet.clone()]));
+    let repeated = state.observe_event(&updated(1, vec![quiet.clone()]));
+    let unlearned = state.observe_event(&updated(
+        1,
+        vec![run(1, "nightly", PipelineStatus::Success, 1)],
+    ));
+    state.observe_event(&updated(1, vec![ran_again.clone()]));
+    ran_again.cadence = quiet.cadence;
+    let again = state.observe_event(&updated(1, vec![ran_again]));
+
+    assert_eq!(titles(&first), ["nightly stopped running · acme/app"]);
+    assert_eq!(first[0].kind, AlertKind::Quiet);
+    assert_eq!(first[0].body, "Provider 1 · Usually runs every day");
+    assert!(repeated.is_empty());
+    assert!(unlearned.is_empty());
+    assert_eq!(kinds_of(&again), [AlertKind::Quiet]);
+}
+
+fn kinds_of(found: &[LocalNotification]) -> Vec<AlertKind> {
+    found.iter().map(|notice| notice.kind).collect()
 }
 
 #[tokio::test]

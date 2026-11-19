@@ -7,7 +7,7 @@ import { isRecord } from '../utils/isRecord'
 
 type SourceLists = Pick<
   NotificationPreferences,
-  'muted_providers' | 'muted_pipelines' | 'watched_pipelines' | 'watch_once'
+  'muted_providers' | 'muted_pipelines' | 'watched_pipelines' | 'watch_once' | 'quiet_pipelines'
 >
 
 interface NotificationStoreState {
@@ -42,9 +42,16 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   muted_pipelines: [],
   watched_pipelines: [],
   watch_once: [],
+  quiet_pipelines: [],
 }
 
-const NO_LISTS: SourceLists = { muted_providers: [], muted_pipelines: [], watched_pipelines: [], watch_once: [] }
+const NO_LISTS: SourceLists = {
+  muted_providers: [],
+  muted_pipelines: [],
+  watched_pipelines: [],
+  watch_once: [],
+  quiet_pipelines: [],
+}
 
 const initialState: NotificationStoreState = {
   notificationsEnabled: false,
@@ -82,6 +89,7 @@ function readPreferences(value: unknown): NotificationPreferences {
     watch_once: list('watch_once', isWatchOnce).map(({ pipeline_id, since, fired_at }) =>
       isDate(fired_at) ? { pipeline_id, since, fired_at } : { pipeline_id, since }
     ),
+    quiet_pipelines: list('quiet_pipelines', isString),
   }
 }
 
@@ -130,13 +138,14 @@ function switchSource(state: NotificationStoreState, source: string): Partial<No
   }
 
   const { [source]: restored = NO_LISTS, ...savedLists } = state.savedLists
-  const { muted_providers, muted_pipelines, watched_pipelines, watch_once } = state.preferences
+  const { muted_providers, muted_pipelines, watched_pipelines, watch_once, quiet_pipelines } = state.preferences
+  const saved = { muted_providers, muted_pipelines, watched_pipelines, watch_once, quiet_pipelines }
 
   return {
     source,
     pipelineStates: {},
-    savedLists: { ...savedLists, [state.source]: { muted_providers, muted_pipelines, watched_pipelines, watch_once } },
-    preferences: { ...state.preferences, ...restored },
+    savedLists: { ...savedLists, [state.source]: saved },
+    preferences: { ...state.preferences, ...NO_LISTS, ...restored },
   }
 }
 

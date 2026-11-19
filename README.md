@@ -59,7 +59,7 @@
   </tr>
   <tr>
     <td align="center" width="120"><img src="./.github/icons/notify.svg" width="32" height="32" alt="" /><br><b>Notify</b></td>
-    <td width="420">Get an alert when a pipeline fails or recovers.</td>
+    <td width="420">Get an alert when a pipeline fails, recovers or stops running on its usual schedule.</td>
     <td width="264"><a href="https://pipedash.app/docs/features/notifications">Notifications</a></td>
   </tr>
 </table>

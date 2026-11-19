@@ -1,4 +1,4 @@
-import { Radio, Stack } from '@mantine/core'
+import { Checkbox, Radio, Stack } from '@mantine/core'
 import { modals } from '@mantine/modals'
 import { type ReactNode, useState } from 'react'
 
@@ -34,19 +34,44 @@ export function PipelineNotifyPolicy({ pipeline, onDone }: PipelineNotifyPolicyP
   }
 
   return (
-    <Radio.Group value={current} onChange={(value) => void choose(value)}>
-      <Stack gap="sm">
-        {options.map((option) => (
-          <Radio
-            key={option.value}
-            value={option.value}
-            label={option.label}
-            description={option.description}
-            disabled={saving !== null}
-          />
-        ))}
-      </Stack>
-    </Radio.Group>
+    <Stack gap="lg">
+      <Radio.Group value={current} onChange={(value) => void choose(value)}>
+        <Stack gap="sm">
+          {options.map((option) => (
+            <Radio
+              key={option.value}
+              value={option.value}
+              label={option.label}
+              description={option.description}
+              disabled={saving !== null}
+            />
+          ))}
+        </Stack>
+      </Radio.Group>
+      <QuietAlertToggle pipeline={pipeline} />
+    </Stack>
+  )
+}
+
+function QuietAlertToggle({ pipeline }: { pipeline: PolicyTarget }): ReactNode {
+  const { quietItem } = useNotifyItems()
+  const quiet = quietItem(pipeline)
+  const [saving, setSaving] = useState(false)
+
+  const toggle = async (): Promise<void> => {
+    setSaving(true)
+    await quiet.toggle()
+    setSaving(false)
+  }
+
+  return (
+    <Checkbox
+      label={quiet.label}
+      description={quiet.description}
+      checked={quiet.enabled}
+      disabled={saving || !quiet.available}
+      onChange={() => void toggle()}
+    />
   )
 }
 

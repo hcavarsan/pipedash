@@ -101,6 +101,7 @@ impl Repository {
             metadata,
             overdue_run: None,
             typical_duration_seconds: None,
+            cadence: None,
             actions: Default::default(),
         })
     }

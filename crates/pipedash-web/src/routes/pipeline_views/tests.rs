@@ -58,6 +58,7 @@ fn pipeline(provider_id: i64, name: &str) -> Pipeline {
         metadata: Default::default(),
         overdue_run: None,
         typical_duration_seconds: None,
+        cadence: None,
         actions: Default::default(),
     }
 }

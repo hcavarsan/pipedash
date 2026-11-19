@@ -5,10 +5,11 @@ import { Link, useLocation } from 'react-router-dom'
 
 import { useRowMenuLongPress } from '../../hooks/useLongPress'
 import { useNow } from '../../hooks/useNow'
+import { usePipelineStatusLabel } from '../../hooks/usePipelineStatusLabel'
 import { type StatusKey, statusMeta } from '../../theme/status'
 import type { PipelineActions, PipelineSelection, TableRow } from '../../types/pipelineRows'
 import type { ProviderSummary } from '../../types/providers'
-import { getPipelineStatusLabel, pipelineStatusKey } from '../../utils/pipelinePresentation'
+import { pipelineStatusKey } from '../../utils/pipelinePresentation'
 import { historyLabel, workflowSwipeActions } from '../../utils/pipelineRowActions'
 import { StatusGlyph } from '../atoms/StatusBadge'
 import groupClasses from '../ios/IosList.module.css'
@@ -174,6 +175,7 @@ interface WorkflowRowViewProps {
 }
 
 function WorkflowRowView({ row, now, getProvider, actions, selection }: WorkflowRowViewProps): ReactNode {
+  const statusLabel = usePipelineStatusLabel()
   const { pipeline } = row
   const nested = Boolean(row.depth)
   const subtitle = [nested ? '' : row.organization, pipeline.branch, relativeOrNever(row.lastRun, now)]
@@ -183,7 +185,7 @@ function WorkflowRowView({ row, now, getProvider, actions, selection }: Workflow
   return (
     <IosPipelineRow
       status={pipelineStatusKey(pipeline)}
-      statusText={getPipelineStatusLabel(pipeline)}
+      statusText={statusLabel(pipeline)}
       title={row.name}
       subtitle={subtitle}
       hint={`View ${historyLabel(actions, pipeline.provider_type)}`}

@@ -35,10 +35,11 @@ impl PipelineService {
     ) -> DomainResult<(Vec<PipelineRun>, ProviderLease)> {
         let pipeline_id = pipeline.id.as_str();
         let lease = self.provider_service.acquire(pipeline.provider_id).await?;
+        let epoch = self.run_cache_epoch(pipeline_id);
         let request_id = hash_request(
             pipeline.provider_id,
             lease.generation,
-            &format!("fetch_runs_{}_{}", pipeline_id, limit),
+            &format!("fetch_runs_{}_{}_{}", pipeline_id, limit, epoch),
         );
 
         let fetch_lease = lease.clone();
@@ -55,12 +56,21 @@ impl PipelineService {
 
         self.provider_service
             .commit(&lease, || {
-                self.merge_run_cache(lease.provider.as_ref(), pipeline, &api_runs)
+                self.merge_run_cache_since(epoch, lease.provider.as_ref(), pipeline, &api_runs)
             })
             .await
             .transpose()?;
 
         Ok((api_runs, lease))
+    }
+
+    pub(super) async fn merge_run_cache_since(
+        &self, epoch: u64, provider: &dyn Provider, pipeline: &Pipeline, api_runs: &[PipelineRun],
+    ) -> DomainResult<()> {
+        if self.run_cache_epoch(&pipeline.id) != epoch {
+            return Ok(());
+        }
+        self.merge_run_cache(provider, pipeline, api_runs).await
     }
 
     pub(super) async fn merge_run_cache(
