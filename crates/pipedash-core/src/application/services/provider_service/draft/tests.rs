@@ -447,6 +447,80 @@ async fn updating_a_draft_keeps_the_interval_and_returns_the_id() {
 }
 
 #[tokio::test]
+async fn an_edit_without_a_token_keeps_the_stored_one() {
+    let h = Harness::new().await;
+    let id = h
+        .repository
+        .add_provider(&stored(&[
+            ("deck_url", "https://deck.example"),
+            ("namespaces", "team-a"),
+            ("selected_items", "x"),
+        ]))
+        .await
+        .unwrap();
+    let mut edit = editing(
+        id,
+        &[
+            ("deck_url", "https://deck.example"),
+            ("namespaces", "team-a"),
+            ("selected_items", "x"),
+        ],
+    );
+    edit.name = "Renamed".to_string();
+
+    let result = validate(&h, &edit).await;
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert!(result.credentials_complete);
+    h.provider_service.save_draft(edit).await.unwrap();
+
+    let saved = h.repository.get_provider(id).await.unwrap();
+    assert_eq!(saved.name, "Renamed");
+    assert_eq!(saved.token, "stored");
+}
+
+#[tokio::test]
+async fn an_edit_that_moves_the_connection_asks_for_the_token_again() {
+    let h = Harness::new().await;
+    let id = h
+        .repository
+        .add_provider(&stored(&[
+            ("deck_url", "https://deck.example"),
+            ("base_url", "https://api.example"),
+        ]))
+        .await
+        .unwrap();
+
+    for moved in [
+        [
+            ("deck_url", "https://other.example"),
+            ("base_url", "https://api.example"),
+        ],
+        [
+            ("deck_url", "https://deck.example"),
+            ("base_url", "https://other.example"),
+        ],
+    ] {
+        let result = validate(&h, &editing(id, &moved)).await;
+
+        assert_eq!(result.errors["token"], "Token is required");
+        assert!(!result.credentials_complete);
+    }
+}
+
+#[test]
+fn the_stored_token_stays_with_its_own_provider_type() {
+    let values = [("deck_url", "https://deck.example")];
+    let mut other_type = stored(&values);
+    other_type.provider_type = STUB.to_string();
+
+    assert_eq!(
+        config_of(&editing(1, &values), Some(&stored(&values))).token,
+        "stored"
+    );
+    assert_eq!(config_of(&editing(1, &values), Some(&other_type)).token, "");
+}
+
+#[tokio::test]
 async fn a_scope_change_drops_the_saved_selection() {
     let h = Harness::new().await;
     let id = h

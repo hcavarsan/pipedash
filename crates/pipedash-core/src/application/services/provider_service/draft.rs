@@ -22,7 +22,7 @@ use crate::domain::{
     SIGN_IN_CONFIG_KEY,
 };
 
-mod rules;
+pub(super) mod rules;
 #[cfg(test)]
 mod tests;
 
