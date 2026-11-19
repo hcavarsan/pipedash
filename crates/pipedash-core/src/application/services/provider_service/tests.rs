@@ -1504,6 +1504,99 @@ async fn renaming_a_toml_provider_keeps_the_file_key_for_removal() {
     assert!(h.repository.list_providers().await.unwrap().is_empty());
 }
 
+async fn restart_sync(h: &Harness) {
+    h.config_state.reload().await.unwrap();
+    h.config_state
+        .sync_providers_from_toml(h.repository.config_backend().as_ref(), false)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn app_edits_to_a_file_provider_survive_a_restart() {
+    let h = Harness::new().await;
+    config_file(&h, &[("ci-a", "CI A", 30)]);
+    h.provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .unwrap();
+    let id = provider_id(&h, "ci-a").await.unwrap();
+    h.provider_service
+        .update_provider_refresh_interval(id, 120)
+        .await
+        .unwrap();
+    let mut renamed = h.repository.get_provider(id).await.unwrap();
+    renamed
+        .config
+        .insert("display_name".to_string(), "Renamed in app".to_string());
+    h.repository.update_provider(id, &renamed).await.unwrap();
+
+    restart_sync(&h).await;
+
+    let kept = h.repository.get_provider(id).await.unwrap();
+    assert_eq!(kept.refresh_interval, 120);
+    assert_eq!(kept.display_name(), "Renamed in app");
+}
+
+#[tokio::test]
+async fn a_file_block_edited_while_stopped_wins_on_restart() {
+    let h = Harness::new().await;
+    config_file(&h, &[("ci-a", "CI A", 30)]);
+    restart_sync(&h).await;
+    let id = provider_id(&h, "ci-a").await.unwrap();
+    h.provider_service
+        .update_provider_refresh_interval(id, 120)
+        .await
+        .unwrap();
+
+    config_file(&h, &[("ci-a", "CI Renamed", 60)]);
+    restart_sync(&h).await;
+
+    let applied = h.repository.get_provider(id).await.unwrap();
+    assert_eq!(applied.refresh_interval, 60);
+    assert_eq!(applied.display_name(), "CI Renamed");
+}
+
+#[tokio::test]
+async fn a_file_provider_from_before_the_upgrade_keeps_its_app_edits() {
+    let h = Harness::new().await;
+    config_file(&h, &[("ci-a", "CI A", 30)]);
+    let legacy = provider(
+        "ci-a",
+        "stub",
+        "token-ci-a",
+        120,
+        &[("display_name", "CI A")],
+    );
+    let id = h
+        .repository
+        .config_backend()
+        .create_provider(&legacy)
+        .await
+        .unwrap();
+
+    restart_sync(&h).await;
+    assert_eq!(
+        h.repository
+            .get_provider(id)
+            .await
+            .unwrap()
+            .refresh_interval,
+        120
+    );
+
+    config_file(&h, &[("ci-a", "CI A", 60)]);
+    restart_sync(&h).await;
+    assert_eq!(
+        h.repository
+            .get_provider(id)
+            .await
+            .unwrap()
+            .refresh_interval,
+        60
+    );
+}
+
 #[tokio::test]
 async fn test_apply_config_file_adds_and_updates_changed_blocks_only() {
     let h = Harness::new().await;

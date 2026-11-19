@@ -52,6 +52,10 @@ pub trait ConfigBackend: Send + Sync {
 
     async fn list_config_file_providers(&self) -> DomainResult<Vec<(i64, String)>>;
 
+    async fn record_config_file_hash(&self, id: i64, hash: &str) -> DomainResult<()>;
+
+    async fn config_file_hash(&self, id: i64) -> DomainResult<Option<String>>;
+
     async fn get_table_preferences(
         &self, provider_id: i64, table_id: &str,
     ) -> DomainResult<Option<String>>;
