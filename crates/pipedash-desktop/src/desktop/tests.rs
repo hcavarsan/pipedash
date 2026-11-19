@@ -175,6 +175,42 @@ fn a_client_is_active_only_while_connected_whatever_the_local_core_says() {
 }
 
 #[test]
+fn a_connected_client_can_send_a_test_notification_without_a_local_vault() {
+    use crate::remote::model::RemoteStatus;
+
+    let mut inner = Inner {
+        vault_ready: false,
+        client: Some(ClientLink {
+            host: "ci.example.com".to_string(),
+            status: RemoteStatus::Connected,
+        }),
+        ..Default::default()
+    };
+    inner.saved.settings.notifications_enabled = true;
+    let ready = |inner: &Inner| {
+        serde_json::to_value(inner.status(&Default::default())).unwrap()["ready"] == true
+    };
+
+    assert!(ready(&inner));
+    assert_eq!(inner.test_notification_refusal(), None);
+
+    inner.client = Some(ClientLink {
+        host: "ci.example.com".to_string(),
+        status: RemoteStatus::Reconnecting,
+    });
+    assert!(!ready(&inner));
+    assert!(inner.test_notification_refusal().is_some());
+
+    inner.client = None;
+    inner.vault_ready = true;
+    inner.saved.settings.notifications_enabled = false;
+    assert_eq!(
+        inner.test_notification_refusal(),
+        Some("Turn on system notifications before sending a test")
+    );
+}
+
+#[test]
 fn server_pins_parse_and_failures_become_a_menu_error() {
     let snapshot = PipelineMenuSnapshot {
         pipelines: Vec::new(),
