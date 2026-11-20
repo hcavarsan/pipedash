@@ -245,7 +245,14 @@ plugin_impl!(GiteaPlugin [metadata, status_source, available_from_filtered, fetc
         let id = config::parse_pipeline_id(&params.workflow_id)?;
         let client = self.client()?;
 
-        let body = dispatch_body(params.inputs);
+        let mut body = dispatch_body(params.inputs);
+        if let Some(serde_json::Value::Object(inputs)) = body.get_mut("inputs") {
+            for value in inputs.values_mut() {
+                if !value.is_string() {
+                    *value = serde_json::Value::String(value.to_string());
+                }
+            }
+        }
 
         client
             .dispatch_workflow(id.owner, id.repo, id.workflow, &body)
