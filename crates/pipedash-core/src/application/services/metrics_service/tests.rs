@@ -239,7 +239,8 @@ fn native_run(
 fn snapshot_run(pipeline_id: &str, run_number: i64) -> PipelineRun {
     serde_json::from_value(json!({
         "id": format!("{pipeline_id}__{run_number}"), "pipeline_id": pipeline_id,
-        "run_number": run_number, "status": "failed", "started_at": "2026-10-21T00:30:00Z",
+        "run_number": run_number, "status": "failed",
+        "started_at": (Utc::now() - chrono::Duration::minutes(30)).to_rfc3339(),
         "logs_url": "",
         "metadata": {
             "record_source": "current_snapshot", "history_scope": "bounded_reconciliation",
@@ -447,7 +448,9 @@ async fn runs_without_native_provenance_keep_their_first_observation() {
         .update_pipeline_config(pipeline_id, true, 30)
         .await
         .unwrap();
-    let mut run = native_run(pipeline_id, 5, "2026-10-21T00:00:00Z", Some(10));
+    let started = chrono::DateTime::from_timestamp_millis(Utc::now().timestamp_millis()).unwrap()
+        - chrono::Duration::hours(1);
+    let mut run = native_run(pipeline_id, 5, &started.to_rfc3339(), Some(10));
     run.metadata.clear();
 
     let first = service
@@ -456,7 +459,7 @@ async fn runs_without_native_provenance_keep_their_first_observation() {
         .unwrap();
     assert_eq!(first, 3);
 
-    run.started_at = "2026-10-21T00:20:00Z".parse().unwrap();
+    run.started_at = started + chrono::Duration::minutes(20);
     run.duration_seconds = Some(99);
     let second = service
         .extract_and_store_metrics(pipeline_id, std::slice::from_ref(&run))
