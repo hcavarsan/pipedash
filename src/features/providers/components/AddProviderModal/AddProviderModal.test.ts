@@ -245,7 +245,7 @@ test('a rejected save keeps the dialog open with the typed values and allows a r
   await user.click(await view().findByRole('button', { name: /^Continue/ }))
   const note = await view().findByRole('textbox', { name: 'Note' })
   assert.ok(note instanceof HTMLInputElement)
-  await waitFor(() => assert.equal(note.disabled, false))
+  await waitFor(() => assert.ok(usable(note)))
   await user.clear(note)
   await user.type(note, 'kept')
   await user.click(view().getByRole('button', { name: 'Save' }))
@@ -253,9 +253,11 @@ test('a rejected save keeps the dialog open with the typed values and allows a r
   await view().findByText(/provider rejected the update/)
   assert.equal(closed.value, false)
   assert.equal(note.value, 'kept')
-  assert.equal(note.disabled, false)
+  await waitFor(() => assert.ok(usable(note)))
 
-  await user.click(view().getByRole('button', { name: 'Save' }))
+  const save = view().getByRole('button', { name: 'Save' })
+  await waitFor(() => assert.ok(usable(save)))
+  await user.click(save)
   await waitFor(() => assert.equal(closed.value, true))
   assert.equal(attempts, 2)
 })
@@ -268,10 +270,11 @@ test('the save error disappears when the user edits a field', async () => {
 
   await user.click(await view().findByRole('button', { name: /^Continue/ }))
   const note = await view().findByRole('textbox', { name: 'Note' })
-  await waitFor(() => assert.equal(note.hasAttribute('disabled'), false))
+  await waitFor(() => assert.ok(usable(note)))
   await user.click(view().getByRole('button', { name: 'Save' }))
   await view().findByText(/provider rejected the update/)
 
+  await waitFor(() => assert.ok(usable(note)))
   await user.type(note, '!')
   await waitFor(() => assert.ok(!view().queryByText(/provider rejected the update/)))
 })
@@ -394,12 +397,22 @@ async function withVisibleRows(run: () => Promise<void>): Promise<void> {
   }
 }
 
+function usable(element: HTMLElement): boolean {
+  return !element.closest('fieldset[disabled]') && !element.hasAttribute('disabled') && !element.matches(':disabled')
+}
+
 async function selectFirstPipeline(user: UserEvent): Promise<void> {
   await user.click(await view().findByRole('button', { name: 'Stub' }))
   await user.click(view().getByRole('button', { name: /^Continue/ }))
-  await user.type(await view().findByLabelText(/^Token/), 'secret')
-  await user.click(view().getByRole('button', { name: /^Continue/ }))
-  await user.click(await view().findByRole('checkbox', { name: 'a' }))
+  const token = await view().findByLabelText(/^Token/)
+  await waitFor(() => assert.ok(usable(token)))
+  await user.type(token, 'secret')
+  const next = view().getByRole('button', { name: /^Continue/ })
+  await waitFor(() => assert.ok(usable(next)))
+  await user.click(next)
+  const first = await view().findByRole('checkbox', { name: 'a' })
+  await waitFor(() => assert.ok(usable(first)))
+  await user.click(first)
 }
 
 test('the pipeline selection stays locked while the provider saves', () =>
