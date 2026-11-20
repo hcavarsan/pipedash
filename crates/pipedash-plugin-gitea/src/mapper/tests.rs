@@ -7,7 +7,7 @@ fn status_mapping_follows_github_style_status_and_conclusion() {
         ("completed", Some("cancelled"), PipelineStatus::Cancelled),
         ("completed", Some("skipped"), PipelineStatus::Skipped),
         ("in_progress", None, PipelineStatus::Running),
-        ("queued", None, PipelineStatus::Running),
+        ("queued", None, PipelineStatus::Pending),
         ("waiting", None, PipelineStatus::Pending),
         ("unknown", None, PipelineStatus::Pending),
     ];
@@ -81,7 +81,7 @@ fn every_job_status_word_maps_to_a_status_and_a_log_availability() {
             "queued",
             "",
             unset,
-            PipelineStatus::Running,
+            PipelineStatus::Pending,
             Some(LogAvailability::Pending),
         ),
         (

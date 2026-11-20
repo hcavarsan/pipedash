@@ -276,7 +276,7 @@ async fn pipelines_find_latest_run_of_each_workflow_beyond_first_page() {
     assert_eq!(
         summary,
         [
-            ("claude/smoke__ci/build__test.yaml", PipelineStatus::Running),
+            ("claude/smoke__ci/build__test.yaml", PipelineStatus::Pending),
             ("claude/smoke__ci/lint.yaml", PipelineStatus::Failed),
         ]
     );
@@ -590,7 +590,7 @@ async fn run_jobs_and_steps_become_log_nodes_across_pages() {
                 "103",
                 None,
                 LogNodeKind::Job,
-                PipelineStatus::Running,
+                PipelineStatus::Pending,
                 Some(LogAvailability::Pending)
             ),
             ("104", None, LogNodeKind::Job, PipelineStatus::Skipped, None),
