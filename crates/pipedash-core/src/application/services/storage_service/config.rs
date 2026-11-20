@@ -132,13 +132,16 @@ pub async fn save_config_content(
         })?;
     validate_config(&config, registry)?;
 
-    tokio::fs::write(path, content).await.map_err(|e| {
-        DomainError::InternalError(format!(
-            "Failed to save config file at {}: {}",
-            path.display(),
-            e
-        ))
-    })?;
+    let (target, owned) = (path.to_path_buf(), content.to_owned());
+    blocking(move || ConfigLoader::write_atomic(&target, &owned))
+        .await?
+        .map_err(|e| {
+            DomainError::InternalError(format!(
+                "Failed to save config file at {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
     tracing::info!("Config file saved: {:?}", path);
 
     let Some(core) = core else {
