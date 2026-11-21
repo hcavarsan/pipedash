@@ -30,6 +30,27 @@ fn epoch_zero_timestamps_are_treated_as_unset() {
     assert_eq!(run.workflow_file(), "ci.yaml");
 }
 
+#[test]
+fn a_queued_run_keeps_its_creation_time_until_a_runner_starts_it() {
+    let created = "2026-10-28T10:00:00Z".parse::<DateTime<Utc>>().unwrap();
+    let run: types::Run = serde_json::from_value(serde_json::json!({
+        "id": 3, "run_number": 3, "status": "queued", "path": "ci.yaml@refs/heads/main",
+        "html_url": "http://g/o/r/actions/runs/3", "created_at": created,
+        "started_at": "1970-01-01T00:00:00Z", "completed_at": "1970-01-01T00:00:00Z"
+    }))
+    .unwrap();
+    let workflow: types::Workflow = serde_json::from_value(serde_json::json!({
+        "id": "ci.yaml", "name": "ci", "path": ".gitea/workflows/ci.yaml"
+    }))
+    .unwrap();
+    let pipeline = map_pipeline("o", "r", &workflow, Some(&run));
+    let mapped = map_run(&run, "o/r/ci.yaml", "o");
+    assert_eq!(pipeline.status, PipelineStatus::Pending);
+    assert_eq!(pipeline.last_run, Some(created));
+    assert_eq!(mapped.started_at, created);
+    assert_eq!(mapped.duration_seconds, None);
+}
+
 fn jobs(value: serde_json::Value) -> Vec<types::Job> {
     serde_json::from_value::<types::JobList>(value)
         .unwrap()
