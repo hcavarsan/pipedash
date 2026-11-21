@@ -1,3 +1,7 @@
+use std::io::{
+    ErrorKind,
+    Write,
+};
 use std::path::Path;
 
 use toml_edit::{
@@ -34,7 +38,7 @@ impl ConfigLoader {
 
             Self::update_document(&mut doc, config)?;
 
-            std::fs::write(path, doc.to_string())?;
+            Self::write_atomic(path, &doc.to_string())?;
         } else {
             let toml_str = Self::to_toml(config).map_err(|e| {
                 ConfigLoadError::InvalidConfig(format!("Failed to serialize config: {}", e))
@@ -44,10 +48,41 @@ impl ConfigLoader {
                 std::fs::create_dir_all(parent)?;
             }
 
-            std::fs::write(path, toml_str)?;
+            Self::write_atomic(path, &toml_str)?;
         }
 
         Ok(())
+    }
+
+    pub fn write_atomic(path: &Path, content: &str) -> std::io::Result<()> {
+        let target = match std::fs::canonicalize(path) {
+            Ok(real) => real,
+            Err(e) if e.kind() == ErrorKind::NotFound => path.to_path_buf(),
+            Err(e) => return Err(e),
+        };
+        let dir = match target.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent,
+            _ => Path::new("."),
+        };
+        let mut file = tempfile::Builder::new()
+            .prefix(".pipedash-config-")
+            .suffix(".tmp")
+            .tempfile_in(dir)?;
+        file.write_all(content.as_bytes())?;
+        if let Ok(meta) = std::fs::metadata(&target) {
+            file.as_file().set_permissions(meta.permissions())?;
+        }
+        file.as_file().sync_all()?;
+        let (file, temp) = file.keep().map_err(|e| e.error)?;
+        drop(file);
+        let renamed = std::fs::rename(&temp, &target);
+        if renamed.is_err() {
+            let _ = std::fs::remove_file(&temp);
+        }
+        match renamed {
+            Err(e) if e.kind() == ErrorKind::ResourceBusy => std::fs::write(&target, content),
+            other => other,
+        }
     }
 
     pub(in crate::infrastructure::config) fn apply_general(

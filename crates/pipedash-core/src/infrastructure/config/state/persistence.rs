@@ -35,8 +35,10 @@ pub(super) fn parse_document(content: &str) -> DomainResult<DocumentMut> {
 }
 
 pub(super) async fn write_file(path: &Path, content: String) -> DomainResult<()> {
-    tokio::fs::write(path, content)
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || ConfigLoader::write_atomic(&path, &content))
         .await
+        .map_err(|e| DomainError::InternalError(format!("Background task failed: {e}")))?
         .map_err(|e| DomainError::DatabaseError(format!("Failed to write config file: {e}")))
 }
 
