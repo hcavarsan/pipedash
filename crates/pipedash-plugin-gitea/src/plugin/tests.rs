@@ -411,6 +411,24 @@ async fn cancel_reports_not_supported_when_endpoint_is_missing() {
     server.abort();
 }
 
+#[test]
+fn dispatch_inputs_reach_gitea_as_strings() {
+    let body = gitea_dispatch_body(Some(serde_json::json!({
+        "ref": "main",
+        "inputs.dry_run": false,
+        "inputs.replicas": 3,
+        "inputs.greeting": "hi",
+    })));
+
+    assert_eq!(
+        body,
+        serde_json::json!({
+            "ref": "main",
+            "inputs": {"dry_run": "false", "replicas": "3", "greeting": "hi"},
+        })
+    );
+}
+
 #[tokio::test]
 async fn dispatch_is_not_resent_after_a_server_error() {
     let _ = rustls::crypto::ring::default_provider().install_default();
