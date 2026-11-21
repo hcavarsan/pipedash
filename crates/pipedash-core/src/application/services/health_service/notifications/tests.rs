@@ -105,6 +105,14 @@ fn running_run(pipeline_id: &str, hours: i64) -> PipelineRun {
     .unwrap()
 }
 
+fn queued_run(pipeline_id: &str, minutes: i64) -> PipelineRun {
+    PipelineRun {
+        status: PipelineStatus::Pending,
+        started_at: Utc::now() - chrono::Duration::minutes(minutes),
+        ..running_run(pipeline_id, 0)
+    }
+}
+
 fn summary_with(id: i64, signals: Vec<Value>, status_page: bool) -> ProviderSummary {
     let page = status_page.then(|| {
         json!({
@@ -605,6 +613,36 @@ async fn a_scan_flags_a_running_pipeline_past_its_usual_duration_once() {
         ["api is running longer than usual · acme/app"]
     );
     assert_eq!(found[0].key, "pipeline:stub__1__api");
+    assert!(rig.scan(&[1]).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_scan_flags_a_run_stuck_in_the_queue_once() {
+    let mut rig = Rig::new();
+    let id = "stub__1__api";
+    let stub = rig.stub(1, |stub| stub.with_runs(vec![queued_run(id, 20)]));
+    stub.set_pipelines(vec![run(1, "api", PipelineStatus::Success, 1)]);
+    assert!(rig.scan(&[1]).await.is_empty());
+
+    stub.set_pipelines(vec![run(1, "api", PipelineStatus::Pending, 2)]);
+    let found = rig.scan(&[1]).await;
+
+    assert_eq!(
+        titles(&found),
+        ["api is waiting in the queue too long · acme/app"]
+    );
+    assert_eq!(found[0].kind, AlertKind::StuckQueue);
+    assert!(rig.scan(&[1]).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_queued_pipeline_already_stuck_at_the_first_scan_stays_silent() {
+    let mut rig = Rig::new();
+    let id = "stub__1__api";
+    let stub = rig.stub(1, |stub| stub.with_runs(vec![queued_run(id, 20)]));
+    stub.set_pipelines(vec![run(1, "api", PipelineStatus::Pending, 2)]);
+
+    assert!(rig.scan(&[1]).await.is_empty());
     assert!(rig.scan(&[1]).await.is_empty());
 }
 
