@@ -52,3 +52,22 @@ fn a_symlinked_file_keeps_its_link_and_mode() {
         0o640
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_link_to_a_missing_file_creates_its_target() {
+    let dir = tempfile::tempdir().unwrap();
+    let link = dir.path().join("config.toml");
+    std::os::unix::fs::symlink("real.toml", &link).unwrap();
+
+    write_atomic(&link, b"new = true\n").unwrap();
+
+    assert!(fs::symlink_metadata(&link)
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    assert_eq!(
+        fs::read_to_string(dir.path().join("real.toml")).unwrap(),
+        "new = true\n"
+    );
+}

@@ -13,7 +13,7 @@ use std::sync::atomic::{
 };
 
 pub(crate) fn write_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
-    let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let target = resolve_link(path);
     if fs::metadata(&target).is_ok_and(|existing| existing.permissions().readonly()) {
         return Err(ErrorKind::PermissionDenied.into());
     }
@@ -29,6 +29,18 @@ pub(crate) fn write_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
         | ErrorKind::PermissionDenied
         | ErrorKind::ReadOnlyFilesystem => fs::write(&target, content),
         _ => Err(error),
+    }
+}
+
+fn resolve_link(path: &Path) -> PathBuf {
+    if let Ok(target) = fs::canonicalize(path) {
+        return target;
+    }
+    match fs::read_link(path) {
+        Ok(link) => path
+            .parent()
+            .map_or_else(|| link.clone(), |dir| dir.join(&link)),
+        Err(_) => path.to_path_buf(),
     }
 }
 
