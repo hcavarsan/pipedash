@@ -73,10 +73,15 @@ impl ConfigLoader {
             file.as_file().set_permissions(meta.permissions())?;
         }
         file.as_file().sync_all()?;
-        match file.persist(&target) {
-            Ok(_) => Ok(()),
-            Err(e) if e.error.kind() == ErrorKind::ResourceBusy => std::fs::write(&target, content),
-            Err(e) => Err(e.error),
+        let (file, temp) = file.keep().map_err(|e| e.error)?;
+        drop(file);
+        let renamed = std::fs::rename(&temp, &target);
+        if renamed.is_err() {
+            let _ = std::fs::remove_file(&temp);
+        }
+        match renamed {
+            Err(e) if e.kind() == ErrorKind::ResourceBusy => std::fs::write(&target, content),
+            other => other,
         }
     }
 
