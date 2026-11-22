@@ -344,6 +344,10 @@ impl CorrelationService {
         self.store
             .transaction(|conn: &mut CorrelationConn| {
                 Box::pin(async move {
+                    let earlier = conn
+                        .list_artifact_observations_by_subject(&pipeline)
+                        .await?;
+                    let rows = with_earlier(earlier, run_number, rows);
                     conn.replace_artifact_observations(&pipeline, run_number, ORIGIN_LOG, &rows)
                         .await?;
                     conn.upsert_log_scan(&LogScanRow {
@@ -357,6 +361,18 @@ impl CorrelationService {
             })
             .await
     }
+}
+
+fn with_earlier(
+    earlier: Vec<ArtifactObservationRow>, run_number: i64, mut rows: Vec<ArtifactObservationRow>,
+) -> Vec<ArtifactObservationRow> {
+    let kept: Vec<ArtifactObservationRow> = earlier
+        .into_iter()
+        .filter(|row| row.run_number == run_number && row.origin == ORIGIN_LOG)
+        .filter(|row| rows.iter().all(|new| new.digest != row.digest))
+        .collect();
+    rows.extend(kept);
+    rows
 }
 
 #[cfg(test)]

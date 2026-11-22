@@ -292,3 +292,32 @@ async fn a_tag_lookup_with_superseded_credentials_writes_no_edge() {
     assert_eq!(tag_edges_with_credentials(false).await, 1);
     assert_eq!(tag_edges_with_credentials(true).await, 0);
 }
+
+#[tokio::test]
+async fn an_unreachable_registry_leaves_the_config_commit_to_retry() {
+    let f = Fixture::new().await;
+    let repository = "127.0.0.1:9/shop/api";
+    let (provider, _) = f
+        .stub(|stub| {
+            stub.with_source_hosts(&["git.test"])
+                .with_changes(patch(&format!("+  image: {repository}:v1\n")))
+        })
+        .await;
+    let subject = format!("stub__{provider}__api-prod");
+    f.consume(provider, &subject, &digest('d'), repository, Utc::now())
+        .await;
+    f.source(
+        provider,
+        &subject,
+        PIPELINE_LEVEL,
+        CONFIG_REPO,
+        Some(&sha('c')),
+    )
+    .await;
+
+    assert!(f.service.follow_lineage().await.unwrap().is_empty());
+
+    let key = format!("lineage|{CONFIG_REPO}|{}", sha('c'));
+    assert!(f.service.enrich.recall(&key).is_none());
+    assert!(!f.service.enrich.due(&key));
+}

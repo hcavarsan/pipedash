@@ -514,3 +514,51 @@ async fn label_source_match_backfills_history_exactly_once() {
 
     assert_eq!(stub.history_fetch_count(), 1);
 }
+
+#[tokio::test]
+async fn a_failed_history_backfill_is_claimed_again() {
+    let f = Fixture::with_config(no_registry()).await;
+    let (provider, stub) = f.stub(|stub| stub).await;
+    let build_id = format!("stub__{provider}__build");
+
+    f.service.backfill_runs([build_id.clone()]);
+    until("the failed backfill to settle", || async {
+        f.service.enrich.backfill_state(&build_id) != Some(false)
+    })
+    .await;
+    f.h.repository
+        .update_pipelines_cache(
+            provider,
+            &[pipeline(provider, "build", PipelineStatus::Success)],
+        )
+        .await
+        .unwrap();
+    f.service.backfill_runs([build_id.clone()]);
+
+    until("the retried history backfill", || async {
+        f.service.enrich.backfill_state(&build_id) == Some(true)
+    })
+    .await;
+    assert_eq!(stub.history_fetch_count(), 1);
+}
+
+#[tokio::test]
+async fn an_unchanged_refresh_runs_deferred_work_once_it_is_due() {
+    let f = Fixture::new().await;
+    let (_, node) = seed_lineage(&f).await;
+    let (idle, _) = f.stub(|stub| stub).await;
+    f.service.enrich.deferred.lock().unwrap().insert(
+        format!("lineage|git.test/shop/config|{}", sha('c')),
+        tokio::time::Instant::now(),
+    );
+
+    f.service
+        .pipelines_applied_impl(idle, &[], &[])
+        .await
+        .unwrap();
+
+    until("the deferred lineage pass", || async {
+        lineage_edges(&f, &node).await == 1
+    })
+    .await;
+}

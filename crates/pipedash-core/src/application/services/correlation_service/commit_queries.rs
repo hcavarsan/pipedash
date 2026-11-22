@@ -15,7 +15,6 @@ use super::copy::{
 use super::page::layout::ordered_groups;
 use super::page::live::{
     built_from,
-    primary,
     BuiltFrom,
     Live,
 };
@@ -100,9 +99,9 @@ impl CorrelationService {
         {
             return (LocationState::Live, copy::location_live());
         }
-        let anchor = primary(live);
         for (repo, sha) in commits {
-            let Some(base) = anchor.filter(|l| &l.repo == repo) else {
+            let same_repo = live.iter().filter(|l| &l.repo == repo);
+            let Some(base) = same_repo.min_by_key(|l| !l.derived) else {
                 continue;
             };
             let (Some(id), Some(base), Some(head)) = (

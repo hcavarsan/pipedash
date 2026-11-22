@@ -89,8 +89,8 @@ impl CorrelationService {
         self.refetch_history(followed.stale);
         if !changed.is_empty() {
             self.resolve(&changed).await?;
-            self.schedule_enrichment(&changed);
         }
+        self.schedule_enrichment(&changed);
         Ok(())
     }
 

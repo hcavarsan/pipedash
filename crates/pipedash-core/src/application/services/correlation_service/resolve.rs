@@ -172,7 +172,7 @@ impl CorrelationService {
             let members = self
                 .plan_members(conn, world, &plan, &hubs, &builders, app)
                 .await?;
-            let planned = targets::compute(world, &plan, app);
+            let planned = targets::compute(world, &plan, app, &members.rows);
             let saved = self.persist_application(conn, world, app, now).await?;
             applications.push(saved.id);
             changed |= saved.changed;

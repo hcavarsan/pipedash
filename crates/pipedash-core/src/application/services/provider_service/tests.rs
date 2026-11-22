@@ -1864,6 +1864,54 @@ async fn test_apply_config_file_failed_apply_changes_no_provider_and_retry_appli
 }
 
 #[tokio::test]
+async fn a_failed_provider_removal_applies_nothing_else_from_the_file() {
+    let h = Harness::new().await;
+    config_file(&h, &[("ci-a", "CI A", 30), ("ci-b", "CI B", 30)]);
+    h.provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .unwrap();
+    let a = provider_id(&h, "ci-a").await.unwrap();
+    let loaded_a = h.provider_service.generation_of(a).await.unwrap();
+    execute(
+        &h,
+        "CREATE TRIGGER block_delete BEFORE DELETE ON providers \
+             BEGIN SELECT RAISE(ABORT, 'delete blocked'); END",
+    )
+    .await;
+    config_file(&h, &[("ci-a", "CI A2", 30)]);
+
+    assert!(h
+        .provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .is_err());
+
+    assert_eq!(
+        h.repository.get_provider(a).await.unwrap().display_name(),
+        "CI A"
+    );
+    assert_eq!(h.provider_service.generation_of(a).await, Some(loaded_a));
+    assert!(h.config_state.get().await.providers.contains_key("ci-b"));
+}
+
+#[tokio::test]
+async fn a_rejected_proxy_applies_nothing_else_from_the_file() {
+    let h = Harness::new().await;
+    config_file(&h, &[("ci-a", "CI A", 30)]);
+    let path = h.config_state.config_path();
+    let providers = std::fs::read_to_string(path).unwrap();
+    let content = format!("[general]\nproxy_url = \"socks5://localhost:1080\"\n\n{providers}");
+    std::fs::write(path, content).unwrap();
+
+    let applied = h.provider_service.apply_config_file(&h.config_state).await;
+
+    assert!(matches!(applied, Err(DomainError::InvalidConfig(_))));
+    assert_eq!(provider_id(&h, "ci-a").await, None);
+    assert!(h.config_state.get().await.providers.is_empty());
+}
+
+#[tokio::test]
 async fn test_block_deleted_after_a_failed_apply_leaves_no_provider() {
     let h = Harness::new().await;
     execute(

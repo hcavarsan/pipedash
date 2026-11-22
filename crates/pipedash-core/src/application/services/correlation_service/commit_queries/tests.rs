@@ -129,6 +129,29 @@ async fn commit_locations_tell_live_behind_and_not_deployed() {
 }
 
 #[tokio::test]
+async fn a_commit_of_a_second_repository_is_compared_with_its_own_live_commit() {
+    const WEB: &str = "git.test/shop/web";
+    let fx = Fx::new().await;
+    let ci = fx.provider("ci").await;
+    let gitops = fx.provider("gitops").await;
+    let build = builder(ci, "build", vec![source(REPO, &[], None)]);
+    fx.apply(ci, vec![build.clone()]).await;
+    let mut api = unit(gitops, "api-prod");
+    api.correlation.sources = vec![source(REPO, &[], Some('2')), source(WEB, &[], Some('5'))];
+    api.correlation.targets = vec![target("1", "shop", "shop")];
+    fx.apply(gitops, vec![api]).await;
+    let run = run_with(&build.id, 1, vec![source(WEB, &[], Some('6'))], Vec::new());
+    fx.runs(ci, &build.id, vec![run]).await;
+    fx.settle().await;
+    git_host(&fx, comparison(1, 0, &['6'])).await;
+
+    let found = fx.svc.commit_locations(&build.id, 1).await.unwrap();
+
+    assert_eq!(found.entries[0].state, LocationState::Behind);
+    assert_eq!(found.entries[0].label, views::location_behind(1));
+}
+
+#[tokio::test]
 async fn pipeline_applications_skip_hidden_applications() {
     let fx = Fx::new().await;
     let shop = shop(&fx).await;

@@ -113,8 +113,13 @@ impl CorrelationService {
                 continue;
             };
             let mut complete = true;
+            let mut failed = false;
             for reference in added_references(&files) {
-                let (digests, credentials) = self.introduced(&reference, &consumed).await;
+                let Some((digests, credentials)) = self.introduced(&reference, &consumed).await
+                else {
+                    failed = true;
+                    continue;
+                };
                 for digest in digests {
                     let linked = self
                         .commit_guarded(&lease, credentials.as_ref(), || {
@@ -132,7 +137,9 @@ impl CorrelationService {
                     }
                 }
             }
-            if complete {
+            if failed {
+                self.enrich.defer(key);
+            } else if complete {
                 self.enrich.remember(key, Cached::Seen);
             }
         }
@@ -156,7 +163,7 @@ impl CorrelationService {
 
     async fn introduced(
         &self, reference: &str, consumed: &HashMap<String, Consumed>,
-    ) -> (Vec<String>, Option<ProviderLease>) {
+    ) -> Option<(Vec<String>, Option<ProviderLease>)> {
         let pinned = |digest: &Digest| {
             consumed
                 .contains_key(digest.as_str())
@@ -165,16 +172,16 @@ impl CorrelationService {
                 .collect()
         };
         if let Some(digest) = Digest::parse(reference) {
-            return (pinned(&digest), None);
+            return Some((pinned(&digest), None));
         }
         let Some(image) = ImageRef::parse(reference) else {
-            return (Vec::new(), None);
+            return Some((Vec::new(), None));
         };
         if let Some(digest) = image.digest {
-            return (pinned(&digest), None);
+            return Some((pinned(&digest), None));
         }
         let Some(tag) = image.tag else {
-            return (Vec::new(), None);
+            return Some((Vec::new(), None));
         };
         let candidates: HashSet<&str> = consumed
             .iter()
@@ -182,17 +189,15 @@ impl CorrelationService {
             .map(|(digest, _)| digest.as_str())
             .collect();
         if candidates.is_empty() || !self.config_state.get().await.correlation.registry_read {
-            return (Vec::new(), None);
+            return Some((Vec::new(), None));
         }
-        let Ok(client) = self.oci_client() else {
-            return (Vec::new(), None);
-        };
+        let client = self.oci_client().ok()?;
         let access = self.registry_access(image.repository.host()).await;
         let auth = access.as_ref().map(|(auth, _)| auth);
         let resolved = client.tag_digests(&image.repository, &tag, auth).await;
         let lease = access.map(|(_, lease)| lease);
         match resolved {
-            Ok(digests) => (
+            Ok(digests) => Some((
                 digests
                     .iter()
                     .map(Digest::as_str)
@@ -200,10 +205,10 @@ impl CorrelationService {
                     .map(str::to_string)
                     .collect(),
                 lease,
-            ),
+            )),
             Err(error) => {
                 tracing::debug!(%error, "Tag in config could not be resolved");
-                (Vec::new(), None)
+                (!error.is_transient()).then(|| (Vec::new(), None))
             }
         }
     }

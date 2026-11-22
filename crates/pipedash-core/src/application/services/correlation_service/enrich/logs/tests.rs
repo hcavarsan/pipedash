@@ -296,3 +296,30 @@ async fn a_failed_log_read_is_scanned_again_and_a_full_read_is_not() {
     assert!(f.service.scan_logs().await.unwrap().is_empty());
     assert_eq!(stub.log_read_count(), 2);
 }
+
+#[tokio::test]
+async fn a_later_scan_keeps_the_digests_found_before() {
+    let f = Fixture::new().await;
+    let first = digest('a');
+    let second = digest('b');
+    let log = format!("latest: digest: {first} size: 10\nv2: digest: {second} size: 10\n");
+    let (provider, pipeline_id, _) = build_run(&f, &log).await;
+    consume_labelled(&f, provider, "api", &first, "registry.test/shop/api").await;
+    f.service.scan_logs().await.unwrap();
+    consume_labelled(&f, provider, "web", &second, "registry.test/shop/web").await;
+
+    f.service.scan_logs().await.unwrap();
+
+    let mut found: Vec<Option<String>> = f
+        .service
+        .store
+        .conn()
+        .list_artifact_observations_by_subject(&pipeline_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| row.digest)
+        .collect();
+    found.sort();
+    assert_eq!(found, [Some(first), Some(second)]);
+}

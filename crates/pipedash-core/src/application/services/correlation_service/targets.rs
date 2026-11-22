@@ -14,15 +14,21 @@ use super::vocab::{
     LIFETIME_STANDING,
 };
 use super::world::{
+    RunTargets,
     Subject,
     TargetRef,
     World,
 };
-use crate::domain::application::IdentityKind;
+use crate::domain::application::{
+    IdentityKind,
+    Stage,
+};
 use crate::infrastructure::config::schema::applications::TargetFileConfig;
 use crate::infrastructure::database::{
+    ApplicationMemberRow,
     ApplicationTargetRow,
     TargetDirectionRow,
+    TargetObservationRow,
 };
 
 #[cfg(test)]
@@ -79,13 +85,42 @@ pub(super) fn cycles(directions: &Directions, from: &str, to: &str) -> bool {
     false
 }
 
-fn default_group(subject: &Subject, target: &TargetRef) -> String {
+pub(super) fn run_targets(mut rows: Vec<TargetObservationRow>) -> RunTargets {
+    rows.sort_by_key(|row| row.run_number);
+    let mut found = RunTargets::new();
+    for row in rows {
+        let subject = row.subject_id.clone();
+        let target = TargetRef::from(row);
+        found
+            .entry(subject)
+            .or_default()
+            .insert(target.key(), target);
+    }
+    found
+}
+
+fn default_group(parent: Option<&str>, target: &TargetRef) -> String {
     if target.short_lived {
         return SHORT_LIVED_GROUP.to_string();
     }
-    match &subject.parent {
+    match parent {
         Some(parent) => format!("parent:{parent}"),
         None => target.key(),
+    }
+}
+
+fn target_row(target: &TargetRef, group_key: String) -> ApplicationTargetRow {
+    ApplicationTargetRow {
+        application_id: 0,
+        target_key: target.key(),
+        name: target.name.clone(),
+        group_key,
+        lifetime: if target.short_lived {
+            LIFETIME_SHORT_LIVED
+        } else {
+            LIFETIME_STANDING
+        }
+        .to_string(),
     }
 }
 
@@ -97,27 +132,27 @@ fn row_matches(table: &TargetFileConfig, row: &ApplicationTargetRow) -> bool {
     table.matches(cluster, namespace, &row.name)
 }
 
-fn base_rows(world: &World, app: &PlannedApp) -> BTreeMap<String, ApplicationTargetRow> {
+fn base_rows(
+    world: &World, app: &PlannedApp, members: &[ApplicationMemberRow],
+) -> BTreeMap<String, ApplicationTargetRow> {
     let mut rows = BTreeMap::new();
     for unit in &app.units {
         let Some(subject) = world.units.get(unit).and_then(|id| world.subjects.get(id)) else {
             continue;
         };
         for target in &subject.targets {
-            rows.entry(target.key())
-                .or_insert_with(|| ApplicationTargetRow {
-                    application_id: 0,
-                    target_key: target.key(),
-                    name: target.name.clone(),
-                    group_key: default_group(subject, target),
-                    lifetime: if target.short_lived {
-                        LIFETIME_SHORT_LIVED
-                    } else {
-                        LIFETIME_STANDING
-                    }
-                    .to_string(),
-                });
+            rows.entry(target.key()).or_insert_with(|| {
+                target_row(target, default_group(subject.parent.as_deref(), target))
+            });
         }
+    }
+    let deploys = members
+        .iter()
+        .filter(|member| member.stage == Stage::Deploy.as_str())
+        .filter_map(|member| world.run_targets.get(&member.pipeline_id));
+    for (key, target) in deploys.flatten() {
+        rows.entry(key.clone())
+            .or_insert_with(|| target_row(target, default_group(None, target)));
     }
     rows
 }
@@ -270,8 +305,10 @@ fn user_directions(
     }
 }
 
-pub(super) fn compute(world: &World, plan: &Plan, app: &PlannedApp) -> Targets {
-    let mut rows = base_rows(world, app);
+pub(super) fn compute(
+    world: &World, plan: &Plan, app: &PlannedApp, members: &[ApplicationMemberRow],
+) -> Targets {
+    let mut rows = base_rows(world, app, members);
     if app.identity.kind == IdentityKind::Config {
         apply_config_groups(world, app, &mut rows);
     } else {

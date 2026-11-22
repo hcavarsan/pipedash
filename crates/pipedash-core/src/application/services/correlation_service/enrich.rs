@@ -112,6 +112,14 @@ impl EnrichState {
         deferred.insert(key, now + RETRY_AFTER);
     }
 
+    fn take_due(&self) -> bool {
+        let mut deferred = self.deferred.lock().unwrap_or_else(PoisonError::into_inner);
+        let now = Instant::now();
+        let before = deferred.len();
+        deferred.retain(|_, until| *until > now);
+        deferred.len() < before
+    }
+
     fn asked(&self, digest: &str) -> bool {
         self.asked
             .lock()
@@ -152,11 +160,18 @@ impl EnrichState {
             .unwrap_or_else(PoisonError::into_inner)
             .retain(|key, _| !key.starts_with("logs|"));
     }
+
+    fn release_backfill(&self, pipeline: &str) {
+        self.backfills
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(pipeline);
+    }
 }
 
 impl CorrelationService {
     pub(super) fn schedule_enrichment(&self, changed: &HashSet<String>) {
-        if changed.is_empty() {
+        if changed.is_empty() && !self.enrich.take_due() {
             return;
         }
         if self.enrich.queued.swap(true, Ordering::SeqCst) {
@@ -197,18 +212,25 @@ impl CorrelationService {
             }
             let this = Arc::clone(&this);
             self.spawn(async move {
-                if let Ok(permit) = Arc::clone(&this.enrich_permits).acquire_owned().await {
-                    if let Err(error) = this
-                        .pipeline_service
-                        .fetch_run_history(&pipeline, HISTORY_BACKFILL_LIMIT)
-                        .await
-                    {
-                        tracing::warn!(%error, pipeline, "Run history backfill failed");
+                let Ok(permit) = Arc::clone(&this.enrich_permits).acquire_owned().await else {
+                    this.enrich.release_backfill(&pipeline);
+                    return;
+                };
+                let fetched = this
+                    .pipeline_service
+                    .fetch_run_history(&pipeline, HISTORY_BACKFILL_LIMIT)
+                    .await;
+                drop(permit);
+                match fetched {
+                    Ok(_) => {
+                        this.enrich.finish_backfill(&pipeline);
+                        this.schedule_enrichment(&HashSet::from([pipeline]));
                     }
-                    drop(permit);
+                    Err(error) => {
+                        tracing::warn!(%error, pipeline, "Run history backfill failed");
+                        this.enrich.release_backfill(&pipeline);
+                    }
                 }
-                this.enrich.finish_backfill(&pipeline);
-                this.schedule_enrichment(&HashSet::from([pipeline]));
             });
         }
     }

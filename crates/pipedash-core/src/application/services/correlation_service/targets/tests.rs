@@ -2,11 +2,15 @@ use pipedash_plugin_api::UnitId;
 
 use crate::application::services::correlation_service::tests::{
     app_ref,
+    builder,
+    run_with,
+    source,
     target,
     unit,
     Fx,
 };
 use crate::domain::application::overrides::ApplicationEdit;
+use crate::domain::application::Stage;
 
 #[tokio::test]
 async fn shared_namespace_keeps_separate_target_names() {
@@ -127,4 +131,43 @@ async fn provider_direction_comes_only_from_declared_dependency() {
     assert_eq!(directions[0].from_group, "uid:1|qa");
     assert_eq!(directions[0].to_group, "uid:2|prod");
     assert_eq!(directions[0].source, "provider");
+}
+
+#[tokio::test]
+async fn run_targets_of_a_deploy_member_become_application_targets() {
+    let fx = Fx::new().await;
+    let ci = fx.provider("ci").await;
+    let gitops = fx.provider("gitops").await;
+    let mut api = unit(gitops, "api");
+    api.correlation.targets = vec![target("1", "shop", "shop")];
+    fx.apply(gitops, vec![api]).await;
+    let deploy = builder(ci, "deploy", vec![source("git.test/shop/api", &[], None)]);
+    fx.apply(ci, vec![deploy.clone()]).await;
+    let link = ApplicationEdit::Link {
+        pipeline_id: deploy.id.clone(),
+        stage: Some(Stage::Deploy),
+    };
+    fx.svc
+        .edit_internal(fx.app("api").await.id, link, None)
+        .await
+        .unwrap();
+    let mut run = run_with(&deploy.id, 1, Vec::new(), Vec::new());
+    run.correlation.targets = vec![target("2", "prod", "production")];
+
+    fx.runs(ci, &deploy.id, vec![run]).await;
+    fx.settle().await;
+
+    let app = fx.app("api").await;
+    let mut keys: Vec<String> = fx
+        .svc
+        .store
+        .conn()
+        .list_application_targets_by_application(app.id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| row.target_key)
+        .collect();
+    keys.sort();
+    assert_eq!(keys, ["uid:1|shop", "uid:2|prod"]);
 }

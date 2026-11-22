@@ -24,6 +24,7 @@ use crate::infrastructure::config::{
     GeneralSettingsUpdate,
     ProviderFileConfig,
 };
+use crate::infrastructure::http_client::parse_proxy_url;
 use crate::infrastructure::reload_shadow::ReloadShadow;
 
 impl ProviderService {
@@ -153,8 +154,16 @@ impl ProviderService {
             ))?;
         }
 
+        if current.general != loaded.general {
+            parse_proxy_url(&loaded.general.proxy_url)?;
+        }
+
         let token_store = config_state.token_store();
         let mut reload = self.stage_providers(&changed, token_store.as_ref()).await?;
+        let removed = match self.remove_dropped_file_providers(&loaded.providers).await {
+            Ok(removed) => removed,
+            Err(error) => return Err(self.unstage(reload, error).await),
+        };
         if let Some(applications) = self.applications.get() {
             if let Err(error) = applications.commit(&loaded).await {
                 return Err(self.unstage(reload, error).await);
@@ -170,9 +179,7 @@ impl ProviderService {
             }
         }
         let leases = self.activate(std::mem::take(&mut reload.staged)).await;
-        result.removed = self
-            .remove_dropped_file_providers(&loaded.providers)
-            .await?;
+        result.removed = removed;
         let views_changed = current.views != loaded.views;
         if views_changed {
             config_state.remember_views(loaded.views).await;

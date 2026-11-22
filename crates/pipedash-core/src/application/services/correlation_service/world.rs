@@ -13,6 +13,7 @@ use super::stored::{
     Identity,
     StoredOverride,
 };
+use super::targets::run_targets;
 use super::vocab::target_node_id;
 use super::CorrelationService;
 use crate::domain::{
@@ -77,6 +78,17 @@ impl TargetRef {
     }
 }
 
+impl From<TargetObservationRow> for TargetRef {
+    fn from(row: TargetObservationRow) -> Self {
+        Self {
+            short_lived: row.lifetime == "short_lived",
+            cluster: row.cluster,
+            namespace: row.namespace,
+            name: row.name,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct ArtifactRef {
     pub repository: String,
@@ -119,8 +131,11 @@ pub(super) struct PipelineInfo {
     pub provider_type: String,
 }
 
+pub(super) type RunTargets = BTreeMap<String, BTreeMap<String, TargetRef>>;
+
 pub(super) struct World {
     pub subjects: BTreeMap<String, Subject>,
+    pub run_targets: RunTargets,
     pub units: BTreeMap<String, String>,
     pub pipelines: BTreeMap<String, PipelineInfo>,
     pub artifacts: BTreeMap<String, ArtifactRow>,
@@ -198,15 +213,7 @@ fn subject_of(
                 commit: row.commit_sha,
             })
             .collect(),
-        targets: targets
-            .into_iter()
-            .map(|row| TargetRef {
-                short_lived: row.lifetime == "short_lived",
-                cluster: row.cluster,
-                namespace: row.namespace,
-                name: row.name,
-            })
-            .collect(),
+        targets: targets.into_iter().map(TargetRef::from).collect(),
         consumed: artifacts
             .iter()
             .filter(|row| row.relation == "consumed")
@@ -225,7 +232,12 @@ impl CorrelationService {
     pub(super) async fn load_world(&self, conn: &mut CorrelationConn) -> DomainResult<World> {
         let identities = conn.list_subject_identities().await?;
         let mut sources = group(conn.list_pipeline_sources(None).await?, |r| &r.subject_id);
-        let mut targets = group(conn.list_pipeline_targets(None).await?, |r| &r.subject_id);
+        let (levels, runs): (Vec<_>, Vec<_>) = conn
+            .list_target_observations()
+            .await?
+            .into_iter()
+            .partition(|r| r.run_number == PIPELINE_LEVEL);
+        let mut targets = group(levels, |r| &r.subject_id);
         let mut artifacts = group(conn.list_pipeline_artifacts(None).await?, |r| &r.subject_id);
         let mut subjects = BTreeMap::new();
         let mut units = BTreeMap::new();
@@ -283,6 +295,7 @@ impl CorrelationService {
         }
         Ok(World {
             subjects,
+            run_targets: run_targets(runs),
             units,
             pipelines,
             artifacts: conn
