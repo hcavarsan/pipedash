@@ -981,3 +981,62 @@ async fn rerun_keeping_the_job_id_restarts_even_when_its_log_is_longer_than_the_
 
     assert_eq!(ranges(&log), [None, None, None]);
 }
+
+#[tokio::test]
+async fn trigger_sends_every_input_as_a_string() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut raw = Vec::new();
+        let mut buffer = [0u8; 4096];
+        loop {
+            let n = stream.read(&mut buffer).await.unwrap();
+            raw.extend_from_slice(&buffer[..n]);
+            let text = String::from_utf8_lossy(&raw).to_string();
+            let Some(split) = text.find("\r\n\r\n") else {
+                continue;
+            };
+            let len = text[..split]
+                .lines()
+                .find_map(|line| {
+                    line.to_lowercase()
+                        .strip_prefix("content-length: ")
+                        .map(|value| value.trim().parse::<usize>().unwrap())
+                })
+                .unwrap_or(0);
+            if raw.len() >= split + 4 + len {
+                stream
+                    .write_all(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n")
+                    .await
+                    .unwrap();
+                return text[split + 4..].to_string();
+            }
+        }
+    });
+    let mut plugin = GiteaPlugin::new();
+    plugin
+        .initialize(
+            1,
+            HashMap::from([
+                ("base_url".to_string(), format!("http://{addr}/")),
+                ("token".to_string(), "stub-token".to_string()),
+            ]),
+            Some(Arc::new(reqwest::Client::new())),
+        )
+        .unwrap();
+    plugin
+        .trigger_pipeline(TriggerParams {
+            workflow_id: "o/r/deploy.yaml".to_string(),
+            inputs: Some(serde_json::json!({"ref": "main", "dry_run": false, "replicas": 3})),
+        })
+        .await
+        .unwrap();
+
+    let body: serde_json::Value = serde_json::from_str(&server.await.unwrap()).unwrap();
+    assert_eq!(
+        body["inputs"],
+        serde_json::json!({"dry_run": "false", "replicas": "3"})
+    );
+}
