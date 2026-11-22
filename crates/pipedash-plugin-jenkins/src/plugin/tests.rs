@@ -610,16 +610,23 @@ fn configured_repositories_should_prefix_root_jobs() {
 }
 
 fn jobs_with_last_builds(path: &str) -> Reply {
-    let body = if path.starts_with("/job/deploy/") {
-        r#"{"name":"deploy","lastBuild":{"number":12,"building":true,"result":null,"timestamp":1767225600000}}"#
-    } else if path.starts_with("/job/tests/") {
-        r#"{"name":"tests","lastBuild":{"number":40,"building":false,"result":"FAILURE","timestamp":1767225600000}}"#
-    } else {
-        return Reply {
-            status: "404 Not Found",
-            headers: "",
-            body: "unexpected request",
-        };
+    let asks_status = path.ends_with("?tree=name,lastBuild[number,result,building,timestamp]");
+    let body = match (path.split('?').next(), asks_status) {
+        (Some("/job/deploy/api/json"), true) => {
+            r#"{"name":"deploy","lastBuild":{"number":12,"building":true,"result":null,"timestamp":1767225600000}}"#
+        }
+        (Some("/job/tests/api/json"), true) => {
+            r#"{"name":"tests","lastBuild":{"number":40,"building":false,"result":"FAILURE","timestamp":1767225600000}}"#
+        }
+        (Some("/job/deploy/api/json"), false) => r#"{"name":"deploy","lastBuild":{"number":12}}"#,
+        (Some("/job/tests/api/json"), false) => r#"{"name":"tests","lastBuild":{"number":40}}"#,
+        _ => {
+            return Reply {
+                status: "404 Not Found",
+                headers: "",
+                body: "unexpected request",
+            };
+        }
     };
     Reply {
         status: "200 OK",
