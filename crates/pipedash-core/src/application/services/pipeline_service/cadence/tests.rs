@@ -234,6 +234,57 @@ async fn pipelines_whose_history_keeps_failing_do_not_starve_the_rest() {
 }
 
 #[tokio::test]
+async fn failing_relearns_of_known_gaps_do_not_starve_the_rest() {
+    let h = Harness::new().await;
+    let hourly_last = Utc::now() - Duration::hours(13);
+    let (provider_id, stub) = h.add_stub(StubProvider::new).await;
+    let ids: Vec<String> = (0..5)
+        .map(|n| format!("stub__{provider_id}__job{n}"))
+        .collect();
+    let pipelines_at = |last_run: DateTime<Utc>| -> Vec<Pipeline> {
+        ids.iter()
+            .enumerate()
+            .map(|(n, id)| {
+                serde_json::from_value(json!({
+                    "id": id, "provider_id": provider_id, "provider_type": "stub",
+                    "name": id, "status": "success", "repository": "acme/app",
+                    "last_run": last_run, "last_updated": Utc::now() - Duration::minutes(n as i64)
+                }))
+                .unwrap()
+            })
+            .collect()
+    };
+    *stub.runs.lock().unwrap() = spaced_runs(&ids[4], hourly_last, 6, 1);
+    h.repository
+        .update_pipelines_cache(provider_id, &pipelines_at(hourly_last))
+        .await
+        .unwrap();
+    let service = &h.pipeline_service;
+    learn(service, provider_id).await;
+    learn(service, provider_id).await;
+
+    let daily_last = hourly_last + Duration::hours(1);
+    *stub.runs.lock().unwrap() = daily_runs(&ids[4], daily_last, 6);
+    *stub.failing_histories.lock().unwrap() = ids[..4].to_vec();
+    for id in &ids {
+        h.repository.clear_cached_run_history(id).await.unwrap();
+    }
+    h.repository
+        .update_pipelines_cache(provider_id, &pipelines_at(daily_last))
+        .await
+        .unwrap();
+    learn(service, provider_id).await;
+    learn(service, provider_id).await;
+    let cached = service.get_cached_pipelines(None).await.unwrap();
+    let healthy = cached.iter().find(|p| p.id == ids[4]).unwrap();
+
+    assert_eq!(
+        healthy.cadence.map(|cadence| cadence.usual_gap_seconds),
+        Some(86_400)
+    );
+}
+
+#[tokio::test]
 async fn a_cadence_fetch_dropped_by_an_invalidation_is_retried_on_the_next_pass() {
     let h = Harness::new().await;
     let gate = Gate::new();

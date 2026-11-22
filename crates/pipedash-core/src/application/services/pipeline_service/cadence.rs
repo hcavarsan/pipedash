@@ -109,24 +109,25 @@ impl PipelineService {
         });
         for pipeline in pending {
             let known = self.run_gaps.get(&pipeline.id).map(|entry| entry.clone());
-            let (usual_gap_seconds, last_run) = match &known {
+            let (usual_gap_seconds, last_run, failed_at) = match &known {
                 Some(known) if known.last_run == pipeline.last_run => {
-                    (known.usual_gap_seconds, known.last_run)
+                    (known.usual_gap_seconds, known.last_run, None)
                 }
-                Some(LearnedGap {
-                    usual_gap_seconds: Some(gap),
-                    last_run,
-                    ..
-                }) => {
-                    let (gap, last_run) = self
-                        .refreshed_gap(pipeline, order, *gap, *last_run, &mut fetches_left)
+                Some(
+                    known @ LearnedGap {
+                        usual_gap_seconds: Some(gap),
+                        ..
+                    },
+                ) => {
+                    let refreshed = self
+                        .refreshed_gap(pipeline, order, *gap, known, now, &mut fetches_left)
                         .await;
-                    (Some(gap), last_run)
+                    (Some(refreshed.0), refreshed.1, refreshed.2)
                 }
                 _ if fetches_left > 0 => {
                     fetches_left -= 1;
                     match self.learned_gap(&pipeline.id, order, true).await {
-                        Ok(Some(gap)) => (gap, pipeline.last_run),
+                        Ok(Some(gap)) => (gap, pipeline.last_run, None),
                         Ok(None) => continue,
                         Err(_) => {
                             learned.push((pipeline.id.clone(), failed_fetch(now)));
@@ -143,7 +144,7 @@ impl PipelineService {
                     last_run,
                     quiet: usual_gap_seconds
                         .is_some_and(|gap| is_quiet(pipeline.last_run, gap, now)),
-                    failed_at: None,
+                    failed_at,
                 },
             ));
         }
@@ -152,19 +153,20 @@ impl PipelineService {
     }
 
     async fn refreshed_gap(
-        &self, pipeline: &Pipeline, order: RunHistoryOrder, known_gap: i64,
-        known_last_run: Option<DateTime<Utc>>, fetches_left: &mut usize,
-    ) -> (i64, Option<DateTime<Utc>>) {
+        &self, pipeline: &Pipeline, order: RunHistoryOrder, known_gap: i64, known: &LearnedGap,
+        now: DateTime<Utc>, fetches_left: &mut usize,
+    ) -> (i64, Option<DateTime<Utc>>, Option<DateTime<Utc>>) {
         if let Ok(Some(Some(gap))) = self.learned_gap(&pipeline.id, order, false).await {
-            return (gap, pipeline.last_run);
+            return (gap, pipeline.last_run, None);
         }
         if *fetches_left == 0 {
-            return (known_gap, known_last_run);
+            return (known_gap, known.last_run, known.failed_at);
         }
         *fetches_left -= 1;
         match self.learned_gap(&pipeline.id, order, true).await {
-            Ok(Some(gap)) => (gap.unwrap_or(known_gap), pipeline.last_run),
-            Ok(None) | Err(_) => (known_gap, known_last_run),
+            Ok(Some(gap)) => (gap.unwrap_or(known_gap), pipeline.last_run, None),
+            Ok(None) => (known_gap, known.last_run, known.failed_at),
+            Err(_) => (known_gap, known.last_run, Some(now)),
         }
     }
 
