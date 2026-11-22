@@ -201,3 +201,39 @@ async fn multibranch_pipeline_lists_its_branch_jobs() {
     assert_eq!(paths, ["app/feature-x", "app/main"]);
     assert_eq!(requests.load(Ordering::SeqCst), 2);
 }
+
+fn build_list(key: &str, count: i64) -> String {
+    let builds: Vec<String> = (0..count)
+        .map(|offset| format!(r#"{{"number":{},"result":"SUCCESS"}}"#, 150 - offset))
+        .collect();
+    format!(r#"{{"{key}":[{}]}}"#, builds.join(","))
+}
+
+static CAPPED_BUILDS: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| build_list("builds", 100));
+static ALL_BUILDS: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| build_list("allBuilds", 150));
+
+fn job_with_150_builds(path: &str) -> Reply {
+    let body = if path.contains("tree=allBuilds") {
+        ALL_BUILDS.as_str()
+    } else {
+        CAPPED_BUILDS.as_str()
+    };
+    Reply {
+        status: "200 OK",
+        headers: "Content-Type: application/json\r\n",
+        body,
+    }
+}
+
+#[tokio::test]
+async fn build_history_reads_past_the_newest_100_builds() {
+    let (client, requests) = client_for(job_with_150_builds, Duration::ZERO).await;
+
+    let builds = client.fetch_build_history("build", 200).await.unwrap();
+
+    assert_eq!(builds.len(), 150);
+    assert_eq!(builds.last().map(|build| build.number), Some(1));
+    assert_eq!(requests.load(Ordering::SeqCst), 1);
+}

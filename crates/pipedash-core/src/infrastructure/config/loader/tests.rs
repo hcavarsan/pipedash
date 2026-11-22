@@ -289,21 +289,3 @@ fn test_discover_config_path_env_override() {
     let path = ConfigLoader::discover_config_path();
     assert_eq!(path, PathBuf::from("/custom/path/config.toml"));
 }
-
-#[cfg(unix)]
-#[test]
-fn test_write_atomic_keeps_a_symlinked_config_linked() {
-    let temp_dir = TempDir::new().unwrap();
-    let real = temp_dir.path().join("dotfiles-config.toml");
-    let link = temp_dir.path().join("config.toml");
-    std::fs::write(&real, "[general]\n").unwrap();
-    std::os::unix::fs::symlink(&real, &link).unwrap();
-
-    ConfigLoader::write_atomic(&link, "[general]\nmetrics_enabled = false\n").unwrap();
-
-    assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
-    assert!(std::fs::read_to_string(&real)
-        .unwrap()
-        .contains("metrics_enabled = false"));
-    assert_eq!(std::fs::read_dir(temp_dir.path()).unwrap().count(), 2);
-}

@@ -50,7 +50,12 @@ pub async fn health_check(State(state): State<AppState>) -> (StatusCode, Json<He
         );
     }
 
-    let Some(core) = inner.core.as_ref().filter(|_| inner.token_store_ready) else {
+    let Some(provider_service) = inner
+        .core
+        .as_ref()
+        .filter(|_| inner.token_store_ready)
+        .map(|core| core.provider_service.clone())
+    else {
         return (
             StatusCode::OK,
             Json(HealthResponse {
@@ -66,7 +71,9 @@ pub async fn health_check(State(state): State<AppState>) -> (StatusCode, Json<He
         );
     };
 
-    let (status, provider_count) = match core.provider_service.list_providers().await {
+    drop(inner);
+
+    let (status, provider_count) = match provider_service.list_providers().await {
         Ok(providers) => (StatusCode::OK, Some(providers.len())),
         Err(e) => {
             tracing::warn!(error = %e, "Health check database query failed");

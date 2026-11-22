@@ -36,6 +36,7 @@ interface PageTitleContext {
   sectionTitle: string
   isDetail: boolean
   detailName: string | undefined
+  detailPending: boolean
   viewParam: string | null
   viewName: string | undefined
   providerName: string | undefined
@@ -46,7 +47,7 @@ function resolvePageTitle(ctx: PageTitleContext): string {
     return `${ctx.sectionTitle} Settings`
   }
   if (ctx.isDetail) {
-    return ctx.detailName ?? 'Pipeline unavailable'
+    return ctx.detailName ?? (ctx.detailPending ? 'Pipeline' : 'Pipeline unavailable')
   }
   if (ctx.pathname === '/pipelines') {
     if (ctx.viewParam) {
@@ -122,11 +123,17 @@ export function AppContent(): ReactNode {
   const providerName = providers.find((provider) => provider.id === selectedProviderId)?.name
   const section = location.pathname.split('/')[2] ?? 'general'
   const sectionTitle = section.charAt(0).toUpperCase() + section.slice(1)
+  const detailPrerequisites: PrerequisiteState = {
+    loading: providersLoading || pipelinesLoading,
+    error: providersError ?? pipelinesError,
+    retrying: providersFetching || pipelinesFetching,
+  }
   const pageTitle = resolvePageTitle({
     pathname: location.pathname,
     sectionTitle,
     isDetail: Boolean(detailMatch),
     detailName: detailPipeline?.name,
+    detailPending: detailPrerequisites.loading || Boolean(detailPrerequisites.error),
     viewParam,
     viewName: pipelineViews?.find((view) => view.id === viewParam)?.name,
     providerName,
@@ -143,11 +150,6 @@ export function AppContent(): ReactNode {
     loading: providersLoading,
     error: providersError,
     retrying: providersFetching,
-  }
-  const detailPrerequisites: PrerequisiteState = {
-    loading: providersLoading || pipelinesLoading,
-    error: providersError ?? pipelinesError,
-    retrying: providersFetching || pipelinesFetching,
   }
 
   const listState = pushState(location.pathname, location.search, location.state)

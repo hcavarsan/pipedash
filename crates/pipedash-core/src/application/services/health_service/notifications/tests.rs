@@ -35,6 +35,7 @@ use crate::application::test_support::{
 use crate::domain::{
     DomainError,
     HealthLevel,
+    PipelineCadence,
     PipelineRun,
     ProviderConfig,
 };
@@ -103,6 +104,14 @@ fn running_run(pipeline_id: &str, hours: i64) -> PipelineRun {
         "logs_url": ""
     }))
     .unwrap()
+}
+
+fn queued_run(pipeline_id: &str, minutes: i64) -> PipelineRun {
+    PipelineRun {
+        status: PipelineStatus::Pending,
+        started_at: Utc::now() - chrono::Duration::minutes(minutes),
+        ..running_run(pipeline_id, 0)
+    }
 }
 
 fn summary_with(id: i64, signals: Vec<Value>, status_page: bool) -> ProviderSummary {
@@ -587,6 +596,46 @@ fn an_overdue_event_notifies_once_per_run() {
     assert_eq!(next.len(), 1);
 }
 
+#[test]
+fn a_pipeline_that_goes_quiet_notifies_once_until_it_runs_again() {
+    let mut state = NotificationState::default();
+    state.seed(
+        &[run(1, "nightly", PipelineStatus::Success, 1)],
+        &[summary(1)],
+    );
+    let mut quiet = run(1, "nightly", PipelineStatus::Success, 1);
+    quiet.cadence = Some(PipelineCadence {
+        usual_gap_seconds: 86_400,
+        quiet: true,
+    });
+    let mut ran_again = run(1, "nightly", PipelineStatus::Success, 2);
+    ran_again.cadence = Some(PipelineCadence {
+        usual_gap_seconds: 86_400,
+        quiet: false,
+    });
+
+    let first = state.observe_event(&updated(1, vec![quiet.clone()]));
+    let repeated = state.observe_event(&updated(1, vec![quiet.clone()]));
+    let unlearned = state.observe_event(&updated(
+        1,
+        vec![run(1, "nightly", PipelineStatus::Success, 1)],
+    ));
+    state.observe_event(&updated(1, vec![ran_again.clone()]));
+    ran_again.cadence = quiet.cadence;
+    let again = state.observe_event(&updated(1, vec![ran_again]));
+
+    assert_eq!(titles(&first), ["nightly stopped running · acme/app"]);
+    assert_eq!(first[0].kind, AlertKind::Quiet);
+    assert_eq!(first[0].body, "Provider 1 · Usually runs every day");
+    assert!(repeated.is_empty());
+    assert!(unlearned.is_empty());
+    assert_eq!(kinds_of(&again), [AlertKind::Quiet]);
+}
+
+fn kinds_of(found: &[LocalNotification]) -> Vec<AlertKind> {
+    found.iter().map(|notice| notice.kind).collect()
+}
+
 #[tokio::test]
 async fn a_scan_flags_a_running_pipeline_past_its_usual_duration_once() {
     let mut rig = Rig::new();
@@ -605,6 +654,36 @@ async fn a_scan_flags_a_running_pipeline_past_its_usual_duration_once() {
         ["api is running longer than usual · acme/app"]
     );
     assert_eq!(found[0].key, "pipeline:stub__1__api");
+    assert!(rig.scan(&[1]).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_scan_flags_a_run_stuck_in_the_queue_once() {
+    let mut rig = Rig::new();
+    let id = "stub__1__api";
+    let stub = rig.stub(1, |stub| stub.with_runs(vec![queued_run(id, 20)]));
+    stub.set_pipelines(vec![run(1, "api", PipelineStatus::Success, 1)]);
+    assert!(rig.scan(&[1]).await.is_empty());
+
+    stub.set_pipelines(vec![run(1, "api", PipelineStatus::Pending, 2)]);
+    let found = rig.scan(&[1]).await;
+
+    assert_eq!(
+        titles(&found),
+        ["api is waiting in the queue too long · acme/app"]
+    );
+    assert_eq!(found[0].kind, AlertKind::StuckQueue);
+    assert!(rig.scan(&[1]).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_queued_pipeline_already_stuck_at_the_first_scan_stays_silent() {
+    let mut rig = Rig::new();
+    let id = "stub__1__api";
+    let stub = rig.stub(1, |stub| stub.with_runs(vec![queued_run(id, 20)]));
+    stub.set_pipelines(vec![run(1, "api", PipelineStatus::Pending, 2)]);
+
+    assert!(rig.scan(&[1]).await.is_empty());
     assert!(rig.scan(&[1]).await.is_empty());
 }
 

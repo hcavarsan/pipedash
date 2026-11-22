@@ -1,4 +1,5 @@
 pub mod analysis;
+pub(crate) mod file;
 pub mod interpolation;
 pub mod loader;
 pub mod manager;
@@ -21,6 +22,7 @@ pub use loader::{
 pub use manager::StorageManager;
 pub use schema::{
     ConfigKey,
+    GeneralConfig,
     GeneralSettingsUpdate,
     PipedashConfig,
     PostgresConfig,

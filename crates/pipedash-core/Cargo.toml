@@ -34,7 +34,6 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 sqlx.workspace = true
-tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util = { workspace = true, features = ["rt"] }
@@ -47,6 +46,7 @@ url.workspace = true
 [dev-dependencies]
 pipedash-plugin-actions.workspace = true
 rcgen.workspace = true
+tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
 [features]

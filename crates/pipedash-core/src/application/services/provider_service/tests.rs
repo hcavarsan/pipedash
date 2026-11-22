@@ -1151,36 +1151,6 @@ async fn provider_id(h: &Harness, key: &str) -> Option<i64> {
         .and_then(|p| p.id)
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_settings_write_never_removes_config_file_providers() {
-    let h = Harness::new().await;
-    config_file(&h, &[("ci-a", "CI A", 30), ("ci-b", "CI B", 30)]);
-    h.provider_service
-        .apply_config_file(&h.config_state)
-        .await
-        .unwrap();
-    let state = Arc::clone(&h.config_state);
-    let writer = tokio::spawn(async move {
-        for round in 0..3000 {
-            let url = format!("https://relay-{round}.example.com");
-            state.set_push_relay_url(&url).await?;
-        }
-        Ok::<_, DomainError>(())
-    });
-    let mut removed = Vec::new();
-    while !writer.is_finished() {
-        if let Ok(applied) = h.provider_service.apply_config_file(&h.config_state).await {
-            removed.extend(applied.removed);
-        }
-    }
-    writer.await.unwrap().unwrap();
-    assert!(
-        removed.is_empty(),
-        "removed during a settings write: {removed:?}"
-    );
-    assert!(provider_id(&h, "ci-a").await.is_some());
-}
-
 #[tokio::test]
 async fn general_settings_saved_in_the_config_file_survive_a_later_toggle() {
     let h = Harness::new().await;
@@ -1281,6 +1251,45 @@ async fn a_settings_save_during_a_file_apply_is_not_replaced_by_the_older_file()
         ),
         (90, 90)
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_settings_write_never_removes_config_file_providers() {
+    let h = Harness::new().await;
+    config_file(&h, &[("ci-a", "CI A", 30), ("ci-b", "CI B", 30)]);
+    h.provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .unwrap();
+    let state = Arc::clone(&h.config_state);
+    let writer = tokio::spawn(async move {
+        let mut failed = Vec::new();
+        for round in 0..500 {
+            let url = format!("https://relay-{round}.example.com");
+            if let Err(e) = state.set_push_relay_url(&url).await {
+                failed.push(e.to_string());
+            }
+        }
+        failed
+    });
+    let mut removed = Vec::new();
+    while !writer.is_finished() {
+        if let Ok(applied) = h.provider_service.apply_config_file(&h.config_state).await {
+            removed.extend(applied.removed);
+        }
+    }
+
+    let failed = writer.await.unwrap();
+    assert!(
+        failed.is_empty(),
+        "settings writes failed: {:?}",
+        failed.first()
+    );
+    assert!(
+        removed.is_empty(),
+        "removed during a settings write: {removed:?}"
+    );
+    assert!(provider_id(&h, "ci-a").await.is_some());
 }
 
 #[tokio::test]

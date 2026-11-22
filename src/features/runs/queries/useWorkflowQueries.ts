@@ -6,13 +6,12 @@ import {
   useQueryClient,
 } from '@tanstack/react-query'
 import { GC_TIMES } from '../../../lib/cacheConfig'
-import { notifications } from '../../../lib/notifications'
 import { queryKeys, ROW_ACTION_KEY } from '../../../lib/queryKeys'
 import { useRefreshProvider } from '../../../queries/useRefreshQueries'
 import { service } from '../../../services/service'
 import type { Pipeline, TriggerDraft, TriggerParams, TriggerResult } from '../../../types/pipelines'
 import type { ActionCopy } from '../../../types/presentation'
-import { errorMessage } from '../../../utils/errorDisplay'
+import { displayErrorNotification, displaySuccessNotification, errorMessage } from '../../../utils/errorDisplay'
 
 export function usePreparedTrigger(
   pipelineId: string,
@@ -57,15 +56,11 @@ export function useTriggerWorkflow(): UseMutationResult<TriggerResult, Error, Tr
       void queryClient.invalidateQueries({ queryKey: queryKeys.runs.list(params.workflow_id) })
       void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
 
-      notifications.show({ title: copy.success.title, message: copy.success.message, color: 'green' })
+      displaySuccessNotification(copy.success.message, copy.success.title)
     },
 
     onError: (error: Error, { copy }) => {
-      notifications.show({
-        title: copy.error_title,
-        message: errorMessage(error, 'Check your provider connection and try again.'),
-        color: 'red',
-      })
+      displayErrorNotification(errorMessage(error, 'Check your provider connection and try again.'), copy.error_title)
     },
   })
 }
@@ -80,19 +75,14 @@ export function useEnableWorkflow(): UseMutationResult<void, Error, Pipeline, un
     onSuccess: (_data, pipeline) => {
       refreshProvider(pipeline.provider_id)
 
-      notifications.show({
-        title: 'Workflow enabled',
-        message: `${pipeline.name} runs on its triggers again`,
-        color: 'green',
-      })
+      displaySuccessNotification(`${pipeline.name} runs on its triggers again`, 'Workflow enabled')
     },
 
     onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't enable workflow",
-        message: errorMessage(error, 'Check your provider connection and try again.'),
-        color: 'red',
-      })
+      displayErrorNotification(
+        errorMessage(error, 'Check your provider connection and try again.'),
+        "Couldn't enable workflow"
+      )
     },
   })
 }

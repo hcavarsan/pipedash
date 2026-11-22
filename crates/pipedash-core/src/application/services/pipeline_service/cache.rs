@@ -40,7 +40,17 @@ impl PipelineService {
         {
             return;
         }
+        *self
+            .run_cache_epochs
+            .entry(pipeline_id.to_string())
+            .or_default() += 1;
         let _ = self.repository.clear_cached_run_history(pipeline_id).await;
+    }
+
+    pub(super) fn run_cache_epoch(&self, pipeline_id: &str) -> u64 {
+        self.run_cache_epochs
+            .get(pipeline_id)
+            .map_or(0, |epoch| *epoch)
     }
 
     pub(super) async fn invalidate_changed_run(&self, pipeline_id: &str, run_number: i64) {

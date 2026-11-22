@@ -206,7 +206,10 @@ async fn record_pruning(
                 continue;
             }
         }
-        let mut watchers = if notices.iter().any(|notice| notice.finish.is_some()) {
+        let mut watchers = if notices
+            .iter()
+            .any(|notice| notice.finish.is_some() || opt_in_only(notice))
+        {
             match devices.notification_preferences().await {
                 Ok(preferences) => preferences,
                 Err(error) => {
@@ -218,7 +221,7 @@ async fn record_pruning(
             HashMap::new()
         };
         for notice in notices {
-            if notice.kind == AlertKind::Finished && !wanted_by_any(&watchers, &notice) {
+            if opt_in_only(&notice) && !wanted_by_any(&watchers, &notice) {
                 continue;
             }
             if let (Some(pipeline_id), Some(finish)) = (&notice.pipeline_id, &notice.finish) {
@@ -246,6 +249,10 @@ async fn record_pruning(
             }
         }
     }
+}
+
+fn opt_in_only(notice: &LocalNotification) -> bool {
+    matches!(notice.kind, AlertKind::Finished | AlertKind::Quiet)
 }
 
 fn wanted_by_any(

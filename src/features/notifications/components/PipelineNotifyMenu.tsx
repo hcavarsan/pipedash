@@ -1,5 +1,5 @@
 import { Button, Menu } from '@mantine/core'
-import { IconBell, IconBellOff, IconBellPlus, IconBellRinging, IconCheck } from '@tabler/icons-react'
+import { IconBell, IconBellOff, IconBellPlus, IconBellRinging, IconCheck, IconClockPause } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
 import { ActionSheetCancel } from '../../../components/ios/ActionSheetCancel'
@@ -15,7 +15,8 @@ const STATE_BUTTON: Record<PipelineNotifyState, { label: string; icon: ReactNode
 }
 
 export function PipelineNotifyMenu({ pipeline }: { pipeline: Pipeline }): ReactNode {
-  const { pipelineState, policyOptions } = useNotifyItems()
+  const { pipelineState, policyOptions, quietItem } = useNotifyItems()
+  const quiet = quietItem(pipeline)
   const { label, icon } = STATE_BUTTON[pipelineState(pipeline.id)]
 
   return (
@@ -43,6 +44,16 @@ export function PipelineNotifyMenu({ pipeline }: { pipeline: Pipeline }): ReactN
             {option.label}
           </Menu.Item>
         ))}
+        <Menu.Divider />
+        <Menu.Item
+          aria-current={quiet.enabled ? 'true' : undefined}
+          disabled={!quiet.available}
+          leftSection={<IconClockPause size={16} aria-hidden />}
+          rightSection={quiet.enabled ? <IconCheck size={14} aria-hidden /> : null}
+          onClick={() => void quiet.toggle()}
+        >
+          {quiet.label}
+        </Menu.Item>
         <ActionSheetCancel />
       </Menu.Dropdown>
     </Menu>

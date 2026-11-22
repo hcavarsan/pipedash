@@ -442,3 +442,58 @@ async fn rate_limited_resume_reports_the_delay_and_stops_after_one_request() {
     assert!(bytes.is_empty() && !restarted);
     assert_eq!(requests_of(&log), [(job_log_target("HEAD"), None)]);
 }
+
+fn latest_builds(path: &str) -> Reply {
+    let json = |body| Reply {
+        status: "200 OK",
+        headers: "Content-Type: application/json\r\n",
+        body,
+    };
+    match path {
+        "/organizations/acme/pipelines/api/builds?per_page=1&exclude_jobs=true" => json(
+            r#"[{"id":"b-7","number":7,"state":"failed","web_url":"u","branch":"main","commit":"abc",
+                "created_at":"2026-10-27T10:00:00.000Z","started_at":null,"finished_at":null,
+                "pipeline":{"slug":"api","name":"API","repository":"git@github.com:acme/api.git"}}]"#,
+        ),
+        "/organizations/acme/pipelines/fresh/builds?per_page=1&exclude_jobs=true" => json("[]"),
+        "/organizations/acme/pipelines/fresh" => {
+            json(r#"{"slug":"fresh","name":"Fresh","repository":"git@github.com:acme/fresh.git"}"#)
+        }
+        _ => Reply {
+            status: "404 Not Found",
+            headers: "Content-Type: application/json\r\n",
+            body: r#"{"message":"Not Found"}"#,
+        },
+    }
+}
+
+#[tokio::test]
+async fn refresh_reads_the_pipeline_from_its_latest_build_in_one_request() {
+    let (plugin, requests) = plugin_answering(latest_builds, "acme/api").await;
+
+    let pipelines = plugin.fetch_pipelines().await.unwrap();
+
+    assert_eq!(pipelines.len(), 1);
+    assert_eq!(pipelines[0].name, "API");
+    assert_eq!(pipelines[0].repository, "acme/api");
+    assert_eq!(
+        pipelines[0].status,
+        pipedash_plugin_api::PipelineStatus::Failed
+    );
+    assert_eq!(requests.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn refresh_reads_a_pipeline_without_builds_from_the_pipeline_endpoint() {
+    let (plugin, requests) = plugin_answering(latest_builds, "acme/fresh").await;
+
+    let pipelines = plugin.fetch_pipelines().await.unwrap();
+
+    assert_eq!(pipelines.len(), 1);
+    assert_eq!(pipelines[0].name, "Fresh");
+    assert_eq!(
+        pipelines[0].status,
+        pipedash_plugin_api::PipelineStatus::Pending
+    );
+    assert_eq!(requests.load(Ordering::SeqCst), 2);
+}

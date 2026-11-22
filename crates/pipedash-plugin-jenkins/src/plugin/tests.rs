@@ -608,3 +608,66 @@ fn configured_repositories_should_prefix_root_jobs() {
         ["(root)/deploy", "team/build"]
     );
 }
+
+fn jobs_with_last_builds(path: &str) -> Reply {
+    let asks_status = path.ends_with("?tree=name,lastBuild[number,result,building,timestamp]");
+    let body = match (path.split('?').next(), asks_status) {
+        (Some("/job/deploy/api/json"), true) => {
+            r#"{"name":"deploy","lastBuild":{"number":12,"building":true,"result":null,"timestamp":1767225600000}}"#
+        }
+        (Some("/job/tests/api/json"), true) => {
+            r#"{"name":"tests","lastBuild":{"number":40,"building":false,"result":"FAILURE","timestamp":1767225600000}}"#
+        }
+        (Some("/job/deploy/api/json"), false) => r#"{"name":"deploy","lastBuild":{"number":12}}"#,
+        (Some("/job/tests/api/json"), false) => r#"{"name":"tests","lastBuild":{"number":40}}"#,
+        _ => {
+            return Reply {
+                status: "404 Not Found",
+                headers: "",
+                body: "unexpected request",
+            };
+        }
+    };
+    Reply {
+        status: "200 OK",
+        headers: "Content-Type: application/json\r\n",
+        body,
+    }
+}
+
+#[tokio::test]
+async fn refresh_reads_each_job_status_from_one_request() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let requests = Arc::new(AtomicUsize::new(0));
+    let server_url = stub_server(requests.clone(), Duration::ZERO, jobs_with_last_builds).await;
+    let mut plugin = JenkinsPlugin::new();
+    plugin
+        .initialize(
+            1,
+            HashMap::from([
+                ("server_url".to_string(), server_url),
+                ("username".to_string(), "alice".to_string()),
+                ("token".to_string(), "secret".to_string()),
+                ("selected_items".to_string(), "deploy,tests".to_string()),
+            ]),
+            Some(Arc::new(reqwest::Client::new())),
+        )
+        .unwrap();
+
+    let mut pipelines = plugin.fetch_pipelines().await.unwrap();
+    pipelines.sort_by(|a, b| a.id.cmp(&b.id));
+
+    let statuses: Vec<_> = pipelines
+        .iter()
+        .map(|pipeline| (pipeline.id.as_str(), pipeline.status))
+        .collect();
+    assert_eq!(
+        statuses,
+        [
+            ("deploy", pipedash_plugin_api::PipelineStatus::Running),
+            ("tests", pipedash_plugin_api::PipelineStatus::Failed),
+        ]
+    );
+    assert!(pipelines.iter().all(|pipeline| pipeline.last_run.is_some()));
+    assert_eq!(requests.load(Ordering::SeqCst), 2);
+}

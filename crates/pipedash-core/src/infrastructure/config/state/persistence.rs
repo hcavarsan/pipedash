@@ -12,6 +12,7 @@ use crate::domain::{
     DomainError,
     DomainResult,
 };
+use crate::infrastructure::config::file::write_atomic;
 use crate::infrastructure::config::loader::ConfigLoader;
 use crate::infrastructure::config::schema::{
     PipedashConfig,
@@ -36,7 +37,7 @@ pub(super) fn parse_document(content: &str) -> DomainResult<DocumentMut> {
 
 pub(super) async fn write_file(path: &Path, content: String) -> DomainResult<()> {
     let path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || ConfigLoader::write_atomic(&path, &content))
+    tokio::task::spawn_blocking(move || write_atomic(&path, content.as_bytes()))
         .await
         .map_err(|e| DomainError::InternalError(format!("Background task failed: {e}")))?
         .map_err(|e| DomainError::DatabaseError(format!("Failed to write config file: {e}")))

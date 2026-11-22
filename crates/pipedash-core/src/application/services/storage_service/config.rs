@@ -13,6 +13,7 @@ use crate::domain::{
     DomainResult,
 };
 use crate::event::EventBus;
+use crate::infrastructure::config::file::write_atomic;
 use crate::infrastructure::{
     ConfigAnalysis,
     ConfigLoader,
@@ -132,8 +133,8 @@ pub async fn save_config_content(
         })?;
     validate_config(&config, registry)?;
 
-    let (target, owned) = (path.to_path_buf(), content.to_owned());
-    blocking(move || ConfigLoader::write_atomic(&target, &owned))
+    let (target, saved) = (path.to_path_buf(), content.to_owned());
+    blocking(move || write_atomic(&target, saved.as_bytes()))
         .await?
         .map_err(|e| {
             DomainError::InternalError(format!(

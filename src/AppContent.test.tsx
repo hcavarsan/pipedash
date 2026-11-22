@@ -37,6 +37,7 @@ const page = pipelineViewPageFixture({
   ],
 })
 let filteredGate: Promise<void> | null = null
+let allGate: Promise<void> | null = null
 
 Object.assign(window, {
   __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'linux' },
@@ -49,9 +50,7 @@ Object.assign(window, {
         case 'list_providers':
           return providers
         case 'get_cached_pipelines':
-          if (args?.providerId) {
-            await filteredGate
-          }
+          await (args?.providerId ? filteredGate : allGate)
           return [viewPipelineFixture({ id: 'p1', name: 'Nightly build' })]
         case 'list_pipeline_views':
           return [page.view]
@@ -85,7 +84,7 @@ Object.assign(window, {
   },
 })
 
-const { act, cleanup, render, within } = await import('@testing-library/react')
+const { act, cleanup, render, waitFor, within } = await import('@testing-library/react')
 const { userEvent } = await import('@testing-library/user-event')
 const { MantineProvider } = await import('@mantine/core')
 const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
@@ -110,6 +109,7 @@ afterEach(async () => {
   await act(async () => cleanup())
   client.clear()
   filteredGate = null
+  allGate = null
 })
 
 after(async () => {
@@ -138,4 +138,23 @@ test('changing the provider filter while the cached pipelines read is pending ke
   assert.ok(view().getByText('Nightly build'))
   await act(async () => gate.resolve())
   assert.ok(view().getByText('Nightly build'))
+})
+
+test('the tab title of a pipeline page says pipeline while the pipelines read is pending', async () => {
+  const gate = Promise.withResolvers<void>()
+  allGate = gate.promise
+  render(
+    <MantineProvider env="test">
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/pipelines/p1']}>
+          <AppContent />
+        </MemoryRouter>
+      </QueryClientProvider>
+    </MantineProvider>
+  )
+  await view().findByText('Loading pipeline…')
+
+  assert.equal(document.title, 'Pipeline · Pipedash')
+  await act(async () => gate.resolve())
+  await waitFor(() => assert.equal(document.title, 'Nightly build · Pipedash'))
 })
