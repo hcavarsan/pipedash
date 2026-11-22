@@ -11,7 +11,7 @@ COPY . .
 ENV VITE_API_URL=/api/v1
 RUN bun run build
 
-FROM lukemathwalker/cargo-chef:0.1.78-rust-1.99.1-alpine@sha256:000cac9096459ebc31e55e1a99bed090b1ce3511f006b4b101fd2d4f4bcb4d1e AS chef
+FROM lukemathwalker/cargo-chef:0.1.78-rust-1.100.0-alpine@sha256:3dc65f92f830cadaa78d29ddcc8e23a22c5d6785f7758afdf50eba4e88238966 AS chef
 
 RUN apk add --no-cache musl-dev
 
