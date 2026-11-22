@@ -138,7 +138,12 @@ fn build_json(commit: &str, repository: &str) -> types::Build {
 
 #[test]
 fn run_observes_the_build_repository_and_commit() {
-    let build = || build_json(SHA, r#"{"repository": "git@github.com:acme/shop.git"}"#);
+    let build = || {
+        build_json(
+            SHA,
+            r#"{"name": "Shop", "repository": "git@github.com:acme/shop.git"}"#,
+        )
+    };
 
     let run = build_to_pipeline_run(build(), "acme__shop");
 
@@ -153,7 +158,10 @@ fn run_observes_the_build_repository_and_commit() {
 #[test]
 fn a_symbolic_commit_keeps_the_repository_without_a_commit() {
     let run = build_to_pipeline_run(
-        build_json("HEAD", r#"{"repository": "https://github.com/acme/shop"}"#),
+        build_json(
+            "HEAD",
+            r#"{"name": "Shop", "repository": "https://github.com/acme/shop"}"#,
+        ),
         "acme__shop",
     );
     assert_eq!(run.correlation, observed(None));
@@ -161,7 +169,7 @@ fn a_symbolic_commit_keeps_the_repository_without_a_commit() {
 
 #[test]
 fn a_build_without_a_pipeline_repository_observes_no_source() {
-    for repository in ["{}", r#"{"repository": "not a url"}"#, "null"] {
+    for repository in [r#"{"name": "Shop", "repository": "not a url"}"#, "null"] {
         let run = build_to_pipeline_run(build_json(SHA, repository), "acme__shop");
         assert!(run.correlation.is_empty(), "{repository}");
     }

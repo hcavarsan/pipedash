@@ -154,8 +154,7 @@ pub(crate) fn build_to_pipeline_run(build: types::Build, pipeline_id: &str) -> P
             build
                 .pipeline
                 .as_ref()
-                .and_then(|pipeline| pipeline.repository.as_deref())
-                .and_then(RepoId::parse),
+                .and_then(|pipeline| RepoId::parse(&pipeline.repository)),
             CommitSha::parse(&build.commit),
         ),
         evidence: RunEvidence::default(),

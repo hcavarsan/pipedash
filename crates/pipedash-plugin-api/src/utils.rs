@@ -146,7 +146,7 @@ pub fn status_from_conclusion(
         ("completed", Some(c)) if cancelled.contains(&c) => PipelineStatus::Cancelled,
         ("completed", Some("skipped")) => PipelineStatus::Skipped,
         ("completed", _) => PipelineStatus::Failed,
-        ("in_progress", _) | ("queued", _) => PipelineStatus::Running,
+        ("in_progress", _) => PipelineStatus::Running,
         _ => PipelineStatus::Pending,
     }
 }

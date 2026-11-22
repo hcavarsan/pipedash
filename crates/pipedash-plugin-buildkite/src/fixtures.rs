@@ -30,7 +30,7 @@ fn fixture() -> Option<(Pipeline, Vec<PipelineRun>)> {
         "created_at": "2026-10-28T10:00:00Z",
         "started_at": "2026-10-28T10:00:05Z",
         "finished_at": "2026-10-28T10:03:00Z",
-        "pipeline": {"repository": repository}
+        "pipeline": {"name": "Shop", "repository": repository}
     }))
     .ok()?;
     let mapped = mapper::map_pipeline("acme", "shop", pipeline, Some(&build));

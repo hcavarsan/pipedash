@@ -29,7 +29,7 @@ fn every_job_status_word_maps_to_a_status_and_a_log() {
         (
             "pending",
             false,
-            PipelineStatus::Running,
+            PipelineStatus::Pending,
             Some(LogAvailability::Pending),
         ),
         (

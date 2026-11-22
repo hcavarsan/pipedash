@@ -77,6 +77,8 @@ pub(crate) struct Run {
     pub head_sha: String,
     pub html_url: String,
     #[serde(default)]
+    pub created_at: Option<DateTime<Utc>>,
+    #[serde(default)]
     pub started_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub completed_at: Option<DateTime<Utc>>,

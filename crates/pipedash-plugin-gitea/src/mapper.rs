@@ -36,6 +36,10 @@ fn timestamp(value: Option<DateTime<Utc>>) -> Option<DateTime<Utc>> {
     value.filter(|t| *t > DateTime::UNIX_EPOCH)
 }
 
+fn queued_or_started(run: &types::Run) -> Option<DateTime<Utc>> {
+    timestamp(run.started_at).or(timestamp(run.created_at))
+}
+
 pub(crate) fn map_available_pipeline(repo: &types::Repository) -> AvailablePipeline {
     AvailablePipeline {
         id: repo.full_name.clone(),
@@ -57,7 +61,7 @@ pub(crate) fn map_pipeline(
         status: latest_run
             .map(|run| map_status(&run.status, run.conclusion.as_deref()))
             .unwrap_or(PipelineStatus::Pending),
-        last_run: latest_run.and_then(|run| timestamp(run.started_at)),
+        last_run: latest_run.and_then(queued_or_started),
         last_updated: Utc::now(),
         repository: format!("{owner}/{repo}"),
         branch: latest_run.map(|run| run.head_branch.clone()),
@@ -88,7 +92,7 @@ pub(crate) fn map_run(
         pipeline_id: pipeline_id.to_string(),
         run_number: run.run_number,
         status: map_status(&run.status, run.conclusion.as_deref()),
-        started_at: started_at.unwrap_or_else(Utc::now),
+        started_at: queued_or_started(run).unwrap_or_else(Utc::now),
         concluded_at,
         duration_seconds: duration_seconds(started_at, concluded_at),
         logs_url: run.html_url.clone(),

@@ -114,19 +114,24 @@ impl BuildkiteClient {
     }
 
     pub async fn fetch_pipeline(&self, org: String, slug: String) -> PluginResult<Pipeline> {
-        let pipeline: types::Pipeline = self
+        let mut builds: Vec<types::Build> = self
             .get_json(&format!(
-                "{}/organizations/{org}/pipelines/{slug}",
+                "{}/organizations/{org}/pipelines/{slug}/builds?per_page=1&exclude_jobs=true",
                 self.base_url
             ))
             .await?;
 
-        let builds: Vec<types::Build> = self
-            .get_json(&format!(
-                "{}/organizations/{org}/pipelines/{slug}/builds?per_page=1",
-                self.base_url
-            ))
-            .await?;
+        let embedded = builds.first_mut().and_then(|build| build.pipeline.take());
+        let pipeline: types::Pipeline = match embedded {
+            Some(pipeline) => pipeline,
+            None => {
+                self.get_json(&format!(
+                    "{}/organizations/{org}/pipelines/{slug}",
+                    self.base_url
+                ))
+                .await?
+            }
+        };
 
         Ok(mapper::map_pipeline(&org, &slug, pipeline, builds.first()))
     }

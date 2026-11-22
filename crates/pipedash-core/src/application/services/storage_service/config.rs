@@ -13,6 +13,7 @@ use crate::domain::{
     DomainResult,
 };
 use crate::event::EventBus;
+use crate::infrastructure::config::file::write_atomic;
 use crate::infrastructure::{
     ConfigAnalysis,
     ConfigLoader,
@@ -132,13 +133,16 @@ pub async fn save_config_content(
         })?;
     validate_config(&config, registry)?;
 
-    tokio::fs::write(path, content).await.map_err(|e| {
-        DomainError::InternalError(format!(
-            "Failed to save config file at {}: {}",
-            path.display(),
-            e
-        ))
-    })?;
+    let (target, saved) = (path.to_path_buf(), content.to_owned());
+    blocking(move || write_atomic(&target, saved.as_bytes()))
+        .await?
+        .map_err(|e| {
+            DomainError::InternalError(format!(
+                "Failed to save config file at {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
     tracing::info!("Config file saved: {:?}", path);
 
     let Some(core) = core else {
