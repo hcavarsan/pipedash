@@ -339,3 +339,35 @@ fn the_wire_format_is_tagged_and_snake_case() {
         "pending"
     );
 }
+
+#[test]
+fn a_quiet_alert_reaches_only_pipelines_that_asked_for_it_and_never_a_muted_one() {
+    let mut preferences = NotificationPreferences::default();
+    let quiet_allowed = |preferences: &NotificationPreferences, id: &str| {
+        preferences.allows(AlertKind::Quiet, &[1], Some(id), None)
+    };
+    assert!(!quiet_allowed(&preferences, PIPELINE));
+
+    apply(
+        &mut preferences,
+        PreferenceChange::QuietAlert {
+            pipeline_id: PIPELINE.into(),
+            enabled: true,
+        },
+    );
+    assert!(quiet_allowed(&preferences, PIPELINE));
+    assert!(!quiet_allowed(&preferences, "stub__1__other"));
+    assert!(preferences.kinds_only().quiet_pipelines.is_empty());
+
+    apply(&mut preferences, muted(true));
+    assert!(!quiet_allowed(&preferences, PIPELINE));
+    assert!(change_preferences(
+        &mut preferences,
+        PreferenceChange::Kind {
+            kind: AlertKind::Quiet,
+            enabled: true,
+        },
+        now(),
+    )
+    .is_err());
+}

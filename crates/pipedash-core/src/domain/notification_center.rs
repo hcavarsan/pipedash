@@ -44,7 +44,9 @@ impl From<AlertKind> for CenterTone {
     fn from(kind: AlertKind) -> Self {
         match kind {
             AlertKind::Failed | AlertKind::Degraded => Self::Danger,
-            AlertKind::LongRun | AlertKind::StuckQueue | AlertKind::Outage => Self::Warning,
+            AlertKind::LongRun | AlertKind::StuckQueue | AlertKind::Outage | AlertKind::Quiet => {
+                Self::Warning
+            }
             AlertKind::Recovered | AlertKind::Finished | AlertKind::Test => Self::Success,
         }
     }

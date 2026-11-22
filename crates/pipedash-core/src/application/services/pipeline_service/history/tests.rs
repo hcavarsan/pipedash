@@ -2,6 +2,7 @@ use crate::application::test_support::plugins::STUB_RENAMED_RUN;
 use crate::application::test_support::{
     pipeline,
     stub_run,
+    Gate,
     Harness,
     StubProvider,
 };
@@ -551,4 +552,43 @@ async fn query_run_history_should_scan_deeper_on_the_same_page_when_asked() {
     assert!(!page.has_more);
     assert!(page.is_complete);
     h.pipeline_service.settle().await;
+}
+
+#[tokio::test]
+async fn a_history_fetch_started_before_an_invalidation_does_not_refill_the_cache() {
+    let h = Harness::new().await;
+    let gate = Gate::new();
+    let (provider_id, _) = h
+        .add_stub(|id| {
+            let pipeline_id = format!("stub__{id}__web");
+            StubProvider::new(id)
+                .with_runs(vec![stub_run(&pipeline_id, 1, 60)])
+                .run_gated(&gate)
+        })
+        .await;
+    let pipeline = pipeline(provider_id, "web", PipelineStatus::Success);
+    h.repository
+        .update_pipelines_cache(provider_id, std::slice::from_ref(&pipeline))
+        .await
+        .unwrap();
+    let service = &h.pipeline_service;
+
+    let invalidate_mid_fetch = async {
+        gate.arrived().await;
+        service.invalidate_run_cache(&pipeline.id).await;
+        gate.open();
+    };
+    let (fetched, ()) = tokio::join!(
+        service.fetch_run_history(&pipeline.id, 100),
+        invalidate_mid_fetch
+    );
+
+    assert_eq!(fetched.unwrap().len(), 1);
+    assert_eq!(
+        h.repository
+            .get_cached_run_count(&pipeline.id)
+            .await
+            .unwrap(),
+        0
+    );
 }

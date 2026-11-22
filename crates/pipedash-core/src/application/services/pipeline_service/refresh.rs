@@ -38,12 +38,23 @@ impl PipelineService {
         else {
             return;
         };
-        let Ok(true) = timeout(FETCH_TIMEOUT, self.update_overdue_pipelines(lease.id)).await else {
+        let (overdue, staged) = futures::future::join(
+            timeout(FETCH_TIMEOUT, self.update_overdue_pipelines(lease.id)),
+            timeout(FETCH_TIMEOUT, self.stage_provider_gaps(lease.id)),
+        )
+        .await;
+        let overdue_changed = matches!(overdue, Ok(true));
+        let staged = staged.ok().flatten();
+        if !overdue_changed && staged.is_none() {
             return;
-        };
+        }
 
         self.provider_service
             .commit(lease, || async {
+                let cadence_changed = staged.is_some_and(|staged| self.apply_gaps(staged));
+                if !overdue_changed && !cadence_changed {
+                    return;
+                }
                 let pipelines = match self.get_cached_pipelines(Some(lease.id)).await {
                     Ok(pipelines) => pipelines,
                     Err(e) => {

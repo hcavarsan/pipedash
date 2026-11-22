@@ -119,6 +119,7 @@ impl PluginAdapter {
             overdue_run: None,
             stuck_queue_run: None,
             typical_duration_seconds: None,
+            cadence: None,
             actions: Default::default(),
         }
     }

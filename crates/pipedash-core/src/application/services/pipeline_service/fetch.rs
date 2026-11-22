@@ -185,7 +185,7 @@ impl PipelineService {
         &self, lease: &ProviderLease, pipelines: Vec<Pipeline>,
     ) -> DomainResult<Applied> {
         let id = lease.id;
-        let mut pipelines = self.mark_overdue(pipelines);
+        let mut pipelines = self.mark_timing(pipelines);
         let old = self.repository.get_cached_pipelines(Some(id)).await?;
         self.repository
             .update_pipelines_cache(id, &pipelines)
