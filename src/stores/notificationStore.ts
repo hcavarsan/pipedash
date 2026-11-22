@@ -30,12 +30,13 @@ interface NotificationStoreActions {
 
 type NotificationStore = NotificationStoreState & NotificationStoreActions
 
-export const PREFERENCE_KINDS = ['failed', 'degraded', 'long_run', 'outage', 'recovered'] as const
+export const PREFERENCE_KINDS = ['failed', 'degraded', 'long_run', 'stuck_queue', 'outage', 'recovered'] as const
 
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   failed: true,
   degraded: true,
   long_run: true,
+  stuck_queue: true,
   outage: true,
   recovered: true,
   muted_providers: [],
@@ -81,6 +82,7 @@ function readPreferences(value: unknown): NotificationPreferences {
     failed: flag('failed'),
     degraded: flag('degraded'),
     long_run: flag('long_run'),
+    stuck_queue: flag('stuck_queue'),
     outage: flag('outage'),
     recovered: flag('recovered'),
     muted_providers: list('muted_providers', (item): item is number => Number.isInteger(item)),

@@ -28,6 +28,7 @@ fn entry(id: &str, provider_id: i64, status: PipelineStatus) -> PipelineMenuEntr
             resource_state: None,
             metadata: Default::default(),
             overdue_run: None,
+            stuck_queue_run: None,
             typical_duration_seconds: None,
             cadence: None,
             actions: Default::default(),

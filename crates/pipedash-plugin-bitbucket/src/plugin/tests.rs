@@ -24,7 +24,22 @@ async fn serve_runs(total: i64) -> (BitbucketPlugin, mpsc::Receiver<String>) {
             let line = request.lines().next().unwrap().to_string();
             let target = line.split_whitespace().nth(1).unwrap();
             let url = reqwest::Url::parse(&format!("http://{address}{target}")).unwrap();
+            let repo = |slug: &str| {
+                serde_json::json!({
+                    "uuid": format!("{{{slug}}}"), "name": slug,
+                    "full_name": format!("ws/{slug}"), "slug": slug,
+                    "workspace": {"uuid": "{ws}", "slug": "ws", "name": "ws"},
+                    "links": {"html": {"href": format!("http://{address}/ws/{slug}")}}
+                })
+            };
+            let single_repo = url
+                .path()
+                .strip_prefix("/repositories/ws/")
+                .filter(|slug| ["repo", "empty", "configured"].contains(slug));
             let (status, body) = match (line.starts_with("GET "), url.path()) {
+                (true, _) if single_repo.is_some() => {
+                    ("200 OK", repo(single_repo.unwrap_or_default()).to_string())
+                }
                 (true, "/repositories/ws/repo/pipelines") => {
                     let page = url
                         .query_pairs()
@@ -65,24 +80,15 @@ async fn serve_runs(total: i64) -> (BitbucketPlugin, mpsc::Receiver<String>) {
                         .to_string(),
                     )
                 }
-                (true, "/repositories") => {
-                    let repo = |slug: &str| {
-                        serde_json::json!({
-                            "uuid": format!("{{{slug}}}"), "name": slug,
-                            "full_name": format!("ws/{slug}"), "slug": slug,
-                            "workspace": {"uuid": "{ws}", "slug": "ws", "name": "ws"},
-                            "links": {"html": {"href": format!("http://{address}/ws/{slug}")}}
-                        })
-                    };
-                    (
-                        "200 OK",
-                        serde_json::json!({
-                            "values": [repo("repo"), repo("empty"), repo("configured")],
-                            "size": 3, "pagelen": 100
-                        })
-                        .to_string(),
-                    )
-                }
+                (true, "/repositories/ws/denied") => ("401 Unauthorized", "{}".to_string()),
+                (true, "/repositories") => (
+                    "200 OK",
+                    serde_json::json!({
+                        "values": [repo("repo"), repo("empty"), repo("configured")],
+                        "size": 3, "pagelen": 100
+                    })
+                    .to_string(),
+                ),
                 (true, "/repositories/ws/empty/pipelines")
                 | (true, "/repositories/ws/configured/pipelines") => (
                     "200 OK",
@@ -169,6 +175,46 @@ async fn tracking_every_repository_lists_those_with_runs_or_a_pipelines_file() {
             ("ws__configured", PipelineStatus::Pending)
         ]
     );
+}
+
+#[tokio::test]
+async fn a_selection_reads_only_the_selected_repositories() {
+    let (mut plugin, requests) = serve_runs(3).await;
+    plugin.config.insert(
+        "selected_items".to_string(),
+        "ws/repo,ws/configured,ws/gone,ws/repo".to_string(),
+    );
+
+    let pipelines = plugin.fetch_pipelines().await.unwrap();
+
+    assert_eq!(
+        pipelines
+            .iter()
+            .map(|pipeline| (pipeline.id.as_str(), pipeline.status))
+            .collect::<Vec<_>>(),
+        [
+            ("ws__configured", PipelineStatus::Pending),
+            ("ws__repo", PipelineStatus::Success)
+        ]
+    );
+    let lines: Vec<_> = requests.try_iter().collect();
+    assert!(!lines.iter().any(|line| line.contains("role=member")));
+    assert!(lines
+        .iter()
+        .any(|line| line.starts_with("GET /repositories/ws/repo ")));
+}
+
+#[tokio::test]
+async fn a_rejected_token_fails_a_selected_refresh_instead_of_emptying_it() {
+    let (mut plugin, _requests) = serve_runs(3).await;
+    plugin.config.insert(
+        "selected_items".to_string(),
+        "ws/repo,ws/denied".to_string(),
+    );
+
+    let error = plugin.fetch_pipelines().await.unwrap_err();
+
+    assert!(matches!(error, PluginError::AuthenticationFailed(_)));
 }
 
 #[tokio::test]

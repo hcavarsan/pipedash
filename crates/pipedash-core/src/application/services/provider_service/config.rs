@@ -222,6 +222,10 @@ impl ProviderService {
         Ok(())
     }
 
+    pub(crate) async fn queue_limit_seconds(&self) -> i64 {
+        queue_limit_seconds(self.config_state.get().await.general.queue_alert_minutes)
+    }
+
     async fn rebuild_loaded_providers(&self) {
         let ids: Vec<i64> = self.providers.read().await.keys().copied().collect();
         let mut changed = Vec::new();
@@ -272,7 +276,6 @@ impl ProviderService {
                 .await?
                 .ok_or_else(|| DomainError::ProviderNotFound(id.to_string()))?;
             sync.update_from_toml(key, provider, &row, backend).await?;
-            backend.mark_config_file_providers(&[row.name]).await?;
         }
         ProviderSyncService::store_resolved_token(
             id,
@@ -297,4 +300,8 @@ impl ProviderService {
 
         Ok(())
     }
+}
+
+pub(crate) fn queue_limit_seconds(minutes: u32) -> i64 {
+    i64::from(minutes.max(1)) * 60
 }

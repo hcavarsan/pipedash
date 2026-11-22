@@ -21,6 +21,7 @@ use crate::client::CircleCIClient;
 use crate::{
     config,
     log_dialect,
+    mapper,
     metadata,
 };
 
@@ -67,6 +68,10 @@ plugin_impl!(CircleCIPlugin [
                 pipeline,
             )
         }
+    }
+
+    fn run_actions(&self, _pipeline: &PipelineFacts<'_>, run: &RunFacts<'_>) -> RunActionState {
+        mapper::run_actions(&self.metadata().capabilities, run)
     }
 
     fn client_options(&self, config: &HashMap<String, String>) -> ClientOptions {

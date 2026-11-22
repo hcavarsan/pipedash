@@ -18,16 +18,23 @@ export const quietDetail = (pipeline: Pick<Pipeline, 'last_run' | 'cadence'>): s
     ? `No run since ${formatDateTime(pipeline.last_run)}, usually every ${formatGap(pipeline.cadence.usual_gap_seconds)}`
     : undefined
 
-const statusNote = (pipeline: Pick<Pipeline, 'overdue_run'>, quiet: boolean): string | undefined => {
+const statusNote = (
+  pipeline: Pick<Pipeline, 'overdue_run' | 'stuck_queue_run'>,
+  quiet: boolean
+): string | undefined => {
   if (pipeline.overdue_run) {
     return 'Running longer than usual'
+  }
+
+  if (pipeline.stuck_queue_run) {
+    return 'Stuck in queue'
   }
 
   return quiet ? 'Stopped running' : undefined
 }
 
 export const getPipelineStatusLabel = (
-  pipeline: Pick<Pipeline, 'overdue_run' | 'resource_state'>,
+  pipeline: Pick<Pipeline, 'overdue_run' | 'stuck_queue_run' | 'resource_state'>,
   quiet = false
 ): string | undefined => statusNote(pipeline, quiet) ?? pipeline.resource_state?.label
 

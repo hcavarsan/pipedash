@@ -136,6 +136,7 @@ pub(crate) fn pipeline(provider_id: i64, name: &str, status: PipelineStatus) -> 
         resource_state: None,
         metadata: HashMap::new(),
         overdue_run: None,
+        stuck_queue_run: None,
         typical_duration_seconds: None,
         cadence: None,
         actions: Default::default(),

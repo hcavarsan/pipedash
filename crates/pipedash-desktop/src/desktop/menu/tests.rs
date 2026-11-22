@@ -277,6 +277,7 @@ fn the_status_row_follows_the_device_preferences() {
                 resource_state: None,
                 metadata: Default::default(),
                 overdue_run: None,
+                stuck_queue_run: None,
                 typical_duration_seconds: None,
                 cadence: None,
                 actions: Default::default(),

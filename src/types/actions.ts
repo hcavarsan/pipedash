@@ -33,4 +33,7 @@ export interface RunPace {
   live: boolean
   typical_duration_seconds: number | null
   past_usual: boolean
+  queued: boolean
+  queue_limit_seconds: number | null
+  stuck: boolean
 }

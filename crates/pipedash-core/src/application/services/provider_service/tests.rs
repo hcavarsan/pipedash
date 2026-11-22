@@ -3,6 +3,11 @@ use std::io::{
     Read,
     Write,
 };
+use std::sync::atomic::{
+    AtomicBool,
+    AtomicUsize,
+    Ordering,
+};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -1172,6 +1177,7 @@ async fn general_settings_saved_in_the_config_file_survive_a_later_toggle() {
                 default_refresh_interval: general.default_refresh_interval,
                 status_pages_enabled: true,
                 proxy_url: general.proxy_url,
+                queue_alert_minutes: general.queue_alert_minutes,
             },
         )
         .await
@@ -1227,6 +1233,7 @@ async fn a_settings_save_during_a_file_apply_is_not_replaced_by_the_older_file()
                 default_refresh_interval: 90,
                 status_pages_enabled: true,
                 proxy_url: String::new(),
+                queue_alert_minutes: 15,
             };
             service.update_general_settings(&state, update).await
         }
@@ -1244,6 +1251,45 @@ async fn a_settings_save_during_a_file_apply_is_not_replaced_by_the_older_file()
         ),
         (90, 90)
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_settings_write_never_removes_config_file_providers() {
+    let h = Harness::new().await;
+    config_file(&h, &[("ci-a", "CI A", 30), ("ci-b", "CI B", 30)]);
+    h.provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .unwrap();
+    let state = Arc::clone(&h.config_state);
+    let writer = tokio::spawn(async move {
+        let mut failed = Vec::new();
+        for round in 0..500 {
+            let url = format!("https://relay-{round}.example.com");
+            if let Err(e) = state.set_push_relay_url(&url).await {
+                failed.push(e.to_string());
+            }
+        }
+        failed
+    });
+    let mut removed = Vec::new();
+    while !writer.is_finished() {
+        if let Ok(applied) = h.provider_service.apply_config_file(&h.config_state).await {
+            removed.extend(applied.removed);
+        }
+    }
+
+    let failed = writer.await.unwrap();
+    assert!(
+        failed.is_empty(),
+        "settings writes failed: {:?}",
+        failed.first()
+    );
+    assert!(
+        removed.is_empty(),
+        "removed during a settings write: {removed:?}"
+    );
+    assert!(provider_id(&h, "ci-a").await.is_some());
 }
 
 #[tokio::test]
@@ -1495,6 +1541,99 @@ async fn renaming_a_toml_provider_keeps_the_file_key_for_removal() {
         .await
         .unwrap();
     assert!(h.repository.list_providers().await.unwrap().is_empty());
+}
+
+async fn restart_sync(h: &Harness) {
+    h.config_state.reload().await.unwrap();
+    h.config_state
+        .sync_providers_from_toml(h.repository.config_backend().as_ref(), false)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn app_edits_to_a_file_provider_survive_a_restart() {
+    let h = Harness::new().await;
+    config_file(&h, &[("ci-a", "CI A", 30)]);
+    h.provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .unwrap();
+    let id = provider_id(&h, "ci-a").await.unwrap();
+    h.provider_service
+        .update_provider_refresh_interval(id, 120)
+        .await
+        .unwrap();
+    let mut renamed = h.repository.get_provider(id).await.unwrap();
+    renamed
+        .config
+        .insert("display_name".to_string(), "Renamed in app".to_string());
+    h.repository.update_provider(id, &renamed).await.unwrap();
+
+    restart_sync(&h).await;
+
+    let kept = h.repository.get_provider(id).await.unwrap();
+    assert_eq!(kept.refresh_interval, 120);
+    assert_eq!(kept.display_name(), "Renamed in app");
+}
+
+#[tokio::test]
+async fn a_file_block_edited_while_stopped_wins_on_restart() {
+    let h = Harness::new().await;
+    config_file(&h, &[("ci-a", "CI A", 30)]);
+    restart_sync(&h).await;
+    let id = provider_id(&h, "ci-a").await.unwrap();
+    h.provider_service
+        .update_provider_refresh_interval(id, 120)
+        .await
+        .unwrap();
+
+    config_file(&h, &[("ci-a", "CI Renamed", 60)]);
+    restart_sync(&h).await;
+
+    let applied = h.repository.get_provider(id).await.unwrap();
+    assert_eq!(applied.refresh_interval, 60);
+    assert_eq!(applied.display_name(), "CI Renamed");
+}
+
+#[tokio::test]
+async fn a_file_provider_from_before_the_upgrade_keeps_its_app_edits() {
+    let h = Harness::new().await;
+    config_file(&h, &[("ci-a", "CI A", 30)]);
+    let legacy = provider(
+        "ci-a",
+        "stub",
+        "token-ci-a",
+        120,
+        &[("display_name", "CI A")],
+    );
+    let id = h
+        .repository
+        .config_backend()
+        .create_provider(&legacy)
+        .await
+        .unwrap();
+
+    restart_sync(&h).await;
+    assert_eq!(
+        h.repository
+            .get_provider(id)
+            .await
+            .unwrap()
+            .refresh_interval,
+        120
+    );
+
+    config_file(&h, &[("ci-a", "CI A", 60)]);
+    restart_sync(&h).await;
+    assert_eq!(
+        h.repository
+            .get_provider(id)
+            .await
+            .unwrap()
+            .refresh_interval,
+        60
+    );
 }
 
 #[tokio::test]
@@ -2420,5 +2559,123 @@ async fn editing_during_a_renewal_keeps_the_renewed_session() {
             .provider
             .renew_at(),
         renewed.renew_at()
+    );
+}
+
+fn held_server(arrived: Arc<AtomicUsize>, released: Arc<AtomicBool>) -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let arrived = Arc::clone(&arrived);
+            let released = Arc::clone(&released);
+            std::thread::spawn(move || {
+                let mut buffer = [0; 4096];
+                let _ = stream.read(&mut buffer);
+                arrived.fetch_add(1, Ordering::SeqCst);
+                while !released.load(Ordering::SeqCst) {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                let body = r#"{"items":[]}"#;
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            });
+        }
+    });
+    url
+}
+
+#[tokio::test]
+async fn an_edit_keeps_a_token_rotated_while_it_was_validating() {
+    let h = Harness::with_real_plugins().await;
+    let arrived = Arc::new(AtomicUsize::new(0));
+    let released = Arc::new(AtomicBool::new(false));
+    let url = held_server(Arc::clone(&arrived), Arc::clone(&released));
+    let mut config = h.config("held", 30);
+    config.provider_type = STUB_HTTP.to_string();
+    config.config = http_settings(&url, false);
+    config.config.remove("token");
+    config.token = "original".to_string();
+    let id = h.repository.add_provider(&config).await.unwrap();
+    let mut edit = h.repository.get_provider(id).await.unwrap();
+    edit.name = "renamed".to_string();
+
+    let rotate = async {
+        while arrived.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let mut rotated = h.repository.get_provider(id).await.unwrap();
+        rotated.token = "rotated".to_string();
+        h.repository.update_provider(id, &rotated).await.unwrap();
+        released.store(true, Ordering::SeqCst);
+    };
+    let (saved, ()) = tokio::join!(h.provider_service.update_provider(id, edit), rotate);
+
+    saved.unwrap();
+    let stored = h.repository.get_provider(id).await.unwrap();
+    assert_eq!(stored.name, "renamed");
+    assert_eq!(stored.token, "rotated");
+}
+
+#[tokio::test]
+async fn an_edit_to_another_address_keeps_the_token_it_submitted() {
+    let h = Harness::with_real_plugins().await;
+    let arrived = Arc::new(AtomicUsize::new(0));
+    let released = Arc::new(AtomicBool::new(false));
+    let old_url = held_server(Arc::clone(&arrived), Arc::clone(&released));
+    let new_url = held_server(Arc::clone(&arrived), Arc::clone(&released));
+    let mut config = h.config("held", 30);
+    config.provider_type = STUB_HTTP.to_string();
+    config.config = http_settings(&old_url, false);
+    config.config.remove("token");
+    config.token = "original".to_string();
+    let id = h.repository.add_provider(&config).await.unwrap();
+    let mut edit = h.repository.get_provider(id).await.unwrap();
+    edit.config
+        .insert("server_url".to_string(), new_url.clone());
+
+    let rotate = async {
+        while arrived.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let mut rotated = h.repository.get_provider(id).await.unwrap();
+        rotated.token = "rotated".to_string();
+        h.repository.update_provider(id, &rotated).await.unwrap();
+        released.store(true, Ordering::SeqCst);
+    };
+    let (saved, ()) = tokio::join!(h.provider_service.update_provider(id, edit), rotate);
+
+    saved.unwrap();
+    let stored = h.repository.get_provider(id).await.unwrap();
+    assert_eq!(stored.config.get("server_url"), Some(&new_url));
+    assert_eq!(stored.token, "original");
+}
+
+#[tokio::test]
+async fn switching_a_tokenless_provider_to_sign_in_keeps_the_new_session() {
+    let h = Harness::new().await;
+    let (id, _idp, _server) = recovery_provider(&h).await;
+    let mut tokenless = h.repository.get_provider(id).await.unwrap();
+    tokenless.token = String::new();
+    h.repository.update_provider(id, &tokenless).await.unwrap();
+    let mut edit = h.repository.get_provider(id).await.unwrap();
+    assert_eq!(edit.token, "");
+    let setup = h
+        .provider_service
+        .start_sign_in(&edit.provider_type, edit.config.clone())
+        .await
+        .unwrap();
+    complete_login(&h, &setup).await;
+    edit.config
+        .insert(SIGN_IN_CONFIG_KEY.into(), setup.id.clone());
+
+    h.provider_service.update_provider(id, edit).await.unwrap();
+
+    assert_eq!(
+        stored_sign_in(&h, id).await.account.as_deref(),
+        Some("new@example.com")
     );
 }

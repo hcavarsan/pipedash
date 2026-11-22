@@ -11,6 +11,7 @@ use super::{
     ConfigLoadResult,
     ConfigLoader,
 };
+use crate::infrastructure::config::file::write_atomic;
 use crate::infrastructure::config::interpolation::{
     has_variables,
     interpolate,
@@ -34,7 +35,7 @@ impl ConfigLoader {
 
             Self::update_document(&mut doc, config)?;
 
-            std::fs::write(path, doc.to_string())?;
+            write_atomic(path, doc.to_string().as_bytes())?;
         } else {
             let toml_str = Self::to_toml(config).map_err(|e| {
                 ConfigLoadError::InvalidConfig(format!("Failed to serialize config: {}", e))
@@ -44,7 +45,7 @@ impl ConfigLoader {
                 std::fs::create_dir_all(parent)?;
             }
 
-            std::fs::write(path, toml_str)?;
+            write_atomic(path, toml_str.as_bytes())?;
         }
 
         Ok(())
@@ -67,6 +68,10 @@ impl ConfigLoader {
                 i64::from(general.default_refresh_interval).into(),
             ),
             ("status_pages_enabled", general.status_pages_enabled.into()),
+            (
+                "queue_alert_minutes",
+                i64::from(general.queue_alert_minutes).into(),
+            ),
         ] {
             match table.get_mut(key) {
                 Some(existing) => *existing = Item::Value(value),

@@ -239,7 +239,8 @@ fn native_run(
 fn snapshot_run(pipeline_id: &str, run_number: i64) -> PipelineRun {
     serde_json::from_value(json!({
         "id": format!("{pipeline_id}__{run_number}"), "pipeline_id": pipeline_id,
-        "run_number": run_number, "status": "failed", "started_at": "2026-10-21T00:30:00Z",
+        "run_number": run_number, "status": "failed",
+        "started_at": (Utc::now() - chrono::Duration::minutes(30)).to_rfc3339(),
         "logs_url": "",
         "metadata": {
             "record_source": "current_snapshot", "history_scope": "bounded_reconciliation",
@@ -447,7 +448,9 @@ async fn runs_without_native_provenance_keep_their_first_observation() {
         .update_pipeline_config(pipeline_id, true, 30)
         .await
         .unwrap();
-    let mut run = native_run(pipeline_id, 5, "2026-10-21T00:00:00Z", Some(10));
+    let started = chrono::DateTime::from_timestamp_millis(Utc::now().timestamp_millis()).unwrap()
+        - chrono::Duration::hours(1);
+    let mut run = native_run(pipeline_id, 5, &started.to_rfc3339(), Some(10));
     run.metadata.clear();
 
     let first = service
@@ -456,7 +459,7 @@ async fn runs_without_native_provenance_keep_their_first_observation() {
         .unwrap();
     assert_eq!(first, 3);
 
-    run.started_at = "2026-10-21T00:20:00Z".parse().unwrap();
+    run.started_at = started + chrono::Duration::minutes(20);
     run.duration_seconds = Some(99);
     let second = service
         .extract_and_store_metrics(pipeline_id, std::slice::from_ref(&run))
@@ -497,8 +500,17 @@ async fn postgres_native_history_refreshes_changed_records_atomically() {
     assert_native_history_refresh(&service, &refresh_id).await;
     assert_concurrent_refresh_is_deduplicated(&service, &concurrent_id).await;
     assert_native_retention(&service, &retention_id).await;
+    let long_id = format!("stub__postgres__HelmRelease__long__{suffix}");
+    let short_id = format!("stub__postgres__HelmRelease__short__{suffix}");
+    assert_cleanup_keeps_each_pipeline_retention(&service, &long_id, &short_id).await;
 
-    for pipeline_id in [&refresh_id, &concurrent_id, &retention_id] {
+    for pipeline_id in [
+        &refresh_id,
+        &concurrent_id,
+        &retention_id,
+        &long_id,
+        &short_id,
+    ] {
         service
             .flush_metrics(Some(pipeline_id.as_str()), true)
             .await
@@ -510,6 +522,91 @@ async fn postgres_native_history_refreshes_changed_records_atomically() {
             .unwrap();
     }
     pool.close().await;
+}
+
+async fn assert_cleanup_keeps_each_pipeline_retention(
+    service: &MetricsService, long: &str, short: &str,
+) {
+    let now = Utc::now();
+    let old = (now - chrono::Duration::days(60)).to_rfc3339();
+    let recent = (now - chrono::Duration::hours(1)).to_rfc3339();
+    for pipeline_id in [long, short] {
+        service
+            .update_pipeline_config(pipeline_id, true, 90)
+            .await
+            .unwrap();
+        service
+            .extract_and_store_metrics(
+                pipeline_id,
+                &[
+                    native_run(pipeline_id, 1, &old, Some(10)),
+                    native_run(pipeline_id, 2, &recent, Some(5)),
+                ],
+            )
+            .await
+            .unwrap();
+        assert_eq!(stored(service, pipeline_id).await.len(), 6);
+    }
+    service
+        .update_pipeline_config(short, true, 30)
+        .await
+        .unwrap();
+
+    service.cleanup_old_metrics().await.unwrap();
+
+    assert_eq!(stored(service, long).await.len(), 6);
+    let kept = stored(service, short).await;
+    assert_eq!(kept.len(), 3);
+    assert!(kept.iter().all(|entry| entry.run_number == 2));
+}
+
+#[tokio::test]
+async fn scheduled_cleanup_keeps_metrics_inside_each_pipeline_retention() {
+    let dir = tempfile::tempdir().unwrap();
+    let service = sqlite_service(&dir).await;
+    let now = Utc::now();
+    let long = "stub__1__HelmRelease__apps__long";
+    let default = "stub__1__HelmRelease__apps__default";
+    let old = (now - chrono::Duration::days(60)).to_rfc3339();
+    let recent = (now - chrono::Duration::hours(1)).to_rfc3339();
+
+    service.update_global_config(true, 90).await.unwrap();
+    service
+        .update_pipeline_config(long, true, 90)
+        .await
+        .unwrap();
+    for pipeline_id in [long, default] {
+        service
+            .extract_and_store_metrics(
+                pipeline_id,
+                &[
+                    native_run(pipeline_id, 1, &old, Some(10)),
+                    native_run(pipeline_id, 2, &recent, Some(5)),
+                ],
+            )
+            .await
+            .unwrap();
+        assert_eq!(stored(&service, pipeline_id).await.len(), 6);
+    }
+    service.update_global_config(true, 30).await.unwrap();
+
+    assert_eq!(service.cleanup_old_metrics().await.unwrap(), 3);
+    assert_eq!(stored(&service, long).await.len(), 6);
+    let kept = stored(&service, default).await;
+    assert_eq!(kept.len(), 3);
+    assert!(kept.iter().all(|entry| entry.run_number == 2));
+}
+
+#[tokio::test]
+async fn scheduled_cleanup_groups_pipelines_by_their_own_retention() {
+    let dir = tempfile::tempdir().unwrap();
+    let service = sqlite_service(&dir).await;
+    assert_cleanup_keeps_each_pipeline_retention(
+        &service,
+        "stub__1__HelmRelease__apps__long",
+        "stub__1__HelmRelease__apps__short",
+    )
+    .await;
 }
 
 async fn assert_native_retention(service: &MetricsService, pipeline_id: &str) {

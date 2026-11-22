@@ -41,6 +41,7 @@ export function SignInPasteControls({
       {...(shell && fieldId ? fieldA11y(fieldId, { error, description: PASTE_DESCRIPTION }) : {})}
       error={shell ? undefined : error}
       value={value}
+      disabled={pending}
       onChange={(event) => onChange(event.currentTarget.value)}
       onKeyDown={handleKey}
       autoComplete="off"

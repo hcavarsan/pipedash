@@ -35,7 +35,15 @@ export function runDisplayFixture(overrides: Partial<RunDisplay> = {}): RunDispl
 }
 
 export function runPaceFixture(overrides: Partial<RunPace> = {}): RunPace {
-  return { live: false, typical_duration_seconds: null, past_usual: false, ...overrides }
+  return {
+    live: false,
+    typical_duration_seconds: null,
+    past_usual: false,
+    queued: false,
+    queue_limit_seconds: null,
+    stuck: false,
+    ...overrides,
+  }
 }
 
 export function runPresentationFixture(): { actions: RunActionState; display: RunDisplay; pace: RunPace } {

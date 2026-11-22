@@ -56,7 +56,12 @@ export const ConfigEditorModal = ({ onClose, initialContent, onSaved }: ConfigEd
 
       return null
     } catch (error) {
-      return errorMessage(error, 'Check the file for errors and try again.')
+      const failure = errorMessage(error, 'Check the file for errors and try again.')
+      if (mobileShell) {
+        displayErrorNotification(new Error(failure), "Couldn't save configuration")
+      }
+
+      return failure
     }
   }
 

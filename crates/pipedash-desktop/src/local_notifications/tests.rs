@@ -120,3 +120,34 @@ fn the_server_answer_lists_used_watches_and_anything_else_is_a_failed_send() {
             .is_none()
     );
 }
+
+#[tokio::test]
+async fn a_standalone_alert_host_only_gets_the_alert_kinds() {
+    let host = crate::remote::test_host::start_host().await;
+    let code = pipedash_web::pairing::create_pairing(&host.state, &host.url.url)
+        .unwrap()
+        .code;
+    let alert_host = crate::remote::alerts::claim_alert_host(host.url.clone(), &code, true)
+        .await
+        .unwrap();
+    let local = NotificationPreferences {
+        long_run: false,
+        muted_providers: vec![1],
+        muted_pipelines: vec!["stub__1__web".into()],
+        watched_pipelines: vec!["stub__1__api".into()],
+        ..NotificationPreferences::default()
+    };
+
+    super::preferences::send_preferences(&super::preferences::Server::Host(&alert_host), &local)
+        .await;
+
+    let saved = host
+        .core
+        .notification_preferences(&alert_host.device_id)
+        .snapshot()
+        .await
+        .unwrap()
+        .preferences;
+    assert_eq!(saved, local.kinds_only());
+    assert!(!saved.long_run);
+}

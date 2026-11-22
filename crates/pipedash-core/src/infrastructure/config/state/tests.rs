@@ -198,6 +198,7 @@ fn update(default_refresh_interval: u32, status_pages_enabled: bool) -> GeneralS
         default_refresh_interval,
         status_pages_enabled,
         proxy_url: String::new(),
+        queue_alert_minutes: 15,
     }
 }
 
@@ -356,6 +357,7 @@ async fn test_update_general_settings_keeps_the_proxy_reference() {
         default_refresh_interval: general.default_refresh_interval,
         status_pages_enabled: !general.status_pages_enabled,
         proxy_url: proxy_url.to_string(),
+        queue_alert_minutes: general.queue_alert_minutes,
     };
 
     state

@@ -13,6 +13,8 @@ use crate::domain::{
     RunFinish,
 };
 
+pub(super) const STUCK_QUEUE_EVENT: &str = "is waiting in the queue too long";
+
 impl NotificationState {
     pub(super) fn observe_pipelines(
         &mut self, provider_id: i64, pipelines: &[Pipeline],
@@ -52,6 +54,13 @@ impl NotificationState {
                             AlertKind::Finished,
                         )
                     });
+                }
+                if pipeline.stuck_queue_run.is_some() && old.stuck != pipeline.stuck_queue_run {
+                    found.push(self.pipeline_notice(
+                        pipeline,
+                        STUCK_QUEUE_EVENT,
+                        AlertKind::StuckQueue,
+                    ));
                 }
                 if pipeline.overdue_run.is_some() && old.overdue != pipeline.overdue_run {
                     found.push(self.pipeline_notice(
@@ -203,6 +212,9 @@ fn next_mark(
     }
     if mark.overdue.is_none() {
         mark.overdue = old.overdue.clone();
+    }
+    if mark.stuck.is_none() {
+        mark.stuck = old.stuck.clone();
     }
     mark.checked_at = old.checked_at;
     if pipeline.cadence.is_none() && pipeline.last_run == old.last_run {

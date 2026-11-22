@@ -16,7 +16,6 @@ use super::{
         refresh_projection,
         wake,
     },
-    ready,
     show_main_window,
     state::{
         current_status,
@@ -341,21 +340,12 @@ pub(crate) async fn reset_settings(app: &AppHandle) -> Result<(), ErrorResponse>
 
 #[tauri::command]
 pub fn test_desktop_notification(app: AppHandle) -> Result<(), ErrorResponse> {
-    if !ready(&app) {
-        return Err(failure(
-            "Unlock and initialize Pipedash before sending a test",
-        ));
-    }
-    if !app
+    let refusal = app
         .state::<DesktopState>()
         .lock()
-        .saved
-        .settings
-        .notifications_enabled
-    {
-        return Err(failure(
-            "Turn on system notifications before sending a test",
-        ));
+        .test_notification_refusal();
+    if let Some(message) = refusal {
+        return Err(failure(message));
     }
     crate::system_notifications::send(
         &app,

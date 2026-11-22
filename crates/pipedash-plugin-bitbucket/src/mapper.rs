@@ -131,6 +131,14 @@ pub(crate) fn map_pipeline_run(
             )
         });
 
+    let inputs = pipeline
+        .target
+        .selector
+        .as_ref()
+        .filter(|selector| selector.selector_type == "custom")
+        .and_then(|selector| selector.pattern.as_ref())
+        .map(|pattern| serde_json::json!({ "custom_pipeline": pattern }));
+
     PipelineRun {
         id: format!("{workspace}__{repo_slug}__{}", pipeline.build_number),
         pipeline_id: format!("{workspace}__{repo_slug}"),
@@ -148,7 +156,7 @@ pub(crate) fn map_pipeline_run(
             .and_then(|c| c.message.clone()),
         branch: pipeline.target.ref_name.clone(),
         actor: pipeline.creator.as_ref().map(|u| u.display_name.clone()),
-        inputs: None,
+        inputs,
         metadata,
     }
 }

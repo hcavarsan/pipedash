@@ -34,7 +34,7 @@ pub(super) enum TakenSignIn {
     Kept,
 }
 
-fn editing_mode(schema: &ConfigSchema, config: &HashMap<String, String>) -> AuthMode {
+pub(super) fn editing_mode(schema: &ConfigSchema, config: &HashMap<String, String>) -> AuthMode {
     if let Some(stored) = AuthMode::from_config(config).filter(|mode| schema.allows(*mode)) {
         return stored;
     }

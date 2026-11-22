@@ -121,6 +121,8 @@ struct PipelineMark {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     overdue: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    stuck: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     checked_at: Option<DateTime<Utc>>,
     #[serde(default)]
     awaiting_success: bool,
@@ -136,6 +138,7 @@ impl PipelineMark {
             status: pipeline.status.clone(),
             last_run: pipeline.last_run,
             overdue: pipeline.overdue_run.clone(),
+            stuck: pipeline.stuck_queue_run.clone(),
             checked_at: None,
             awaiting_success: pipeline.status == PipelineStatus::Failed,
             finished_at: None,
