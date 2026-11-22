@@ -151,6 +151,7 @@ pub(crate) struct JobsResponse {
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct JobBuildsResponse {
+    #[serde(rename = "allBuilds")]
     pub builds: Vec<Build>,
 }
 

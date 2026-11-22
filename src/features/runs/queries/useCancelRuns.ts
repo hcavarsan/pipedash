@@ -1,12 +1,11 @@
 import { type UseMutationResult, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRef } from 'react'
 
-import { notifications } from '../../../lib/notifications'
 import { queryKeys } from '../../../lib/queryKeys'
 import { service } from '../../../services/service'
 import type { CancellationBatch, RunTarget } from '../../../types/run_action_batch'
 import { summarizeCancellation } from '../../../utils/cancelActiveRuns'
-import { displayErrorNotification } from '../../../utils/errorDisplay'
+import { displayErrorNotification, displaySuccessNotification } from '../../../utils/errorDisplay'
 import { invalidateRunHistory } from '../lib/runHistoryCache'
 
 interface CancellationProgress {
@@ -52,7 +51,14 @@ export function useCancelRuns(): UseMutationResult<CancellationBatch, Error, Run
       return combined
     },
 
-    onSuccess: (batch) => notifications.show(summarizeCancellation(batch)),
+    onSuccess: (batch) => {
+      const { title, message, failed } = summarizeCancellation(batch)
+      if (failed) {
+        displayErrorNotification(message, title)
+        return
+      }
+      displaySuccessNotification(message, title)
+    },
 
     onError: (error) => displayErrorNotification(error, "Couldn't cancel runs"),
   })
