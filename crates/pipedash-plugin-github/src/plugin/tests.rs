@@ -1492,7 +1492,7 @@ async fn log_nodes_map_jobs_and_steps() {
                 "3",
                 None,
                 LogNodeKind::Job,
-                PipelineStatus::Running,
+                PipelineStatus::Pending,
                 Some(LogAvailability::Pending)
             ),
         ]

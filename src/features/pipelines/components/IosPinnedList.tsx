@@ -6,10 +6,11 @@ import { WorkflowActionMenu } from '../../../components/common/PipelineRowAction
 import { VirtualList } from '../../../components/common/VirtualList'
 import { IosGroup } from '../../../components/ios/IosList'
 import { useNow } from '../../../hooks/useNow'
+import { usePipelineStatusLabel } from '../../../hooks/usePipelineStatusLabel'
 import type { PinToggle, PipelineActions, PipelineSelection } from '../../../types/pipelineRows'
 import type { ProviderSummary } from '../../../types/providers'
 import type { ViewPipeline } from '../../../types/views'
-import { getPipelineStatusLabel, pipelineStatusKey } from '../../../utils/pipelinePresentation'
+import { pipelineStatusKey } from '../../../utils/pipelinePresentation'
 import { historyLabel, workflowSwipeActions } from '../../../utils/pipelineRowActions'
 import { reorderSlots } from '../../../utils/viewTree'
 import type { PipelineViewPageModel } from '../hooks/usePipelineViewModel'
@@ -36,6 +37,7 @@ interface PinnedRowProps {
 }
 
 function PinnedRow({ pipeline, getProvider, actions, selection, now, pin, reorderHandle }: PinnedRowProps): ReactNode {
+  const statusLabel = usePipelineStatusLabel()
   const subtitle = [pipeline.repository, pipeline.branch, relativeOrNever(pipeline.last_run, now)]
     .filter(Boolean)
     .join(' · ')
@@ -43,7 +45,7 @@ function PinnedRow({ pipeline, getProvider, actions, selection, now, pin, reorde
   return (
     <IosPipelineRow
       status={pipelineStatusKey(pipeline)}
-      statusText={getPipelineStatusLabel(pipeline)}
+      statusText={statusLabel(pipeline)}
       title={pipeline.name}
       subtitle={subtitle}
       hint={`View ${historyLabel(actions, pipeline.provider_type)}`}

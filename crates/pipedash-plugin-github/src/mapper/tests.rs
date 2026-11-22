@@ -25,8 +25,7 @@ fn every_documented_conclusion_maps_to_a_finished_status() {
 #[test]
 fn unfinished_statuses_are_running_or_pending() {
     assert_eq!(map_status("in_progress", None), PipelineStatus::Running);
-    assert_eq!(map_status("queued", None), PipelineStatus::Running);
-    for status in ["requested", "waiting", "pending"] {
+    for status in ["queued", "requested", "waiting", "pending"] {
         assert_eq!(
             map_status(status, None),
             PipelineStatus::Pending,

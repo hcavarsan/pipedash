@@ -16,7 +16,7 @@ test('reports success when every run was cancelled', () => {
   assert.deepEqual(summarizeCancellation(batch), {
     title: 'Cancellation requested',
     message: 'Cancellation requested for 1 run',
-    color: 'gray',
+    failed: false,
   })
 })
 
@@ -28,6 +28,6 @@ test('lists failures from the backend batch', () => {
   }
   const note = summarizeCancellation(batch)
 
-  assert.equal(note.color, 'red')
-  assert.match(String(note.message), /1 of 2 runs\. Failed: build #2 \(denied\)/)
+  assert.equal(note.failed, true)
+  assert.match(note.message, /1 of 2 runs\. Failed: build #2 \(denied\)/)
 })

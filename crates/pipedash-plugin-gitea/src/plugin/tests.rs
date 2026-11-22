@@ -276,7 +276,7 @@ async fn pipelines_find_latest_run_of_each_workflow_beyond_first_page() {
     assert_eq!(
         summary,
         [
-            ("claude/smoke__ci/build__test.yaml", PipelineStatus::Running),
+            ("claude/smoke__ci/build__test.yaml", PipelineStatus::Pending),
             ("claude/smoke__ci/lint.yaml", PipelineStatus::Failed),
         ]
     );
@@ -409,6 +409,24 @@ async fn cancel_reports_not_supported_when_endpoint_is_missing() {
         .unwrap_err();
     assert!(matches!(error, PluginError::NotSupported(_)), "{error}");
     server.abort();
+}
+
+#[test]
+fn dispatch_inputs_reach_gitea_as_strings() {
+    let body = gitea_dispatch_body(Some(serde_json::json!({
+        "ref": "main",
+        "inputs.dry_run": false,
+        "inputs.replicas": 3,
+        "inputs.greeting": "hi",
+    })));
+
+    assert_eq!(
+        body,
+        serde_json::json!({
+            "ref": "main",
+            "inputs": {"dry_run": "false", "replicas": "3", "greeting": "hi"},
+        })
+    );
 }
 
 #[tokio::test]
@@ -590,7 +608,7 @@ async fn run_jobs_and_steps_become_log_nodes_across_pages() {
                 "103",
                 None,
                 LogNodeKind::Job,
-                PipelineStatus::Running,
+                PipelineStatus::Pending,
                 Some(LogAvailability::Pending)
             ),
             ("104", None, LogNodeKind::Job, PipelineStatus::Skipped, None),

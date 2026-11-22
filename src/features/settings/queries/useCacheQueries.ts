@@ -8,11 +8,10 @@ import {
 } from '@tanstack/react-query'
 import { REFRESH_INTERVALS } from '../../../constants/intervals'
 import { GC_TIMES, STALE_TIMES } from '../../../lib/cacheConfig'
-import { notifications } from '../../../lib/notifications'
 import { queryKeys } from '../../../lib/queryKeys'
 import { service } from '../../../services/service'
 import type { RunLogDocument } from '../../../types/logs'
-import { errorMessage } from '../../../utils/errorDisplay'
+import { displayErrorNotification, displaySuccessNotification, errorMessage } from '../../../utils/errorDisplay'
 import { logLineCache } from '../../logs/lib/lineCache'
 
 interface CacheStats {
@@ -62,19 +61,11 @@ export function useClearCache(): UseMutationResult<void, Error, void, unknown> {
       void queryClient.invalidateQueries({ queryKey: queryKeys.runs.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.workflows.all })
 
-      notifications.show({
-        title: 'Cache cleared',
-        message: 'All caches cleared successfully',
-        color: 'green',
-      })
+      displaySuccessNotification('All caches cleared successfully', 'Cache cleared')
     },
 
     onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't clear caches",
-        message: errorMessage(error, 'Try clearing the caches again.'),
-        color: 'red',
-      })
+      displayErrorNotification(errorMessage(error, 'Try clearing the caches again.'), "Couldn't clear caches")
     },
   })
 }
@@ -89,19 +80,14 @@ export function useClearPipelinesCache(): UseMutationResult<number, Error, void,
       void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.cache.all })
 
-      notifications.show({
-        title: 'Pipelines cache cleared',
-        message: 'Pipeline cache cleared successfully',
-        color: 'green',
-      })
+      displaySuccessNotification('Pipeline cache cleared successfully', 'Pipelines cache cleared')
     },
 
     onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't clear pipelines cache",
-        message: errorMessage(error, 'Try clearing the pipelines cache again.'),
-        color: 'red',
-      })
+      displayErrorNotification(
+        errorMessage(error, 'Try clearing the pipelines cache again.'),
+        "Couldn't clear pipelines cache"
+      )
     },
   })
 }
@@ -116,19 +102,14 @@ export function useClearRunHistoryCache(): UseMutationResult<void, Error, void, 
       void queryClient.invalidateQueries({ queryKey: queryKeys.runs.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.cache.all })
 
-      notifications.show({
-        title: 'Run history cache cleared',
-        message: 'Run history cache cleared successfully',
-        color: 'green',
-      })
+      displaySuccessNotification('Run history cache cleared successfully', 'Run history cache cleared')
     },
 
     onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't clear run history cache",
-        message: errorMessage(error, 'Try clearing the run history cache again.'),
-        color: 'red',
-      })
+      displayErrorNotification(
+        errorMessage(error, 'Try clearing the run history cache again.'),
+        "Couldn't clear run history cache"
+      )
     },
   })
 }
@@ -143,19 +124,14 @@ export function useClearWorkflowParamsCache(): UseMutationResult<void, Error, vo
       void queryClient.invalidateQueries({ queryKey: queryKeys.workflows.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.cache.all })
 
-      notifications.show({
-        title: 'Workflow parameters cache cleared',
-        message: 'Workflow parameters cache cleared successfully',
-        color: 'green',
-      })
+      displaySuccessNotification('Workflow parameters cache cleared successfully', 'Workflow parameters cache cleared')
     },
 
     onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't clear workflow parameters cache",
-        message: errorMessage(error, 'Try clearing the workflow parameters cache again.'),
-        color: 'red',
-      })
+      displayErrorNotification(
+        errorMessage(error, 'Try clearing the workflow parameters cache again.'),
+        "Couldn't clear workflow parameters cache"
+      )
     },
   })
 }
@@ -170,19 +146,14 @@ export function useClearRunLogsCache(): UseMutationResult<void, Error, void, unk
     onSuccess: async () => {
       await resetRunLogs(queryClient)
 
-      notifications.show({
-        title: 'Run logs cache cleared',
-        message: 'Run logs cache cleared successfully',
-        color: 'green',
-      })
+      displaySuccessNotification('Run logs cache cleared successfully', 'Run logs cache cleared')
     },
 
     onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't clear run logs cache",
-        message: errorMessage(error, 'Try clearing the run logs cache again.'),
-        color: 'red',
-      })
+      displayErrorNotification(
+        errorMessage(error, 'Try clearing the run logs cache again.'),
+        "Couldn't clear run logs cache"
+      )
     },
   })
 }

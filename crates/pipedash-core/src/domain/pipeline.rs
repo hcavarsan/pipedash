@@ -82,6 +82,8 @@ pub struct Pipeline {
     pub stuck_queue_run: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub typical_duration_seconds: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cadence: Option<PipelineCadence>,
     #[serde(default)]
     pub actions: PipelineActionState,
 }
@@ -96,6 +98,12 @@ impl Pipeline {
                 | PipelineStatus::Skipped
         ) && (!status.is_terminal() || last_run != self.last_run)
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PipelineCadence {
+    pub usual_gap_seconds: i64,
+    pub quiet: bool,
 }
 
 pub(crate) fn notice_title(name: &str, event: &str, repository: &str) -> String {

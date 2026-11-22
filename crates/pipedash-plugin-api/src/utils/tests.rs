@@ -194,7 +194,7 @@ fn conclusion_mapping_uses_supplied_lists() {
     assert_eq!(map("boom"), PipelineStatus::Failed);
     assert_eq!(
         status_from_conclusion("queued", None, &[], &[]),
-        PipelineStatus::Running
+        PipelineStatus::Pending
     );
     assert_eq!(
         status_from_conclusion("x", None, &[], &[]),

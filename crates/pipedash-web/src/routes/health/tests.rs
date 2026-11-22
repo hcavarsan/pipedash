@@ -32,10 +32,7 @@ async fn get_health(app: &Router) -> (StatusCode, serde_json::Value) {
     (status, serde_json::from_slice(&body).unwrap())
 }
 
-#[tokio::test]
-async fn health_reports_a_failed_database_query_as_unavailable() {
-    let _env = crate::routes::CONFIG_ENV.lock().await;
-    let data_dir = std::env::temp_dir().join(format!("pipedash-health-{}", std::process::id()));
+async fn health_app(data_dir: &std::path::Path) -> (Router, AppState, CoreContext) {
     std::env::set_var("PIPEDASH_CONFIG_PATH", data_dir.join("config.toml"));
     let mut config = PipedashConfig::default();
     config.storage.backend = StorageBackendType::Sqlite;
@@ -50,6 +47,24 @@ async fn health_reports_a_failed_database_query_as_unavailable() {
     )
     .await
     .unwrap();
+    let state = AppState::initialized(
+        ws_event_bus,
+        core.clone(),
+        storage_manager,
+        crate::test_support::registry(),
+    );
+    state.inner.write().await.token_store_ready = true;
+    let app = Router::new()
+        .route("/health", get(health_check))
+        .with_state(state.clone());
+    (app, state, core)
+}
+
+#[tokio::test]
+async fn health_reports_a_failed_database_query_as_unavailable() {
+    let _env = crate::routes::CONFIG_ENV.lock().await;
+    let data_dir = std::env::temp_dir().join(format!("pipedash-health-{}", std::process::id()));
+    let (app, _state, core) = health_app(&data_dir).await;
     let pool = core
         .provider_service
         .repository()
@@ -57,16 +72,6 @@ async fn health_reports_a_failed_database_query_as_unavailable() {
         .as_sqlite()
         .unwrap()
         .clone();
-    let state = AppState::initialized(
-        ws_event_bus,
-        core,
-        storage_manager,
-        crate::test_support::registry(),
-    );
-    state.inner.write().await.token_store_ready = true;
-    let app = Router::new()
-        .route("/health", get(health_check))
-        .with_state(state);
 
     let (status, body) = get_health(&app).await;
     assert_eq!(status, StatusCode::OK);
@@ -80,4 +85,38 @@ async fn health_reports_a_failed_database_query_as_unavailable() {
     assert_eq!(failed_status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(failed_body["status"], "database_error");
     assert_eq!(failed_body["database"]["connected"], false);
+}
+
+#[tokio::test]
+async fn a_health_probe_waiting_on_the_database_does_not_hold_the_state_lock() {
+    let _env = crate::routes::CONFIG_ENV.lock().await;
+    let data_dir =
+        std::env::temp_dir().join(format!("pipedash-health-lock-{}", std::process::id()));
+    let (app, state, core) = health_app(&data_dir).await;
+    let pool = core
+        .provider_service
+        .repository()
+        .cache_pool()
+        .as_sqlite()
+        .unwrap()
+        .clone();
+    let mut held = Vec::new();
+    for _ in 0..pool.options().get_max_connections() {
+        held.push(pool.acquire().await.unwrap());
+    }
+
+    let probe = tokio::spawn(async move { get_health(&app).await });
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let writer = tokio::time::timeout(std::time::Duration::from_secs(2), state.inner.write()).await;
+    let writer_got_the_lock = writer.is_ok();
+    drop(writer);
+    drop(held);
+    let (status, _) = probe.await.unwrap();
+    let _ = std::fs::remove_dir_all(&data_dir);
+
+    assert!(
+        writer_got_the_lock,
+        "the health probe held the state lock while it waited on the database"
+    );
+    assert_eq!(status, StatusCode::OK);
 }

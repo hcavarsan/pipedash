@@ -18,7 +18,7 @@ pub(crate) fn map_status(gitlab_status: &str) -> PipelineStatus {
     match gitlab_status {
         "success" => PipelineStatus::Success,
         "failed" => PipelineStatus::Failed,
-        "running" | "pending" | "canceling" => PipelineStatus::Running,
+        "running" | "canceling" => PipelineStatus::Running,
         "canceled" => PipelineStatus::Cancelled,
         "skipped" => PipelineStatus::Skipped,
         _ => PipelineStatus::Pending,

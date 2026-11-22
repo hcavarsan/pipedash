@@ -69,6 +69,12 @@ impl NotificationState {
                         AlertKind::LongRun,
                     ));
                 }
+                if let Some(cadence) = pipeline
+                    .cadence
+                    .filter(|cadence| cadence.quiet && !old.quiet)
+                {
+                    found.push(self.quiet_notice(pipeline, cadence.usual_gap_seconds));
+                }
             }
             next.insert(pipeline.id.clone(), mark);
         }
@@ -166,6 +172,33 @@ fn attention_kind(pipeline: &Pipeline) -> AlertKind {
     }
 }
 
+impl NotificationState {
+    fn quiet_notice(&self, pipeline: &Pipeline, usual_gap_seconds: i64) -> LocalNotification {
+        let mut notice = self.pipeline_notice(pipeline, "stopped running", AlertKind::Quiet);
+        let usual = format!("Usually runs {}", every(usual_gap_seconds));
+        notice.body = if notice.body.is_empty() {
+            usual
+        } else {
+            format!("{} · {usual}", notice.body)
+        };
+
+        notice
+    }
+}
+
+fn every(seconds: i64) -> String {
+    let (count, unit) = match seconds {
+        s if s >= 86_400 => ((s + 43_200) / 86_400, "day"),
+        s if s >= 3_600 => ((s + 1_800) / 3_600, "hour"),
+        s => (((s + 30) / 60).max(1), "minute"),
+    };
+    if count == 1 {
+        format!("every {unit}")
+    } else {
+        format!("every {count} {unit}s")
+    }
+}
+
 fn next_mark(
     pipeline: &Pipeline, previous: Option<&PipelineMark>, finish: Option<RunFinish>,
 ) -> PipelineMark {
@@ -184,6 +217,9 @@ fn next_mark(
         mark.stuck = old.stuck.clone();
     }
     mark.checked_at = old.checked_at;
+    if pipeline.cadence.is_none() && pipeline.last_run == old.last_run {
+        mark.quiet = old.quiet;
+    }
 
     mark
 }

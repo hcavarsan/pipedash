@@ -5,6 +5,7 @@ import { useNotificationStore } from '../../../stores/notificationStore'
 import type { PipelineNotifyState, PreferenceChange } from '../../../types/notification_preferences'
 import type { Pipeline } from '../../../types/pipelines'
 import { displaySuccessNotification } from '../../../utils/errorDisplay'
+import { formatGap } from '../../../utils/pipelinePresentation'
 import { changePreference } from '../queries/changePreference'
 
 export interface NotifyItem {
@@ -26,11 +27,20 @@ export interface PolicyOption {
   select: () => Promise<boolean>
 }
 
-export type PolicyTarget = Pick<Pipeline, 'id' | 'name' | 'status'>
+export type PolicyTarget = Pick<Pipeline, 'id' | 'name' | 'status' | 'cadence'>
+
+export interface QuietItem {
+  label: string
+  description: string
+  enabled: boolean
+  available: boolean
+  toggle: () => Promise<boolean>
+}
 
 interface NotifyItems {
   pipelineState: (pipelineId: string) => PipelineNotifyState
   policyOptions: (pipeline: PolicyTarget) => PolicyOption[]
+  quietItem: (pipeline: PolicyTarget) => QuietItem
 
   providerItem: (provider: { id: number; name: string }) => MuteItem
 }
@@ -127,9 +137,38 @@ export function useNotifyItems(): NotifyItems {
     }))
   }
 
+  const quietItem: NotifyItems['quietItem'] = ({ id, name, cadence }) => {
+    const enabled = preferences.quiet_pipelines.includes(id)
+    const description = cadence
+      ? `One notification when no run shows up for about twice its usual gap of ${formatGap(cadence.usual_gap_seconds)}.`
+      : 'Needs a few more runs to learn how often it runs.'
+
+    return {
+      label: 'Tell me if it stops running',
+      description,
+      enabled,
+      available: enabled || Boolean(cadence),
+      toggle: async () => {
+        if (!(await changePreference({ type: 'quiet_alert', pipeline_id: id, enabled: !enabled }))) {
+          return false
+        }
+
+        displaySuccessNotification(
+          enabled
+            ? `You won't be told when ${name} misses its usual schedule.`
+            : `You'll be notified if ${name} stops running on its usual schedule.`,
+          enabled ? 'Missed runs ignored' : 'Watching for missed runs'
+        )
+
+        return true
+      },
+    }
+  }
+
   return {
     pipelineState,
     policyOptions,
+    quietItem,
     providerItem: ({ id, name }) => {
       const muted = preferences.muted_providers.includes(id)
 

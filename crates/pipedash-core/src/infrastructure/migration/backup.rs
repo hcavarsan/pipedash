@@ -249,14 +249,19 @@ impl BackupManager {
     pub async fn restore_backups(&self, backups: &BackupPaths) -> DomainResult<()> {
         tracing::warn!("Migration failed - restoring from backups");
 
+        use crate::infrastructure::config::file::write_atomic;
         use crate::infrastructure::config::ConfigLoader;
         let config_path = ConfigLoader::discover_config_path();
         if backups.source_config.exists() {
-            tokio::fs::copy(&backups.source_config, &config_path)
-                .await
-                .map_err(|e| {
-                    DomainError::DatabaseError(format!("Failed to restore config file: {}", e))
-                })?;
+            let source = backups.source_config.clone();
+            tokio::task::spawn_blocking(move || {
+                std::fs::read(&source).and_then(|content| write_atomic(&config_path, &content))
+            })
+            .await
+            .map_err(|e| DomainError::InternalError(format!("Background task failed: {e}")))?
+            .map_err(|e| {
+                DomainError::DatabaseError(format!("Failed to restore config file: {}", e))
+            })?;
             tracing::info!("Config file restored from: {:?}", backups.source_config);
         }
 

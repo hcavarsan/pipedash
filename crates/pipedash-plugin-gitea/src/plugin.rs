@@ -245,14 +245,7 @@ plugin_impl!(GiteaPlugin [metadata, status_source, available_from_filtered, fetc
         let id = config::parse_pipeline_id(&params.workflow_id)?;
         let client = self.client()?;
 
-        let mut body = dispatch_body(params.inputs);
-        if let Some(serde_json::Value::Object(inputs)) = body.get_mut("inputs") {
-            for value in inputs.values_mut() {
-                if !value.is_string() {
-                    *value = serde_json::Value::String(value.to_string());
-                }
-            }
-        }
+        let body = gitea_dispatch_body(params.inputs);
 
         client
             .dispatch_workflow(id.owner, id.repo, id.workflow, &body)
@@ -269,6 +262,20 @@ plugin_impl!(GiteaPlugin [metadata, status_source, available_from_filtered, fetc
         client.cancel_run(id.owner, id.repo, run.id).await
     }
 });
+
+fn gitea_dispatch_body(inputs: Option<serde_json::Value>) -> serde_json::Value {
+    let mut body = dispatch_body(inputs);
+    if let Some(serde_json::Value::Object(values)) = body.get_mut("inputs") {
+        for value in values.values_mut() {
+            *value = serde_json::Value::String(match value.take() {
+                serde_json::Value::String(text) => text,
+                serde_json::Value::Null => String::new(),
+                other => other.to_string(),
+            });
+        }
+    }
+    body
+}
 
 #[cfg(test)]
 #[cfg(not(target_os = "ios"))]

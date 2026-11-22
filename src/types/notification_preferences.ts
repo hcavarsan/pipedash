@@ -7,6 +7,7 @@ export type PreferenceChange =
   | { type: 'pipeline_watched'; pipeline_id: string; watched: boolean }
   | { type: 'watch_next_finish'; pipeline_id: string }
   | { type: 'cancel_next_finish'; pipeline_id: string }
+  | { type: 'quiet_alert'; pipeline_id: string; enabled: boolean }
 
 export type PipelineNotifyState = 'muted' | 'watching' | 'pending' | 'default'
 

@@ -129,7 +129,7 @@ impl JenkinsClient {
     pub async fn fetch_job_details(&self, job_path: &str) -> PluginResult<types::Job> {
         let encoded_path = config::encode_job_name(job_path);
         let url = format!(
-            "{}/job/{}/api/json?tree=name,lastBuild[number]",
+            "{}/job/{}/api/json?tree=name,lastBuild[number,result,building,timestamp]",
             self.server_url, encoded_path
         );
 
@@ -159,7 +159,7 @@ impl JenkinsClient {
     ) -> PluginResult<Vec<types::Build>> {
         let encoded_path = config::encode_job_name(job_path);
         let url = format!(
-            "{}/job/{}/api/json?tree=builds[number,url,result,building,timestamp,duration,actions[_class,causes[userName,shortDescription],lastBuiltRevision[SHA1,branch[SHA1,name]],parameters[name,value]]]{{0,{limit}}}",
+            "{}/job/{}/api/json?tree=allBuilds[number,url,result,building,timestamp,duration,actions[_class,causes[userName,shortDescription],lastBuiltRevision[SHA1,branch[SHA1,name]],parameters[name,value]]]{{0,{limit}}}",
             self.server_url, encoded_path
         );
 
@@ -223,14 +223,8 @@ impl JenkinsClient {
         let job = self.fetch_job_details(&job_path).await?;
         tracing::debug!(elapsed = ?job_start.elapsed(), "Fetched Jenkins job details");
 
-        let (status, last_run) = if let Some(ref last_build) = job.last_build {
-            let build_start = std::time::Instant::now();
-            let build = self
-                .fetch_build_details(&job_path, last_build.number)
-                .await?;
-            tracing::debug!(elapsed = ?build_start.elapsed(), "Fetched Jenkins build details");
-
-            let build_status = mapper::build_status(&build);
+        let (status, last_run) = if let Some(build) = &job.last_build {
+            let build_status = mapper::build_status(build);
             let build_time = chrono::DateTime::from_timestamp_millis(build.timestamp)
                 .map(|dt| dt.with_timezone(&Utc));
             (build_status, build_time)

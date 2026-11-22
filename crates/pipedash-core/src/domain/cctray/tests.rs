@@ -24,6 +24,7 @@ fn pipeline(id: &str, name: &str, repository: &str, status: PipelineStatus) -> P
         overdue_run: None,
         stuck_queue_run: None,
         typical_duration_seconds: None,
+        cadence: None,
         actions: Default::default(),
     }
 }
