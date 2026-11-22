@@ -20,7 +20,7 @@ services:
     restart: unless-stopped
 
   gitea:
-    image: gitea/gitea:28.3.0@sha256:8967bf9deaf3c5c4adae13519436dc1b20c646ac83fe37ae810c933a1045227d
+    image: gitea/gitea:28.4.0@sha256:aa90e8f00b755b0d665214ab9c14447ea44d3190dbe6b6d0cb46cd9c4f55d309
     environment:
       GITEA__security__INSTALL_LOCK: "true"
       GITEA__server__ROOT_URL: http://gitea:3000/
@@ -41,7 +41,7 @@ services:
     restart: unless-stopped
 
   gitea-seed:
-    image: gitea/gitea:28.3.0@sha256:8967bf9deaf3c5c4adae13519436dc1b20c646ac83fe37ae810c933a1045227d
+    image: gitea/gitea:28.4.0@sha256:aa90e8f00b755b0d665214ab9c14447ea44d3190dbe6b6d0cb46cd9c4f55d309
     entrypoint: ["/bin/sh", "/seed/seed.sh"]
     environment:
       GITEA_PASSWORD: ${DEMO_ADMIN_PASSWORD:-pipedash-admin}
@@ -110,7 +110,7 @@ services:
     restart: unless-stopped
 
   k8s-seed:
-    image: alpine/k8s:1.37.2@sha256:dcb7185e112a453aa72f426754849a97357727ef8f40168fb208c8cf59952042
+    image: alpine/k8s:1.37.2@sha256:7a82aeefea3d554a43a8676b137f2b88bae6c1fe11c13862b191b3a086cc28c0
     entrypoint: ["/bin/sh", "/seed/seed.sh"]
     environment:
       KUBECONFIG: /shared/kubeconfig
@@ -189,7 +189,7 @@ services:
     restart: unless-stopped
 
   komodo-seed:
-    image: alpine/k8s:1.37.2@sha256:dcb7185e112a453aa72f426754849a97357727ef8f40168fb208c8cf59952042
+    image: alpine/k8s:1.37.2@sha256:7a82aeefea3d554a43a8676b137f2b88bae6c1fe11c13862b191b3a086cc28c0
     entrypoint: ["/bin/sh", "/seed/seed.sh"]
     environment:
       KOMODO_PASSWORD: ${DEMO_ADMIN_PASSWORD:-pipedash-admin}
@@ -245,7 +245,7 @@ services:
     restart: unless-stopped
 
   status:
-    image: caddy:2.11.8-alpine@sha256:f6228111e5fafa1a5238258d0858e103f10599b8d1659a146e7726681a002bb9
+    image: caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
     entrypoint:
       - sh
       - -c
@@ -272,7 +272,7 @@ services:
     restart: unless-stopped
 
   relay-egress:
-    image: nginx:1.31.8-alpine@sha256:713fc2ebfd92e8217db451477182ee91944b123d2b1ee9fd5a8c6e91ca6c3a11
+    image: nginx:1.31.8-alpine@sha256:fed7e14be83cbd2661a75cdc5b872d936cf155d46c327084d30b8df19ae88d72
     entrypoint: ["nginx", "-e", "stderr", "-c", "/etc/nginx/egress.conf", "-g", "daemon off;"]
     user: "101:101"
     read_only: true
@@ -294,7 +294,7 @@ services:
     restart: unless-stopped
 
   gateway:
-    image: nginx:1.31.8-alpine@sha256:713fc2ebfd92e8217db451477182ee91944b123d2b1ee9fd5a8c6e91ca6c3a11
+    image: nginx:1.31.8-alpine@sha256:fed7e14be83cbd2661a75cdc5b872d936cf155d46c327084d30b8df19ae88d72
     user: "101:101"
     read_only: true
     cap_drop: [ALL]
@@ -318,7 +318,7 @@ services:
     restart: unless-stopped
 
   tunnel:
-    image: cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
+    image: cloudflare/cloudflared:2026.11.0@sha256:b94b96edf2c9c4360f8879c8580cfaa99077f19c849ec595ca2f711b27d4f344
     command: tunnel --no-autoupdate run
     profiles: [public]
     environment:
