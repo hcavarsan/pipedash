@@ -1769,6 +1769,39 @@ async fn the_default_history_policy_keeps_unbounded_cache_reconciliation() {
 }
 
 #[tokio::test]
+async fn a_run_whose_review_state_changes_is_updated_in_the_cache() {
+    let h = Harness::new().await;
+    let (id, stub) = h.add_stub(StubProvider::new).await;
+    let target = pipeline(id, "web", PipelineStatus::Pending);
+    let mut waiting = stub_run(&target.id, 4, 0);
+    waiting.status = PipelineStatus::Pending;
+    waiting
+        .metadata
+        .insert("awaiting_review".into(), serde_json::json!(true));
+    h.repository
+        .cache_run_history(&target.id, std::slice::from_ref(&waiting))
+        .await
+        .unwrap();
+    let mut approved = waiting.clone();
+    approved
+        .metadata
+        .insert("awaiting_review".into(), serde_json::json!(false));
+
+    h.pipeline_service
+        .merge_run_cache(stub.as_ref(), &target, &[approved])
+        .await
+        .unwrap();
+
+    let cached = h
+        .repository
+        .get_cached_run(&target.id, 4)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(cached.metadata["awaiting_review"], serde_json::json!(false));
+}
+
+#[tokio::test]
 async fn a_bounded_policy_retains_eligible_terminal_runs_and_deletes_the_rest() {
     let h = Harness::new().await;
     let (id, stub) = h
