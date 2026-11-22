@@ -10,7 +10,6 @@ use pipedash_plugin_api::correlation::oci::{
 };
 use pipedash_plugin_api::{
     ArtifactRepository,
-    ClientOptions,
     CommitSha,
     Digest,
     ImageRef,
@@ -118,7 +117,7 @@ impl CorrelationService {
     }
 
     pub(super) fn oci_client(&self) -> DomainResult<OciClient> {
-        let http = self.http.client_for(&ClientOptions::default())?;
+        let http = self.http.status_client()?;
         Ok(OciClient::new(reqwest::Client::clone(&http)))
     }
 

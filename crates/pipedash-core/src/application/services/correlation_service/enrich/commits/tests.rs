@@ -203,6 +203,47 @@ async fn seed_change(f: &Fixture) -> i64 {
 }
 
 #[tokio::test]
+async fn undated_changes_without_a_provider_do_not_block_later_ones() {
+    let f = Fixture::new().await;
+    let info = commit_info('a');
+    f.stub(|stub| {
+        stub.with_source_hosts(&["git.test"])
+            .with_commit(info.clone())
+    })
+    .await;
+    let mut conn = f.service.store.conn();
+    let application_id = conn
+        .upsert_application(&ApplicationRow {
+            id: 0,
+            identity_kind: "unit".into(),
+            identity_key: "1:dead".into(),
+            name: "dead".into(),
+            hidden: false,
+            archived_at: None,
+            created_at: Utc::now(),
+        })
+        .await
+        .unwrap();
+    for n in 0..super::AUTHORED_BATCH {
+        conn.upsert_change(&ChangeRow {
+            id: 0,
+            application_id,
+            repo: "dead.test/shop/api".into(),
+            commit_sha: format!("{n:040x}"),
+            authored_at: None,
+        })
+        .await
+        .unwrap();
+    }
+    let change_id = seed_change(&f).await;
+
+    f.service.fill_authored_at().await.unwrap();
+
+    let stored = conn.get_change(change_id).await.unwrap().unwrap();
+    assert_eq!(stored.authored_at, Some(info.authored_at));
+}
+
+#[tokio::test]
 async fn a_superseded_commit_response_stores_no_authored_at() {
     let f = Fixture::new().await;
     let gate = Gate::new();

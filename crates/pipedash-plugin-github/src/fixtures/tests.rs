@@ -49,13 +49,13 @@ fn fixtures_run_the_real_mappers_into_exact_correlations() {
             targets: vec![
                 TargetObservation {
                     cluster: cluster.clone(),
-                    namespace: None,
+                    namespace: Some("preview-7".to_string()),
                     name: "preview-7".to_string(),
                     lifetime: TargetLifetime::ShortLived,
                 },
                 TargetObservation {
                     cluster,
-                    namespace: None,
+                    namespace: Some("production".to_string()),
                     name: "production".to_string(),
                     lifetime: TargetLifetime::Standing,
                 },

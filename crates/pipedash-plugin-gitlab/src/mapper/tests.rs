@@ -162,7 +162,7 @@ fn pipeline_and_runs_carry_repository_commit_and_deployment_targets() {
     let cluster = ClusterId::from_host("gitlab.example.com/team/backend/api").unwrap();
     let target = |name: &str, lifetime| TargetObservation {
         cluster: cluster.clone(),
-        namespace: None,
+        namespace: Some(name.to_string()),
         name: name.to_string(),
         lifetime,
     };

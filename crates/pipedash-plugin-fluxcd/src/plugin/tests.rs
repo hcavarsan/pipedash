@@ -2564,7 +2564,7 @@ async fn a_kustomization_reports_its_unit_source_target_and_running_images() {
 }
 
 #[tokio::test]
-async fn shared_sources_identity_and_namespaces_are_read_once_per_fetch() {
+async fn the_identity_is_read_once_and_the_git_source_on_every_fetch() {
     let dir = tempfile::tempdir().unwrap();
     let stub = correlated(
         vec![shop_kustomization("app"), shop_kustomization("other")],
@@ -2580,7 +2580,7 @@ async fn shared_sources_identity_and_namespaces_are_read_once_per_fetch() {
         .iter()
         .all(|pipeline| pipeline.correlation.consumed.len() == 1));
     let requests = stub.recorded();
-    assert_eq!(hits(&requests, FLEET), 1);
+    assert_eq!(hits(&requests, FLEET), 4);
     assert_eq!(hits(&requests, IDENTITY), 1);
 }
 
@@ -2655,6 +2655,6 @@ async fn runs_carry_the_commit_of_their_revision_from_the_git_source() {
     assert_eq!(history[0].correlation.sources, expected);
     assert_eq!(details.correlation.sources, expected);
     let requests = stub.recorded();
-    assert_eq!(hits(&requests, FLEET), 1);
+    assert_eq!(hits(&requests, FLEET), 2);
     assert_eq!(hits(&requests, SHOP_PODS), 0);
 }

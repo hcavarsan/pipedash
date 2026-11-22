@@ -153,13 +153,15 @@ impl CorrelationConn {
     }
 
     pub async fn list_changes_without_authored_at(
-        &mut self, limit: i64,
+        &mut self, after_id: i64, limit: i64,
     ) -> DomainResult<Vec<ChangeRow>> {
         let sql = format!(
-            "SELECT {} FROM changes WHERE authored_at IS NULL ORDER BY id LIMIT {}",
+            "SELECT {} FROM changes WHERE authored_at IS NULL AND id > {} ORDER BY id LIMIT {}",
             ChangeRow::COLUMNS,
-            self.placeholder(1)
+            self.placeholder(1),
+            self.placeholder(2)
         );
-        self.fetch(&sql, &[BindValue::Int(limit)]).await
+        self.fetch(&sql, &[BindValue::Int(after_id), BindValue::Int(limit)])
+            .await
     }
 }

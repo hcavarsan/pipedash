@@ -4,7 +4,7 @@ import { after, afterEach, type TestContext, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 
 import type { Suggestion } from '../../../types/applications'
-import { copyFixture } from './applicationFixtures'
+import { copyFixture, detailFixture } from './applicationFixtures'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
@@ -79,4 +79,19 @@ test('Accept all is disabled when no suggestion is bulk_accept', async (context)
   assert.equal(button.hasAttribute('disabled'), true)
   await userEvent.click(button)
   assert.deepEqual(accepted, [])
+})
+
+test('The application drawer lists the suggestions the backend scoped to that application', async (context) => {
+  const shared = { ...suggestion('shared', false), application_id: 7 }
+  context.mock.method(service, 'listApplicationSuggestions', async () => [shared])
+  context.mock.method(service, 'getApplication', async () => ({ ...detailFixture(false), suggestions: [shared] }))
+  render(
+    <MantineProvider env="test">
+      <QueryClientProvider client={client}>
+        <SuggestionsDrawer opened onClose={() => undefined} applicationId={9} />
+      </QueryClientProvider>
+    </MantineProvider>
+  )
+
+  await view().findByText('title-shared')
 })

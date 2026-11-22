@@ -86,19 +86,8 @@ impl FluxClient {
             return Ok(None);
         }
 
-        let cell = self
-            .sources
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .entry((namespace.to_string(), reference.name.clone()))
-            .or_default()
-            .clone();
-
-        match cell
-            .get_or_try_init(|| self.fetch_source_url(namespace, &reference.name))
-            .await
-        {
-            Ok(url) => Ok(Some(url.clone())),
+        match self.fetch_source_url(namespace, &reference.name).await {
+            Ok(url) => Ok(Some(url)),
             Err(PluginError::PipelineNotFound(_)) => Ok(None),
             Err(error) => Err(error),
         }

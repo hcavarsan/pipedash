@@ -213,7 +213,10 @@ fn token_challenges_reject_unusable_headers_and_prefer_bearer() {
 
 #[test]
 fn token_realms_must_be_https_or_loopback() {
+    let public = Url::parse("https://registry.test/v2/").unwrap();
+    let local = Url::parse("http://127.0.0.1:5000/v2/").unwrap();
     let url = realm_url(
+        &public,
         "https://auth.test/token?x=1",
         Some("svc".into()),
         Some("s".into()),
@@ -223,9 +226,25 @@ fn token_realms_must_be_https_or_loopback() {
         url.as_str(),
         "https://auth.test/token?x=1&service=svc&scope=s"
     );
-    assert!(realm_url("http://127.0.0.1:5000/token", None, None).is_ok());
-    assert!(realm_url("http://auth.test/token", None, None).is_err());
-    assert!(realm_url("https://user:pw@auth.test/token", None, None).is_err());
+    assert!(realm_url(&local, "http://127.0.0.1:5000/token", None, None).is_ok());
+    assert!(realm_url(&public, "http://auth.test/token", None, None).is_err());
+    assert!(realm_url(&public, "https://user:pw@auth.test/token", None, None).is_err());
+}
+
+#[test]
+fn a_remote_registry_cannot_send_the_token_request_to_an_internal_host() {
+    let public = Url::parse("https://registry.test/v2/").unwrap();
+    for realm in [
+        "http://127.0.0.1:5000/token",
+        "https://localhost/token",
+        "https://10.0.0.5/token",
+        "https://192.168.1.1/token",
+        "https://169.254.169.254/token",
+        "https://[::1]/token",
+        "https://[fd00::1]/token",
+    ] {
+        assert!(realm_url(&public, realm, None, None).is_err(), "{realm}");
+    }
 }
 
 #[test]

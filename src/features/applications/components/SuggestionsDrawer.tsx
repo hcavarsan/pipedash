@@ -1,4 +1,5 @@
 import { Button, Group, Paper, Stack, Text } from '@mantine/core'
+import type { UseQueryResult } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { QueryBoundary } from '../../../components/common/QueryBoundary'
@@ -19,11 +20,12 @@ interface SuggestionsDrawerProps {
   applicationId?: number
 }
 
-interface SuggestionsViewProps {
+interface SuggestionsViewProps<T> {
   opened: boolean
   onClose: () => void
-  applicationId: number | undefined
   copy: ApplicationCopy | undefined
+  query: UseQueryResult<T, Error>
+  pick: (data: T) => Suggestion[]
 }
 
 function RejectButton({
@@ -99,12 +101,9 @@ function SuggestionCard({ suggestion, copy }: { suggestion: Suggestion; copy: Ap
   )
 }
 
-function SuggestionsView({ opened, onClose, applicationId, copy }: SuggestionsViewProps): ReactNode {
-  const suggestions = useApplicationSuggestions()
+function SuggestionsView<T>({ opened, onClose, copy, query, pick }: SuggestionsViewProps<T>): ReactNode {
   const accept = useAcceptSuggestions()
-  const visible = (suggestions.data ?? []).filter(
-    (suggestion) => applicationId === undefined || suggestion.application_id === applicationId
-  )
+  const visible = query.data === undefined ? [] : pick(query.data)
   const bulk = visible.filter((suggestion) => suggestion.bulk_accept)
 
   if (!copy) {
@@ -130,7 +129,7 @@ function SuggestionsView({ opened, onClose, applicationId, copy }: SuggestionsVi
 
   return (
     <StandardModal opened={opened} onClose={onClose} size="md" title={copy.suggestions} footer={footer}>
-      <QueryBoundary query={suggestions} loading="Loading suggestions…" failure="Couldn't load suggestions">
+      <QueryBoundary query={query} loading="Loading suggestions…" failure="Couldn't load suggestions">
         {() => <SuggestionList visible={visible} copy={copy} />}
       </QueryBoundary>
     </StandardModal>
@@ -139,8 +138,17 @@ function SuggestionsView({ opened, onClose, applicationId, copy }: SuggestionsVi
 
 function ListScopedDrawer({ opened, onClose }: Omit<SuggestionsDrawerProps, 'applicationId'>): ReactNode {
   const list = useApplications(DEFAULT_APPLICATION_QUERY)
+  const suggestions = useApplicationSuggestions()
 
-  return <SuggestionsView opened={opened} onClose={onClose} applicationId={undefined} copy={list.data?.copy} />
+  return (
+    <SuggestionsView
+      opened={opened}
+      onClose={onClose}
+      copy={list.data?.copy}
+      query={suggestions}
+      pick={(data) => data}
+    />
+  )
 }
 
 function DetailScopedDrawer({
@@ -150,7 +158,15 @@ function DetailScopedDrawer({
 }: SuggestionsDrawerProps & { applicationId: number }): ReactNode {
   const detail = useApplication(applicationId)
 
-  return <SuggestionsView opened={opened} onClose={onClose} applicationId={applicationId} copy={detail.data?.copy} />
+  return (
+    <SuggestionsView
+      opened={opened}
+      onClose={onClose}
+      copy={detail.data?.copy}
+      query={detail}
+      pick={(data) => data.suggestions}
+    />
+  )
 }
 
 export function SuggestionsDrawer({ opened, onClose, applicationId }: SuggestionsDrawerProps): ReactNode {

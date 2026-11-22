@@ -154,13 +154,23 @@ impl CorrelationService {
             if scanned.is_some_and(|scan| scan.run_hash == hash) {
                 continue;
             }
+            let Ok(lease) = self.provider_service.acquire(candidate.provider_id).await else {
+                continue;
+            };
             let Some(found) = self
                 .scan_run(&pipeline, run_number, &candidate.wanted)
                 .await
             else {
                 continue;
             };
-            self.write_scan(&candidate, hash, &found).await?;
+            let written = self
+                .provider_service
+                .commit(&lease, || self.write_scan(&candidate, hash, &found))
+                .await;
+            let Some(written) = written else {
+                continue;
+            };
+            written?;
             if !found.is_empty() {
                 touched.insert(pipeline);
             }

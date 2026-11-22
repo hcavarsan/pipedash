@@ -1,8 +1,4 @@
 use std::collections::HashMap;
-use std::sync::{
-    Arc,
-    Mutex,
-};
 
 use kube::core::{
     params::{
@@ -59,11 +55,8 @@ struct ListMeta {
     continue_token: Option<String>,
 }
 
-type SourceCache = Mutex<HashMap<(String, String), Arc<OnceCell<String>>>>;
-
 pub(crate) struct FluxClient {
     client: kube::Client,
-    sources: SourceCache,
     cluster: OnceCell<Option<ClusterId>>,
 }
 
@@ -80,7 +73,6 @@ impl FluxClient {
 
         Ok(Self {
             client,
-            sources: Mutex::default(),
             cluster: OnceCell::new(),
         })
     }

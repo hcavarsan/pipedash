@@ -848,7 +848,7 @@ async fn change_tables(db: &mut CorrelationConn, application_id: i64) {
         vec![first]
     );
     assert_eq!(
-        ids(db.list_changes_without_authored_at(5).await.unwrap()),
+        ids(db.list_changes_without_authored_at(0, 5).await.unwrap()),
         vec![unknown]
     );
     assert_eq!(

@@ -56,7 +56,7 @@ pub(crate) fn deployment_targets(
         .into_iter()
         .map(|(name, transient)| TargetObservation {
             cluster: cluster.clone(),
-            namespace: None,
+            namespace: Some(name.to_string()),
             name: name.to_string(),
             lifetime: if transient {
                 TargetLifetime::ShortLived

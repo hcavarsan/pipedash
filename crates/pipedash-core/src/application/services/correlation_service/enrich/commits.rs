@@ -207,11 +207,22 @@ impl CorrelationService {
     }
 
     pub(super) async fn fill_authored_at(&self) -> DomainResult<()> {
-        let pending = self
-            .store
-            .conn()
-            .list_changes_without_authored_at(AUTHORED_BATCH)
-            .await?;
+        let mut after = 0;
+        loop {
+            let pending = self
+                .store
+                .conn()
+                .list_changes_without_authored_at(after, AUTHORED_BATCH)
+                .await?;
+            let Some(last) = pending.last() else {
+                return Ok(());
+            };
+            after = last.id;
+            self.date_changes(pending).await?;
+        }
+    }
+
+    async fn date_changes(&self, pending: Vec<ChangeRow>) -> DomainResult<()> {
         for change in pending {
             let (Some(repo), Some(sha)) = (
                 stored_repo(&change.repo),

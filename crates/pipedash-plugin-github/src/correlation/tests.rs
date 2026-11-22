@@ -34,13 +34,13 @@ fn deployments_inside_the_run_window_become_sorted_targets() {
         [
             TargetObservation {
                 cluster: cluster.clone(),
-                namespace: None,
+                namespace: Some("preview-7".to_string()),
                 name: "preview-7".to_string(),
                 lifetime: TargetLifetime::ShortLived,
             },
             TargetObservation {
                 cluster,
-                namespace: None,
+                namespace: Some("production".to_string()),
                 name: "production".to_string(),
                 lifetime: TargetLifetime::Standing,
             },

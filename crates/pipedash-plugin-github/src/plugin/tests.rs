@@ -2109,13 +2109,13 @@ async fn run_history_reports_the_deployments_made_during_each_run() {
         targets: vec![
             TargetObservation {
                 cluster: cluster.clone(),
-                namespace: None,
+                namespace: Some("preview-7".to_string()),
                 name: "preview-7".to_string(),
                 lifetime: TargetLifetime::ShortLived,
             },
             TargetObservation {
                 cluster,
-                namespace: None,
+                namespace: Some("production".to_string()),
                 name: "production".to_string(),
                 lifetime: TargetLifetime::Standing,
             },

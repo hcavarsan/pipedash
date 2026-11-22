@@ -1,3 +1,5 @@
+use std::net::IpAddr;
+
 use reqwest::header::{
     HeaderMap,
     ACCEPT,
@@ -98,12 +100,14 @@ fn parse_params(mut rest: &str) -> Vec<(String, String)> {
 }
 
 pub(super) fn realm_url(
-    realm: &str, service: Option<String>, scope: Option<String>,
+    registry: &Url, realm: &str, service: Option<String>, scope: Option<String>,
 ) -> PluginResult<Url> {
     let url = Url::parse(realm)
         .map_err(|error| PluginError::ApiError(format!("Invalid registry token realm: {error}")))?;
-    let secure = url.scheme() == "https"
-        || (url.scheme() == "http" && url.host_str().is_some_and(is_loopback_host));
+    let loopback = |url: &Url| url.host_str().is_some_and(is_loopback_host);
+    let reachable = !is_internal(&url) || is_internal(registry);
+    let secure = (url.scheme() == "https" && reachable)
+        || (url.scheme() == "http" && loopback(&url) && loopback(registry));
     if !secure || !url.username().is_empty() || url.password().is_some() {
         return Err(PluginError::ApiError(format!(
             "Refusing registry token realm {}",
@@ -115,6 +119,29 @@ pub(super) fn realm_url(
         .filter_map(|(key, value)| Some((key, value?)))
         .collect();
     Ok(with_query(url, &query))
+}
+
+fn is_internal(url: &Url) -> bool {
+    let Some(host) = url.host_str() else {
+        return true;
+    };
+    match host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .parse::<IpAddr>()
+    {
+        Ok(IpAddr::V4(ip)) => {
+            ip.is_loopback() || ip.is_private() || ip.is_link_local() || ip.is_unspecified()
+        }
+        Ok(IpAddr::V6(ip)) => {
+            let first = ip.segments()[0];
+            ip.is_loopback()
+                || ip.is_unspecified()
+                || first & 0xfe00 == 0xfc00
+                || first & 0xffc0 == 0xfe80
+        }
+        Err(_) => host.eq_ignore_ascii_case("localhost"),
+    }
 }
 
 fn authority(url: &Url) -> String {
@@ -207,7 +234,7 @@ impl OciClient {
         &self, registry: &Url, realm: &str, service: Option<String>, scope: Option<String>,
         auth: Option<&RegistryAuth>,
     ) -> PluginResult<String> {
-        let url = realm_url(realm, service, scope)?;
+        let url = realm_url(registry, realm, service, scope)?;
         let mut request = self.http.get(url.clone());
         if let Some(RegistryAuth {
             username: Some(username),
