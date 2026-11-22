@@ -25,12 +25,18 @@ use crate::domain::{
 };
 
 fn daily_runs(pipeline_id: &str, last: DateTime<Utc>, count: i64) -> Vec<PipelineRun> {
+    spaced_runs(pipeline_id, last, count, 24)
+}
+
+fn spaced_runs(
+    pipeline_id: &str, last: DateTime<Utc>, count: i64, hours_apart: i64,
+) -> Vec<PipelineRun> {
     (0..count)
-        .map(|day| {
+        .map(|step| {
             serde_json::from_value(json!({
-                "id": format!("{pipeline_id}__{day}"), "pipeline_id": pipeline_id,
-                "run_number": count - day, "status": "success",
-                "started_at": last - Duration::days(day), "logs_url": ""
+                "id": format!("{pipeline_id}__{step}"), "pipeline_id": pipeline_id,
+                "run_number": count - step, "status": "success",
+                "started_at": last - Duration::hours(hours_apart * step), "logs_url": ""
             }))
             .unwrap()
         })
@@ -259,6 +265,44 @@ async fn a_cadence_fetch_dropped_by_an_invalidation_is_retried_on_the_next_pass(
         Some(PipelineCadence {
             usual_gap_seconds: 86_400,
             quiet: true,
+        })
+    );
+}
+
+#[tokio::test]
+async fn a_pipeline_that_moves_to_a_slower_schedule_relearns_its_gap() {
+    let h = Harness::new().await;
+    let hourly_last = Utc::now() - Duration::hours(13);
+    let (provider_id, stub) = h.add_stub(StubProvider::new).await;
+    let id = format!("stub__{provider_id}__nightly");
+    *stub.runs.lock().unwrap() = spaced_runs(&id, hourly_last, 6, 1);
+    h.repository
+        .update_pipelines_cache(provider_id, &[nightly(provider_id, hourly_last)])
+        .await
+        .unwrap();
+    let service = &h.pipeline_service;
+    learn(service, provider_id).await;
+    let hourly = service.get_cached_pipelines(None).await.unwrap();
+
+    let daily_last = hourly_last + Duration::hours(1);
+    *stub.runs.lock().unwrap() = daily_runs(&id, daily_last, 6);
+    h.repository.clear_cached_run_history(&id).await.unwrap();
+    h.repository
+        .update_pipelines_cache(provider_id, &[nightly(provider_id, daily_last)])
+        .await
+        .unwrap();
+    learn(service, provider_id).await;
+    let daily = service.get_cached_pipelines(None).await.unwrap();
+
+    assert_eq!(
+        hourly[0].cadence.map(|cadence| cadence.usual_gap_seconds),
+        Some(3_600)
+    );
+    assert_eq!(
+        daily[0].cadence,
+        Some(PipelineCadence {
+            usual_gap_seconds: 86_400,
+            quiet: false,
         })
     );
 }
