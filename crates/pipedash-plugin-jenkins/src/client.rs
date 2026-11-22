@@ -159,7 +159,7 @@ impl JenkinsClient {
     ) -> PluginResult<Vec<types::Build>> {
         let encoded_path = config::encode_job_name(job_path);
         let url = format!(
-            "{}/job/{}/api/json?tree=builds[number,url,result,building,timestamp,duration,actions[_class,causes[userName,shortDescription],lastBuiltRevision[SHA1,branch[SHA1,name]],parameters[name,value]]]{{0,{limit}}}",
+            "{}/job/{}/api/json?tree=allBuilds[number,url,result,building,timestamp,duration,actions[_class,causes[userName,shortDescription],lastBuiltRevision[SHA1,branch[SHA1,name]],parameters[name,value]]]{{0,{limit}}}",
             self.server_url, encoded_path
         );
 
