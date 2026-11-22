@@ -15,6 +15,7 @@ use super::{
     OVERDUE_RECENT_RUNS,
 };
 use crate::domain::{
+    DomainResult,
     Pipeline,
     PipelineCadence,
     PipelineRun,
@@ -116,15 +117,20 @@ impl PipelineService {
                 }) => self
                     .learned_gap(&pipeline.id, order, false)
                     .await
+                    .ok()
+                    .flatten()
                     .flatten()
                     .or(Some(*gap)),
                 _ if fetches_left > 0 => {
                     fetches_left -= 1;
-                    let Some(gap) = self.learned_gap(&pipeline.id, order, true).await else {
-                        learned.push((pipeline.id.clone(), failed_fetch(now)));
-                        continue;
-                    };
-                    gap
+                    match self.learned_gap(&pipeline.id, order, true).await {
+                        Ok(Some(gap)) => gap,
+                        Ok(None) => continue,
+                        Err(_) => {
+                            learned.push((pipeline.id.clone(), failed_fetch(now)));
+                            continue;
+                        }
+                    }
                 }
                 _ => continue,
             };
@@ -145,23 +151,18 @@ impl PipelineService {
 
     async fn learned_gap(
         &self, pipeline_id: &str, order: RunHistoryOrder, may_fetch: bool,
-    ) -> Option<Option<i64>> {
-        let cached = self
-            .repository
-            .get_cached_run_count(pipeline_id)
-            .await
-            .ok()?
-            > 0;
+    ) -> DomainResult<Option<Option<i64>>> {
+        let cached = self.repository.get_cached_run_count(pipeline_id).await? > 0;
         if !cached && !may_fetch {
-            return Some(None);
+            return Ok(Some(None));
         }
-        match self.recent_runs(pipeline_id, order).await {
-            Ok(runs) => Some(usual_gap(&runs)),
-            Err(e) => {
+        let runs = self
+            .recent_runs(pipeline_id, order)
+            .await
+            .inspect_err(|e| {
                 tracing::debug!(pipeline_id = %pipeline_id, error = %e, "Cadence check failed");
-                None
-            }
-        }
+            })?;
+        Ok(runs.map(|runs| usual_gap(&runs)))
     }
 }
 

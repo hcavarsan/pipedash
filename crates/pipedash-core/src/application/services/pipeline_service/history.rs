@@ -25,14 +25,14 @@ impl PipelineService {
         &self, pipeline_id: &str, limit: usize,
     ) -> DomainResult<Vec<PipelineRun>> {
         let pipeline = self.repository.get_cached_pipeline(pipeline_id).await?;
-        let (mut runs, _) = self.fetch_run_history_leased(&pipeline, limit).await?;
+        let (mut runs, ..) = self.fetch_run_history_leased(&pipeline, limit).await?;
         self.presenter.runs(&pipeline, &mut runs).await?;
         Ok(runs)
     }
 
     pub(super) async fn fetch_run_history_leased(
         &self, pipeline: &Pipeline, limit: usize,
-    ) -> DomainResult<(Vec<PipelineRun>, ProviderLease)> {
+    ) -> DomainResult<(Vec<PipelineRun>, ProviderLease, bool)> {
         let pipeline_id = pipeline.id.as_str();
         let lease = self.provider_service.acquire(pipeline.provider_id).await?;
         let epoch = self.run_cache_epoch(pipeline_id);
@@ -54,23 +54,26 @@ impl PipelineService {
             })
             .await?;
 
-        self.provider_service
+        let cached = self
+            .provider_service
             .commit(&lease, || {
                 self.merge_run_cache_since(epoch, lease.provider.as_ref(), pipeline, &api_runs)
             })
             .await
-            .transpose()?;
+            .transpose()?
+            .unwrap_or(false);
 
-        Ok((api_runs, lease))
+        Ok((api_runs, lease, cached))
     }
 
     pub(super) async fn merge_run_cache_since(
         &self, epoch: u64, provider: &dyn Provider, pipeline: &Pipeline, api_runs: &[PipelineRun],
-    ) -> DomainResult<()> {
+    ) -> DomainResult<bool> {
         if self.run_cache_epoch(&pipeline.id) != epoch {
-            return Ok(());
+            return Ok(false);
         }
-        self.merge_run_cache(provider, pipeline, api_runs).await
+        self.merge_run_cache(provider, pipeline, api_runs).await?;
+        Ok(true)
     }
 
     pub(super) async fn merge_run_cache(

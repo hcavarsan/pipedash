@@ -13,6 +13,7 @@ use super::{
 };
 use crate::application::services::pipeline_service::PipelineService;
 use crate::application::test_support::{
+    Gate,
     Harness,
     StubProvider,
 };
@@ -219,6 +220,42 @@ async fn pipelines_whose_history_keeps_failing_do_not_starve_the_rest() {
 
     assert_eq!(
         healthy.cadence,
+        Some(PipelineCadence {
+            usual_gap_seconds: 86_400,
+            quiet: true,
+        })
+    );
+}
+
+#[tokio::test]
+async fn a_cadence_fetch_dropped_by_an_invalidation_is_retried_on_the_next_pass() {
+    let h = Harness::new().await;
+    let gate = Gate::new();
+    let last_run = Utc::now() - Duration::days(3);
+    let (provider_id, stub) = h
+        .add_stub(|id| StubProvider::new(id).run_gated(&gate))
+        .await;
+    let id = format!("stub__{provider_id}__nightly");
+    *stub.runs.lock().unwrap() = daily_runs(&id, last_run, 6);
+    h.repository
+        .update_pipelines_cache(provider_id, &[nightly(provider_id, last_run)])
+        .await
+        .unwrap();
+    let service = &h.pipeline_service;
+
+    let invalidate_mid_fetch = async {
+        gate.arrived().await;
+        service.invalidate_run_cache(&id).await;
+        gate.open();
+    };
+    let (dropped, ()) = tokio::join!(learn(service, provider_id), invalidate_mid_fetch);
+    let retried = learn(service, provider_id).await;
+    let cached = service.get_cached_pipelines(None).await.unwrap();
+
+    assert!(!dropped);
+    assert!(retried);
+    assert_eq!(
+        cached[0].cadence,
         Some(PipelineCadence {
             usual_gap_seconds: 86_400,
             quiet: true,

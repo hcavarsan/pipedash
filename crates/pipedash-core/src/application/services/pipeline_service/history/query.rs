@@ -102,7 +102,7 @@ impl PipelineService {
             };
 
             let before = cached.len();
-            let (api_runs, lease) = self.fetch_run_history_leased(pipeline, limit).await?;
+            let (api_runs, lease, _) = self.fetch_run_history_leased(pipeline, limit).await?;
             fetched = true;
             complete = api_runs.len() < limit;
             self.spawn_metrics(lease, pipeline.id.clone(), Some(api_runs));

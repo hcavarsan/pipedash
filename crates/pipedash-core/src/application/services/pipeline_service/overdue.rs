@@ -134,7 +134,7 @@ impl PipelineService {
         }
         let _permit = permits.acquire().await.ok()?;
         match self.recent_runs(pipeline_id, order).await {
-            Ok(runs) => Some(runs),
+            Ok(runs) => runs,
             Err(e) => {
                 tracing::debug!(pipeline_id = %pipeline_id, error = %e, "Overdue check failed");
                 None
@@ -205,12 +205,13 @@ impl PipelineService {
 
     pub(super) async fn recent_runs(
         &self, pipeline_id: &str, order: RunHistoryOrder,
-    ) -> DomainResult<Vec<PipelineRun>> {
+    ) -> DomainResult<Option<Vec<PipelineRun>>> {
         if self.repository.get_cached_run_count(pipeline_id).await? > 0 {
             return self
                 .repository
                 .get_paginated_runs(pipeline_id, 1, OVERDUE_RECENT_RUNS, order)
-                .await;
+                .await
+                .map(Some);
         }
 
         let pipeline = self.repository.get_cached_pipeline(pipeline_id).await?;
@@ -222,11 +223,15 @@ impl PipelineService {
         } else {
             OVERDUE_HISTORY_FETCH
         };
-        let (api_runs, lease) = self.fetch_run_history_leased(&pipeline, limit).await?;
+        let (api_runs, lease, cached) = self.fetch_run_history_leased(&pipeline, limit).await?;
         self.spawn_metrics(lease, pipeline.id.clone(), Some(api_runs));
+        if !cached {
+            return Ok(None);
+        }
         self.repository
             .get_paginated_runs(pipeline_id, 1, OVERDUE_RECENT_RUNS, order)
             .await
+            .map(Some)
     }
 }
 
