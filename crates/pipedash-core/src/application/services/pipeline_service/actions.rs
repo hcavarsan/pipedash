@@ -13,6 +13,7 @@ use super::READ_ONLY_PROVIDER;
 use crate::domain::{
     DomainError,
     DomainResult,
+    LogNodeKind,
     Pipeline,
     PipelineRun,
     Provider,
@@ -143,6 +144,27 @@ impl PipelineService {
         let (_, provider, run) = self.writable_run(pipeline_id, run_number).await?;
         require(&run.actions.rerun_failed, "Rerun failed jobs")?;
         provider.rerun_failed_jobs(pipeline_id, run_number).await?;
+
+        self.invalidate_changed_run(pipeline_id, run_number).await;
+
+        Ok(())
+    }
+
+    pub async fn rerun_job(
+        &self, pipeline_id: &str, run_number: i64, job_id: &str,
+    ) -> DomainResult<()> {
+        let (_, provider, run) = self.writable_run(pipeline_id, run_number).await?;
+        require(&run.actions.rerun_job, "Rerun job")?;
+        let nodes = provider.fetch_log_nodes(&run).await?;
+        if !nodes
+            .iter()
+            .any(|node| node.id == job_id && node.kind == LogNodeKind::Job)
+        {
+            return Err(DomainError::NotFound(format!(
+                "Job {job_id} isn't part of run #{run_number}"
+            )));
+        }
+        provider.rerun_job(pipeline_id, run_number, job_id).await?;
 
         self.invalidate_changed_run(pipeline_id, run_number).await;
 

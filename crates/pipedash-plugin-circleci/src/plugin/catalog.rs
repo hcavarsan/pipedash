@@ -1,6 +1,9 @@
 use pipedash_plugin_api::config::selected_items;
 use pipedash_plugin_api::pagination::paginate;
-use pipedash_plugin_api::support::try_buffered;
+use pipedash_plugin_api::support::{
+    collect_tolerant,
+    try_buffered,
+};
 use pipedash_plugin_api::{
     AvailablePipeline,
     PaginatedResponse,
@@ -34,7 +37,7 @@ impl CircleCIPlugin {
             .iter()
             .map(|slug| client.fetch_project(slug))
             .collect();
-        try_buffered(requests, CONCURRENCY).await
+        collect_tolerant(requests, CONCURRENCY, |_| {}).await
     }
 
     pub(super) async fn to_run(
@@ -60,14 +63,13 @@ impl CircleCIPlugin {
         try_buffered(requests, CONCURRENCY).await
     }
 
-    async fn latest_run(&self, project: &Project) -> PluginResult<Option<PipelineRun>> {
+    async fn project_pipeline(&self, project: &Project) -> PluginResult<Pipeline> {
         let pipelines = self.client()?.fetch_pipelines(&project.slug, 1).await?;
-        match pipelines.first() {
-            Some(pipeline) => Ok(Some(
-                self.to_run(&project.slug, &project.slug, pipeline).await?,
-            )),
-            None => Ok(None),
-        }
+        let latest = match pipelines.first() {
+            Some(pipeline) => Some(self.to_run(&project.slug, &project.slug, pipeline).await?),
+            None => None,
+        };
+        Ok(mapper::to_pipeline(project, latest.as_ref()))
     }
 
     pub(super) async fn run_workflows(
@@ -103,15 +105,9 @@ impl CircleCIPlugin {
         let projects = self.selected_projects().await?;
         let requests: Vec<_> = projects
             .iter()
-            .map(|project| self.latest_run(project))
+            .map(|project| self.project_pipeline(project))
             .collect();
-        let latest: Vec<Option<PipelineRun>> = try_buffered(requests, CONCURRENCY).await?;
-
-        let pipelines: Vec<Pipeline> = projects
-            .iter()
-            .zip(&latest)
-            .map(|(project, run)| mapper::to_pipeline(project, run.as_ref()))
-            .collect();
+        let pipelines = collect_tolerant(requests, CONCURRENCY, |_| {}).await?;
         tracing::debug!(
             pipelines = pipelines.len(),
             "Mapped CircleCI projects to pipelines"

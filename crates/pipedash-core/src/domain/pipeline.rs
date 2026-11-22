@@ -81,6 +81,8 @@ pub struct Pipeline {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub overdue_run: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stuck_queue_run: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub typical_duration_seconds: Option<i64>,
     #[serde(default)]
     pub actions: PipelineActionState,
@@ -143,6 +145,9 @@ pub struct RunPace {
     pub live: bool,
     pub typical_duration_seconds: Option<i64>,
     pub past_usual: bool,
+    pub queued: bool,
+    pub queue_limit_seconds: Option<i64>,
+    pub stuck: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -18,6 +18,7 @@ use crate::infrastructure::config::schema::applications::{
     CorrelationFileConfig,
 };
 use crate::infrastructure::config::schema::{
+    GeneralConfig,
     PipedashConfig,
     ProviderFileConfig,
     ViewFileConfig,
@@ -147,5 +148,15 @@ impl ConfigState {
         next.correlation = correlation;
         next.applications = applications;
         *config = Arc::new(next);
+    }
+
+    pub async fn remember_general(&self, general: GeneralConfig) {
+        {
+            let mut config = self.config.write().await;
+            let mut next = (**config).clone();
+            next.general = general;
+            *config = Arc::new(next);
+        }
+        self.notify_settings_changed();
     }
 }

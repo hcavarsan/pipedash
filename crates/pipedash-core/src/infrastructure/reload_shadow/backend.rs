@@ -47,6 +47,22 @@ impl ConfigBackend for ShadowedBackend {
         self.inner.delete_provider(id).await
     }
 
+    async fn mark_config_file_providers(&self, names: &[String]) -> DomainResult<()> {
+        self.inner.mark_config_file_providers(names).await
+    }
+
+    async fn list_config_file_providers(&self) -> DomainResult<Vec<(i64, String)>> {
+        self.inner.list_config_file_providers().await
+    }
+
+    async fn record_config_file_hash(&self, id: i64, hash: &str) -> DomainResult<()> {
+        self.inner.record_config_file_hash(id, hash).await
+    }
+
+    async fn config_file_hash(&self, id: i64) -> DomainResult<Option<String>> {
+        self.inner.config_file_hash(id).await
+    }
+
     async fn get_table_preferences(
         &self, provider_id: i64, table_id: &str,
     ) -> DomainResult<Option<String>> {

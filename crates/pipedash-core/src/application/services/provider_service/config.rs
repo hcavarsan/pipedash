@@ -3,6 +3,8 @@ use std::sync::Arc;
 
 mod staged;
 
+use indexmap::IndexMap;
+
 use super::ProviderService;
 use crate::application::services::health_service::HealthInput;
 use crate::domain::{
@@ -20,7 +22,6 @@ use crate::infrastructure::config::{
     ConfigLoader,
     ConfigState,
     GeneralSettingsUpdate,
-    PipedashConfig,
     ProviderFileConfig,
 };
 use crate::infrastructure::reload_shadow::ReloadShadow;
@@ -106,24 +107,10 @@ impl ProviderService {
     pub async fn apply_config_file(
         self: &Arc<Self>, config_state: &Arc<ConfigState>,
     ) -> DomainResult<SyncResult> {
-        let loaded = match config_state.load_file().await {
-            Ok(loaded) => loaded,
-            Err(e) => {
-                self.config_failed(e.to_string()).await;
-                return Err(e);
-            }
-        };
-
-        self.apply_loaded_config(config_state, loaded).await
-    }
-
-    pub(crate) async fn apply_loaded_config(
-        self: &Arc<Self>, config_state: &Arc<ConfigState>, loaded: PipedashConfig,
-    ) -> DomainResult<SyncResult> {
         let service = Arc::clone(self);
         let config_state = Arc::clone(config_state);
         let done = self.own_reload(ReloadShadow::reveal(async move {
-            let result = service.apply_loaded_inner(&config_state, loaded).await;
+            let result = service.apply_file_inner(&config_state).await;
             if let Err(e) = &result {
                 service.config_failed(e.to_string()).await;
             }
@@ -135,10 +122,9 @@ impl ProviderService {
         })?
     }
 
-    async fn apply_loaded_inner(
-        &self, config_state: &ConfigState, loaded: PipedashConfig,
-    ) -> DomainResult<SyncResult> {
+    async fn apply_file_inner(&self, config_state: &ConfigState) -> DomainResult<SyncResult> {
         let _apply = self.config_apply.lock().await;
+        let loaded = config_state.load_file().await?;
         let current = config_state.get().await;
         if let Some(applications) = self.applications.get() {
             if loaded.applications != current.applications
@@ -184,6 +170,9 @@ impl ProviderService {
             }
         }
         let leases = self.activate(std::mem::take(&mut reload.staged)).await;
+        result.removed = self
+            .remove_dropped_file_providers(&loaded.providers)
+            .await?;
         let views_changed = current.views != loaded.views;
         if views_changed {
             config_state.remember_views(loaded.views).await;
@@ -191,6 +180,15 @@ impl ProviderService {
         config_state.remember_providers(loaded.providers).await;
         drop(reload);
 
+        if current.general != loaded.general {
+            let proxy_changed = self
+                .http_client_manager
+                .set_proxy(&loaded.general.proxy_url)?;
+            config_state.remember_general(loaded.general).await;
+            if proxy_changed {
+                self.rebuild_loaded_providers().await;
+            }
+        }
         if !leases.is_empty() {
             tracing::info!(
                 added = result.added.len(),
@@ -212,9 +210,33 @@ impl ProviderService {
         Ok(result)
     }
 
+    async fn remove_dropped_file_providers(
+        &self, file: &IndexMap<String, ProviderFileConfig>,
+    ) -> DomainResult<Vec<String>> {
+        let backend = self.repository.config_backend();
+        let listed: Vec<String> = file.keys().cloned().collect();
+        backend.mark_config_file_providers(&listed).await?;
+
+        let mut removed = Vec::new();
+        for (id, name) in backend.list_config_file_providers().await? {
+            if file.contains_key(&name) {
+                continue;
+            }
+            self.remove_provider_locked(id).await?;
+            if let Some(applications) = self.applications.get() {
+                applications.provider_removed(id).await;
+            }
+            tracing::info!(provider = %name, "Removed provider deleted from config file");
+            removed.push(name);
+        }
+
+        Ok(removed)
+    }
+
     pub async fn update_general_settings(
         &self, config_state: &ConfigState, update: GeneralSettingsUpdate,
     ) -> DomainResult<()> {
+        let _apply = self.config_apply.lock().await;
         let proxy_url = update.proxy_url.clone();
         config_state.update_general_settings(update).await?;
         if self.http_client_manager.set_proxy(&proxy_url)? {
@@ -222,6 +244,10 @@ impl ProviderService {
         }
 
         Ok(())
+    }
+
+    pub(crate) async fn queue_limit_seconds(&self) -> i64 {
+        queue_limit_seconds(self.config_state.get().await.general.queue_alert_minutes)
     }
 
     async fn rebuild_loaded_providers(&self) {
@@ -254,4 +280,8 @@ impl ProviderService {
             self.health.send(HealthInput::ProvidersChanged { changed });
         }
     }
+}
+
+pub(crate) fn queue_limit_seconds(minutes: u32) -> i64 {
+    i64::from(minutes.max(1)) * 60
 }

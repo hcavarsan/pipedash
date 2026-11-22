@@ -39,7 +39,7 @@
 <table>
   <tr>
     <td align="center" width="120"><img src="./.github/icons/monitor.svg" width="32" height="32" alt="" /><br><b>Monitor</b></td>
-    <td width="420">See the status of every pipeline in one place.</td>
+    <td width="420">See the status of every pipeline in one place, or in a build monitor like CCMenu or Nevergreen through the web server's feed.</td>
     <td width="264"><a href="https://pipedash.app/docs/features/dashboard">Dashboard</a><br><a href="https://pipedash.app/docs/features/provider-health">Provider health</a></td>
   </tr>
   <tr>
@@ -54,17 +54,17 @@
   </tr>
   <tr>
     <td align="center" width="120"><img src="./.github/icons/investigate.svg" width="32" height="32" alt="" /><br><b>Investigate</b></td>
-    <td width="420">Find out why a run failed.</td>
+    <td width="420">Find out why a run failed and rerun one GitHub Actions job from its log.</td>
     <td width="264"><a href="https://pipedash.app/docs/features/run-logs">Run logs</a><br><a href="https://pipedash.app/docs/features/metrics">Metrics</a></td>
   </tr>
   <tr>
     <td align="center" width="120"><img src="./.github/icons/act.svg" width="32" height="32" alt="" /><br><b>Act</b></td>
-    <td width="420">Start a workflow with inputs or stop a run.</td>
+    <td width="420">Start a workflow with inputs or cancel active runs in batches.</td>
     <td width="264"><a href="https://pipedash.app/docs/features/trigger-and-cancel">Trigger and cancel</a></td>
   </tr>
   <tr>
     <td align="center" width="120"><img src="./.github/icons/notify.svg" width="32" height="32" alt="" /><br><b>Notify</b></td>
-    <td width="420">Get an alert when a pipeline fails or recovers.</td>
+    <td width="420">Get an alert when a pipeline fails, recovers or a run sits in the queue too long.</td>
     <td width="264"><a href="https://pipedash.app/docs/features/notifications">Notifications</a></td>
   </tr>
 </table>
@@ -110,7 +110,8 @@ It runs as a desktop app, as a self-hosted web server in Docker or as an iOS and
 - **Add a provider** with the [quick start](https://pipedash.app/docs/getting-started/quick-start).
 - **Run** it on [desktop](https://pipedash.app/docs/deployment/desktop), [mobile](https://pipedash.app/docs/deployment/mobile) or [Docker](https://pipedash.app/docs/deployment/docker).
 - **Share** one server through [Server mode](https://pipedash.app/docs/deployment/server-mode), a [reverse proxy](https://pipedash.app/docs/deployment/reverse-proxy) or the [REST API](https://pipedash.app/docs/deployment/rest-api).
-- **Configure** [settings](https://pipedash.app/docs/configuration), [storage](https://pipedash.app/docs/configuration/storage-backends), [tokens](https://pipedash.app/docs/configuration/token-storage) and the [cache](https://pipedash.app/docs/features/cache).
+- **Configure** [settings](https://pipedash.app/docs/configuration), [tokens](https://pipedash.app/docs/configuration/token-storage) and the [cache](https://pipedash.app/docs/features/cache), or move providers and run history between [storage backends](https://pipedash.app/docs/configuration/storage-backends).
+- **Keep providers in a file**: each block in [`config.toml`](https://pipedash.app/docs/configuration) adds a provider, and deleting the block removes it.
 
 ## Screenshots
 
@@ -159,6 +160,7 @@ It runs as a desktop app, as a self-hosted web server in Docker or as an iOS and
 </table>
 
 </details>
+
 
 ## Contributing
 

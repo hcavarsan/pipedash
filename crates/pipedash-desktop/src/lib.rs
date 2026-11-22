@@ -123,6 +123,7 @@ pub fn run() {
             commands::pipelines::force_cancel_pipeline_run,
             commands::pipelines::review_pipeline_run,
             commands::pipelines::rerun_failed_jobs,
+            commands::pipelines::rerun_job,
             commands::pipelines::rerun_pipeline_run,
             commands::pipelines::enable_pipeline,
             commands::refresh::refresh_all,

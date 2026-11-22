@@ -11,6 +11,11 @@ fn test_map_build_state() {
 }
 
 #[test]
+fn a_failing_build_is_still_running() {
+    assert_eq!(map_build_state("failing"), PipelineStatus::Running);
+}
+
+#[test]
 fn every_job_state_maps_to_a_status() {
     let cases = [
         ("pending", PipelineStatus::Pending),

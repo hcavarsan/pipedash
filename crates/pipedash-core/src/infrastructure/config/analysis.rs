@@ -133,7 +133,8 @@ pub async fn analyze_config(
 }
 
 fn backends_changed(old: &PipedashConfig, new: &PipedashConfig) -> bool {
-    old.storage.backend != new.storage.backend || old.data_dir() != new.data_dir()
+    !crate::infrastructure::migration::remap::same_database(old, new)
+        || old.data_dir() != new.data_dir()
 }
 
 fn should_test_postgres_connection(old: &PipedashConfig, new: &PipedashConfig) -> bool {

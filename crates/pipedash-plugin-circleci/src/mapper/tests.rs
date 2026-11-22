@@ -327,3 +327,42 @@ fn pipeline_observes_the_project_repository() {
     );
     assert!(to_pipeline(&project(""), None).correlation.is_empty());
 }
+
+#[test]
+fn cancel_is_offered_only_while_a_workflow_can_be_cancelled() {
+    let capabilities = crate::metadata::create_metadata().capabilities;
+    let cancel_allowed = |state: &str, workflows: &[Workflow]| {
+        let run = to_run(
+            "gh/org/repo",
+            &pipeline(state),
+            workflows,
+            "https://circleci.com",
+            "gh/org/repo",
+        );
+        let facts = pipedash_plugin_api::RunFacts {
+            run_number: run.run_number,
+            status: run.status,
+            branch: run.branch.as_deref(),
+            actor: run.actor.as_deref(),
+            inputs: run.inputs.as_ref(),
+            metadata: &run.metadata,
+        };
+        (
+            run.status,
+            run_actions(&capabilities, &facts).cancel.allowed,
+        )
+    };
+
+    assert_eq!(
+        cancel_allowed("created", &[]),
+        (PipelineStatus::Pending, false)
+    );
+    assert_eq!(
+        cancel_allowed("created", &[workflow("running")]),
+        (PipelineStatus::Running, true)
+    );
+    assert_eq!(
+        cancel_allowed("created", &[workflow("on_hold")]),
+        (PipelineStatus::Pending, true)
+    );
+}

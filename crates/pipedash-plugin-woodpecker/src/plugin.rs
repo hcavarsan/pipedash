@@ -8,11 +8,11 @@ use pipedash_plugin_api::config::{
 };
 use pipedash_plugin_api::pagination::paginate;
 use pipedash_plugin_api::support::{
+    collect_tolerant,
     digit_id,
     organizations,
     require_configured,
     resume_position,
-    try_buffered,
     write_in_chunks,
     CONCURRENCY,
 };
@@ -124,7 +124,7 @@ plugin_impl!(WoodpeckerPlugin [metadata, status_source, available_from_filtered]
             .iter()
             .map(|full_name| self.fetch_repo_pipeline(full_name))
             .collect();
-        try_buffered(requests, CONCURRENCY).await
+        collect_tolerant(requests, CONCURRENCY, |_| {}).await
     }
 
     async fn fetch_run_history(

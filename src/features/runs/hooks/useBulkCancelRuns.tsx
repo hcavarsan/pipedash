@@ -71,9 +71,9 @@ export function useBulkCancelRuns({
       confirmProps: { color: 'red' },
       onConfirm: async () => {
         try {
-          await cancelRunsMutation.mutateAsync(
-            runNumbers.map((runNumber) => ({ pipeline_id: pipelineId, run_number: runNumber }))
-          )
+          await cancelRunsMutation.mutateAsync([
+            runNumbers.map((runNumber) => ({ pipeline_id: pipelineId, run_number: runNumber })),
+          ])
         } catch {
           return
         }

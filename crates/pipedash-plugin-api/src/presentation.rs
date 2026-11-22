@@ -88,6 +88,7 @@ pub struct PluginPresentation {
     pub progress_title: String,
     pub archived_notice: Option<Notice>,
     pub force_cancel_confirmation: String,
+    pub rerun_job_confirmation: String,
 }
 
 impl PluginPresentation {

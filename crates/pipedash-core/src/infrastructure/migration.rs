@@ -82,6 +82,7 @@ impl MigrationOrchestrator {
         let source_data_dir = self.source_config.data_dir();
         let target_data_dir = target_config.data_dir();
         let data_dir_changed = source_data_dir != target_data_dir;
+        let database_changed = !remap::same_database(&self.source_config, &target_config);
 
         let source_storage = &self.source_config.storage;
         let target_storage = &mut target_config.storage;
@@ -112,7 +113,7 @@ impl MigrationOrchestrator {
             );
         }
 
-        let needs_data_migration = backend_changed || data_dir_changed || token_backend_changing;
+        let needs_data_migration = database_changed || data_dir_changed || token_backend_changing;
 
         if target_storage.backend == ConfigStorageBackend::Postgres {
             if target_storage.data_dir.starts_with("postgresql://")
@@ -123,7 +124,7 @@ impl MigrationOrchestrator {
                      Resetting to empty (will use default) - connection string should be in postgres.connection_string field.",
                     target_storage.data_dir
                 );
-                target_storage.data_dir = String::new(); // Use default data_dir
+                target_storage.data_dir = String::new();
             } else if target_storage.data_dir.is_empty() {
                 tracing::debug!("Target uses PostgreSQL - data_dir is empty (will use default for cache/local files)");
             }

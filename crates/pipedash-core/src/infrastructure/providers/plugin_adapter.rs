@@ -83,6 +83,7 @@ impl PluginAdapter {
             resource_state: plugin_pipeline.resource_state,
             metadata: plugin_pipeline.metadata,
             overdue_run: None,
+            stuck_queue_run: None,
             typical_duration_seconds: None,
             actions: Default::default(),
             correlation: plugin_pipeline.correlation,
@@ -228,6 +229,15 @@ impl Provider for PluginAdapter {
     async fn rerun_failed_jobs(&self, pipeline_id: &str, run_number: i64) -> DomainResult<()> {
         self.plugin
             .rerun_failed_jobs(self.local_id(pipeline_id)?, run_number)
+            .await
+            .map_err(Self::map_error)
+    }
+
+    async fn rerun_job(
+        &self, pipeline_id: &str, run_number: i64, job_id: &str,
+    ) -> DomainResult<()> {
+        self.plugin
+            .rerun_job(self.local_id(pipeline_id)?, run_number, job_id)
             .await
             .map_err(Self::map_error)
     }

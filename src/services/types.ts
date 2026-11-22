@@ -138,6 +138,7 @@ export interface RunsService {
   forceCancelPipelineRun(pipelineId: string, runNumber: number): Promise<void>
   reviewPipelineRun(pipelineId: string, runNumber: number, decision: ReviewDecision): Promise<void>
   rerunFailedJobs(pipelineId: string, runNumber: number): Promise<void>
+  rerunJob(pipelineId: string, runNumber: number, jobId: string): Promise<void>
   rerunRun(pipelineId: string, runNumber: number): Promise<TriggerResult>
   enablePipeline(pipelineId: string): Promise<void>
 }

@@ -3,6 +3,11 @@ use std::io::{
     Read,
     Write,
 };
+use std::sync::atomic::{
+    AtomicBool,
+    AtomicUsize,
+    Ordering,
+};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -47,7 +52,10 @@ use crate::domain::{
     SIGN_IN_CONFIG_KEY,
 };
 use crate::event::CoreEvent;
-use crate::infrastructure::config::ConfigLoader;
+use crate::infrastructure::config::{
+    ConfigLoader,
+    GeneralSettingsUpdate,
+};
 use crate::infrastructure::oauth::test_idp::{
     jwt,
     Idp,
@@ -1145,6 +1153,108 @@ async fn provider_id(h: &Harness, key: &str) -> Option<i64> {
 }
 
 #[tokio::test]
+async fn general_settings_saved_in_the_config_file_survive_a_later_toggle() {
+    let h = Harness::new().await;
+    std::fs::write(
+        h.config_state.config_path(),
+        "[general]\nmetrics_enabled = false\ndefault_refresh_interval = 77\nstatus_pages_enabled = false\n",
+    )
+    .unwrap();
+    h.provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .unwrap();
+
+    let general = h.config_state.get().await.general.clone();
+    assert_eq!(
+        (general.metrics_enabled, general.default_refresh_interval),
+        (false, 77)
+    );
+    h.provider_service
+        .update_general_settings(
+            &h.config_state,
+            GeneralSettingsUpdate {
+                metrics_enabled: general.metrics_enabled,
+                default_refresh_interval: general.default_refresh_interval,
+                status_pages_enabled: true,
+                proxy_url: general.proxy_url,
+                queue_alert_minutes: general.queue_alert_minutes,
+            },
+        )
+        .await
+        .unwrap();
+
+    let saved = h.config_state.load_file().await.unwrap().general;
+    assert_eq!(
+        (
+            saved.metrics_enabled,
+            saved.default_refresh_interval,
+            saved.status_pages_enabled
+        ),
+        (false, 77, true)
+    );
+}
+
+#[tokio::test]
+async fn a_proxy_the_http_client_rejects_keeps_failing_on_every_apply() {
+    let h = Harness::new().await;
+    std::fs::write(
+        h.config_state.config_path(),
+        "[general]\nproxy_url = \"socks5://localhost:1080\"\n",
+    )
+    .unwrap();
+
+    let first = h.provider_service.apply_config_file(&h.config_state).await;
+    let retry = h.provider_service.apply_config_file(&h.config_state).await;
+
+    assert!(matches!(first, Err(DomainError::InvalidConfig(_))));
+    assert!(matches!(retry, Err(DomainError::InvalidConfig(_))));
+    assert_eq!(h.config_state.get().await.general.proxy_url, "");
+}
+
+#[tokio::test]
+async fn a_settings_save_during_a_file_apply_is_not_replaced_by_the_older_file() {
+    let h = Harness::new().await;
+    std::fs::write(
+        h.config_state.config_path(),
+        "[general]\ndefault_refresh_interval = 77\n",
+    )
+    .unwrap();
+    let held = h.provider_service.config_apply.lock().await;
+    let applying = tokio::spawn({
+        let (service, state) = (Arc::clone(&h.provider_service), Arc::clone(&h.config_state));
+        async move { service.apply_config_file(&state).await }
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let saving = tokio::spawn({
+        let (service, state) = (Arc::clone(&h.provider_service), Arc::clone(&h.config_state));
+        async move {
+            let update = GeneralSettingsUpdate {
+                metrics_enabled: true,
+                default_refresh_interval: 90,
+                status_pages_enabled: true,
+                proxy_url: String::new(),
+                queue_alert_minutes: 15,
+            };
+            service.update_general_settings(&state, update).await
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    drop(held);
+    applying.await.unwrap().unwrap();
+    saving.await.unwrap().unwrap();
+
+    let saved = h.config_state.load_file().await.unwrap().general;
+    assert_eq!(
+        (
+            h.config_state.get().await.general.default_refresh_interval,
+            saved.default_refresh_interval
+        ),
+        (90, 90)
+    );
+}
+
+#[tokio::test]
 async fn removal_preserves_the_provider_and_toml_when_token_deletion_fails() {
     let h = Harness::new().await;
     config_file(&h, &[("ci-a", "CI A", 30)]);
@@ -1395,6 +1505,99 @@ async fn renaming_a_toml_provider_keeps_the_file_key_for_removal() {
     assert!(h.repository.list_providers().await.unwrap().is_empty());
 }
 
+async fn restart_sync(h: &Harness) {
+    h.config_state.reload().await.unwrap();
+    h.config_state
+        .sync_providers_from_toml(h.repository.config_backend().as_ref(), false)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn app_edits_to_a_file_provider_survive_a_restart() {
+    let h = Harness::new().await;
+    config_file(&h, &[("ci-a", "CI A", 30)]);
+    h.provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .unwrap();
+    let id = provider_id(&h, "ci-a").await.unwrap();
+    h.provider_service
+        .update_provider_refresh_interval(id, 120)
+        .await
+        .unwrap();
+    let mut renamed = h.repository.get_provider(id).await.unwrap();
+    renamed
+        .config
+        .insert("display_name".to_string(), "Renamed in app".to_string());
+    h.repository.update_provider(id, &renamed).await.unwrap();
+
+    restart_sync(&h).await;
+
+    let kept = h.repository.get_provider(id).await.unwrap();
+    assert_eq!(kept.refresh_interval, 120);
+    assert_eq!(kept.display_name(), "Renamed in app");
+}
+
+#[tokio::test]
+async fn a_file_block_edited_while_stopped_wins_on_restart() {
+    let h = Harness::new().await;
+    config_file(&h, &[("ci-a", "CI A", 30)]);
+    restart_sync(&h).await;
+    let id = provider_id(&h, "ci-a").await.unwrap();
+    h.provider_service
+        .update_provider_refresh_interval(id, 120)
+        .await
+        .unwrap();
+
+    config_file(&h, &[("ci-a", "CI Renamed", 60)]);
+    restart_sync(&h).await;
+
+    let applied = h.repository.get_provider(id).await.unwrap();
+    assert_eq!(applied.refresh_interval, 60);
+    assert_eq!(applied.display_name(), "CI Renamed");
+}
+
+#[tokio::test]
+async fn a_file_provider_from_before_the_upgrade_keeps_its_app_edits() {
+    let h = Harness::new().await;
+    config_file(&h, &[("ci-a", "CI A", 30)]);
+    let legacy = provider(
+        "ci-a",
+        "stub",
+        "token-ci-a",
+        120,
+        &[("display_name", "CI A")],
+    );
+    let id = h
+        .repository
+        .config_backend()
+        .create_provider(&legacy)
+        .await
+        .unwrap();
+
+    restart_sync(&h).await;
+    assert_eq!(
+        h.repository
+            .get_provider(id)
+            .await
+            .unwrap()
+            .refresh_interval,
+        120
+    );
+
+    config_file(&h, &[("ci-a", "CI A", 60)]);
+    restart_sync(&h).await;
+    assert_eq!(
+        h.repository
+            .get_provider(id)
+            .await
+            .unwrap()
+            .refresh_interval,
+        60
+    );
+}
+
 #[tokio::test]
 async fn test_apply_config_file_adds_and_updates_changed_blocks_only() {
     let h = Harness::new().await;
@@ -1460,6 +1663,74 @@ async fn test_apply_config_file_adds_and_updates_changed_blocks_only() {
         .await
         .unwrap();
     assert!(unchanged.added.is_empty() && unchanged.updated.is_empty());
+}
+
+#[tokio::test]
+async fn test_apply_config_file_removes_a_deleted_block_and_keeps_ui_providers() {
+    let h = Harness::new().await;
+    let ui = h.add_provider("ui-only").await;
+    config_file(&h, &[("ci-a", "CI A", 30), ("ci-b", "CI B", 30)]);
+    h.provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .unwrap();
+    let a = provider_id(&h, "ci-a").await.unwrap();
+    let b = provider_id(&h, "ci-b").await.unwrap();
+
+    std::fs::write(h.config_state.config_path(), "[providers.ci-a\n").unwrap();
+    assert!(h
+        .provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .is_err());
+    assert!(h.repository.get_provider(b).await.is_ok());
+
+    config_file(&h, &[("ci-a", "CI A", 30)]);
+    let applied = h
+        .provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .unwrap();
+
+    assert_eq!(applied.removed, ["ci-b"]);
+    assert!(h.repository.get_provider(b).await.is_err());
+    assert!(h.provider_service.generation_of(b).await.is_none());
+    let tokens = h.token_store.get_all_tokens().await.unwrap();
+    assert!(!tokens.contains_key(&b));
+    assert!(h.repository.get_provider(a).await.is_ok());
+    assert!(h.repository.get_provider(ui).await.is_ok());
+    assert!(h
+        .bus
+        .events()
+        .iter()
+        .any(|e| matches!(e, CoreEvent::ProviderRemoved { provider, .. } if provider.id == b)));
+}
+
+#[tokio::test]
+async fn test_block_deleted_while_stopped_is_removed_on_the_next_start() {
+    let h = Harness::new().await;
+    config_file(&h, &[("ci-a", "CI A", 30), ("ci-b", "CI B", 30)]);
+    h.provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .unwrap();
+    let b = provider_id(&h, "ci-b").await.unwrap();
+
+    config_file(&h, &[("ci-a", "CI A", 30)]);
+    h.config_state.reload().await.unwrap();
+    h.config_state
+        .sync_providers_from_toml(h.repository.config_backend().as_ref(), false)
+        .await
+        .unwrap();
+    let first_apply = h
+        .provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .unwrap();
+
+    assert_eq!(first_apply.removed, ["ci-b"]);
+    assert!(h.repository.get_provider(b).await.is_err());
+    assert!(provider_id(&h, "ci-a").await.is_some());
 }
 
 #[tokio::test]
@@ -1551,6 +1822,35 @@ async fn test_apply_config_file_failed_apply_changes_no_provider_and_retry_appli
         h.config_state.get().await.providers["ci-b"].name.as_deref(),
         Some("CI B2")
     );
+}
+
+#[tokio::test]
+async fn test_block_deleted_after_a_failed_apply_leaves_no_provider() {
+    let h = Harness::new().await;
+    execute(
+        &h,
+        "CREATE TRIGGER fail_ci_b BEFORE INSERT ON providers WHEN NEW.name = 'ci-b' \
+             BEGIN SELECT RAISE(ABORT, 'write failed'); END",
+    )
+    .await;
+    config_file(&h, &[("ci-a", "CI A", 30), ("ci-b", "CI B", 30)]);
+    assert!(h
+        .provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .is_err());
+    assert_eq!(provider_id(&h, "ci-a").await, None);
+
+    execute(&h, "DROP TRIGGER fail_ci_b").await;
+    config_file(&h, &[]);
+    let applied = h
+        .provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .unwrap();
+
+    assert!(applied.removed.is_empty());
+    assert_eq!(provider_id(&h, "ci-a").await, None);
 }
 
 #[tokio::test]
@@ -2227,5 +2527,123 @@ async fn editing_during_a_renewal_keeps_the_renewed_session() {
             .provider
             .renew_at(),
         renewed.renew_at()
+    );
+}
+
+fn held_server(arrived: Arc<AtomicUsize>, released: Arc<AtomicBool>) -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let arrived = Arc::clone(&arrived);
+            let released = Arc::clone(&released);
+            std::thread::spawn(move || {
+                let mut buffer = [0; 4096];
+                let _ = stream.read(&mut buffer);
+                arrived.fetch_add(1, Ordering::SeqCst);
+                while !released.load(Ordering::SeqCst) {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                let body = r#"{"items":[]}"#;
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            });
+        }
+    });
+    url
+}
+
+#[tokio::test]
+async fn an_edit_keeps_a_token_rotated_while_it_was_validating() {
+    let h = Harness::with_real_plugins().await;
+    let arrived = Arc::new(AtomicUsize::new(0));
+    let released = Arc::new(AtomicBool::new(false));
+    let url = held_server(Arc::clone(&arrived), Arc::clone(&released));
+    let mut config = h.config("held", 30);
+    config.provider_type = STUB_HTTP.to_string();
+    config.config = http_settings(&url, false);
+    config.config.remove("token");
+    config.token = "original".to_string();
+    let id = h.repository.add_provider(&config).await.unwrap();
+    let mut edit = h.repository.get_provider(id).await.unwrap();
+    edit.name = "renamed".to_string();
+
+    let rotate = async {
+        while arrived.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let mut rotated = h.repository.get_provider(id).await.unwrap();
+        rotated.token = "rotated".to_string();
+        h.repository.update_provider(id, &rotated).await.unwrap();
+        released.store(true, Ordering::SeqCst);
+    };
+    let (saved, ()) = tokio::join!(h.provider_service.update_provider(id, edit), rotate);
+
+    saved.unwrap();
+    let stored = h.repository.get_provider(id).await.unwrap();
+    assert_eq!(stored.name, "renamed");
+    assert_eq!(stored.token, "rotated");
+}
+
+#[tokio::test]
+async fn an_edit_to_another_address_keeps_the_token_it_submitted() {
+    let h = Harness::with_real_plugins().await;
+    let arrived = Arc::new(AtomicUsize::new(0));
+    let released = Arc::new(AtomicBool::new(false));
+    let old_url = held_server(Arc::clone(&arrived), Arc::clone(&released));
+    let new_url = held_server(Arc::clone(&arrived), Arc::clone(&released));
+    let mut config = h.config("held", 30);
+    config.provider_type = STUB_HTTP.to_string();
+    config.config = http_settings(&old_url, false);
+    config.config.remove("token");
+    config.token = "original".to_string();
+    let id = h.repository.add_provider(&config).await.unwrap();
+    let mut edit = h.repository.get_provider(id).await.unwrap();
+    edit.config
+        .insert("server_url".to_string(), new_url.clone());
+
+    let rotate = async {
+        while arrived.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let mut rotated = h.repository.get_provider(id).await.unwrap();
+        rotated.token = "rotated".to_string();
+        h.repository.update_provider(id, &rotated).await.unwrap();
+        released.store(true, Ordering::SeqCst);
+    };
+    let (saved, ()) = tokio::join!(h.provider_service.update_provider(id, edit), rotate);
+
+    saved.unwrap();
+    let stored = h.repository.get_provider(id).await.unwrap();
+    assert_eq!(stored.config.get("server_url"), Some(&new_url));
+    assert_eq!(stored.token, "original");
+}
+
+#[tokio::test]
+async fn switching_a_tokenless_provider_to_sign_in_keeps_the_new_session() {
+    let h = Harness::new().await;
+    let (id, _idp, _server) = recovery_provider(&h).await;
+    let mut tokenless = h.repository.get_provider(id).await.unwrap();
+    tokenless.token = String::new();
+    h.repository.update_provider(id, &tokenless).await.unwrap();
+    let mut edit = h.repository.get_provider(id).await.unwrap();
+    assert_eq!(edit.token, "");
+    let setup = h
+        .provider_service
+        .start_sign_in(&edit.provider_type, edit.config.clone())
+        .await
+        .unwrap();
+    complete_login(&h, &setup).await;
+    edit.config
+        .insert(SIGN_IN_CONFIG_KEY.into(), setup.id.clone());
+
+    h.provider_service.update_provider(id, edit).await.unwrap();
+
+    assert_eq!(
+        stored_sign_in(&h, id).await.account.as_deref(),
+        Some("new@example.com")
     );
 }

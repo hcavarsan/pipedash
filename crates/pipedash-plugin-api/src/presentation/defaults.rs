@@ -123,5 +123,6 @@ pub(super) fn presentation(provider_name: &str) -> PluginPresentation {
         archived_notice: None,
         force_cancel_confirmation:
             "Force cancel only after normal cancellation fails. You can't undo this.".to_string(),
+        rerun_job_confirmation: "Runs this job again.".to_string(),
     }
 }

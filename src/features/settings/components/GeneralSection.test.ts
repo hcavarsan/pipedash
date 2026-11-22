@@ -34,7 +34,13 @@ after(async () => {
 
 const storageConfig = (): StorageConfigResponse => ({
   config: {
-    general: { metrics_enabled: true, default_refresh_interval: 30, status_pages_enabled: false, proxy_url: '' },
+    general: {
+      metrics_enabled: true,
+      default_refresh_interval: 30,
+      status_pages_enabled: false,
+      proxy_url: '',
+      queue_alert_minutes: 15,
+    },
     server: { bind_addr: '127.0.0.1:8080', cors_allow_all: false },
     storage: { data_dir: '/tmp/pipedash-test', backend: 'sqlite' },
   },
@@ -96,6 +102,7 @@ test('phone settings can recover a failed load and block overlapping saves', asy
       default_refresh_interval: 30,
       status_pages_enabled: true,
       proxy_url: '',
+      queue_alert_minutes: 15,
     })
   })
 })
@@ -122,6 +129,7 @@ test('phone proxy saves the trimmed address and keeps unrelated settings', async
         default_refresh_interval: 30,
         status_pages_enabled: false,
         proxy_url: 'http://proxy.example.com:3128',
+        queue_alert_minutes: 15,
       },
     ])
   )

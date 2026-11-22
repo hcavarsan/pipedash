@@ -195,7 +195,7 @@ function ProviderSignInContent({ session }: { session: ProviderSignInSession }):
 
   const footer = (
     <Group justify="flex-end">
-      <Button variant="subtle" onClick={() => cancelProviderSignIn()} disabled={saving}>
+      <Button variant="subtle" onClick={() => cancelProviderSignIn()} disabled={saving || complete.isPending}>
         Cancel
       </Button>
       {retryAction && <Button onClick={retryAction.onClick}>{retryAction.label}</Button>}
@@ -253,6 +253,7 @@ function ProviderSignInContent({ session }: { session: ProviderSignInSession }):
       title="Sign in"
       size="md"
       closable={!saving}
+      loading={complete.isPending}
       {...chrome}
     >
       {mobileShell ? shellBody : desktopBody}

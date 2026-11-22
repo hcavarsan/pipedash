@@ -145,6 +145,7 @@ pub use schema::{
     AuthOption,
     ConfigField,
     ConfigSchema,
+    ConfigScope,
     ConfigSection,
     AUTH_MODE_KEY,
 };

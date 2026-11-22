@@ -37,7 +37,7 @@ use crate::infrastructure::HttpClientManager;
 mod attention;
 mod auth;
 mod capabilities;
-mod config;
+pub(crate) mod config;
 mod discovery;
 mod draft;
 pub mod dto;

@@ -59,6 +59,16 @@ impl GitHubPlugin {
         client.rerun(owner, repo, run_id, failed_only).await
     }
 
+    pub(super) async fn rerun_job_impl(
+        &self, pipeline_id: &str, _run_number: i64, job_id: &str,
+    ) -> PluginResult<()> {
+        let (owner, repo) = Self::repo_of(pipeline_id)?;
+        let job_id: u64 = job_id
+            .parse()
+            .map_err(|_| PluginError::InvalidConfig(format!("Invalid GitHub job ID: {job_id}")))?;
+        self.client()?.rerun_job(owner, repo, job_id).await
+    }
+
     pub(super) async fn trigger_pipeline_impl(
         &self, params: TriggerParams,
     ) -> PluginResult<TriggerResult> {

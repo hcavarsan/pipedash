@@ -10,11 +10,11 @@ use pipedash_plugin_api::config::{
     selected_items,
 };
 use pipedash_plugin_api::support::{
+    collect_tolerant,
     digit_id,
     require_configured,
     resume_position,
     string_parameter,
-    try_buffered,
     CONCURRENCY,
 };
 use pipedash_plugin_api::*;
@@ -77,7 +77,7 @@ impl GiteaPlugin {
             .iter()
             .map(|repo| self.fetch_repo_pipelines(repo))
             .collect();
-        let results = try_buffered(requests, CONCURRENCY).await?;
+        let results = collect_tolerant(requests, CONCURRENCY, |_| {}).await?;
 
         Ok(results.into_iter().flatten().collect())
     }
@@ -255,7 +255,7 @@ plugin_impl!(GiteaPlugin [metadata, status_source, available_from_filtered, fetc
         let id = config::parse_pipeline_id(&params.workflow_id)?;
         let client = self.client()?;
 
-        let body = dispatch_body(params.inputs);
+        let body = gitea_dispatch_body(params.inputs);
 
         client
             .dispatch_workflow(id.owner, id.repo, id.workflow, &body)
@@ -301,6 +301,20 @@ plugin_impl!(GiteaPlugin [metadata, status_source, available_from_filtered, fetc
         Ok(mapper::commits::changed_files(commit))
     }
 });
+
+fn gitea_dispatch_body(inputs: Option<serde_json::Value>) -> serde_json::Value {
+    let mut body = dispatch_body(inputs);
+    if let Some(serde_json::Value::Object(values)) = body.get_mut("inputs") {
+        for value in values.values_mut() {
+            *value = serde_json::Value::String(match value.take() {
+                serde_json::Value::String(text) => text,
+                serde_json::Value::Null => String::new(),
+                other => other.to_string(),
+            });
+        }
+    }
+    body
+}
 
 #[cfg(test)]
 #[cfg(not(target_os = "ios"))]

@@ -25,6 +25,10 @@ pub const MIN_REFRESH_INTERVAL_SECS: u32 = 5;
 
 pub const MAX_REFRESH_INTERVAL_SECS: u32 = 300;
 
+pub(super) const DEFAULT_QUEUE_ALERT_MINUTES: u32 = 15;
+
+pub(super) const MAX_QUEUE_ALERT_MINUTES: u32 = 1440;
+
 pub(super) const DEFAULT_BIND_ADDR_DESKTOP: &str = "127.0.0.1:8080";
 
 pub(super) const DEFAULT_BIND_ADDR_SERVER: &str = "0.0.0.0:8080";
@@ -151,7 +155,7 @@ impl PipedashConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GeneralConfig {
     #[serde(default = "default_metrics_enabled")]
     pub metrics_enabled: bool,
@@ -164,6 +168,9 @@ pub struct GeneralConfig {
 
     #[serde(default)]
     pub proxy_url: String,
+
+    #[serde(default = "default_queue_alert_minutes")]
+    pub queue_alert_minutes: u32,
 }
 
 impl Default for GeneralConfig {
@@ -173,6 +180,7 @@ impl Default for GeneralConfig {
             default_refresh_interval: default_refresh_interval(),
             status_pages_enabled: default_true(),
             proxy_url: String::new(),
+            queue_alert_minutes: default_queue_alert_minutes(),
         }
     }
 }
@@ -183,6 +191,8 @@ pub struct GeneralSettingsUpdate {
     pub default_refresh_interval: u32,
     pub status_pages_enabled: bool,
     pub proxy_url: String,
+    #[serde(default = "default_queue_alert_minutes")]
+    pub queue_alert_minutes: u32,
 }
 
 fn default_metrics_enabled() -> bool {
@@ -191,6 +201,10 @@ fn default_metrics_enabled() -> bool {
 
 fn default_refresh_interval() -> u32 {
     DEFAULT_REFRESH_INTERVAL_SECS
+}
+
+fn default_queue_alert_minutes() -> u32 {
+    DEFAULT_QUEUE_ALERT_MINUTES
 }
 
 fn default_true() -> bool {

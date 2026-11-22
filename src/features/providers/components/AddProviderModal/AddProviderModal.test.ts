@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { after, afterEach, beforeEach, mock, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
+import type { UserEvent } from '@testing-library/user-event'
 import { createElement } from 'react'
 
 import type { PluginMetadata } from '../../../../types/plugins'
@@ -244,7 +245,7 @@ test('a rejected save keeps the dialog open with the typed values and allows a r
   await user.click(await view().findByRole('button', { name: /^Continue/ }))
   const note = await view().findByRole('textbox', { name: 'Note' })
   assert.ok(note instanceof HTMLInputElement)
-  await waitFor(() => assert.equal(note.disabled, false))
+  await waitFor(() => assert.ok(usable(note)))
   await user.clear(note)
   await user.type(note, 'kept')
   await user.click(view().getByRole('button', { name: 'Save' }))
@@ -252,9 +253,11 @@ test('a rejected save keeps the dialog open with the typed values and allows a r
   await view().findByText(/provider rejected the update/)
   assert.equal(closed.value, false)
   assert.equal(note.value, 'kept')
-  assert.equal(note.disabled, false)
+  await waitFor(() => assert.ok(usable(note)))
 
-  await user.click(view().getByRole('button', { name: 'Save' }))
+  const save = view().getByRole('button', { name: 'Save' })
+  await waitFor(() => assert.ok(usable(save)))
+  await user.click(save)
   await waitFor(() => assert.equal(closed.value, true))
   assert.equal(attempts, 2)
 })
@@ -267,10 +270,11 @@ test('the save error disappears when the user edits a field', async () => {
 
   await user.click(await view().findByRole('button', { name: /^Continue/ }))
   const note = await view().findByRole('textbox', { name: 'Note' })
-  await waitFor(() => assert.equal(note.hasAttribute('disabled'), false))
+  await waitFor(() => assert.ok(usable(note)))
   await user.click(view().getByRole('button', { name: 'Save' }))
   await view().findByText(/provider rejected the update/)
 
+  await waitFor(() => assert.ok(usable(note)))
   await user.type(note, '!')
   await waitFor(() => assert.ok(!view().queryByText(/provider rejected the update/)))
 })
@@ -378,11 +382,66 @@ test('an empty provider saves when monitoring is automatic', async () => {
   assert.deepEqual(added[0]?.selected_pipeline_ids, [])
 })
 
-test('the provider cannot be added while select all is still loading', async () => {
+async function withVisibleRows(run: () => Promise<void>): Promise<void> {
   const clientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight')
   Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 600 })
 
   try {
+    await run()
+  } finally {
+    if (clientHeight) {
+      Object.defineProperty(HTMLElement.prototype, 'clientHeight', clientHeight)
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight')
+    }
+  }
+}
+
+function usable(element: HTMLElement): boolean {
+  return !element.closest('fieldset[disabled]') && !element.hasAttribute('disabled') && !element.matches(':disabled')
+}
+
+async function selectFirstPipeline(user: UserEvent): Promise<void> {
+  await user.click(await view().findByRole('button', { name: 'Stub' }))
+  await user.click(view().getByRole('button', { name: /^Continue/ }))
+  const token = await view().findByLabelText(/^Token/)
+  await waitFor(() => assert.ok(usable(token)))
+  await user.type(token, 'secret')
+  const next = view().getByRole('button', { name: /^Continue/ })
+  await waitFor(() => assert.ok(usable(next)))
+  await user.click(next)
+  const first = await view().findByRole('checkbox', { name: 'a' })
+  await waitFor(() => assert.ok(usable(first)))
+  await user.click(first)
+}
+
+test('the pipeline selection stays locked while the provider saves', () =>
+  withVisibleRows(async () => {
+    const user = userEvent.setup({ document })
+    const gate = Promise.withResolvers<void>()
+    const added: ProviderDraft[] = []
+    const closed = renderAdd(async (draft) => {
+      added.push(draft)
+      await gate.promise
+    })
+
+    await selectFirstPipeline(user)
+    await user.click(view().getByRole('button', { name: 'Add provider' }))
+    await waitFor(() => assert.equal(added.length, 1))
+
+    secondPage.requests = 0
+    await user.click(view().getByRole('checkbox', { name: 'b' }))
+    await user.click(view().getByRole('checkbox', { name: 'Select all' }))
+    assert.equal(view().getByRole('checkbox', { name: 'b' }).matches(':checked'), false)
+    assert.equal(secondPage.requests, 0)
+
+    await act(async () => gate.resolve())
+    await waitFor(() => assert.equal(closed.value, true))
+    assert.deepEqual(added[0]?.selected_pipeline_ids, ['a'])
+  }))
+
+test('the provider cannot be added while select all is still loading', () =>
+  withVisibleRows(async () => {
     const user = userEvent.setup({ document })
     const added: ProviderDraft[] = []
     secondPage.requests = 0
@@ -391,11 +450,7 @@ test('the provider cannot be added while select all is still loading', async () 
       added.push(draft)
     })
 
-    await user.click(await view().findByRole('button', { name: 'Stub' }))
-    await user.click(view().getByRole('button', { name: /^Continue/ }))
-    await user.type(await view().findByLabelText(/^Token/), 'secret')
-    await user.click(view().getByRole('button', { name: /^Continue/ }))
-    await user.click(await view().findByRole('checkbox', { name: 'a' }))
+    await selectFirstPipeline(user)
     await user.click(view().getByRole('checkbox', { name: 'Select all' }))
     await waitFor(() => assert.ok(secondPage.requests > 0))
 
@@ -411,11 +466,4 @@ test('the provider cannot be added while select all is still loading', async () 
 
     await waitFor(() => assert.equal(added.length, 1))
     assert.deepEqual(added[0]?.selected_pipeline_ids?.toSorted(), ['a', 'b', 'c', 'd'])
-  } finally {
-    if (clientHeight) {
-      Object.defineProperty(HTMLElement.prototype, 'clientHeight', clientHeight)
-    } else {
-      Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight')
-    }
-  }
-})
+  }))

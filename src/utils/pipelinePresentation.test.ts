@@ -9,6 +9,10 @@ test('pipeline label prefers overdue over the resource state label', () => {
     'Running longer than usual'
   )
   assert.equal(getPipelineStatusLabel({ resource_state: { label: 'Synced' } }), 'Synced')
+  assert.equal(
+    getPipelineStatusLabel({ stuck_queue_run: 'run-2', resource_state: { label: 'Synced' } }),
+    'Stuck in queue'
+  )
   assert.equal(getPipelineStatusLabel({}), undefined)
 })
 

@@ -24,6 +24,14 @@ pub enum ConfigSection {
     Settings,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigScope {
+    Cluster,
+    Context,
+    Resources,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigField {
     pub key: String,
@@ -38,6 +46,8 @@ pub struct ConfigField {
     pub section: ConfigSection,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub auth_modes: Vec<AuthMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<ConfigScope>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -167,6 +167,10 @@ pub(crate) fn run_to_pipeline_run(
         metadata.insert("awaiting_review".to_string(), serde_json::json!(true));
     }
 
+    if run.status == "completed" {
+        metadata.insert("can_rerun_jobs".to_string(), serde_json::json!(true));
+    }
+
     if run.status == "completed"
         && matches!(run.conclusion.as_deref(), Some("failure" | "timed_out"))
     {

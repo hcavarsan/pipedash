@@ -174,6 +174,7 @@ function WorkflowLogsSession({
             pipelineName={pipelineName}
             runNumber={runNumber}
             providerName={providerName}
+            providerType={providerType ?? ''}
             narrow={isMobile}
             details={details}
           />

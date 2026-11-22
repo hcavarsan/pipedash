@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -241,7 +242,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let mut app = app(
-        app_state,
+        app_state.clone(),
         api_config
             .enable_embedded_frontend
             .then_some(api_config.base_path),
@@ -268,9 +269,51 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("Listening on {}", api_config.bind_addr);
     let listener = tokio::net::TcpListener::bind(api_config.bind_addr).await?;
-    axum::serve(listener, app).await?;
+    serve_until(listener, app, app_state, shutdown_signal()).await?;
 
     Ok(())
+}
+
+async fn serve_until(
+    listener: tokio::net::TcpListener, app: axum::Router, state: AppState,
+    shutdown: impl Future<Output = ()> + Send + 'static,
+) -> std::io::Result<()> {
+    let closing = Arc::clone(&state.closing);
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            shutdown.await;
+            tracing::info!("Shutting down");
+            closing.send_replace(true);
+        })
+        .await?;
+    let core = state.inner.read().await.core.clone();
+    if let Some(core) = core {
+        core.shutdown().await;
+    }
+    Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {}
+        _ = terminate => {}
+    }
 }
 
 #[cfg(test)]

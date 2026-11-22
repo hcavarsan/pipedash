@@ -165,6 +165,60 @@ impl ConfigBackend for SqliteConfigBackend {
         .await
     }
 
+    async fn mark_config_file_providers(&self, names: &[String]) -> DomainResult<()> {
+        let names = serde_json::to_string(names).map_err(failed("serialize provider names"))?;
+        retry_on_busy(|| async {
+            sqlx::query(
+                "UPDATE providers SET from_config_file = 1 WHERE from_config_file = 0 AND name IN (SELECT value FROM json_each(?))",
+            )
+            .bind(&names)
+            .execute(&self.pool)
+            .await
+            .map(|_| ())
+            .map_err(failed("mark config file providers"))
+        })
+        .await
+    }
+
+    async fn list_config_file_providers(&self) -> DomainResult<Vec<(i64, String)>> {
+        retry_on_busy(|| async {
+            sqlx::query_as("SELECT id, name FROM providers WHERE from_config_file = 1")
+                .fetch_all(&self.pool)
+                .await
+                .map_err(failed("list config file providers"))
+        })
+        .await
+    }
+
+    async fn record_config_file_hash(&self, id: i64, hash: &str) -> DomainResult<()> {
+        retry_on_busy(|| async {
+            sqlx::query(
+                "UPDATE providers SET from_config_file = 1, config_file_hash = ? WHERE id = ?",
+            )
+            .bind(hash)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map(|_| ())
+            .map_err(failed("record config file hash"))
+        })
+        .await
+    }
+
+    async fn config_file_hash(&self, id: i64) -> DomainResult<Option<String>> {
+        retry_on_busy(|| async {
+            sqlx::query_scalar::<_, Option<String>>(
+                "SELECT config_file_hash FROM providers WHERE id = ?",
+            )
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map(Option::flatten)
+            .map_err(failed("read config file hash"))
+        })
+        .await
+    }
+
     async fn get_table_preferences(
         &self, provider_id: i64, table_id: &str,
     ) -> DomainResult<Option<String>> {

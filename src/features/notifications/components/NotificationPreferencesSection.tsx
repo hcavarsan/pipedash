@@ -1,5 +1,5 @@
 import { Card, Stack, Text } from '@mantine/core'
-import type { ReactNode } from 'react'
+import { Fragment, type ReactNode } from 'react'
 
 import { ErrorState } from '../../../components/common/ErrorState'
 import { LoadingState } from '../../../components/common/LoadingState'
@@ -11,6 +11,7 @@ import { PREFERENCE_KINDS, useNotificationStore } from '../../../stores/notifica
 import { type PipelinePreference, usePipelinePreferences } from '../hooks/usePipelinePreferences'
 import { PipelinePreferenceRow } from './PipelinePreferenceRow'
 import { KindSwitch, ProviderSwitch } from './PreferenceSwitches'
+import { QueueLimitInput } from './QueueLimitInput'
 
 const KINDS_NOTE =
   'Applies to notifications and the notification center on this device only. Each phone, computer and browser keeps its own choices.'
@@ -83,7 +84,10 @@ export function NotificationPreferencesSection({ hostNote }: NotificationPrefere
       />
     ))
   const kindSwitches = PREFERENCE_KINDS.map((kind) => (
-    <KindSwitch key={kind} kind={kind} enabled={preferences[kind]} mobileShell={mobileShell} />
+    <Fragment key={kind}>
+      <KindSwitch kind={kind} enabled={preferences[kind]} mobileShell={mobileShell} />
+      {kind === 'stuck_queue' && <QueueLimitInput mobileShell={mobileShell} />}
+    </Fragment>
   ))
   const providerSwitches = providers.map((provider) => (
     <ProviderSwitch

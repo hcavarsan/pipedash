@@ -1,4 +1,5 @@
 pub mod application;
+pub mod cctray;
 pub mod credential;
 pub mod date_range;
 pub mod device_alert;

@@ -66,13 +66,20 @@ function LoadedRunDetails({
 }: LoadedProps): ReactNode {
   const rows = useDetailRows(providerId, run)
   const isRunning = run.status === 'running' || run.status === 'pending'
-  const progress = isLiveRun(run) ? (
-    <>
-      Running for <RunDuration run={run} />. Details update live.
-    </>
-  ) : (
-    'Details update live.'
-  )
+  let progress: ReactNode = 'Details update live.'
+  if (run.pace.queued) {
+    progress = (
+      <>
+        Waiting <RunDuration run={run} />. Details update live.
+      </>
+    )
+  } else if (isLiveRun(run)) {
+    progress = (
+      <>
+        Running for <RunDuration run={run} />. Details update live.
+      </>
+    )
+  }
 
   const status = cancellationRequested
     ? 'Cancellation requested. Waiting for the provider to confirm the final status.'

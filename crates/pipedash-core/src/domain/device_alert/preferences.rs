@@ -131,6 +131,7 @@ pub fn change_preferences(
                 AlertKind::Failed => &mut preferences.failed,
                 AlertKind::Degraded => &mut preferences.degraded,
                 AlertKind::LongRun => &mut preferences.long_run,
+                AlertKind::StuckQueue => &mut preferences.stuck_queue,
                 AlertKind::Outage => &mut preferences.outage,
                 AlertKind::Recovered => &mut preferences.recovered,
                 AlertKind::Finished | AlertKind::Test => {

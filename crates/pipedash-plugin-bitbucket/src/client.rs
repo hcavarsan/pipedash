@@ -101,6 +101,19 @@ impl BitbucketClient {
         self.repository_page(&url, params).await
     }
 
+    pub async fn get_repository(&self, full_name: &str) -> PluginResult<Repository> {
+        let (workspace, slug) = full_name.split_once('/').ok_or_else(|| {
+            PluginError::InvalidConfig(format!("Invalid Bitbucket repository: {full_name}"))
+        })?;
+        self.get_json(&format!(
+            "{}/repositories/{}/{}",
+            self.api_url,
+            urlencoding::encode(workspace),
+            urlencoding::encode(slug)
+        ))
+        .await
+    }
+
     pub async fn list_pipelines(
         &self, workspace: &str, repo_slug: &str, limit: usize,
     ) -> PluginResult<Vec<Pipeline>> {

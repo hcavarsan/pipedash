@@ -37,6 +37,7 @@ plugin_impl!(GitHubPlugin [
     force_cancel_run,
     review_run,
     rerun_failed_jobs,
+    rerun_job,
     rerun_run,
     enable_pipeline,
     get_feature_availability,

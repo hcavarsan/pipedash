@@ -101,17 +101,7 @@ async fn watch(
                     continue;
                 }
 
-                let loaded = tokio::select! {
-                    _ = cancel.cancelled() => break,
-                    loaded = config_state.load_file() => loaded,
-                };
-                let applying = match loaded {
-                    Ok(loaded) => provider_service.apply_loaded_config(&config_state, loaded).await,
-                    Err(e) => {
-                        provider_service.config_failed(e.to_string()).await;
-                        Err(e)
-                    }
-                };
+                let applying = provider_service.apply_config_file(&config_state).await;
                 match applying {
                     Ok(_) => applied = current,
                     Err(e) if current != failed => {

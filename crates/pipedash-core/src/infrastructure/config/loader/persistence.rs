@@ -67,6 +67,10 @@ impl ConfigLoader {
                 i64::from(general.default_refresh_interval).into(),
             ),
             ("status_pages_enabled", general.status_pages_enabled.into()),
+            (
+                "queue_alert_minutes",
+                i64::from(general.queue_alert_minutes).into(),
+            ),
         ] {
             match table.get_mut(key) {
                 Some(existing) => *existing = Item::Value(value),

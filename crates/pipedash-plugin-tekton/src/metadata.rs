@@ -49,7 +49,8 @@ fn create_config_schema() -> ConfigSchema {
             .description(
                 "Path to your Kubernetes config file(s). Multiple paths can be separated by ':' (Unix) or ';' (Windows). Uses $KUBECONFIG env var if set. Ignored when Kubeconfig Content is set.",
             )
-            .default_text(&kubernetes::default_kubeconfig_path()),
+            .default_text(&kubernetes::default_kubeconfig_path())
+            .scope(ConfigScope::Cluster),
         )
         .add_field(ConfigField::kubeconfig_content(
             kubernetes::KUBECONFIG_CONTENT_KEY,
@@ -64,7 +65,8 @@ fn create_config_schema() -> ConfigSchema {
             )
             .description(
                 "Select a context from your kubeconfig. Leave empty to use current-context.",
-            ),
+            )
+            .scope(ConfigScope::Context),
         )
         .add_field(
             ConfigField::select(
@@ -86,7 +88,8 @@ fn create_config_schema() -> ConfigSchema {
                 .validation(
                     NAMESPACE_LIST_REGEX,
                     "Invalid namespace format. Each namespace must: start and end with alphanumeric, contain only lowercase letters, numbers, and hyphens, be max 63 characters. Separate multiple namespaces with commas.",
-                ),
+                )
+                .scope(ConfigScope::Resources),
         )
         .add_field(
             ConfigField::text(

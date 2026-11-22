@@ -25,7 +25,7 @@ pub(crate) fn map_build_state(state: &str) -> PipelineStatus {
     match state {
         "passed" => PipelineStatus::Success,
         "failed" => PipelineStatus::Failed,
-        "running" | "started" => PipelineStatus::Running,
+        "running" | "started" | "failing" => PipelineStatus::Running,
         "scheduled" | "creating" | "waiting" => PipelineStatus::Pending,
         "canceled" | "canceling" => PipelineStatus::Cancelled,
         "skipped" | "not_run" => PipelineStatus::Skipped,
