@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use indexmap::IndexMap;
+
 use super::ProviderService;
 use crate::application::services::health_service::HealthInput;
 use crate::domain::{
@@ -102,18 +104,19 @@ impl ProviderService {
     }
 
     pub async fn apply_config_file(&self, config_state: &ConfigState) -> DomainResult<SyncResult> {
+        let _apply = self.config_apply.lock().await;
         let loaded = config_state.load_file().await?;
 
         self.apply_loaded_config(config_state, loaded).await
     }
 
-    pub(crate) async fn apply_loaded_config(
+    async fn apply_loaded_config(
         &self, config_state: &ConfigState, loaded: PipedashConfig,
     ) -> DomainResult<SyncResult> {
-        let _apply = self.config_apply.lock().await;
         let PipedashConfig {
             providers: file,
             views,
+            general,
             ..
         } = loaded;
         let current = config_state.get().await;
@@ -170,11 +173,19 @@ impl ProviderService {
                 return Err(e);
             }
         }
+        result.removed = self.remove_dropped_file_providers(&file).await?;
         if current.views != views {
             config_state.remember_views(views).await;
             self.event_bus.emit(CoreEvent::PipelineViewsChanged).await;
         }
         config_state.remember_providers(file).await;
+        if current.general != general {
+            let proxy_changed = self.http_client_manager.set_proxy(&general.proxy_url)?;
+            config_state.remember_general(general).await;
+            if proxy_changed {
+                self.rebuild_loaded_providers().await;
+            }
+        }
 
         Ok(result)
     }
@@ -183,9 +194,30 @@ impl ProviderService {
         config_state.get().await.general.clone()
     }
 
+    async fn remove_dropped_file_providers(
+        &self, file: &IndexMap<String, ProviderFileConfig>,
+    ) -> DomainResult<Vec<String>> {
+        let backend = self.repository.config_backend();
+        let listed: Vec<String> = file.keys().cloned().collect();
+        backend.mark_config_file_providers(&listed).await?;
+
+        let mut removed = Vec::new();
+        for (id, name) in backend.list_config_file_providers().await? {
+            if file.contains_key(&name) {
+                continue;
+            }
+            self.remove_provider_locked(id).await?;
+            tracing::info!(provider = %name, "Removed provider deleted from config file");
+            removed.push(name);
+        }
+
+        Ok(removed)
+    }
+
     pub async fn update_general_settings(
         &self, config_state: &ConfigState, update: GeneralSettingsUpdate,
     ) -> DomainResult<()> {
+        let _apply = self.config_apply.lock().await;
         let proxy_url = update.proxy_url.clone();
         config_state.update_general_settings(update).await?;
         if self.http_client_manager.set_proxy(&proxy_url)? {
@@ -193,6 +225,10 @@ impl ProviderService {
         }
 
         Ok(())
+    }
+
+    pub(crate) async fn queue_limit_seconds(&self) -> i64 {
+        queue_limit_seconds(self.config_state.get().await.general.queue_alert_minutes)
     }
 
     async fn rebuild_loaded_providers(&self) {
@@ -269,4 +305,8 @@ impl ProviderService {
 
         Ok(())
     }
+}
+
+pub(crate) fn queue_limit_seconds(minutes: u32) -> i64 {
+    i64::from(minutes.max(1)) * 60
 }

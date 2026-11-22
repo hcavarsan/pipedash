@@ -59,11 +59,45 @@ fn workflow_pipeline(
 }
 
 impl GitHubClient {
+    async fn recent_repo_runs(
+        &self, owner: &str, repo: &str, repo_full_name: &str,
+    ) -> PluginResult<HashMap<WorkflowId, Run>> {
+        let page = match self
+            .octocrab
+            .workflows(owner, repo)
+            .list_all_runs()
+            .per_page(100)
+            .send()
+            .await
+        {
+            Ok(page) => page,
+            Err(e) => {
+                let e = map_octocrab_error("Failed to fetch recent runs", e);
+                if e.is_transient() {
+                    return Err(e);
+                }
+                tracing::warn!(
+                    repository = %repo_full_name,
+                    error = %e,
+                    "Recent repository runs unavailable, reading each workflow"
+                );
+                return Ok(HashMap::new());
+            }
+        };
+        let mut latest = HashMap::new();
+        for run in page.items {
+            latest.entry(run.workflow_id).or_insert(run);
+        }
+        Ok(latest)
+    }
+
     async fn latest_runs(
         &self, owner: &str, repo: &str, repo_full_name: &str, workflows: &[WorkFlow],
-    ) -> PluginResult<HashMap<WorkflowId, octocrab::Page<Run>>> {
+    ) -> PluginResult<HashMap<WorkflowId, Run>> {
+        let mut runs_map = self.recent_repo_runs(owner, repo, repo_full_name).await?;
         let requests: Vec<_> = workflows
             .iter()
+            .filter(|workflow| !runs_map.contains_key(&workflow.id))
             .map(|workflow| {
                 let octocrab = self.octocrab.clone();
                 let owner = owner.to_string();
@@ -82,7 +116,6 @@ impl GitHubClient {
             .collect();
         let results: Vec<_> = stream::iter(requests).buffered(8).collect().await;
 
-        let mut runs_map = HashMap::new();
         for (workflow_id, result) in results {
             let runs = match result {
                 Ok(runs) => runs,
@@ -100,7 +133,9 @@ impl GitHubClient {
                     continue;
                 }
             };
-            runs_map.insert(workflow_id, runs);
+            if let Some(run) = runs.items.into_iter().next() {
+                runs_map.insert(workflow_id, run);
+            }
         }
         Ok(runs_map)
     }
@@ -133,9 +168,7 @@ impl GitHubClient {
                     .items
                     .into_iter()
                     .map(|workflow| {
-                        let latest_run = runs_map
-                            .get(&workflow.id)
-                            .and_then(|runs| runs.items.first());
+                        let latest_run = runs_map.get(&workflow.id);
                         workflow_pipeline(&owner, &repo, &repo_full_name, workflow, latest_run)
                     })
                     .collect())

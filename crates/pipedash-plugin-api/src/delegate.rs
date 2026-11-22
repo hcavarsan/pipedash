@@ -227,6 +227,15 @@ macro_rules! plugin_impl {
             }
         ]);
     };
+    (@munch $ty:ident $items:tt [rerun_job $(, $($rest:tt)*)?] [$($out:tt)*]) => {
+        $crate::plugin_impl!(@munch $ty $items [$($($rest)*)?] [$($out)*
+            async fn rerun_job(
+                &self, pipeline_id: &str, run_number: i64, job_id: &str,
+            ) -> $crate::PluginResult<()> {
+                self.rerun_job_impl(pipeline_id, run_number, job_id).await
+            }
+        ]);
+    };
     (@munch $ty:ident $items:tt [enable_pipeline $(, $($rest:tt)*)?] [$($out:tt)*]) => {
         $crate::plugin_impl!(@munch $ty $items [$($($rest)*)?] [$($out)*
             async fn enable_pipeline(&self, pipeline_id: &str) -> $crate::PluginResult<()> {

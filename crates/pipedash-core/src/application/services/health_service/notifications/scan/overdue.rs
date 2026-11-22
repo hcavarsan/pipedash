@@ -12,6 +12,7 @@ use futures::stream::{
 use tokio::sync::Semaphore;
 use tokio::time::timeout;
 
+use super::super::pipelines::STUCK_QUEUE_EVENT;
 use super::super::{
     LocalNotification,
     NotificationState,
@@ -23,6 +24,7 @@ use super::{
 };
 use crate::application::services::pipeline_service::overdue::{
     overdue_run,
+    stuck_queue_run,
     tracks_overdue,
 };
 use crate::application::services::pipeline_service::{
@@ -34,11 +36,25 @@ use crate::domain::{
     AlertKind,
     DomainError,
     Pipeline,
-    PipelineStatus,
+    PipelineRun,
     Provider,
 };
 
 const OVERDUE_BUDGET: Duration = Duration::from_secs(20);
+
+pub(in super::super) struct Lag {
+    overdue: Option<String>,
+    stuck: Option<String>,
+}
+
+impl Lag {
+    fn of(runs: &[PipelineRun], now: DateTime<Utc>, queue_limit: i64) -> Self {
+        Self {
+            overdue: overdue_run(runs, now),
+            stuck: stuck_queue_run(runs, now, queue_limit),
+        }
+    }
+}
 
 pub(super) async fn check_overdue(job: Overdue) -> Done {
     let now = Utc::now();
@@ -54,13 +70,15 @@ pub(super) async fn check_overdue(job: Overdue) -> Done {
     )
     .await
     {
-        Ok(Err(DomainError::NotSupported(_))) => check_each(provider, job.selected, now).await,
+        Ok(Err(DomainError::NotSupported(_))) => {
+            check_each(provider, job.selected, now, job.queue_limit).await
+        }
         Ok(Ok(mut runs)) => job
             .selected
             .into_iter()
             .filter_map(|(pipeline, known)| {
-                let overdue = overdue_run(&runs.remove(&pipeline.id)?, now);
-                Some((pipeline, known, overdue))
+                let lag = Lag::of(&runs.remove(&pipeline.id)?, now, job.queue_limit);
+                Some((pipeline, known, lag))
             })
             .collect(),
         Ok(Err(_)) | Err(_) => Vec::new(),
@@ -73,8 +91,8 @@ pub(super) async fn check_overdue(job: Overdue) -> Done {
 }
 
 async fn check_each(
-    provider: &dyn Provider, selected: Vec<(Pipeline, bool)>, now: DateTime<Utc>,
-) -> Vec<(Pipeline, bool, Option<String>)> {
+    provider: &dyn Provider, selected: Vec<(Pipeline, bool)>, now: DateTime<Utc>, queue_limit: i64,
+) -> Vec<(Pipeline, bool, Lag)> {
     let permits = Semaphore::new(OVERDUE_CONCURRENT_CHECKS);
     let mut running: FuturesUnordered<_> = selected
         .into_iter()
@@ -89,9 +107,9 @@ async fn check_each(
                 .await
                 .ok()?
                 .ok()?;
-                let overdue = overdue_run(&runs, now);
+                let lag = Lag::of(&runs, now, queue_limit);
 
-                Some((pipeline, known, overdue))
+                Some((pipeline, known, lag))
             }
         })
         .collect();
@@ -107,7 +125,7 @@ async fn check_each(
 
 impl NotificationState {
     pub(super) fn overdue_job(
-        &self, target: &Target, pipelines: &[Pipeline], limit: usize,
+        &self, target: &Target, pipelines: &[Pipeline], limit: usize, queue_limit: i64,
     ) -> Option<Overdue> {
         let marks = self.pipelines.get(&target.id);
         let mark_of = |pipeline: &Pipeline| marks.and_then(|marks| marks.get(&pipeline.id));
@@ -126,7 +144,7 @@ impl NotificationState {
             .into_iter()
             .map(|pipeline| {
                 let known = mark_of(pipeline).is_some_and(|mark| {
-                    mark.checked_at.is_some() || mark.status != PipelineStatus::Running
+                    mark.checked_at.is_some() || mark.status != pipeline.status
                 });
 
                 (pipeline.clone(), known)
@@ -137,14 +155,15 @@ impl NotificationState {
             id: target.id,
             provider: Arc::clone(&target.provider),
             selected,
+            queue_limit,
         })
     }
 
     pub(super) fn settle_overdue(
-        &mut self, id: i64, checked: Vec<(Pipeline, bool, Option<String>)>, wall: DateTime<Utc>,
+        &mut self, id: i64, checked: Vec<(Pipeline, bool, Lag)>, wall: DateTime<Utc>,
     ) -> Vec<LocalNotification> {
         let mut found = Vec::new();
-        for (pipeline, known, overdue) in checked {
+        for (pipeline, known, lag) in checked {
             let Some(mark) = self
                 .pipelines
                 .get_mut(&id)
@@ -153,12 +172,16 @@ impl NotificationState {
                 continue;
             };
             mark.checked_at = Some(wall);
-            let Some(run) = overdue else {
-                continue;
-            };
-            let changed = mark.overdue.as_deref() != Some(run.as_str());
-            mark.overdue = Some(run);
-            if known && changed {
+            let stuck = replace_run(&mut mark.stuck, lag.stuck);
+            let slow = replace_run(&mut mark.overdue, lag.overdue);
+            if known && stuck {
+                found.push(self.pipeline_notice(
+                    &pipeline,
+                    STUCK_QUEUE_EVENT,
+                    AlertKind::StuckQueue,
+                ));
+            }
+            if known && slow {
                 found.push(self.pipeline_notice(
                     &pipeline,
                     "is running longer than usual",
@@ -169,4 +192,14 @@ impl NotificationState {
 
         found
     }
+}
+
+fn replace_run(slot: &mut Option<String>, run: Option<String>) -> bool {
+    let Some(run) = run else {
+        return false;
+    };
+    let changed = slot.as_deref() != Some(run.as_str());
+    *slot = Some(run);
+
+    changed
 }

@@ -38,7 +38,15 @@ export interface LocalNotificationSettings {
   pushProblem: string | null
 }
 
-export type AlertKind = 'failed' | 'degraded' | 'long_run' | 'outage' | 'recovered' | 'finished' | 'test'
+export type AlertKind =
+  | 'failed'
+  | 'degraded'
+  | 'long_run'
+  | 'stuck_queue'
+  | 'outage'
+  | 'recovered'
+  | 'finished'
+  | 'test'
 
 export type PreferenceKind = Exclude<AlertKind, 'test' | 'finished'>
 

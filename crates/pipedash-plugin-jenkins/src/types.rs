@@ -24,12 +24,7 @@ pub(crate) struct Job {
     pub _class: Option<String>,
     #[serde(rename = "lastBuild")]
     #[serde(default)]
-    pub last_build: Option<BuildRef>,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct BuildRef {
-    pub number: i64,
+    pub last_build: Option<Build>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -145,6 +140,7 @@ pub(crate) struct JobsResponse {
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct JobBuildsResponse {
+    #[serde(rename = "allBuilds")]
     pub builds: Vec<Build>,
 }
 

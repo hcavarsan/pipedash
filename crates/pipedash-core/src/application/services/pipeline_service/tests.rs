@@ -329,6 +329,53 @@ fn typical_duration_is_the_median_of_positive_successful_durations() {
 }
 
 #[tokio::test]
+async fn refresh_marks_a_pipeline_whose_run_waits_in_the_queue_past_the_limit() {
+    let h = Harness::new().await;
+    let (provider_id, _) = h.add_stub(StubProvider::new).await;
+    let id = format!("stub__{provider_id}__build");
+    let queued: Pipeline = serde_json::from_value(json!({
+        "id": id, "provider_id": provider_id, "provider_type": "stub",
+        "name": "build", "status": "pending", "repository": "build",
+        "last_run": Utc::now(), "last_updated": Utc::now()
+    }))
+    .unwrap();
+    h.repository
+        .update_pipelines_cache(provider_id, &[queued])
+        .await
+        .unwrap();
+    let history = |waiting_minutes: i64, awaiting_review: bool| {
+        let mut waiting = run(2, "pending", waiting_minutes, None);
+        waiting.pipeline_id = id.clone();
+        if awaiting_review {
+            waiting
+                .metadata
+                .insert("awaiting_review".into(), json!(true));
+        }
+        let mut done = run(1, "success", 120, Some(5));
+        done.pipeline_id = id.clone();
+        vec![waiting, done]
+    };
+    for (runs, expected) in [
+        (history(20, false), Some("2")),
+        (history(10, false), None),
+        (history(20, true), None),
+    ] {
+        h.repository.clear_cached_run_history(&id).await.unwrap();
+        h.repository.cache_run_history(&id, &runs).await.unwrap();
+        h.pipeline_service
+            .update_overdue_pipelines(provider_id)
+            .await;
+        let cached = h
+            .pipeline_service
+            .get_cached_pipelines(Some(provider_id))
+            .await
+            .unwrap();
+
+        assert_eq!(cached[0].stuck_queue_run.as_deref(), expected);
+    }
+}
+
+#[tokio::test]
 async fn refresh_flags_a_running_pipeline_far_past_its_usual_duration() {
     let h = Harness::new().await;
     let repository = &h.repository;
@@ -486,6 +533,7 @@ async fn no_auth_providers_refuse_actions_from_their_saved_config() {
     assert!(refused(service.force_cancel_run(&public, 1).await));
     assert!(refused(service.rerun_run(&public, 1).await.map(|_| ())));
     assert!(refused(service.rerun_failed_jobs(&public, 1).await));
+    assert!(refused(service.rerun_job(&public, 1, "501").await));
     assert!(refused(
         service
             .review_run(&public, 1, pipedash_plugin_api::ReviewDecision::Approve)
@@ -704,6 +752,62 @@ async fn retained_history_does_not_suppress_run_mutation_announcements() {
             .await
             .unwrap(),
         1
+    );
+}
+
+fn log_node(id: &str, kind: crate::domain::LogNodeKind) -> crate::domain::LogNode {
+    crate::domain::LogNode {
+        id: id.to_string(),
+        parent_id: None,
+        kind,
+        name: id.to_string(),
+        status: PipelineStatus::Failed,
+        started_at: None,
+        finished_at: None,
+        log: None,
+        web_url: None,
+    }
+}
+
+#[tokio::test]
+async fn rerun_job_sends_only_a_job_of_that_run_and_announces_it() {
+    let h = Harness::new().await;
+    let (pipeline_id, stub) = mutable_run(&h, STUB).await;
+    *stub.run_action_result.lock().unwrap() = Ok(());
+    *stub.log_nodes.lock().unwrap() = vec![
+        log_node("501", crate::domain::LogNodeKind::Job),
+        log_node("501-1", crate::domain::LogNodeKind::Step),
+    ];
+    let service = &h.pipeline_service;
+
+    let refused = service.rerun_job(&pipeline_id, 7, "501").await;
+    assert!(
+        matches!(refused, Err(DomainError::NotSupported(_))),
+        "{refused:?}"
+    );
+
+    let mut rerunnable = stub.run_response.lock().unwrap().clone().unwrap().unwrap();
+    rerunnable
+        .metadata
+        .insert("can_rerun_jobs".to_string(), json!(true));
+    *stub.run_response.lock().unwrap() = Some(Ok(rerunnable));
+
+    for foreign in ["999", "501-1"] {
+        let result = service.rerun_job(&pipeline_id, 7, foreign).await;
+        assert!(
+            matches!(result, Err(DomainError::NotFound(_))),
+            "{result:?}"
+        );
+    }
+    assert!(stub.rerun_jobs.lock().unwrap().is_empty());
+    assert!(announced_runs(&h).is_empty());
+
+    service.rerun_job(&pipeline_id, 7, "501").await.unwrap();
+
+    assert_eq!(*stub.rerun_jobs.lock().unwrap(), ["501"]);
+    assert_eq!(
+        announced_runs(&h),
+        vec![(Some(pipeline_id.clone()), Some(7))]
     );
 }
 
@@ -1662,6 +1766,39 @@ async fn the_default_history_policy_keeps_unbounded_cache_reconciliation() {
         .unwrap()
         .unwrap();
     assert!(!kept.metadata.contains_key("archived"));
+}
+
+#[tokio::test]
+async fn a_run_whose_review_state_changes_is_updated_in_the_cache() {
+    let h = Harness::new().await;
+    let (id, stub) = h.add_stub(StubProvider::new).await;
+    let target = pipeline(id, "web", PipelineStatus::Pending);
+    let mut waiting = stub_run(&target.id, 4, 0);
+    waiting.status = PipelineStatus::Pending;
+    waiting
+        .metadata
+        .insert("awaiting_review".into(), serde_json::json!(true));
+    h.repository
+        .cache_run_history(&target.id, std::slice::from_ref(&waiting))
+        .await
+        .unwrap();
+    let mut approved = waiting.clone();
+    approved
+        .metadata
+        .insert("awaiting_review".into(), serde_json::json!(false));
+
+    h.pipeline_service
+        .merge_run_cache(stub.as_ref(), &target, &[approved])
+        .await
+        .unwrap();
+
+    let cached = h
+        .repository
+        .get_cached_run(&target.id, 4)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(cached.metadata["awaiting_review"], serde_json::json!(false));
 }
 
 #[tokio::test]

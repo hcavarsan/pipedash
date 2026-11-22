@@ -69,6 +69,10 @@ export function createRunsApi(client: HttpClient): RunsService {
       await client.requestVoid('POST', `${runPath(pipelineId, runNumber)}/rerun-failed-jobs`)
     },
 
+    rerunJob: async (pipelineId, runNumber, jobId) => {
+      await client.requestVoid('POST', `${runPath(pipelineId, runNumber)}/jobs/${encodeURIComponent(jobId)}/rerun`)
+    },
+
     rerunRun: async (pipelineId, runNumber) => client.post<TriggerResult>(`${runPath(pipelineId, runNumber)}/rerun`),
 
     enablePipeline: async (pipelineId) => {

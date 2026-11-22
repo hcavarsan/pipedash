@@ -3,6 +3,7 @@ use pipedash_plugin_api::{
     status_page_field,
     ConfigField,
     ConfigSchema,
+    ConfigScope,
     ConfigSection,
     Feature,
     Permission,
@@ -152,7 +153,8 @@ fn create_config_schema() -> ConfigSchema {
                 .description(
                     "Path on the machine running Pipedash, not in your browser. Defaults to $KUBECONFIG or ~/.kube/config. Separate files with ':' (';' on Windows). Ignored when Kubeconfig content is set. Monitoring needs get/list permissions. Reconciliation also needs patch permission. Run logs also need list on events in each monitored namespace.",
                 )
-                .default_text(&kubernetes::default_kubeconfig_path()),
+                .default_text(&kubernetes::default_kubeconfig_path())
+                .scope(ConfigScope::Cluster),
         )
         .add_field(ConfigField::kubeconfig_content(
             kubernetes::KUBECONFIG_CONTENT_KEY,
@@ -167,14 +169,16 @@ fn create_config_schema() -> ConfigSchema {
             )
             .description(
                 "Context from the kubeconfig that points at the Flux cluster. Leave empty to use current-context.",
-            ),
+            )
+            .scope(ConfigScope::Context),
         )
         .add_field(
             ConfigField::text("namespaces", ConfigSection::Settings, "Namespaces")
                 .description(
                     "Comma-separated namespaces to monitor, for example flux-system,apps. Leave empty to monitor Kustomizations and HelmReleases in every namespace, which needs cluster-wide list permission. List your namespaces when your RBAC is namespace-scoped.",
                 )
-                .validation(kubernetes::NAMESPACE_LIST_REGEX, kubernetes::NAMESPACE_LIST_MESSAGE),
+                .validation(kubernetes::NAMESPACE_LIST_REGEX, kubernetes::NAMESPACE_LIST_MESSAGE)
+                .scope(ConfigScope::Resources),
         )
         .add_field(
             ConfigField::text("flux_namespace", ConfigSection::Settings, "Flux namespace")

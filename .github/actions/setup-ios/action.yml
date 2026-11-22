@@ -12,7 +12,7 @@ runs:
   using: composite
   steps:
     - name: Install mise tools
-      uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+      uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
       with:
         cache: ${{ inputs.cache }}
         cache_key_prefix: mise-all-v1
@@ -23,7 +23,7 @@ runs:
       run: mise run install
 
     - name: Install Ruby
-      uses: ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94 # v1.336.0
+      uses: ruby/setup-ruby@b3aaceaef7e0ee231b499e7b5f49c03fc1d32199 # v1.338.0
       with:
         ruby-version: "3.4"
         working-directory: ios

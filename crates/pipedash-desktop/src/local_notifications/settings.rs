@@ -93,6 +93,7 @@ pub(super) async fn capture_authorization(core: &CoreContext) -> Result<store::A
         providers,
         proxy_url: config.general.proxy_url.clone(),
         status_pages_enabled: config.general.status_pages_enabled,
+        queue_alert_minutes: config.general.queue_alert_minutes,
     })
 }
 

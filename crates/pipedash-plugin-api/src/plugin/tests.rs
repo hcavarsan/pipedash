@@ -124,6 +124,29 @@ fn default_run_actions_follow_status_and_capabilities() {
 }
 
 #[test]
+fn default_run_actions_keep_force_cancel_and_job_reruns_off_where_they_cannot_work() {
+    let plugin = plugin(PluginCapabilities {
+        cancel: true,
+        force_cancel: true,
+        ..PluginCapabilities::default()
+    });
+    let empty = HashMap::new();
+    let facts = pipeline(&empty);
+    let reruns = HashMap::from([
+        ("can_rerun_failed_jobs".to_string(), json!(true)),
+        ("can_rerun_jobs".to_string(), json!(true)),
+    ]);
+
+    let queued = plugin.run_actions(&facts, &run(PipelineStatus::Pending, &reruns, None));
+    assert!(queued.cancel.allowed && !queued.force_cancel.allowed);
+
+    for status in [PipelineStatus::Running, PipelineStatus::Pending] {
+        let active = plugin.run_actions(&facts, &run(status, &reruns, None));
+        assert!(!active.rerun_failed.allowed && !active.rerun_job.allowed);
+    }
+}
+
+#[test]
 fn default_run_display_lists_branch_and_actor() {
     let empty = HashMap::new();
     let facts = pipeline(&empty);

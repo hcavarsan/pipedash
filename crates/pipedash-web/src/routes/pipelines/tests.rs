@@ -353,3 +353,42 @@ async fn prepare_trigger_keeps_the_provider_error_status() {
     assert_eq!(missing_status, StatusCode::NOT_FOUND);
     assert_eq!(rejected_status, StatusCode::FORBIDDEN);
 }
+
+#[tokio::test]
+async fn cctray_feed_lists_cached_pipelines_with_links_back() {
+    let data_dir = std::env::temp_dir().join(format!("pipedash-cctray-{}", std::process::id()));
+    let (app, provider_id, pipeline_service) = app_with_stub(&data_dir, RunsStub::default()).await;
+
+    fetch_now(&pipeline_service, provider_id).await;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/cctray.xml")
+                .header("host", "dash.example.com")
+                .header("x-forwarded-proto", "https")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let content_type = response.headers()["content-type"].clone();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let xml = String::from_utf8(body.to_vec()).unwrap();
+    let _ = std::fs::remove_dir_all(&data_dir);
+
+    assert_eq!(status, StatusCode::OK, "{xml}");
+    assert_eq!(content_type, "application/xml");
+    assert!(
+        xml.contains("<Project name=\"build\" activity=\"Building\" lastBuildStatus=\"Unknown\""),
+        "{xml}"
+    );
+    assert!(
+        xml.contains(&format!(
+            "webUrl=\"https://dash.example.com/pipelines/stub__{provider_id}__build\""
+        )),
+        "{xml}"
+    );
+}

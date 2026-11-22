@@ -12,6 +12,7 @@ use chrono::{
     DateTime,
     Utc,
 };
+use pipedash_core::domain::provider_draft::ProviderDraft;
 use pipedash_core::domain::{
     DomainError,
     FailureKind,
@@ -26,7 +27,10 @@ use pipedash_core::{
     CoreContext,
     NoOpEventBus,
 };
-use pipedash_plugin_api::PluginError;
+use pipedash_plugin_api::{
+    AuthMode,
+    PluginError,
+};
 use tempfile::TempDir;
 use tokio::sync::Mutex;
 
@@ -245,6 +249,54 @@ async fn field_options_work_when_the_plugin_rejects_the_partial_form() {
         .unwrap();
 
     assert_eq!(contexts, ["ctx-a", "ctx-b"]);
+}
+
+#[tokio::test]
+async fn moving_the_kubeconfig_path_asks_for_a_new_selection() {
+    let h = Harness::new().await;
+    for (provider_type, path_key, selection) in [
+        ("fluxcd", "kubeconfig", "flux-system__kustomization__apps"),
+        ("tekton", "kubeconfig_path", "ci__build"),
+    ] {
+        let id = h
+            .core
+            .provider_service
+            .repository()
+            .add_provider(&provider(
+                provider_type,
+                provider_type,
+                "",
+                30,
+                &[
+                    (path_key, "/tmp/cluster-a.yaml"),
+                    ("context", "production"),
+                    ("selected_items", selection),
+                ],
+            ))
+            .await
+            .unwrap();
+        let draft = ProviderDraft {
+            provider_type: provider_type.to_string(),
+            name: provider_type.to_string(),
+            auth_mode: AuthMode::Token,
+            values: HashMap::from([
+                (path_key.to_string(), "/tmp/cluster-b.yaml".to_string()),
+                ("context".to_string(), "production".to_string()),
+                ("selected_items".to_string(), selection.to_string()),
+            ]),
+            selected_pipeline_ids: None,
+            provider_id: Some(id),
+        };
+
+        let checked = h
+            .core
+            .provider_service
+            .validate_draft(&draft)
+            .await
+            .unwrap();
+
+        assert!(checked.selection_needs_refresh, "{provider_type}");
+    }
 }
 
 #[tokio::test]

@@ -15,6 +15,7 @@ use pipedash_plugin_api::{
     ClientOptions,
     ConfigField,
     ConfigSchema,
+    ConfigScope,
     ConfigSection,
     PaginatedAvailablePipelines,
     PaginatedResponse,
@@ -166,9 +167,21 @@ impl StubPlugin {
                 text("huge", ConfigSection::Connection, "Huge")
                     .validation("(((a{100}){100}){100}){100}", "unused"),
             )
-            .add_field(text("kubeconfig", ConfigSection::Connection, "Kubeconfig"))
-            .add_field(text("context", ConfigSection::Connection, "Context"))
-            .add_field(text("namespaces", ConfigSection::Settings, "Namespaces"))
+            .add_field(
+                text("kubeconfig", ConfigSection::Connection, "Kubeconfig")
+                    .scope(ConfigScope::Cluster),
+            )
+            .add_field(
+                text("cluster_file", ConfigSection::Connection, "Cluster file")
+                    .scope(ConfigScope::Cluster),
+            )
+            .add_field(
+                text("context", ConfigSection::Connection, "Context").scope(ConfigScope::Context),
+            )
+            .add_field(
+                text("namespaces", ConfigSection::Settings, "Namespaces")
+                    .scope(ConfigScope::Resources),
+            )
             .add_auth_field(
                 &[AuthMode::Token],
                 ConfigField::token("Token", "Access token"),

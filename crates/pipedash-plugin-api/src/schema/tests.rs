@@ -15,6 +15,7 @@ fn field(key: &str) -> ConfigField {
         validation_message: None,
         section: ConfigSection::Connection,
         auth_modes: Vec::new(),
+        scope: None,
     }
 }
 

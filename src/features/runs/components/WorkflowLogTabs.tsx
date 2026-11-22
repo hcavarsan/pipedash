@@ -12,6 +12,7 @@ interface WorkflowLogTabsProps {
   pipelineName: string
   runNumber: number
   providerName: string
+  providerType: string
   narrow: boolean
   details: ReactNode
 }
@@ -23,6 +24,7 @@ export function WorkflowLogTabs({
   pipelineName,
   runNumber,
   providerName,
+  providerType,
   narrow,
   details,
 }: WorkflowLogTabsProps): ReactNode {
@@ -58,6 +60,7 @@ export function WorkflowLogTabs({
             pipelineName={pipelineName}
             runNumber={runNumber}
             providerName={providerName}
+            providerType={providerType}
             narrow={narrow}
             viewerRef={attachViewer}
           />

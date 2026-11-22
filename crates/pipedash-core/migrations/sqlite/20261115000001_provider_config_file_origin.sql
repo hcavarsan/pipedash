@@ -1,0 +1,1 @@
+ALTER TABLE providers ADD COLUMN from_config_file INTEGER NOT NULL DEFAULT 0;

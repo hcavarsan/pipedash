@@ -494,3 +494,23 @@ async fn only_get_downloads_skip_the_token() {
         StatusCode::UNAUTHORIZED
     );
 }
+
+#[tokio::test]
+async fn cctray_feed_requires_the_token() {
+    let app = app_with_token();
+
+    assert_eq!(
+        send(&app, Method::GET, "/api/v1/pipelines/cctray.xml", None).await,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_ne!(
+        send(
+            &app,
+            Method::GET,
+            "/api/v1/pipelines/cctray.xml",
+            Some(TOKEN)
+        )
+        .await,
+        StatusCode::UNAUTHORIZED
+    );
+}

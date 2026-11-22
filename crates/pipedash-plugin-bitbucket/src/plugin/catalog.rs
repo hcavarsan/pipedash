@@ -146,13 +146,32 @@ impl BitbucketPlugin {
     }
 
     pub(super) async fn fetch_pipelines_impl(&self) -> PluginResult<Vec<Pipeline>> {
-        let repos = self.fetch_all_repositories().await?;
+        let mut results: Vec<_> = match selected_items(&self.config) {
+            Some(mut selected) => {
+                selected.sort_unstable();
+                selected.dedup();
+                let requests: Vec<_> = selected
+                    .iter()
+                    .map(|full_name| self.selected_pipeline(full_name))
+                    .collect();
+                join_buffered(requests, 8).await
+            }
+            None => {
+                let repos = self.fetch_all_repositories().await?;
+                let requests: Vec<_> = repos
+                    .iter()
+                    .map(|repo| self.repository_pipeline(repo))
+                    .collect();
+                join_buffered(requests, 8).await
+            }
+        };
 
-        let requests: Vec<_> = repos
+        if let Some(denied) = results
             .iter()
-            .map(|repo| self.repository_pipeline(repo))
-            .collect();
-        let results: Vec<_> = join_buffered(requests, 8).await;
+            .position(|result| matches!(result, Err(PluginError::AuthenticationFailed(_))))
+        {
+            return results.swap_remove(denied).map(|_| Vec::new());
+        }
 
         Ok(collect_partial(
             results,
@@ -161,6 +180,11 @@ impl BitbucketPlugin {
         .into_iter()
         .flatten()
         .collect())
+    }
+
+    async fn selected_pipeline(&self, full_name: &str) -> PluginResult<Option<Pipeline>> {
+        let repo = self.client()?.get_repository(full_name).await?;
+        self.repository_pipeline(&repo).await
     }
 
     async fn repository_pipeline(

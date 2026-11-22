@@ -10,9 +10,9 @@ use pipedash_plugin_api::config::{
 };
 use pipedash_plugin_api::pagination::paginate;
 use pipedash_plugin_api::support::{
+    collect_tolerant,
     organizations,
     require_configured,
-    try_buffered,
     uuid_id,
     CONCURRENCY,
 };
@@ -148,7 +148,7 @@ plugin_impl!(AzureDevOpsPlugin [
             .iter()
             .map(|project| self.fetch_project_pipelines(project))
             .collect();
-        let results = try_buffered(requests, CONCURRENCY).await?;
+        let results = collect_tolerant(requests, CONCURRENCY, |_| {}).await?;
 
         Ok(results.into_iter().flatten().collect())
     }

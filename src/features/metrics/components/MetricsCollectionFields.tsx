@@ -130,7 +130,6 @@ export function MetricsCollectionFields({
             value={retentionDraft}
             onChange={onRetentionChange}
             onBlur={onRetentionCommit}
-            onEnter={onRetentionCommit}
             error={retentionError}
             disabled={retentionLocked}
           />

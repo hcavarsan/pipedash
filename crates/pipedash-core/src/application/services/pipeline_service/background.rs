@@ -28,17 +28,8 @@ impl PipelineService {
         let Some(metrics_service) = self.metrics_service.clone() else {
             return;
         };
-        let inflight = Arc::clone(&self.metrics_inflight);
-        if !inflight
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(pipeline_id.clone())
-        {
+        let Some(guard) = InflightGuard::claim(&self.metrics_inflight, pipeline_id.clone()) else {
             return;
-        }
-        let guard = InflightGuard {
-            inflight,
-            pipeline_id: pipeline_id.clone(),
         };
         let permits = Arc::clone(&self.metrics_permits);
         let provider_service = Arc::clone(&self.provider_service);
@@ -95,9 +86,25 @@ impl PipelineService {
     }
 }
 
-struct InflightGuard {
+pub(super) struct InflightGuard {
     inflight: Arc<StdMutex<HashSet<String>>>,
-    pipeline_id: String,
+    key: String,
+}
+
+impl InflightGuard {
+    pub(super) fn claim(inflight: &Arc<StdMutex<HashSet<String>>>, key: String) -> Option<Self> {
+        if !inflight
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(key.clone())
+        {
+            return None;
+        }
+        Some(Self {
+            inflight: Arc::clone(inflight),
+            key,
+        })
+    }
 }
 
 impl Drop for InflightGuard {
@@ -105,7 +112,7 @@ impl Drop for InflightGuard {
         self.inflight
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .remove(&self.pipeline_id);
+            .remove(&self.key);
     }
 }
 

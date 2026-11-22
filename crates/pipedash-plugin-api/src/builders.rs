@@ -12,6 +12,7 @@ use crate::schema::{
     ConfigField,
     ConfigFieldType,
     ConfigSchema,
+    ConfigScope,
     ConfigSection,
     TableSchema,
 };
@@ -40,6 +41,7 @@ impl ConfigField {
             validation_regex: None,
             validation_message: None,
             auth_modes: Vec::new(),
+            scope: None,
         }
     }
 
@@ -73,6 +75,11 @@ impl ConfigField {
 
     pub fn required(mut self) -> Self {
         self.required = true;
+        self
+    }
+
+    pub fn scope(mut self, scope: ConfigScope) -> Self {
+        self.scope = Some(scope);
         self
     }
 

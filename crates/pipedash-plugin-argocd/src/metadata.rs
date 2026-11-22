@@ -58,7 +58,8 @@ fn create_config_schema() -> ConfigSchema {
             .description(
                 "Path on the machine running Pipedash, not in your browser. Defaults to $KUBECONFIG or ~/.kube/config. Separate files with ':' (';' on Windows). Ignored when Kubeconfig content is set. Needs get and list on applications.argoproj.io. Syncing and cancelling also need patch. Pod health and pod logs need list on pods, replicasets and jobs. Pod logs also need get on pods/log and list on events.",
             )
-            .default_text(&kubernetes::default_kubeconfig_path()),
+            .default_text(&kubernetes::default_kubeconfig_path())
+            .scope(ConfigScope::Cluster),
         )
         .add_auth_field(
             KUBE,
@@ -77,7 +78,8 @@ fn create_config_schema() -> ConfigSchema {
             )
             .description(
                 "Context that points at the cluster where ArgoCD runs. Leave empty to use current-context.",
-            ),
+            )
+            .scope(ConfigScope::Context),
         )
         .add_auth_field(
             KUBE,
@@ -93,7 +95,8 @@ fn create_config_schema() -> ConfigSchema {
             .validation(
                 kubernetes::NAMESPACE_LIST_REGEX,
                 kubernetes::NAMESPACE_LIST_MESSAGE,
-            ),
+            )
+            .scope(ConfigScope::Resources),
         )
         .add_field(status_page_field())
 }

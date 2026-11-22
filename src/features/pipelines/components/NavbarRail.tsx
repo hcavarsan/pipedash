@@ -7,6 +7,7 @@ import type { PipelineView } from '../../../types/views'
 import { formatCount } from '../../../utils/formatCount'
 import { ProviderAvatar, providerStatus } from '../../providers/components/ProviderPresentation'
 import { useProviderNavigation } from '../../providers/queries/useProviderNavigation'
+import { usePipelineNavigation } from '../queries/usePipelineViewQueries'
 import type { NavNode } from '../utils/navTree'
 import { RailReadFailures, type ReadFailure } from './NavbarReadFailures'
 import { ICON_TILE, type MenuProps, NavTile, VIEW_ICONS } from './NavbarTreeRow'
@@ -129,13 +130,17 @@ export const NavbarRail = ({
   viewMenu,
   readFailures,
 }: NavbarRailProps): ReactNode => {
-  const totalPipelines = providers.reduce((sum, p) => sum + p.pipeline_count, 0)
+  const totalPipelines = usePipelineNavigation('').data?.total_pipelines
+  const allLabel =
+    loading || error || totalPipelines === undefined
+      ? 'All providers'
+      : `All providers · ${formatCount(totalPipelines, 'pipeline')}`
 
   return (
     <ScrollArea flex={1} py="sm" scrollbarSize={4}>
       <Stack gap="2xs" align="center">
         <RailItem
-          label={`All providers · ${formatCount(totalPipelines, 'pipeline')}`}
+          label={allLabel}
           to="/pipelines"
           active={allActive}
           icon={<NavTile icon={IconStack2} size={ICON_TILE.rail} />}

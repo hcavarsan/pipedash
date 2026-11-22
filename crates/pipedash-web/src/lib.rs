@@ -283,8 +283,15 @@ fn with_frontend(router: Router<AppState>, _base_path: Option<String>) -> Router
     router.fallback(get(|| async { StatusCode::NOT_FOUND }))
 }
 
+#[derive(Clone)]
+pub(crate) struct FrontendBasePath(pub(crate) String);
+
 pub fn app(state: AppState, frontend_base_path: Option<String>) -> Router {
-    guarded(with_frontend(routes(), frontend_base_path), state)
+    let link_base = FrontendBasePath(frontend_base_path.clone().unwrap_or_default());
+    guarded(
+        with_frontend(routes(), frontend_base_path).layer(axum::Extension(link_base)),
+        state,
+    )
 }
 
 pub fn host_router(state: AppState) -> Router {

@@ -68,12 +68,13 @@ impl Presenter {
         let read_only = read_only[&pipeline.provider_id];
 
         let typical = typical_duration(runs).or(pipeline.typical_duration_seconds);
+        let queue_limit = self.provider_service.queue_limit_seconds().await;
         let now = Utc::now();
         let plugin = self.registry.get(&pipeline.provider_type);
         let facts = pipeline_facts(pipeline);
 
         for run in runs.iter_mut() {
-            run.pace = run_pace(run, typical, now);
+            run.pace = run_pace(run, typical, queue_limit, now);
             let Some(plugin) = plugin else {
                 continue;
             };
@@ -140,6 +141,7 @@ fn block_run_actions(actions: &mut RunActionState) {
         &mut actions.force_cancel,
         &mut actions.rerun,
         &mut actions.rerun_failed,
+        &mut actions.rerun_job,
         &mut actions.review,
     ] {
         *action = read_only_block();

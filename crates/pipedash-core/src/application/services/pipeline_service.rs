@@ -77,8 +77,9 @@ type RefreshFlight = Shared<BoxFuture<'static, DomainResult<Vec<RefreshResult>>>
 
 #[derive(Clone, PartialEq)]
 struct RunTiming {
-    typical: i64,
+    typical: Option<i64>,
     overdue: Option<String>,
+    stuck: Option<String>,
 }
 
 pub struct PipelineService {
@@ -97,6 +98,7 @@ pub struct PipelineService {
     background: StdMutex<JoinSet<()>>,
     root: CancellationToken,
     metrics_inflight: Arc<StdMutex<HashSet<String>>>,
+    overdue_inflight: Arc<StdMutex<HashSet<String>>>,
     metrics_permits: Arc<Semaphore>,
     presenter: Arc<Presenter>,
 }
@@ -125,6 +127,7 @@ impl PipelineService {
             background: StdMutex::new(JoinSet::new()),
             root: CancellationToken::new(),
             metrics_inflight: Arc::new(StdMutex::new(HashSet::new())),
+            overdue_inflight: Arc::new(StdMutex::new(HashSet::new())),
             metrics_permits: Arc::new(Semaphore::new(METRICS_CONCURRENCY)),
             presenter,
         }

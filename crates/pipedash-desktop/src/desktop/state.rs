@@ -183,6 +183,15 @@ impl Inner {
             }
         }
     }
+    pub(super) fn test_notification_refusal(&self) -> Option<&'static str> {
+        if !self.active() {
+            return Some("Unlock and initialize Pipedash before sending a test");
+        }
+        if !self.saved.settings.notifications_enabled {
+            return Some("Turn on system notifications before sending a test");
+        }
+        None
+    }
     pub(super) fn status(&self, prefs: &NotificationPreferences) -> DesktopStatus {
         DesktopStatus {
             revision: self.revision,
@@ -196,7 +205,7 @@ impl Inner {
             },
             tray_status: tray::tray_status(self, prefs),
             unread: self.unread(),
-            ready: self.vault_ready,
+            ready: self.active(),
             notification_preference_imported: self.saved.notification_preference_imported,
             error: self
                 .settings_error

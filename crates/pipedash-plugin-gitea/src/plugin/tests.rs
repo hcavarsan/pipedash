@@ -276,7 +276,7 @@ async fn pipelines_find_latest_run_of_each_workflow_beyond_first_page() {
     assert_eq!(
         summary,
         [
-            ("claude/smoke__ci/build__test.yaml", PipelineStatus::Running),
+            ("claude/smoke__ci/build__test.yaml", PipelineStatus::Pending),
             ("claude/smoke__ci/lint.yaml", PipelineStatus::Failed),
         ]
     );
@@ -338,15 +338,30 @@ async fn capped_run_pages_without_total_preserve_history_until_empty_page() {
 }
 
 #[tokio::test]
-async fn one_failing_repository_fails_the_whole_fetch() {
+async fn a_missing_repository_keeps_the_other_repositories_pipelines() {
     let (mut plugin, server) = stub_gitea().await;
     plugin.config.insert(
         "selected_items".to_string(),
         "claude/smoke__ci,claude/missing".to_string(),
     );
-    let error = plugin.fetch_pipelines().await.unwrap_err();
-    assert!(matches!(error, PluginError::PipelineNotFound(_)), "{error}");
+    let pipelines = plugin.fetch_pipelines().await.unwrap();
+    plugin
+        .config
+        .insert("selected_items".to_string(), "claude/missing".to_string());
+    let only_missing = plugin.fetch_pipelines().await;
     server.abort();
+
+    assert_eq!(
+        pipelines.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+        [
+            "claude/smoke__ci/build__test.yaml",
+            "claude/smoke__ci/lint.yaml"
+        ]
+    );
+    assert!(
+        matches!(only_missing, Err(PluginError::PipelineNotFound(_))),
+        "{only_missing:?}"
+    );
 }
 
 #[tokio::test]
@@ -394,6 +409,24 @@ async fn cancel_reports_not_supported_when_endpoint_is_missing() {
         .unwrap_err();
     assert!(matches!(error, PluginError::NotSupported(_)), "{error}");
     server.abort();
+}
+
+#[test]
+fn dispatch_inputs_reach_gitea_as_strings() {
+    let body = gitea_dispatch_body(Some(serde_json::json!({
+        "ref": "main",
+        "inputs.dry_run": false,
+        "inputs.replicas": 3,
+        "inputs.greeting": "hi",
+    })));
+
+    assert_eq!(
+        body,
+        serde_json::json!({
+            "ref": "main",
+            "inputs": {"dry_run": "false", "replicas": "3", "greeting": "hi"},
+        })
+    );
 }
 
 #[tokio::test]
@@ -575,7 +608,7 @@ async fn run_jobs_and_steps_become_log_nodes_across_pages() {
                 "103",
                 None,
                 LogNodeKind::Job,
-                PipelineStatus::Running,
+                PipelineStatus::Pending,
                 Some(LogAvailability::Pending)
             ),
             ("104", None, LogNodeKind::Job, PipelineStatus::Skipped, None),

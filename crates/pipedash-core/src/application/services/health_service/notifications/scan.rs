@@ -31,7 +31,10 @@ use self::observations::{
     poll,
     read_feed,
 };
-use self::overdue::check_overdue;
+use self::overdue::{
+    check_overdue,
+    Lag,
+};
 use super::super::checks::check_instance;
 use super::super::state::CheckOutcome;
 use super::super::{
@@ -44,6 +47,7 @@ use super::{
     LocalNotification,
     NotificationState,
 };
+use crate::application::services::provider_service::config::queue_limit_seconds;
 use crate::application::services::provider_service::plugin::{
     controller_health,
     plugin_provider,
@@ -77,6 +81,12 @@ struct Overdue {
     id: i64,
     provider: Arc<dyn Provider>,
     selected: Vec<(Pipeline, bool)>,
+    queue_limit: i64,
+}
+
+pub(super) struct ScanOptions {
+    pub(super) status_pages_enabled: bool,
+    pub(super) queue_limit: i64,
 }
 
 enum Job {
@@ -101,13 +111,14 @@ enum Done {
     },
     Overdue {
         id: i64,
-        checked: Vec<(Pipeline, bool, Option<String>)>,
+        checked: Vec<(Pipeline, bool, Lag)>,
     },
 }
 
 pub async fn refresh_notifications(
     providers: &[ProviderConfig], proxy_url: &str, status_pages_enabled: bool,
-    state: &mut NotificationState, deadline: Duration, registry: Arc<PluginRegistry>,
+    queue_alert_minutes: u32, state: &mut NotificationState, deadline: Duration,
+    registry: Arc<PluginRegistry>,
 ) -> DomainResult<Vec<LocalNotification>> {
     let http = Arc::new(HttpClientManager::new()?);
     http.set_proxy(proxy_url)?;
@@ -117,13 +128,17 @@ pub async fn refresh_notifications(
         Arc::new(move |config| plugin_provider(&registry, &http, config))
     };
     let controller = move |provider_type: &str| controller_health(&registry, provider_type);
+    let options = ScanOptions {
+        status_pages_enabled,
+        queue_limit: queue_limit_seconds(queue_alert_minutes),
+    };
 
     scan(
         providers,
         &build,
         &controller,
         &http,
-        status_pages_enabled,
+        &options,
         state,
         deadline,
     )
@@ -132,14 +147,14 @@ pub async fn refresh_notifications(
 
 pub(super) async fn scan(
     providers: &[ProviderConfig], build: &ProviderFactory,
-    controller: &(dyn Fn(&str) -> bool + Sync), http: &HttpClientManager,
-    status_pages_enabled: bool, state: &mut NotificationState, deadline: Duration,
+    controller: &(dyn Fn(&str) -> bool + Sync), http: &HttpClientManager, options: &ScanOptions,
+    state: &mut NotificationState, deadline: Duration,
 ) -> DomainResult<Vec<LocalNotification>> {
     let end = Instant::now() + deadline;
     let wall = Utc::now();
     let ids: HashSet<i64> = providers.iter().filter_map(|config| config.id).collect();
     state.retain_providers(&ids);
-    if !status_pages_enabled {
+    if !options.status_pages_enabled {
         state.drop_feeds();
     }
 
@@ -165,7 +180,8 @@ pub(super) async fn scan(
                 continue;
             }
         };
-        let source = status_pages_enabled
+        let source = options
+            .status_pages_enabled
             .then(|| provider.status_source().cloned())
             .flatten();
         state.set_feed(id, source.as_ref().map(|s| feed_subject(&feed_key(s))));
@@ -224,7 +240,7 @@ pub(super) async fn scan(
                     match polled {
                         Polled::Fetched(pipelines) => {
                             state.serve_overdue(target.id, wall);
-                            state.overdue_job(target, pipelines, share)
+                            state.overdue_job(target, pipelines, share, options.queue_limit)
                         }
                         _ => None,
                     }

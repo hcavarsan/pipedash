@@ -143,6 +143,47 @@ impl ConfigBackend for PostgresConfigBackend {
         ensure_found(affected, id)
     }
 
+    async fn mark_config_file_providers(&self, names: &[String]) -> DomainResult<()> {
+        sqlx::query(
+            "UPDATE providers SET from_config_file = TRUE WHERE NOT from_config_file AND name = ANY($1)",
+        )
+        .bind(names)
+        .execute(&self.pool)
+        .await
+        .map(|_| ())
+        .map_err(failed("mark config file providers"))
+    }
+
+    async fn list_config_file_providers(&self) -> DomainResult<Vec<(i64, String)>> {
+        sqlx::query_as("SELECT id, name FROM providers WHERE from_config_file")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(failed("list config file providers"))
+    }
+
+    async fn record_config_file_hash(&self, id: i64, hash: &str) -> DomainResult<()> {
+        sqlx::query(
+            "UPDATE providers SET from_config_file = TRUE, config_file_hash = $1 WHERE id = $2",
+        )
+        .bind(hash)
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map(|_| ())
+        .map_err(failed("record config file hash"))
+    }
+
+    async fn config_file_hash(&self, id: i64) -> DomainResult<Option<String>> {
+        sqlx::query_scalar::<_, Option<String>>(
+            "SELECT config_file_hash FROM providers WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map(Option::flatten)
+        .map_err(failed("read config file hash"))
+    }
+
     async fn get_table_preferences(
         &self, provider_id: i64, table_id: &str,
     ) -> DomainResult<Option<String>> {
@@ -214,3 +255,6 @@ impl ConfigBackend for PostgresConfigBackend {
         config_transfer::import_config(self, &DatabasePool::Postgres(self.pool.clone()), data).await
     }
 }
+
+#[cfg(all(test, feature = "postgres"))]
+mod tests;
