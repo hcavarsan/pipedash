@@ -1,0 +1,8 @@
+- Get an alert when a pipeline stops running on its usual schedule, with Tell me if it stops running in the notify menu.
+- See how long a queued run has waited, and get a Stuck in queue alert once it passes your limit.
+- Re-run a single GitHub job from its log.
+- Connect Argo CD with a kubeconfig, and pick How to connect before filling in credentials.
+- Deleting a provider block from config.toml removes that provider, app edits to config.toml providers stay after a restart, and a failed save says why.
+- Queued GitHub, Gitea and GitLab runs show as pending, running Buildkite builds with a failed job show as running, and CircleCI offers Cancel only while a workflow can be cancelled.
+- Jenkins history loads past the newest 100 builds, Gitea workflow inputs with true/false or number values trigger, Bitbucket reruns custom pipelines, and healthy repos keep refreshing when one selected repo is gone.
+- Failed actions give an error haptic and stay on screen longer, and a failed live log refresh shows Retry.

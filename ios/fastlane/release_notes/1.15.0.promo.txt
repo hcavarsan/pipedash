@@ -1,0 +1,1 @@
+Get told when a nightly or scheduled pipeline stops running on its usual schedule, so a quiet pipeline never goes unnoticed.
