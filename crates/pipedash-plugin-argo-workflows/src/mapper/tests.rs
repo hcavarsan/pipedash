@@ -57,7 +57,7 @@ fn a_workflow_becomes_a_run_with_name_times_and_creator() {
     let run = map_run(&pipeline, &workflow("Failed", None));
 
     assert_eq!(run.pipeline_id, "ci__template__build");
-    assert_eq!(run.run_number, 1_795_168_800_674_961_954);
+    assert_eq!(run.run_number, 3_764_725_684_636_618);
     assert_eq!(run.status, PipelineStatus::Failed);
     assert_eq!(run.started_at.to_rfc3339(), "2026-11-20T10:00:05+00:00");
     assert_eq!(run.duration_seconds, Some(120));
@@ -80,7 +80,21 @@ fn workflows_created_in_the_same_second_get_different_run_numbers() {
 
     assert_ne!(first, second);
     assert_ne!(first, third);
-    assert_eq!(first / 1_000_000_000, 1_795_168_800);
+    assert_ne!(second, third);
+    assert_eq!(first / UID_SPAN, 1_795_168_800);
+}
+
+#[test]
+fn run_numbers_stay_exact_as_javascript_numbers_until_2100() {
+    let latest = Meta {
+        uid: Some("ffffffff-ffff-ffff-ffff-ffffffffffff".to_string()),
+        creation_timestamp: Some("2100-01-01T00:00:00Z".to_string()),
+        ..Meta::default()
+    };
+    let number = run_number(&latest);
+
+    assert!(number <= 9_007_199_254_740_991);
+    assert_eq!(number as f64 as i64, number);
 }
 
 #[test]

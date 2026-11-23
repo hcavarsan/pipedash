@@ -40,7 +40,7 @@ pub(crate) fn map_status(workflow: &Workflow) -> PipelineStatus {
     }
 }
 
-const UID_SPAN: i64 = 1_000_000_000;
+const UID_SPAN: i64 = 2_097_143;
 
 pub(crate) fn run_number(metadata: &Meta) -> i64 {
     let created = timestamp(&metadata.creation_timestamp).map_or(0, |time| time.timestamp());
