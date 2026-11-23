@@ -59,7 +59,7 @@
   </tr>
   <tr>
     <td align="center" width="120"><img src="./.github/icons/notify.svg" width="32" height="32" alt="" /><br><b>Notify</b></td>
-    <td width="420">Get an alert when a pipeline fails, recovers, a run sits in the queue too long or the pipeline stops running on its usual schedule.</td>
+    <td width="420">Get an alert when a pipeline fails, recovers, a run sits in the queue too long or the pipeline stops running on its usual schedule, and post failures to a team chat webhook from the server.</td>
     <td width="264"><a href="https://pipedash.app/docs/features/notifications">Notifications</a></td>
   </tr>
 </table>

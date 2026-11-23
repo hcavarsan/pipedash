@@ -51,15 +51,17 @@ pub fn normalize_relay_url(url: &str) -> Option<String> {
     (!url.is_empty()).then(|| url.to_owned())
 }
 
+fn outgoing_client(http: &HttpClientManager) -> Option<std::sync::Arc<reqwest::Client>> {
+    http.client_for(&ClientOptions::default())
+        .inspect_err(|error| tracing::warn!(%error, "Couldn't build the push client"))
+        .ok()
+}
+
 pub(crate) async fn post_relay<T: Serialize>(
     http: &HttpClientManager, relay_url: &str, body: &T,
 ) -> RelayOutcome {
-    let client = match http.client_for(&ClientOptions::default()) {
-        Ok(client) => client,
-        Err(error) => {
-            tracing::warn!(%error, "Couldn't build the push relay client");
-            return RelayOutcome::Failed;
-        }
+    let Some(client) = outgoing_client(http) else {
+        return RelayOutcome::Failed;
     };
 
     let response = client
@@ -90,6 +92,35 @@ pub(crate) async fn send_alert(
         },
     )
     .await
+}
+
+#[derive(Serialize)]
+pub(crate) struct FailureWebhookMessage<'a> {
+    pub(crate) text: String,
+    pub(crate) pipeline: &'a str,
+    pub(crate) provider: &'a str,
+    pub(crate) branch: Option<&'a str>,
+    pub(crate) run: Option<i64>,
+}
+
+pub(crate) async fn post_failure_webhook(
+    http: &HttpClientManager, webhook_url: &str, message: &FailureWebhookMessage<'_>,
+) {
+    let Some(client) = outgoing_client(http) else {
+        return;
+    };
+
+    let response = client
+        .post(webhook_url)
+        .timeout(RELAY_TIMEOUT)
+        .json(message)
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status);
+
+    if let Err(error) = response {
+        tracing::warn!(error = %error.without_url(), "Failure webhook request failed");
+    }
 }
 
 #[cfg(test)]
