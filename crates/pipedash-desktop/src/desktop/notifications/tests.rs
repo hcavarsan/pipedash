@@ -10,6 +10,7 @@ fn host_alert(kind: &str, created_at: &str) -> HostAlert {
         key: "pipeline:1".to_string(),
         kind: kind.to_string(),
         tone: "danger".to_string(),
+        label: String::new(),
         title: "Failed".to_string(),
         body: "api".to_string(),
         pipeline_id: Some("stub__1__api".to_string()),
@@ -55,6 +56,13 @@ fn a_missed_alert_maps_its_kind_time_and_affected_providers() {
         ..alert
     };
     assert_eq!(missed(&several).unwrap().provider_ids, vec![1, 2]);
+}
+
+#[test]
+fn a_missed_stuck_queue_alert_is_not_labeled_as_a_long_run() {
+    let notice = missed(&host_alert("stuck_queue", "2023-11-14T22:13:20Z")).unwrap();
+
+    assert_eq!(notice.label, "Stuck in the queue");
 }
 
 #[test]

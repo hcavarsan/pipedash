@@ -128,6 +128,7 @@ fn missed_alert(key: &str, at: i64, kind: &str) -> HostAlert {
         key: key.to_string(),
         kind: kind.to_string(),
         tone: AlertKind::parse(kind).unwrap().tone().to_string(),
+        label: String::new(),
         title: format!("{key} {kind}"),
         body: "body".to_string(),
         pipeline_id: Some("p".to_string()),

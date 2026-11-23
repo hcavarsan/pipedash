@@ -106,6 +106,7 @@ function seedNotice(key: string) {
       at: 1,
       read: false,
       tone: 'danger',
+      label: 'Pipeline failed',
       level: null,
       title: 'Pipeline failed',
       body: 'menu-01',

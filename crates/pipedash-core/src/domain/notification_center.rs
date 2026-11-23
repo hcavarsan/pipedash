@@ -52,6 +52,29 @@ impl From<AlertKind> for CenterTone {
     }
 }
 
+pub fn alert_label(kind: AlertKind, pipeline: bool, level: Option<HealthLevel>) -> &'static str {
+    match (kind, pipeline) {
+        (AlertKind::Failed | AlertKind::Degraded, true) => "Pipeline failed",
+        (AlertKind::LongRun, true) => "Running longer than usual",
+        (AlertKind::StuckQueue, true) => "Stuck in the queue",
+        (AlertKind::Quiet, true) => "No recent runs",
+        (AlertKind::Recovered | AlertKind::Finished | AlertKind::Test, true) => "Pipeline finished",
+        (AlertKind::Recovered | AlertKind::Finished | AlertKind::Test, false) => "Resolved",
+        _ => level.map_or("Notice", health_label),
+    }
+}
+
+fn health_label(level: HealthLevel) -> &'static str {
+    match level {
+        HealthLevel::Operational => "Operational",
+        HealthLevel::Maintenance => "Maintenance",
+        HealthLevel::Degraded => "Degraded",
+        HealthLevel::PartialOutage => "Partial outage",
+        HealthLevel::MajorOutage => "Major outage",
+        _ => "Notice",
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WatchOutcome {
     Succeeded,
@@ -67,6 +90,16 @@ impl WatchOutcome {
             Self::Succeeded => CenterTone::Success,
             Self::Failed => CenterTone::Danger,
             Self::Cancelled | Self::Skipped | Self::Finished => CenterTone::Warning,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Succeeded => "Pipeline finished",
+            Self::Failed => "Pipeline failed",
+            Self::Cancelled => "Run cancelled",
+            Self::Skipped => "Run skipped",
+            Self::Finished => "Finished without a result",
         }
     }
 
@@ -88,6 +121,8 @@ pub struct CenterNotification {
     pub at: i64,
     pub read: bool,
     pub tone: CenterTone,
+    #[serde(default)]
+    pub label: String,
     pub level: Option<HealthLevel>,
     pub title: String,
     pub body: String,
@@ -104,6 +139,7 @@ impl CenterNotification {
             at: at.timestamp_millis(),
             read: false,
             tone: notice.kind.into(),
+            label: alert_label(notice.kind, notice.pipeline_id.is_some(), notice.level).to_owned(),
             level: notice.level,
             title: notice.title.clone(),
             body: notice.body.clone(),
@@ -136,6 +172,7 @@ impl CenterNotification {
             at: Utc::now().timestamp_millis(),
             read: false,
             tone: outcome.tone(),
+            label: outcome.label().to_owned(),
             level: None,
             title: format!("{pipeline_name} #{run_number} {}", outcome.result()),
             body: format!("Watched run · {provider_name}"),

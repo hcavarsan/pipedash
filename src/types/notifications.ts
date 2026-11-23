@@ -76,6 +76,7 @@ export interface HostAlert {
   key: string
   kind: AlertKind
   tone: CenterNotificationTone
+  label: string
   title: string
   body: string
   pipeline_id: string | null
@@ -101,6 +102,7 @@ export interface ShownNotification {
   id: number
   at: string
   tone: CenterNotificationTone
+  label: string
   key: string
   title: string
   body: string
@@ -134,6 +136,7 @@ export interface CenterNotification {
   at: number
   read: boolean
   tone: CenterNotificationTone
+  label: string
   level: HealthLevel | null
   title: string
   body: string

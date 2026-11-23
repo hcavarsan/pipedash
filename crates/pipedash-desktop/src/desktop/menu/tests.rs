@@ -151,6 +151,7 @@ fn notice(
         at: 1,
         read: false,
         tone,
+        label: String::new(),
         level: None,
         title: format!("Title {key}"),
         body: String::new(),

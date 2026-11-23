@@ -287,6 +287,7 @@ test('factory reset also resets log preferences and the notification center', as
     key: 'k',
     at: 1,
     tone: 'danger',
+    label: 'Notice',
     level: null,
     title: 't',
     body: 'b',
