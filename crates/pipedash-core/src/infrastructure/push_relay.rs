@@ -104,14 +104,14 @@ pub(crate) struct FailureWebhookMessage<'a> {
 }
 
 pub(crate) async fn post_failure_webhook(
-    http: &HttpClientManager, webhook_url: &str, message: &FailureWebhookMessage<'_>,
+    http: &HttpClientManager, webhook_url: &reqwest::Url, message: &FailureWebhookMessage<'_>,
 ) {
     let Some(client) = outgoing_client(http) else {
         return;
     };
 
     let response = client
-        .post(webhook_url)
+        .post(webhook_url.clone())
         .timeout(RELAY_TIMEOUT)
         .json(message)
         .send()

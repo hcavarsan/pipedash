@@ -216,7 +216,10 @@ async fn a_failure_is_posted_to_the_team_webhook_without_a_push_relay() {
         .notify_failures(&[failed_pipeline()])
         .await
         .unwrap();
-    let request = server.await.unwrap();
+    let request = tokio::time::timeout(std::time::Duration::from_secs(15), server)
+        .await
+        .unwrap()
+        .unwrap();
     let (head, body) = request.split_once('\n').unwrap();
     let message: serde_json::Value = serde_json::from_str(body).unwrap();
 

@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use pipedash_plugin_api::http::parse_http_url;
+
 use super::{
     fan_out,
     PushService,
@@ -10,6 +12,7 @@ use crate::domain::{
     Pipeline,
     PipelineRun,
     PipelineStatus,
+    PushSubscription,
 };
 use crate::infrastructure::push_relay::{
     post_failure_webhook,
@@ -135,19 +138,36 @@ impl PushService {
         (provider, run)
     }
 
-    async fn failure_webhook_url(&self) -> Option<String> {
+    async fn failure_webhook_url(&self) -> Option<reqwest::Url> {
         let url = self.config.get_string(ConfigKey::FailureWebhookUrl).await;
         let url = url.trim();
+        if url.is_empty() {
+            return None;
+        }
 
-        (!url.is_empty()).then(|| url.to_owned())
+        parse_http_url(url, "Failure webhook")
+            .inspect_err(|error| tracing::warn!(%error, "Ignoring the failure webhook"))
+            .ok()
+    }
+
+    async fn relay_subscriptions(&self) -> DomainResult<Option<(String, Vec<PushSubscription>)>> {
+        let Some(relay_url) = self.relay_url().await else {
+            return Ok(None);
+        };
+        let subscriptions = self.subscriptions.list().await?;
+
+        Ok((!subscriptions.is_empty()).then_some((relay_url, subscriptions)))
     }
 
     pub async fn notify_failures(&self, pipelines: &[Pipeline]) -> DomainResult<()> {
         let webhook_url = self.failure_webhook_url().await;
-        let relay = match self.relay_url().await {
-            Some(relay_url) => Some((relay_url, self.subscriptions.list().await?))
-                .filter(|(_, subscriptions)| !subscriptions.is_empty()),
-            None => None,
+        let relay = match self.relay_subscriptions().await {
+            Ok(relay) => relay,
+            Err(error) if webhook_url.is_some() => {
+                tracing::warn!(%error, "Couldn't read the push subscriptions");
+                None
+            }
+            Err(error) => return Err(error),
         };
         if webhook_url.is_none() && relay.is_none() {
             return Ok(());
