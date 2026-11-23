@@ -57,7 +57,7 @@ fn a_workflow_becomes_a_run_with_name_times_and_creator() {
     let run = map_run(&pipeline, &workflow("Failed", None));
 
     assert_eq!(run.pipeline_id, "ci__template__build");
-    assert_eq!(run.run_number, 1_795_168_800_000_042);
+    assert_eq!(run.run_number, 1_795_168_800_674_961_954);
     assert_eq!(run.status, PipelineStatus::Failed);
     assert_eq!(run.started_at.to_rfc3339(), "2026-11-20T10:00:05+00:00");
     assert_eq!(run.duration_seconds, Some(120));
@@ -65,6 +65,22 @@ fn a_workflow_becomes_a_run_with_name_times_and_creator() {
     assert_eq!(run.metadata["workflow"], "build-x7k2p");
     assert_eq!(run.metadata["progress"], "3/3");
     assert_eq!(run.metadata["message"], "child failed");
+}
+
+#[test]
+fn workflows_created_in_the_same_second_get_different_run_numbers() {
+    let meta = |uid: &str| Meta {
+        uid: Some(uid.to_string()),
+        creation_timestamp: Some("2026-11-20T10:00:00Z".to_string()),
+        ..Meta::default()
+    };
+    let first = run_number(&meta("0000002a-1111-2222-3333-444444444444"));
+    let second = run_number(&meta("0000002a-9999-2222-3333-444444444444"));
+    let third = run_number(&meta("f424002a-1111-2222-3333-444444444444"));
+
+    assert_ne!(first, second);
+    assert_ne!(first, third);
+    assert_eq!(first / 1_000_000_000, 1_795_168_800);
 }
 
 #[test]

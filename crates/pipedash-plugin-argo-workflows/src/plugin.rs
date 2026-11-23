@@ -120,11 +120,21 @@ plugin_impl!(ArgoWorkflowsPlugin [metadata, status_source, available_from_filter
 
     async fn fetch_run_details(&self, pipeline_id: &str, run_number: i64) -> PluginResult<PipelineRun> {
         let (pipeline, workflows) = self.workflows(pipeline_id).await?;
-        workflows
+        let matching: Vec<&Workflow> = workflows
             .iter()
-            .find(|workflow| mapper::run_number(&workflow.metadata) == run_number)
-            .map(|workflow| mapper::map_run(&pipeline, workflow))
-            .ok_or_else(|| PluginError::PipelineNotFound(format!("Workflow #{run_number} not found")))
+            .filter(|workflow| mapper::run_number(&workflow.metadata) == run_number)
+            .collect();
+        match matching.as_slice() {
+            [workflow] => Ok(mapper::map_run(&pipeline, workflow)),
+            [] => Err(PluginError::PipelineNotFound(format!("Workflow #{run_number} not found"))),
+            shared => {
+                let names: Vec<&str> = shared.iter().map(|workflow| workflow.metadata.name.as_str()).collect();
+                Err(PluginError::ApiError(format!(
+                    "Workflows {} share run number {run_number}",
+                    names.join(", ")
+                )))
+            }
+        }
     }
 
     async fn trigger_pipeline(&self, _params: TriggerParams) -> PluginResult<TriggerResult> {

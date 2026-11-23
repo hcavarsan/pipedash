@@ -40,14 +40,19 @@ pub(crate) fn map_status(workflow: &Workflow) -> PipelineStatus {
     }
 }
 
+const UID_SPAN: i64 = 1_000_000_000;
+
 pub(crate) fn run_number(metadata: &Meta) -> i64 {
     let created = timestamp(&metadata.creation_timestamp).map_or(0, |time| time.timestamp());
-    let uid = metadata
+    let uid_hex: String = metadata
         .uid
-        .as_deref()
-        .and_then(|uid| u32::from_str_radix(uid.get(..8)?, 16).ok())
-        .unwrap_or(0);
-    created * 1_000_000 + i64::from(uid % 1_000_000)
+        .iter()
+        .flat_map(|uid| uid.chars())
+        .filter(char::is_ascii_hexdigit)
+        .take(16)
+        .collect();
+    let uid = u64::from_str_radix(&uid_hex, 16).unwrap_or(0) % UID_SPAN.unsigned_abs();
+    created * UID_SPAN + i64::try_from(uid).unwrap_or(0)
 }
 
 pub(crate) fn newest_first(workflows: &mut [Workflow]) {
