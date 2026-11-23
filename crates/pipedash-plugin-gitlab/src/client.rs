@@ -165,6 +165,14 @@ impl GitLabClient {
             .await
     }
 
+    pub async fn get_project_by_path(&self, full_path: &str) -> PluginResult<Project> {
+        let mut url = Self::parse_url(&format!("{}/projects", self.api_url))?;
+        url.path_segments_mut()
+            .map_err(|()| PluginError::InvalidConfig("Invalid GitLab URL".to_string()))?
+            .push(full_path);
+        self.get_json(url.to_string()).await
+    }
+
     pub async fn get_project_pipelines(
         &self, project_id: i64, limit: usize,
     ) -> PluginResult<Vec<Pipeline>> {

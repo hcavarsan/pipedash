@@ -15,6 +15,10 @@ pub(super) fn namespace_of(project: &types::Project) -> Option<String> {
     (parts.len() >= 2).then(|| parts[..parts.len() - 1].join("/"))
 }
 
+fn selection_path(project: &types::Project) -> String {
+    project.name_with_namespace.replace(' ', "")
+}
+
 pub(super) fn available_page(
     response: PaginatedResponse<types::Project>,
 ) -> PaginatedResponse<AvailablePipeline> {
@@ -32,6 +36,43 @@ pub(super) fn available_page(
 
 impl GitLabPlugin {
     pub(super) async fn fetch_all_projects(&self) -> PluginResult<Vec<types::Project>> {
+        let Some(mut selected_paths) = selected_items(&self.config) else {
+            return self.list_member_projects().await;
+        };
+        selected_paths.sort();
+        selected_paths.dedup();
+        let mut projects = self.projects_by_path(&selected_paths).await?;
+        if projects.len() == selected_paths.len() {
+            return Ok(projects);
+        }
+        let found: Vec<String> = projects.iter().map(selection_path).collect();
+        projects.extend(self.list_member_projects().await?.into_iter().filter(|p| {
+            let path = selection_path(p);
+            selected_paths.contains(&path) && !found.contains(&path)
+        }));
+        Ok(projects)
+    }
+
+    async fn projects_by_path(&self, paths: &[String]) -> PluginResult<Vec<types::Project>> {
+        let client = self.client()?;
+        let requests: Vec<_> = paths
+            .iter()
+            .map(|path| async move {
+                client
+                    .get_project_by_path(path)
+                    .await
+                    .ok()
+                    .filter(|project| selection_path(project) == *path)
+            })
+            .collect();
+        Ok(join_buffered(requests, 8)
+            .await
+            .into_iter()
+            .flatten()
+            .collect())
+    }
+
+    async fn list_member_projects(&self) -> PluginResult<Vec<types::Project>> {
         let client = self.client()?;
         let mut all_projects = Vec::new();
         let mut page = 1;
@@ -53,17 +94,7 @@ impl GitLabPlugin {
             page += 1;
         }
 
-        if let Some(selected_paths) = selected_items(&self.config) {
-            Ok(all_projects
-                .into_iter()
-                .filter(|p| {
-                    let normalized = p.name_with_namespace.replace(" ", "");
-                    selected_paths.contains(&normalized)
-                })
-                .collect())
-        } else {
-            Ok(all_projects)
-        }
+        Ok(all_projects)
     }
 
     pub(super) async fn fetch_projects_paginated(
@@ -76,10 +107,7 @@ impl GitLabPlugin {
             let filtered_items: Vec<_> = response
                 .items
                 .into_iter()
-                .filter(|p| {
-                    let normalized = p.name_with_namespace.replace(" ", "");
-                    selected_paths.contains(&normalized)
-                })
+                .filter(|p| selected_paths.contains(&selection_path(p)))
                 .collect();
             let filtered_count = filtered_items.len();
             Ok(PaginatedResponse::new(
