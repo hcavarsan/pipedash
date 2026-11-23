@@ -154,6 +154,7 @@ pub(crate) fn pipeline(provider_id: i64, name: &str, status: PipelineStatus) -> 
         overdue_run: None,
         stuck_queue_run: None,
         typical_duration_seconds: None,
+        cadence: None,
         actions: Default::default(),
         correlation: Default::default(),
     }
@@ -198,6 +199,7 @@ pub(crate) struct StubProvider {
     pub(crate) parameter_fetches: AtomicUsize,
     pub(crate) pipelines: Mutex<DomainResult<Vec<Pipeline>>>,
     pub(crate) runs: Mutex<Vec<PipelineRun>>,
+    pub(crate) failing_histories: Mutex<Vec<String>>,
     pub(crate) run_response: Mutex<Option<DomainResult<PipelineRun>>>,
     pub(crate) force_cancel_rejected: AtomicBool,
     pub(crate) cancelled: Mutex<Option<Vec<i64>>>,
@@ -259,6 +261,7 @@ impl StubProvider {
                 PipelineStatus::Success,
             )])),
             runs: Mutex::new(Vec::new()),
+            failing_histories: Mutex::new(Vec::new()),
             run_response: Mutex::new(None),
             force_cancel_rejected: AtomicBool::new(false),
             cancelled: Mutex::new(None),
@@ -503,11 +506,20 @@ impl Provider for StubProvider {
     }
 
     async fn fetch_run_history(
-        &self, _pipeline_id: &str, limit: usize,
+        &self, pipeline_id: &str, limit: usize,
     ) -> DomainResult<Vec<PipelineRun>> {
         self.history_fetches.fetch_add(1, Ordering::SeqCst);
         if let Some(gate) = &self.run_gate {
             gate.pass().await;
+        }
+        if self
+            .failing_histories
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|id| id == pipeline_id)
+        {
+            return Err(DomainError::NetworkError(pipeline_id.to_string()));
         }
         Ok(self
             .runs

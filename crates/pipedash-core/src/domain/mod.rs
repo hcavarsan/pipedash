@@ -93,6 +93,7 @@ pub use pipeline::{
     PaginatedAvailablePipelines,
     PaginationParams,
     Pipeline,
+    PipelineCadence,
     PipelineRun,
     PipelineStatus,
     ResourceState,

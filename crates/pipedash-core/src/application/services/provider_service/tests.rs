@@ -1263,13 +1263,17 @@ async fn a_settings_write_never_removes_config_file_providers() {
         .await
         .unwrap();
     let state = Arc::clone(&h.config_state);
+    let applies = Arc::new(AtomicUsize::new(0));
+    let applies_seen = Arc::clone(&applies);
     let writer = tokio::spawn(async move {
         let mut failed = Vec::new();
-        for round in 0..500 {
+        let mut round = 0;
+        while round < 200 || applies_seen.load(Ordering::SeqCst) < 200 {
             let url = format!("https://relay-{round}.example.com");
             if let Err(e) = state.set_push_relay_url(&url).await {
                 failed.push(e.to_string());
             }
+            round += 1;
         }
         failed
     });
@@ -1278,6 +1282,7 @@ async fn a_settings_write_never_removes_config_file_providers() {
         if let Ok(applied) = h.provider_service.apply_config_file(&h.config_state).await {
             removed.extend(applied.removed);
         }
+        applies.fetch_add(1, Ordering::SeqCst);
     }
 
     let failed = writer.await.unwrap();

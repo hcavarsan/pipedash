@@ -21,6 +21,7 @@ use crate::infrastructure::config::sync::{
 use crate::infrastructure::config::{
     ConfigLoader,
     ConfigState,
+    GeneralConfig,
     GeneralSettingsUpdate,
     ProviderFileConfig,
 };
@@ -215,6 +216,10 @@ impl ProviderService {
         }
 
         Ok(result)
+    }
+
+    pub async fn general_settings(&self, config_state: &ConfigState) -> GeneralConfig {
+        config_state.get().await.general.clone()
     }
 
     async fn remove_dropped_file_providers(

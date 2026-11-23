@@ -66,11 +66,11 @@ test('phone settings can recover a failed load and block overlapping saves', asy
   let failRead = true
   let writes = 0
   const pending = Promise.withResolvers<void>()
-  context.mock.method(apiService, 'getStorageConfig', async () => {
+  context.mock.method(apiService, 'getGeneralSettings', async () => {
     if (failRead) {
       throw new Error('Settings unavailable')
     }
-    return config
+    return config.config.general
   })
   context.mock.method(apiService, 'updateGeneralSettings', async (general: GeneralConfig) => {
     writes += 1
@@ -111,7 +111,7 @@ test('phone proxy saves the trimmed address and keeps unrelated settings', async
   const user = userEvent.setup({ document })
   const config = storageConfig()
   const writes: GeneralConfig[] = []
-  context.mock.method(apiService, 'getStorageConfig', async () => config)
+  context.mock.method(apiService, 'getGeneralSettings', async () => config.config.general)
   context.mock.method(apiService, 'updateGeneralSettings', async (general: GeneralConfig) => {
     writes.push(general)
     config.config.general = general
@@ -133,4 +133,19 @@ test('phone proxy saves the trimmed address and keeps unrelated settings', async
       },
     ])
   )
+})
+
+test('a connected phone loads its general settings while the host keeps storage', async (context) => {
+  const config = storageConfig()
+  context.mock.method(apiService, 'getStorageConfig', async () => {
+    throw new Error('Change this on the server that runs Pipedash.')
+  })
+  context.mock.method(apiService, 'getGeneralSettings', async () => config.config.general)
+  await renderGeneral()
+
+  const toggle = await view().findByRole('switch', { name: 'Check provider status pages' })
+  assert.ok(toggle instanceof HTMLInputElement)
+  assert.equal(toggle.checked, false)
+  assert.ok(view().getByRole('textbox', { name: 'Proxy URL' }))
+  assert.equal(view().queryByText("Couldn't load provider status page setting"), null)
 })

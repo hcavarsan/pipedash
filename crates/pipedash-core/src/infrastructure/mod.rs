@@ -21,6 +21,7 @@ pub use config::{
     ConfigLoader,
     ConfigState,
     ConfigValidator,
+    GeneralConfig,
     GeneralSettingsUpdate,
     PipedashConfig,
     Platform,

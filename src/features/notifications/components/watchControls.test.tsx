@@ -113,6 +113,7 @@ test('the pipeline menu is one policy choice that marks the current option and s
       ['Notify when this run finishes', null],
       ['Watch all runs', null],
       ['Mute notifications', null],
+      ['Tell me if it stops running', null],
     ]
   )
 
@@ -311,4 +312,22 @@ test('a refresh queued behind a change sends the value that change saved', async
 
   assert.deepEqual(changes[1], { type: 'kind', kind: 'failed', enabled: false })
   assert.equal(useNotificationStore.getState().preferences.failed, false)
+})
+
+test('the missed-run alert waits for a learned schedule and then toggles on its own', async () => {
+  const user = userEvent.setup({ document })
+  mount(<PipelineNotifyMenu pipeline={{ ...pipeline, cadence: null }} />)
+
+  await user.click(view().getByRole('button', { name: /notification options/ }))
+  const unlearned = await view().findByRole('menuitem', { name: 'Tell me if it stops running' })
+  assert.equal(unlearned.hasAttribute('disabled') || unlearned.dataset.disabled === 'true', true)
+  cleanup()
+
+  mount(<PipelineNotifyMenu pipeline={{ ...pipeline, cadence: { usual_gap_seconds: 86_400, quiet: false } }} />)
+  await user.click(view().getByRole('button', { name: /notification options/ }))
+  const learned = await view().findByRole('menuitem', { name: 'Tell me if it stops running' })
+  assert.equal(learned.getAttribute('aria-current'), null)
+  await user.click(learned)
+
+  await waitFor(() => assert.deepEqual(changes, [{ type: 'quiet_alert', pipeline_id: pipeline.id, enabled: true }]))
 })
