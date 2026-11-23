@@ -96,6 +96,9 @@ It runs as a desktop app, as a self-hosted web server in Docker or as an iOS and
     <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/komodo"><img src="./crates/pipedash-plugin-komodo/assets/icon.svg" width="40" height="40" alt="" /><br><b>Komodo</b></a></td>
     <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/coolify"><img src="./crates/pipedash-plugin-coolify/assets/icon.svg" width="40" height="40" alt="" /><br><b>Coolify</b></a></td>
   </tr>
+  <tr>
+    <td align="center" valign="top" width="150"><a href="https://pipedash.app/docs/providers/argo-workflows"><img src="./crates/pipedash-plugin-argo-workflows/assets/icon.svg" width="40" height="40" alt="" /><br><b>Argo&nbsp;Workflows</b></a></td>
+  </tr>
 </table>
 </div>
 
