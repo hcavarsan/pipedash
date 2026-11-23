@@ -16,6 +16,8 @@ export const TONE_COLORS: Record<CenterNotification['tone'], string> = {
   success: 'var(--mantine-color-green-filled)',
 }
 
+export const noticeSubtitle = (label: string | undefined, time: string): string => (label ? `${label} · ${time}` : time)
+
 export function notificationIcon({ tone, level, key, pipelineId }: CenterNotification): Icon {
   if (tone === 'success') {
     return IconCircleCheck

@@ -34,16 +34,25 @@ const stuckQueue: CenterNotification = {
   link: null,
 }
 
-test('a stuck queue alert shows the label the backend sent, not a long run label', () => {
+const renderItem = (item: CenterNotification) =>
   render(
     createElement(
       MantineProvider,
       null,
-      createElement(NotificationCenterItem, { item: stuckQueue, now: 0, onSelect: () => undefined })
+      createElement(NotificationCenterItem, { item, now: 0, onSelect: () => undefined })
     )
   )
+
+test('a stuck queue alert shows the label the backend sent, not a long run label', () => {
+  renderItem(stuckQueue)
 
   const view = within(document.body)
   assert.ok(view.getByText(/^Stuck in the queue · /))
   assert.equal(view.queryByText(/Running longer than usual/), null)
+})
+
+test('a notice from a server that sends no label shows only its time', () => {
+  renderItem({ ...stuckQueue, label: undefined })
+
+  assert.equal(within(document.body).queryByText(/undefined/), null)
 })
