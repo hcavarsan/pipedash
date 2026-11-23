@@ -602,3 +602,31 @@ async fn mixed_group_reports_the_largest_gap() {
     let group = state.groups[0].key.clone();
     assert_eq!(behind_in(&fx, application, &group).await, Some(2));
 }
+
+#[tokio::test]
+async fn run_metrics_count_a_run_shared_by_two_changes_once() {
+    let f = Fixture::new().await;
+    f.window(at(9, 0), at(12, 0)).await;
+    let flags = (true, true, true);
+    let shared = || {
+        vec![
+            f.build(1, at(9, 50), at(10, 0)),
+            f.deploy("prod", 1, (at(10, 5), Some(at(10, 15))), "success", flags),
+        ]
+    };
+    f.change("a", None, shared()).await;
+    let mut rows = shared();
+    let mut failed_build = f.build(2, at(10, 20), at(10, 30));
+    failed_build.status = "failed".into();
+    rows.push(failed_build);
+    rows.push(f.deploy("prod", 2, (at(10, 35), Some(at(10, 45))), "failed", flags));
+    f.change("b", None, rows).await;
+
+    let metrics = f.metrics().await;
+    assert_eq!(metric(&metrics, MetricId::DeployFrequency).value, Some(1.0));
+    assert_eq!(
+        metric(&metrics, MetricId::BuildSuccessRate).value,
+        Some(50.0)
+    );
+    assert_eq!(metric(&metrics, MetricId::DeployFailures).value, Some(50.0));
+}

@@ -4,6 +4,7 @@ use std::collections::{
 };
 
 use super::copy;
+use super::membership::derived_stage;
 use super::world::World;
 use crate::domain::application::Stage;
 use crate::infrastructure::config::schema::applications::{
@@ -69,7 +70,10 @@ pub(super) fn plan(world: &World) -> Vec<ConfigApp> {
                 app.members.insert(id.clone(), member.stage);
             }
         }
-        for id in app.members.keys() {
+        let deploys = app.members.iter().filter(|(id, stage)| {
+            stage.unwrap_or_else(|| derived_stage(world, id)) == Stage::Deploy
+        });
+        for (id, _) in deploys {
             claimed.entry(id.clone()).or_default().push(apps.len());
         }
         app.excluded = excluded;

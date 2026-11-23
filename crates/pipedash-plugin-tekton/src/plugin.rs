@@ -27,6 +27,19 @@ plugin_struct!(
     config: HashMap<String, String> = HashMap::new()
 );
 
+fn optional_task_runs(
+    result: PluginResult<Vec<types::TektonTaskRun>>,
+) -> PluginResult<Vec<types::TektonTaskRun>> {
+    match result {
+        Err(error) if error.is_transient() => Err(error),
+        Err(error) => {
+            tracing::warn!(%error, "Failed to list Tekton TaskRuns");
+            Ok(Vec::new())
+        }
+        ok => ok,
+    }
+}
+
 impl TektonPlugin {
     async fn client(&self) -> PluginResult<&client::TektonClient> {
         self.client
@@ -151,11 +164,8 @@ plugin_impl!(TektonPlugin [
 
         let limited_runs: Vec<types::TektonPipelineRun> = runs.into_iter().take(limit).collect();
 
-        let task_runs = client
-            .list_pipeline_taskruns(&namespace, &pipeline_name)
-            .await
-            .inspect_err(|error| tracing::warn!(%error, "Failed to list Tekton TaskRuns"))
-            .unwrap_or_default();
+        let task_runs =
+            optional_task_runs(client.list_pipeline_taskruns(&namespace, &pipeline_name).await)?;
         let mut by_run = group_by_pipeline_run(task_runs);
 
         Ok(limited_runs
@@ -178,11 +188,7 @@ plugin_impl!(TektonPlugin [
             .await?;
 
         let run = find_run(runs, run_number)?;
-        let tasks = client
-            .list_taskruns(&namespace, &run.metadata.name)
-            .await
-            .inspect_err(|error| tracing::warn!(%error, "Failed to list Tekton TaskRuns"))
-            .unwrap_or_default();
+        let tasks = optional_task_runs(client.list_taskruns(&namespace, &run.metadata.name).await)?;
 
         Ok(mapper::runs::map_pipeline_run(&run, &tasks))
     }

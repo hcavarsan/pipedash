@@ -1,6 +1,8 @@
 use indexmap::IndexMap;
 
 use crate::application::services::correlation_service::tests::{
+    builder,
+    source,
     unit,
     Fx,
 };
@@ -85,6 +87,30 @@ async fn a_pipeline_matching_two_config_applications_is_claimed_by_neither() {
         assert!(state.warnings.iter().any(|w| w.contains("svc-api")));
     }
     assert_eq!(fx.app("svc-api").await.identity_kind, "unit");
+}
+
+#[tokio::test]
+async fn a_build_matching_two_config_applications_stays_in_both() {
+    let fx = Fx::new().await;
+    configure(
+        &fx,
+        &[
+            ("first", config_app("First", "shared-build")),
+            ("second", config_app("Second", "shared-build")),
+        ],
+    )
+    .await;
+    let gitops = fx.provider("gitops").await;
+    let shared = builder(
+        gitops,
+        "shared-build",
+        vec![source("git.test/shop/api", &[], None)],
+    );
+    fx.apply(gitops, vec![shared.clone()]).await;
+    fx.svc.resolve_all().await.unwrap();
+
+    assert_eq!(fx.member_ids("First").await, [shared.id.as_str()]);
+    assert_eq!(fx.member_ids("Second").await, [shared.id.as_str()]);
 }
 
 #[tokio::test]
