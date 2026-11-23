@@ -85,6 +85,69 @@ for (const mobileShell of [false, true]) {
   })
 }
 
+test('a blank queue limit stays blank and shows an error instead of snapping back', async (context) => {
+  const user = userEvent.setup({ document })
+  const writes: GeneralConfig[] = []
+  context.mock.method(apiService, 'getStorageConfig', async () => storageConfig())
+  context.mock.method(apiService, 'updateGeneralSettings', async (general: GeneralConfig) => {
+    writes.push(general)
+  })
+  await renderInput(false)
+
+  const input = await view().findByRole('textbox', { name: 'Queue limit (minutes)' })
+  assert.ok(input instanceof HTMLInputElement)
+  await waitFor(() => assert.equal(input.value, '15'))
+  await user.clear(input)
+  await user.tab()
+
+  assert.equal(input.value, '')
+  assert.equal(input.getAttribute('aria-invalid'), 'true')
+  assert.ok(view().getAllByText('Enter a number').length > 0)
+  assert.deepEqual(writes, [])
+})
+
+test('a queue limit of 0 is caught before it is sent', async (context) => {
+  const user = userEvent.setup({ document })
+  const writes: GeneralConfig[] = []
+  context.mock.method(apiService, 'getStorageConfig', async () => storageConfig())
+  context.mock.method(apiService, 'updateGeneralSettings', async (general: GeneralConfig) => {
+    writes.push(general)
+  })
+  await renderInput(true)
+
+  const input = await view().findByRole('textbox', { name: 'Queue limit (minutes)' })
+  assert.ok(input instanceof HTMLInputElement)
+  await waitFor(() => assert.equal(input.value, '15'))
+  await user.clear(input)
+  await user.type(input, '0')
+  await user.tab()
+
+  assert.equal(input.value, '0')
+  assert.equal(input.getAttribute('aria-invalid'), 'true')
+  assert.ok(view().getAllByText('Must be at least 1').length > 0)
+  assert.deepEqual(writes, [])
+})
+
+test('a queue limit the server rejects shows its message next to the field', async (context) => {
+  const user = userEvent.setup({ document })
+  context.mock.method(apiService, 'getStorageConfig', async () => storageConfig())
+  context.mock.method(apiService, 'updateGeneralSettings', async () => {
+    throw new Error('queue_alert_minutes must be between 1 and 1440 minutes')
+  })
+  await renderInput(false)
+
+  const input = await view().findByRole('textbox', { name: 'Queue limit (minutes)' })
+  assert.ok(input instanceof HTMLInputElement)
+  await waitFor(() => assert.equal(input.value, '15'))
+  await user.clear(input)
+  await user.type(input, '2000')
+  await user.tab()
+
+  await waitFor(() => assert.equal(input.getAttribute('aria-invalid'), 'true'))
+  assert.ok(view().getAllByText('queue_alert_minutes must be between 1 and 1440 minutes').length > 0)
+  assert.equal(input.value, '15')
+})
+
 test('a failed load shows the error and a retry loads the saved limit', async (context) => {
   const user = userEvent.setup({ document })
   let fail = true

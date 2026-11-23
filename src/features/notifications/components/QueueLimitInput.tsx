@@ -1,6 +1,9 @@
-import { type ReactNode, useState } from 'react'
+import { Text } from '@mantine/core'
+import type { ReactNode } from 'react'
 import { ErrorState } from '../../../components/common/ErrorState'
+import { LiveStatus } from '../../../components/forms/LiveStatus'
 import { IosRow } from '../../../components/ios/IosList'
+import { useNumberDraft } from '../../../hooks/useNumberDraft'
 import { useStorageConfig } from '../../../queries/useStorageQueries'
 import { RetentionDaysInput } from '../../metrics/components/RetentionDaysInput'
 import { useUpdateGeneralSettings } from '../../settings/queries/useGeneralSettingsQueries'
@@ -11,17 +14,18 @@ const DESCRIPTION = 'A queued run past this limit is marked as stuck.'
 export function QueueLimitInput({ mobileShell }: { mobileShell: boolean }): ReactNode {
   const storageConfig = useStorageConfig()
   const general = storageConfig.data?.config.general
-  const mutation = useUpdateGeneralSettings()
-  const [draft, setDraft] = useState<string | number | null>(null)
-  const saved = general?.queue_alert_minutes ?? 15
-  const value = draft ?? saved
+  const mutation = useUpdateGeneralSettings({ toastErrors: false })
+  const draft = useNumberDraft({
+    saved: general?.queue_alert_minutes ?? 15,
+    min: 1,
+    save: async (minutes) => {
+      if (general) {
+        await mutation.mutateAsync({ ...general, queue_alert_minutes: minutes })
+      }
+    },
+  })
+  const { error } = draft
 
-  const commit = (): void => {
-    setDraft(null)
-    if (general && typeof value === 'number' && value !== saved) {
-      mutation.mutate({ ...general, queue_alert_minutes: value })
-    }
-  }
   if (storageConfig.error) {
     return (
       <ErrorState
@@ -37,14 +41,27 @@ export function QueueLimitInput({ mobileShell }: { mobileShell: boolean }): Reac
     <RetentionDaysInput
       row={mobileShell}
       max={1440}
-      value={value}
-      onChange={setDraft}
-      onBlur={commit}
-      onEnter={commit}
-      disabled={!general || mutation.isPending}
+      value={draft.value}
+      onChange={draft.onChange}
+      onBlur={draft.commit}
+      onEnter={draft.commit}
+      error={mobileShell ? Boolean(error) : (error ?? undefined)}
+      disabled={!general || draft.pending}
       {...(mobileShell ? { 'aria-label': TITLE } : { label: TITLE, description: DESCRIPTION })}
     />
   )
+  const subtitle = error ? (
+    <Text span inherit c="red">
+      {error}
+    </Text>
+  ) : (
+    DESCRIPTION
+  )
 
-  return mobileShell ? <IosRow title={TITLE} subtitle={DESCRIPTION} accessory={input} /> : input
+  return (
+    <>
+      <LiveStatus message={error ?? ''} />
+      {mobileShell ? <IosRow title={TITLE} subtitle={subtitle} accessory={input} /> : input}
+    </>
+  )
 }
