@@ -71,6 +71,14 @@ async fn recorded_gitlab() -> (GitLabPlugin, Requests, tokio::task::JoinHandle<(
                     "id": 102, "name": "api", "name_with_namespace": "team / backend / api",
                     "web_url": format!("http://{addr}/team/backend/api")
                 }),
+                "/api/v4/projects/team%2Ffrontend%2Fapi" => serde_json::json!({
+                    "id": 101, "name": "root", "name_with_namespace": "team / root",
+                    "web_url": format!("http://{addr}/team/root")
+                }),
+                "/api/v4/projects/team%2Fbusy" => {
+                    status = "503 Service Unavailable";
+                    serde_json::json!({"message": "503 Service Unavailable"})
+                }
                 path if path.starts_with("/api/v4/projects/") && path.contains("%2F") => {
                     status = "404 Not Found";
                     serde_json::json!({"message": "404 Project Not Found"})
@@ -307,6 +315,37 @@ async fn selected_project_whose_name_differs_from_its_path_is_still_found() {
         selected_refresh("team/backend/api,team/backend/nested/worker").await,
         (vec!["102".to_string(), "104".to_string()], true)
     );
+}
+
+#[tokio::test]
+async fn a_path_lookup_that_returns_another_project_falls_back_to_the_member_list() {
+    let (mut plugin, server) = stub_gitlab().await;
+    plugin.config.insert(
+        "selected_items".to_string(),
+        "team/frontend/api".to_string(),
+    );
+    let projects = plugin.fetch_all_projects().await.unwrap();
+    server.abort();
+
+    assert_eq!(
+        projects
+            .iter()
+            .map(|project| project.id)
+            .collect::<Vec<_>>(),
+        [103]
+    );
+}
+
+#[tokio::test]
+async fn a_failed_path_lookup_fails_the_refresh_instead_of_falling_back() {
+    let (mut plugin, server) = stub_gitlab().await;
+    plugin
+        .config
+        .insert("selected_items".to_string(), "team/busy".to_string());
+    let result = plugin.fetch_all_projects().await;
+    server.abort();
+
+    assert!(result.is_err());
 }
 
 #[tokio::test]

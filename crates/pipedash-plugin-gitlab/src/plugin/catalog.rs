@@ -1,5 +1,8 @@
 use pipedash_plugin_api::config::selected_items;
-use pipedash_plugin_api::support::join_buffered;
+use pipedash_plugin_api::support::{
+    join_buffered,
+    try_buffered,
+};
 use pipedash_plugin_api::utils::collect_partial;
 use pipedash_plugin_api::*;
 
@@ -58,15 +61,15 @@ impl GitLabPlugin {
         let requests: Vec<_> = paths
             .iter()
             .map(|path| async move {
-                client
-                    .get_project_by_path(path)
-                    .await
-                    .ok()
-                    .filter(|project| selection_path(project) == *path)
+                match client.get_project_by_path(path).await {
+                    Ok(project) => Ok(Some(project).filter(|p| selection_path(p) == *path)),
+                    Err(PluginError::PipelineNotFound(_)) => Ok(None),
+                    Err(error) => Err(error),
+                }
             })
             .collect();
-        Ok(join_buffered(requests, 8)
-            .await
+        Ok(try_buffered(requests, 8)
+            .await?
             .into_iter()
             .flatten()
             .collect())
