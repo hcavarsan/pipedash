@@ -9,6 +9,7 @@ fn notice(key: &str, title: &str) -> CenterNotification {
         at: 1,
         read: false,
         tone: CenterTone::Warning,
+        label: "Major outage".to_string(),
         level: Some(HealthLevel::MajorOutage),
         title: title.to_string(),
         body: "Investigating".to_string(),
@@ -68,6 +69,7 @@ fn shown(kind: AlertKind) -> ShownNotification {
         id: 3,
         at: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
         tone: kind.tone(),
+        label: alert_label(kind, false, Some(HealthLevel::MajorOutage)),
         notice: LocalNotification {
             key: "provider:1".to_string(),
             title: "Provider health".to_string(),
@@ -409,22 +411,72 @@ fn a_notification_frame_from_a_server_maps_like_the_local_one() {
 }
 
 #[test]
+fn each_pipeline_alert_kind_carries_its_own_label() {
+    for (kind, label) in [
+        (AlertKind::Failed, "Pipeline failed"),
+        (AlertKind::LongRun, "Running longer than usual"),
+        (AlertKind::StuckQueue, "Stuck in the queue"),
+        (AlertKind::Quiet, "No recent runs"),
+        (AlertKind::Finished, "Pipeline finished"),
+    ] {
+        let mut source = shown(kind);
+        source.notice.pipeline_id = Some("stub__1__api".to_string());
+
+        assert_eq!(CenterNotification::from(&source).label, label);
+    }
+}
+
+#[test]
+fn a_provider_notice_is_labeled_by_its_health_level() {
+    assert_eq!(
+        CenterNotification::from(&shown(AlertKind::Outage)).label,
+        "Major outage"
+    );
+    assert_eq!(
+        CenterNotification::from(&shown(AlertKind::Recovered)).label,
+        "Resolved"
+    );
+}
+
+#[test]
 fn a_watched_run_names_its_outcome_and_keeps_the_run_number() {
-    for (outcome, tone, result) in [
-        (WatchOutcome::Succeeded, CenterTone::Success, "succeeded"),
-        (WatchOutcome::Failed, CenterTone::Danger, "failed"),
+    for (outcome, tone, result, label) in [
+        (
+            WatchOutcome::Succeeded,
+            CenterTone::Success,
+            "succeeded",
+            "Pipeline finished",
+        ),
+        (
+            WatchOutcome::Failed,
+            CenterTone::Danger,
+            "failed",
+            "Pipeline failed",
+        ),
         (
             WatchOutcome::Cancelled,
             CenterTone::Warning,
             "was cancelled",
+            "Run cancelled",
         ),
-        (WatchOutcome::Skipped, CenterTone::Warning, "was skipped"),
-        (WatchOutcome::Finished, CenterTone::Warning, "finished"),
+        (
+            WatchOutcome::Skipped,
+            CenterTone::Warning,
+            "was skipped",
+            "Run skipped",
+        ),
+        (
+            WatchOutcome::Finished,
+            CenterTone::Warning,
+            "finished",
+            "Finished without a result",
+        ),
     ] {
         let notice = CenterNotification::watched("s1", 42, "stub__1__api", "api", "Stub", outcome);
 
         assert_eq!(notice.key, "watch:s1");
         assert_eq!(notice.tone, tone);
+        assert_eq!(notice.label, label);
         assert_eq!(notice.title, format!("api #42 {result}"));
         assert_eq!(notice.body, "Watched run · Stub");
         assert_eq!(notice.pipeline_id.as_deref(), Some("stub__1__api"));

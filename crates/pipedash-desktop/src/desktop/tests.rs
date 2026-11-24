@@ -33,6 +33,7 @@ fn notice(key: &str) -> CenterNotification {
         at: 1,
         read: false,
         tone: CenterTone::Danger,
+        label: String::new(),
         level: None,
         title: key.to_string(),
         body: String::new(),
