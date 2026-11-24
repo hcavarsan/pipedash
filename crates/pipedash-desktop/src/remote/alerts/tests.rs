@@ -487,3 +487,21 @@ async fn claiming_pairs_a_standalone_alert_host_and_revoking_removes_the_device(
     assert!(host.core.devices().list().await.unwrap().is_empty());
     assert!(fetch(&alert_host, 0, 1).await.is_err());
 }
+
+#[test]
+fn a_page_from_a_host_without_labels_still_reaches_the_frontend_labeled() {
+    let page: AlertPage = serde_json::from_value(serde_json::json!({
+        "latest_seq": 1,
+        "alerts": [{
+            "id": "a1", "seq": 1, "key": "pipeline:p", "kind": "stuck_queue", "tone": "warning",
+            "title": "api is waiting in the queue too long", "body": "Stub",
+            "pipeline_id": "p", "provider_id": 1, "created_at": "2026-11-24T00:00:00Z",
+        }],
+    }))
+    .unwrap();
+
+    let alert = page.alerts.into_iter().next().unwrap().for_frontend();
+
+    assert_eq!(alert.label, "Waiting in the queue");
+    assert_eq!(alert.provider_ids, [1]);
+}

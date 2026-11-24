@@ -4,7 +4,9 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use pipedash_core::domain::notification_center::notice_label;
 use pipedash_core::domain::{
+    AlertKind,
     RunFinish,
     ServerUrl,
 };
@@ -56,6 +58,7 @@ pub struct HostAlert {
     pub key: String,
     pub kind: String,
     pub tone: String,
+    #[serde(default)]
     pub label: String,
     pub title: String,
     pub body: String,
@@ -74,6 +77,18 @@ impl HostAlert {
             self.provider_id.into_iter().collect()
         } else {
             self.provider_ids.clone()
+        }
+    }
+
+    fn for_frontend(self) -> Self {
+        let label = AlertKind::parse(&self.kind).map_or_else(
+            || self.label.clone(),
+            |kind| notice_label(kind, self.pipeline_id.as_deref(), None).to_owned(),
+        );
+        Self {
+            provider_ids: self.affected_providers(),
+            label,
+            ..self
         }
     }
 }
@@ -343,10 +358,7 @@ pub async fn take_missed_alerts<R: tauri::Runtime>(
     Ok(plan
         .alerts
         .into_iter()
-        .map(|alert| HostAlert {
-            provider_ids: alert.affected_providers(),
-            ..alert
-        })
+        .map(HostAlert::for_frontend)
         .collect())
 }
 
