@@ -21,7 +21,7 @@ const TOKEN: &str = "operator-secret";
 
 fn notice(key: &str, at: i64) -> Value {
     json!({
-        "key": key, "at": at, "read": false, "tone": "danger", "level": null,
+        "key": key, "at": at, "read": false, "tone": "danger", "label": "Pipeline failed", "level": null,
         "title": key, "body": "", "providerIds": [], "pipelineId": null,
         "link": null, "runNumber": null,
     })

@@ -8,25 +8,12 @@ import {
   IconPlugConnectedX,
 } from '@tabler/icons-react'
 
-import { HEALTH_META } from '../../../theme/status'
 import type { CenterNotification } from '../../../types/notifications'
 
 export const TONE_COLORS: Record<CenterNotification['tone'], string> = {
   danger: 'var(--mantine-color-red-filled)',
   warning: 'var(--mantine-color-orange-filled)',
   success: 'var(--mantine-color-green-filled)',
-}
-
-export function notificationLabel({ tone, level, pipelineId }: CenterNotification): string {
-  if (tone === 'success') {
-    return pipelineId ? 'Pipeline finished' : 'Resolved'
-  }
-
-  if (pipelineId) {
-    return tone === 'danger' ? 'Pipeline failed' : 'Running longer than usual'
-  }
-
-  return level ? HEALTH_META[level].label : 'Notice'
 }
 
 export function notificationIcon({ tone, level, key, pipelineId }: CenterNotification): Icon {

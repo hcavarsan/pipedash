@@ -79,6 +79,41 @@ impl WatchOutcome {
             Self::Finished => "finished",
         }
     }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Succeeded => "Pipeline finished",
+            Self::Failed => "Pipeline failed",
+            Self::Cancelled => "Run cancelled",
+            Self::Skipped => "Run skipped",
+            Self::Finished => "Run finished",
+        }
+    }
+}
+
+fn health_label(level: Option<HealthLevel>) -> &'static str {
+    match level {
+        Some(HealthLevel::Operational) => "Operational",
+        Some(HealthLevel::Maintenance) => "Maintenance",
+        Some(HealthLevel::Degraded) => "Degraded",
+        Some(HealthLevel::PartialOutage) => "Partial outage",
+        Some(HealthLevel::MajorOutage) => "Major outage",
+        _ => "Notice",
+    }
+}
+
+pub fn notice_label(
+    kind: AlertKind, pipeline_id: Option<&str>, level: Option<HealthLevel>,
+) -> &'static str {
+    match (kind, pipeline_id.is_some()) {
+        (AlertKind::Failed | AlertKind::Degraded, true) => "Pipeline failed",
+        (AlertKind::LongRun, true) => "Running longer than usual",
+        (AlertKind::StuckQueue, true) => "Waiting in the queue",
+        (AlertKind::Quiet, true) => "Stopped running",
+        (AlertKind::Recovered | AlertKind::Finished | AlertKind::Test, true) => "Pipeline finished",
+        (AlertKind::Recovered | AlertKind::Finished | AlertKind::Test, false) => "Resolved",
+        _ => health_label(level),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,6 +123,7 @@ pub struct CenterNotification {
     pub at: i64,
     pub read: bool,
     pub tone: CenterTone,
+    pub label: String,
     pub level: Option<HealthLevel>,
     pub title: String,
     pub body: String,
@@ -104,6 +140,8 @@ impl CenterNotification {
             at: at.timestamp_millis(),
             read: false,
             tone: notice.kind.into(),
+            label: notice_label(notice.kind, notice.pipeline_id.as_deref(), notice.level)
+                .to_owned(),
             level: notice.level,
             title: notice.title.clone(),
             body: notice.body.clone(),
@@ -136,6 +174,7 @@ impl CenterNotification {
             at: Utc::now().timestamp_millis(),
             read: false,
             tone: outcome.tone(),
+            label: outcome.label().to_owned(),
             level: None,
             title: format!("{pipeline_name} #{run_number} {}", outcome.result()),
             body: format!("Watched run · {provider_name}"),

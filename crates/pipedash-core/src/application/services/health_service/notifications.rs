@@ -29,6 +29,7 @@ use super::{
     connection_subject,
     instance_subject,
 };
+use crate::domain::notification_center::notice_label;
 use crate::domain::{
     AlertKind,
     HealthLevel,
@@ -77,6 +78,7 @@ pub struct ShownNotification {
     pub id: u64,
     pub at: DateTime<Utc>,
     pub tone: &'static str,
+    pub label: &'static str,
     #[serde(flatten)]
     pub notice: LocalNotification,
     pub fired: Option<OnceWatch>,
@@ -108,6 +110,7 @@ impl ObservedNotification {
             id: self.id,
             at: self.at,
             tone: notice.kind.tone(),
+            label: notice_label(notice.kind, notice.pipeline_id.as_deref(), notice.level),
             notice: notice.clone(),
             fired,
         })

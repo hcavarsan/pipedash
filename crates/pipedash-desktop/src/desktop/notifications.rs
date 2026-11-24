@@ -3,6 +3,7 @@ use pipedash_core::{
     application::ShownNotification,
     domain::{
         notification_center::{
+            notice_label,
             CenterNotification,
             NotificationCenterSnapshot,
             WatchOutcome,
@@ -34,13 +35,15 @@ use crate::remote::alerts::HostAlert;
 use crate::remote::connection::RemoteConnection;
 
 fn missed(alert: &HostAlert) -> Option<CenterNotification> {
+    let kind = AlertKind::parse(&alert.kind)?;
     Some(CenterNotification {
         key: alert.key.clone(),
         at: DateTime::parse_from_rfc3339(&alert.created_at)
             .ok()?
             .timestamp_millis(),
         read: false,
-        tone: AlertKind::parse(&alert.kind)?.into(),
+        tone: kind.into(),
+        label: notice_label(kind, alert.pipeline_id.as_deref(), None).to_owned(),
         level: None,
         title: alert.title.clone(),
         body: alert.body.clone(),

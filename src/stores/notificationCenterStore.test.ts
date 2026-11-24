@@ -16,6 +16,7 @@ const notice = (key: string, read = false): CenterNotification => ({
   at: 1,
   read,
   tone: 'warning',
+  label: 'Notice',
   level: null,
   title: key,
   body: '',
