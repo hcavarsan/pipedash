@@ -9,6 +9,7 @@ use pipedash_plugin_api::PluginError;
 use super::*;
 use crate::test_support::{
     stub_server,
+    stub_server_with_head,
     Reply,
 };
 
@@ -52,22 +53,25 @@ fn created(_: &str) -> Reply {
     }
 }
 
-async fn client_for(
-    reply: fn(&str) -> Reply, delay: Duration,
-) -> (JenkinsClient, Arc<AtomicUsize>) {
+fn client_at(server_url: String) -> JenkinsClient {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let requests = Arc::new(AtomicUsize::new(0));
-    let server_url = stub_server(requests.clone(), delay, reply).await;
     let http_client = Client::builder()
         .timeout(Duration::from_millis(300))
         .build()
         .unwrap();
-    let client = JenkinsClient::new(
+    JenkinsClient::new(
         Arc::new(http_client),
         server_url,
         "Basic YWxpY2U6d3Jvbmc=".to_string(),
-    );
-    (client, requests)
+    )
+}
+
+async fn client_for(
+    reply: fn(&str) -> Reply, delay: Duration,
+) -> (JenkinsClient, Arc<AtomicUsize>) {
+    let requests = Arc::new(AtomicUsize::new(0));
+    let server_url = stub_server(requests.clone(), delay, reply).await;
+    (client_at(server_url), requests)
 }
 
 #[tokio::test]
@@ -219,16 +223,27 @@ fn org_folder_of_eight_projects(path: &str) -> Reply {
 
 #[tokio::test]
 async fn sibling_folders_are_read_side_by_side() {
-    let delay = Duration::from_millis(100);
-    let (client, requests) = client_for(org_folder_of_eight_projects, delay).await;
+    let delay = Duration::from_millis(200);
+    let arrivals = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorded = arrivals.clone();
+    let server_url = stub_server_with_head(Arc::default(), delay, move |path, _| {
+        if path.starts_with("/job/org/job/") {
+            recorded.lock().unwrap().push(std::time::Instant::now());
+        }
+        org_folder_of_eight_projects(path)
+    })
+    .await;
 
-    let started = std::time::Instant::now();
-    let jobs = client.discover_all_jobs().await.unwrap();
-    let elapsed = started.elapsed();
+    let jobs = client_at(server_url).discover_all_jobs().await.unwrap();
 
+    let arrivals = arrivals.lock().unwrap();
+    let spread = *arrivals.iter().max().unwrap() - *arrivals.iter().min().unwrap();
     assert_eq!(jobs.len(), 8);
-    assert_eq!(requests.load(Ordering::SeqCst), 10);
-    assert!(elapsed < delay * 6, "walk took {elapsed:?}");
+    assert_eq!(arrivals.len(), 8);
+    assert!(
+        spread < delay,
+        "sibling folder reads spread over {spread:?}"
+    );
 }
 
 fn build_list(key: &str, count: i64) -> String {
