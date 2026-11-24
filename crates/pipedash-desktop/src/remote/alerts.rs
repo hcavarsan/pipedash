@@ -56,6 +56,7 @@ pub struct HostAlert {
     pub key: String,
     pub kind: String,
     pub tone: String,
+    pub label: String,
     pub title: String,
     pub body: String,
     pub pipeline_id: Option<String>,
