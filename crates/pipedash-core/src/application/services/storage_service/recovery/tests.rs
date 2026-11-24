@@ -148,3 +148,16 @@ async fn other_failures_are_returned_untouched() {
         Err(RecoveryFailure::Build(DomainError::AuthenticationFailed(_)))
     ));
 }
+
+#[tokio::test]
+async fn a_database_that_cannot_be_opened_is_not_reset() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = config_in(dir.path());
+    std::fs::create_dir(dir.path().join("pipedash.db")).unwrap();
+
+    let result = build_with_recovery(&config, true, || locked_manager(&config)).await;
+
+    assert!(matches!(result, Err(RecoveryFailure::Build(_))));
+    assert!(dir.path().join("pipedash.db").is_dir());
+    assert!(!dir.path().join("corrupt_backups").exists());
+}

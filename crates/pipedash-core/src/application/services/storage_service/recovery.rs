@@ -131,7 +131,6 @@ fn is_database_corruption_error(error_msg: &str) -> bool {
         || msg.contains("database disk image")
         || msg.contains("file is not a database")
         || msg.contains("database is locked") && msg.contains("timeout")
-        || msg.contains("unable to open database")
 }
 
 fn backup_database(
