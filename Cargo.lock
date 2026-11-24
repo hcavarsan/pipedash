@@ -4345,6 +4345,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pipedash-plugin-argo-workflows"
+version = "0.15.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "k8s-openapi",
+ "kube",
+ "pipedash-plugin-api",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "pipedash-plugin-argocd"
 version = "0.15.0"
 dependencies = [
@@ -4605,6 +4621,7 @@ dependencies = [
  "chrono",
  "pipedash-core",
  "pipedash-plugin-api",
+ "pipedash-plugin-argo-workflows",
  "pipedash-plugin-argocd",
  "pipedash-plugin-azure-devops",
  "pipedash-plugin-bitbucket",
