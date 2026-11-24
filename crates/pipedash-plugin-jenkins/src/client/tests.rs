@@ -202,6 +202,35 @@ async fn multibranch_pipeline_lists_its_branch_jobs() {
     assert_eq!(requests.load(Ordering::SeqCst), 2);
 }
 
+fn org_folder_of_eight_projects(path: &str) -> Reply {
+    let body = if path.starts_with("/job/org/job/") {
+        r#"{"jobs":[{"_class":"org.jenkinsci.plugins.workflow.job.WorkflowJob","name":"main"}]}"#
+    } else if path.starts_with("/job/org/") {
+        r#"{"jobs":[{"_class":"org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject","name":"r0"},{"_class":"org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject","name":"r1"},{"_class":"org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject","name":"r2"},{"_class":"org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject","name":"r3"},{"_class":"org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject","name":"r4"},{"_class":"org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject","name":"r5"},{"_class":"org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject","name":"r6"},{"_class":"org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject","name":"r7"}]}"#
+    } else {
+        r#"{"jobs":[{"_class":"jenkins.branch.OrganizationFolder","name":"org"}]}"#
+    };
+    Reply {
+        status: "200 OK",
+        headers: "Content-Type: application/json\r\n",
+        body,
+    }
+}
+
+#[tokio::test]
+async fn sibling_folders_are_read_side_by_side() {
+    let delay = Duration::from_millis(100);
+    let (client, requests) = client_for(org_folder_of_eight_projects, delay).await;
+
+    let started = std::time::Instant::now();
+    let jobs = client.discover_all_jobs().await.unwrap();
+    let elapsed = started.elapsed();
+
+    assert_eq!(jobs.len(), 8);
+    assert_eq!(requests.load(Ordering::SeqCst), 10);
+    assert!(elapsed < delay * 6, "walk took {elapsed:?}");
+}
+
 fn build_list(key: &str, count: i64) -> String {
     let builds: Vec<String> = (0..count)
         .map(|offset| format!(r#"{{"number":{},"result":"SUCCESS"}}"#, 150 - offset))

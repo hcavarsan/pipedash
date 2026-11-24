@@ -8,6 +8,10 @@ use pipedash_plugin_api::http::{
     send,
     send_checked,
 };
+use pipedash_plugin_api::support::{
+    try_buffered,
+    CONCURRENCY,
+};
 use pipedash_plugin_api::{
     check_response,
     AvailablePipeline,
@@ -79,32 +83,41 @@ impl JenkinsClient {
 
     pub async fn discover_all_jobs(&self) -> PluginResult<Vec<types::DiscoveredJob>> {
         let mut all_jobs = Vec::new();
-        let mut queue = vec![String::new()];
+        let mut folders = vec![String::new()];
 
-        while let Some(path) = queue.pop() {
-            let jobs = self.fetch_jobs_in_folder(&path).await?;
+        while !folders.is_empty() {
+            let requests = folders
+                .iter()
+                .map(|path| self.fetch_jobs_in_folder(path))
+                .collect();
+            let listings = try_buffered(requests, CONCURRENCY).await?;
+            let mut deeper = Vec::new();
 
-            for job in jobs {
-                let full_path = if path.is_empty() {
-                    job.name.clone()
-                } else {
-                    format!("{}/{}", path, job.name)
-                };
+            for (path, jobs) in folders.iter().zip(listings) {
+                for job in jobs {
+                    let full_path = if path.is_empty() {
+                        job.name.clone()
+                    } else {
+                        format!("{}/{}", path, job.name)
+                    };
 
-                if job._class.contains("Folder")
-                    || job._class.contains("WorkflowMultiBranchProject")
-                {
-                    queue.push(full_path);
-                } else if job._class.contains("WorkflowJob")
-                    || job._class.contains("FreeStyleProject")
-                {
-                    all_jobs.push(types::DiscoveredJob {
-                        name: job.name,
-                        full_path,
-                        _class: job._class,
-                    });
+                    if job._class.contains("Folder")
+                        || job._class.contains("WorkflowMultiBranchProject")
+                    {
+                        deeper.push(full_path);
+                    } else if job._class.contains("WorkflowJob")
+                        || job._class.contains("FreeStyleProject")
+                    {
+                        all_jobs.push(types::DiscoveredJob {
+                            name: job.name,
+                            full_path,
+                            _class: job._class,
+                        });
+                    }
                 }
             }
+
+            folders = deeper;
         }
 
         Ok(all_jobs)
