@@ -100,15 +100,19 @@ impl Repository {
         &self, id: i64, config: &ProviderConfig, expected_version: i64,
     ) -> DomainResult<bool> {
         let previous = self.get_provider(id).await?;
-        let taken_by = self
-            .config_backend
-            .list_providers()
-            .await?
-            .into_iter()
-            .find(|provider| provider.name == config.name && provider.id != Some(id))
-            .and_then(|provider| provider.id);
-        ensure_unique(taken_by, &config.name)?;
         let pool = &self.cache_pool;
+        let taken_sql = format!(
+            "SELECT id FROM providers WHERE name = {} AND id <> {}",
+            pool.placeholder(1),
+            pool.placeholder(2)
+        );
+        let taken_by = on_pool!(pool, p => sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(taken_sql))
+            .bind(&config.name)
+            .bind(id)
+            .fetch_optional(p)
+            .await
+            .map_err(|e| DomainError::DatabaseError(format!("Failed to check existing: {e}"))))?;
+        ensure_unique(taken_by, &config.name)?;
         let sql = format!(
             "UPDATE providers SET name = {}, provider_type = {}, config_json = {}, refresh_interval = {}, version = version + 1, updated_at = {} WHERE id = {} AND version = {}",
             pool.placeholder(1),
