@@ -5,13 +5,13 @@ import { TYPOGRAPHY } from '../../../theme/typography'
 import type { DisplayField } from '../../../types/presentation'
 
 interface RunInputsProps {
-  inputs: DisplayField[]
+  inputs?: DisplayField[]
   title: string
   mobileShell: boolean
   isMobile: boolean
 }
 
-export function RunInputs({ inputs, title, mobileShell, isMobile }: RunInputsProps): ReactNode {
+export function RunInputs({ inputs = [], title, mobileShell, isMobile }: RunInputsProps): ReactNode {
   if (inputs.length === 0) {
     return null
   }
@@ -52,7 +52,12 @@ export function RunInputs({ inputs, title, mobileShell, isMobile }: RunInputsPro
 function DesktopInputRow({ input, isMobile }: { input: DisplayField; isMobile: boolean }): ReactNode {
   return (
     <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xl">
-      <Text size={TYPOGRAPHY.FIELD_VALUE.size} c="dimmed" w={isMobile ? 110 : 160} style={{ flex: 'none' }}>
+      <Text
+        size={TYPOGRAPHY.FIELD_VALUE.size}
+        c="dimmed"
+        w={isMobile ? 110 : 160}
+        style={{ flex: 'none', overflowWrap: 'anywhere' }}
+      >
         {input.label}
       </Text>
       <Text size={TYPOGRAPHY.FIELD_VALUE.size} flex={1} miw={0} style={{ overflowWrap: 'anywhere' }}>

@@ -45,3 +45,13 @@ test('a run without inputs shows no inputs section', () => {
 
   assert.equal(within(document.body).queryByRole('region', { name: 'Inputs' }), null)
 })
+
+test('a run from a server that sends no inputs shows no inputs section', () => {
+  render(
+    <MantineProvider env="test">
+      <RunInputs title="Inputs" mobileShell={false} isMobile={false} />
+    </MantineProvider>
+  )
+
+  assert.equal(within(document.body).queryByRole('region', { name: 'Inputs' }), null)
+})
