@@ -181,21 +181,21 @@ impl TektonClient {
         self.post_json(&url, &body).await
     }
 
-    pub async fn delete_pipelinerun(&self, namespace: &str, name: &str) -> PluginResult<()> {
+    pub async fn cancel_pipelinerun(&self, namespace: &str, name: &str) -> PluginResult<()> {
         let request = build_request(
             http::Request::builder()
                 .uri(format!(
-                    "/apis/tekton.dev/v1/namespaces/{}/pipelineruns/{}",
-                    namespace, name
+                    "/apis/tekton.dev/v1/namespaces/{namespace}/pipelineruns/{name}"
                 ))
-                .method(http::Method::DELETE),
-            Vec::new(),
+                .method(http::Method::PATCH)
+                .header("Content-Type", "application/merge-patch+json"),
+            br#"{"spec":{"status":"Cancelled"}}"#.to_vec(),
         )?;
 
         self.client
             .request_text(request)
             .await
-            .map_err(|e| map_error(e, "Failed to delete pipelinerun"))?;
+            .map_err(|e| map_error(e, "Failed to cancel pipelinerun"))?;
 
         Ok(())
     }
