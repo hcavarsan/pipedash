@@ -108,3 +108,24 @@ fn resume_position_restarts_only_when_a_cursor_was_rejected() {
     );
     assert!(sink.restarted());
 }
+
+#[test]
+fn retain_matching_ignores_case_in_the_search_and_the_fields() {
+    let pipeline = |id: &str, name: &str, description: Option<&str>| AvailablePipeline {
+        id: id.into(),
+        name: name.into(),
+        description: description.map(Into::into),
+        organization: None,
+        repository: None,
+    };
+    let mut items = vec![
+        pipeline("deploy-api", "Deploy API", None),
+        pipeline("nightly", "nightly", Some("Runs the API smoke tests")),
+        pipeline("docs", "docs", None),
+    ];
+
+    retain_matching(&mut items, "Api");
+
+    let ids: Vec<_> = items.iter().map(|item| item.id.as_str()).collect();
+    assert_eq!(ids, ["deploy-api", "nightly"]);
+}
