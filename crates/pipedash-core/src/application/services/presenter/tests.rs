@@ -99,3 +99,29 @@ async fn presenter_should_leave_default_state_for_unregistered_provider() {
     assert_eq!(runs[0].actions, RunActionState::default());
     assert_eq!(runs[0].display, RunDisplay::default());
 }
+
+#[tokio::test]
+async fn presenter_should_pace_a_lone_run_from_the_pipeline_typical_and_queue_limit() {
+    let h = Harness::new().await;
+    let (provider_id, _) = h.add_stub(StubProvider::new).await;
+    let mut pipeline = running_pipeline(provider_id, STUB_FORCE);
+    pipeline.typical_duration_seconds = Some(60);
+    let mut running = running_run(&pipeline);
+    running.started_at = Utc::now() - chrono::Duration::minutes(10);
+    let mut queued = stub_run(&pipeline.id, 2, 0);
+    queued.status = PipelineStatus::Pending;
+    queued.started_at = Utc::now() - chrono::Duration::minutes(10);
+
+    let mut lone_running = [running];
+    let mut lone_queued = [queued];
+    h.presenter
+        .runs(&pipeline, &mut lone_running)
+        .await
+        .unwrap();
+    h.presenter.runs(&pipeline, &mut lone_queued).await.unwrap();
+
+    assert_eq!(lone_running[0].pace.typical_duration_seconds, Some(60));
+    assert!(lone_running[0].pace.past_usual);
+    assert_eq!(lone_queued[0].pace.queue_limit_seconds, Some(15 * 60));
+    assert!(!lone_queued[0].pace.stuck);
+}
