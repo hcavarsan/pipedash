@@ -68,8 +68,12 @@ fn stub_apiserver(
     runs: &'static [(&'static str, &'static str, &'static str)],
 ) -> (String, mpsc::Receiver<String>) {
     let (log, requests) = mpsc::channel();
-    let server = serve(move |method, target, _| {
-        let _ = log.send(format!("{method} {target}"));
+    let server = serve(move |method, target, request_body| {
+        let _ = log.send(
+            format!("{method} {target} {request_body}")
+                .trim_end()
+                .to_string(),
+        );
 
         let body = if method == "GET" && target.contains("/pipelines") {
             let mut names: Vec<&str> = runs.iter().map(|(_, pipeline, _)| *pipeline).collect();
@@ -139,10 +143,10 @@ fn plugin(server: &str, dir: &tempfile::TempDir) -> TektonPlugin {
     plugin_with(server, dir, &[])
 }
 
-fn deletes(requests: &mpsc::Receiver<String>) -> Vec<String> {
+fn writes(requests: &mpsc::Receiver<String>) -> Vec<String> {
     requests
         .try_iter()
-        .filter(|line| line.starts_with("DELETE"))
+        .filter(|line| !line.starts_with("GET"))
         .collect()
 }
 
@@ -230,7 +234,7 @@ async fn run_details_returns_run_of_requested_pipeline() {
 }
 
 #[tokio::test]
-async fn cancel_run_deletes_run_of_requested_pipeline() {
+async fn cancel_run_patches_run_of_requested_pipeline_to_cancelled() {
     let dir = tempfile::tempdir().unwrap();
     let (server, requests) = stub_apiserver(TWO_PIPELINES);
     let plugin = plugin(&server, &dir);
@@ -242,13 +246,15 @@ async fn cancel_run_deletes_run_of_requested_pipeline() {
         .unwrap();
 
     assert_eq!(
-        deletes(&requests),
-        vec!["DELETE /apis/tekton.dev/v1/namespaces/ci/pipelineruns/lint-run-1"]
+        writes(&requests),
+        vec![
+            r#"PATCH /apis/tekton.dev/v1/namespaces/ci/pipelineruns/lint-run-1 {"spec":{"status":"Cancelled"}}"#
+        ]
     );
 }
 
 #[tokio::test]
-async fn cancel_run_deletes_only_the_requested_run_when_runs_share_the_second() {
+async fn cancel_run_patches_only_the_requested_run_when_runs_share_the_second() {
     let dir = tempfile::tempdir().unwrap();
     let (server, requests) = stub_apiserver(&[
         ("lint-run-1", "lint", "0000000b-0000-4000-8000-000000000000"),
@@ -268,8 +274,10 @@ async fn cancel_run_deletes_only_the_requested_run_when_runs_share_the_second() 
         .unwrap();
 
     assert_eq!(
-        deletes(&requests),
-        vec!["DELETE /apis/tekton.dev/v1/namespaces/ci/pipelineruns/lint-run-2"]
+        writes(&requests),
+        vec![
+            r#"PATCH /apis/tekton.dev/v1/namespaces/ci/pipelineruns/lint-run-2 {"spec":{"status":"Cancelled"}}"#
+        ]
     );
 }
 
@@ -287,7 +295,7 @@ async fn cancel_run_refuses_when_run_numbers_collide() {
     let result = plugin.cancel_run("ci__lint", history[0].run_number).await;
 
     assert!(result.is_err(), "{result:?}");
-    assert_eq!(deletes(&requests), Vec::<String>::new());
+    assert_eq!(writes(&requests), Vec::<String>::new());
     assert!(plugin
         .fetch_run_details("ci__lint", history[0].run_number)
         .await
