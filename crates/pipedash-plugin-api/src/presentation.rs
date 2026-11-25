@@ -85,6 +85,7 @@ pub struct PluginPresentation {
     pub rerun: ActionCopy,
     pub empty_history_description: String,
     pub run_details_title: String,
+    pub run_inputs_title: String,
     pub progress_title: String,
     pub archived_notice: Option<Notice>,
     pub force_cancel_confirmation: String,
@@ -102,6 +103,8 @@ pub struct RunDisplay {
     pub title: String,
     pub context: Vec<DisplayField>,
     pub started_label: String,
+    #[serde(default)]
+    pub inputs: Vec<DisplayField>,
 }
 
 #[derive(Debug, Clone, Copy)]

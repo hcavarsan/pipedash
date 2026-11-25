@@ -99,7 +99,30 @@ pub fn run_display(run: &RunFacts<'_>) -> RunDisplay {
         title: format!("#{}", run.run_number),
         context,
         started_label: "Started".to_string(),
+        inputs: input_fields(run.inputs, run.branch),
     }
+}
+
+fn input_fields(inputs: Option<&Value>, branch: Option<&str>) -> Vec<DisplayField> {
+    inputs
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter(|(key, value)| {
+            let blank = value.is_null() || value.as_str() == Some("");
+            let branch_echo = matches!(key.as_str(), "ref" | "branch")
+                && value.as_str().is_some()
+                && value.as_str() == branch;
+            !blank && !branch_echo
+        })
+        .map(|(key, value)| DisplayField {
+            label: key.clone(),
+            value: match value {
+                Value::String(text) => text.clone(),
+                other => other.to_string(),
+            },
+        })
+        .collect()
 }
 
 pub fn trigger_values(

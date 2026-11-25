@@ -176,6 +176,39 @@ fn default_run_display_lists_branch_and_actor() {
 }
 
 #[test]
+fn default_run_display_lists_inputs_without_blanks_or_the_branch_echo() {
+    let empty = HashMap::new();
+    let facts = pipeline(&empty);
+    let plugin = plugin(PluginCapabilities::default());
+    let inputs = json!({
+        "count": 3,
+        "ref": "feature",
+        "secret": null,
+        "target": "",
+        "zone": "eu",
+    });
+
+    let display = plugin.run_display(&facts, &run(PipelineStatus::Success, &empty, Some(&inputs)));
+    assert_eq!(
+        display.inputs,
+        vec![
+            DisplayField {
+                label: "count".to_string(),
+                value: "3".to_string()
+            },
+            DisplayField {
+                label: "zone".to_string(),
+                value: "eu".to_string()
+            },
+        ]
+    );
+    assert!(plugin
+        .run_display(&facts, &run(PipelineStatus::Success, &empty, None))
+        .inputs
+        .is_empty());
+}
+
+#[test]
 fn default_trigger_values_replay_previous_inputs_and_inject_the_branch() {
     let empty = HashMap::new();
     let facts = pipeline(&empty);

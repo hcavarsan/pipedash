@@ -53,6 +53,7 @@ export interface RunDisplay {
   title: string
   context: DisplayField[]
   started_label: string
+  inputs: DisplayField[]
 }
 
 export interface SectionPresentation {

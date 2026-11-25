@@ -67,6 +67,7 @@ pub(crate) fn run_display(run: &RunFacts<'_>) -> RunDisplay {
         title: title.to_string(),
         context: Vec::new(),
         started_label: "Recorded".to_string(),
+        inputs: Vec::new(),
     }
 }
 

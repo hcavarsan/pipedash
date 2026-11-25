@@ -119,6 +119,7 @@ pub(super) fn presentation(provider_name: &str) -> PluginPresentation {
         rerun: rerun_copy(),
         empty_history_description: "This workflow has no recorded runs.".to_string(),
         run_details_title: "Run details".to_string(),
+        run_inputs_title: "Inputs".to_string(),
         progress_title: "Run in progress".to_string(),
         archived_notice: None,
         force_cancel_confirmation:

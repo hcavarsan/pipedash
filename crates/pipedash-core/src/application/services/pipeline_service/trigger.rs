@@ -107,13 +107,6 @@ fn text(value: &Value) -> &str {
     value.as_str().map_or("", str::trim)
 }
 
-fn display_value(value: &Value) -> String {
-    match value {
-        Value::String(text) => text.clone(),
-        other => other.to_string(),
-    }
-}
-
 fn run_environment(run: &PipelineRun) -> &str {
     run.inputs
         .as_ref()
@@ -125,25 +118,6 @@ fn run_environment(run: &PipelineRun) -> &str {
             })
         })
         .map_or("", |(_, value)| text(value))
-}
-
-fn replayed_inputs(run: &PipelineRun) -> impl Iterator<Item = DisplayField> + '_ {
-    run.inputs
-        .as_ref()
-        .and_then(Value::as_object)
-        .into_iter()
-        .flatten()
-        .filter(|(key, value)| {
-            let blank = value.is_null() || value.as_str() == Some("");
-            let branch_echo = matches!(key.as_str(), "ref" | "branch")
-                && value.as_str().is_some()
-                && value.as_str() == run.branch.as_deref();
-            !blank && !branch_echo
-        })
-        .map(|(key, value)| DisplayField {
-            label: key.clone(),
-            value: display_value(value),
-        })
 }
 
 fn commit_summary(run: &PipelineRun) -> String {
@@ -188,7 +162,11 @@ fn draft_fields(
             value,
         })
         .chain(pipeline.actions.target.clone())
-        .chain(previous.into_iter().flat_map(replayed_inputs))
+        .chain(
+            previous
+                .into_iter()
+                .flat_map(|run| run.display.inputs.clone()),
+        )
         .filter(|field| !field.value.is_empty())
         .collect()
 }
