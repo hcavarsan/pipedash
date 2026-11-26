@@ -3,12 +3,14 @@ use std::time::Instant;
 
 use chrono::{
     DateTime,
-    Duration,
     Utc,
 };
 
 use super::MetricsRepository;
-use crate::domain::DomainResult;
+use crate::domain::{
+    DomainResult,
+    MetricsConfig,
+};
 use crate::infrastructure::database::bind::{
     execute_bound,
     BindValue,
@@ -74,9 +76,9 @@ impl MetricsRepository {
                 .get_pipeline_config(pid)
                 .await?
                 .map_or(global_config.default_retention_days, |c| c.retention_days);
-            let cutoff = Utc::now() - Duration::days(retention_days);
-
-            total_deleted += self.delete_older_than(&[pid.to_string()], cutoff).await?;
+            if let Some(cutoff) = MetricsConfig::retention_cutoff(retention_days, Utc::now()) {
+                total_deleted += self.delete_older_than(&[pid.to_string()], cutoff).await?;
+            }
         } else {
             let grouped = self
                 .pipelines_by_retention(global_config.default_retention_days)
@@ -86,7 +88,10 @@ impl MetricsRepository {
             }
 
             for (retention_days, pipeline_ids) in grouped {
-                let cutoff = Utc::now() - Duration::days(retention_days);
+                let Some(cutoff) = MetricsConfig::retention_cutoff(retention_days, Utc::now())
+                else {
+                    continue;
+                };
                 total_deleted += self.delete_older_than(&pipeline_ids, cutoff).await?;
             }
         }

@@ -91,6 +91,13 @@ pub struct MetricsConfig {
     pub updated_at: DateTime<Utc>,
 }
 
+impl MetricsConfig {
+    pub fn retention_cutoff(retention_days: i64, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+        chrono::Duration::try_days(retention_days)
+            .and_then(|retention| now.checked_sub_signed(retention))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MetricsConfigExport {
     pub global_config: GlobalMetricsConfig,

@@ -6,6 +6,7 @@ use serde_json::json;
 use super::MetricsService;
 use crate::application::test_support::RecordingBus;
 use crate::domain::{
+    DomainError,
     MetricEntry,
     MetricType,
     MetricsQuery,
@@ -63,6 +64,75 @@ async fn state_snapshots_do_not_count_as_failed_reconciliations() {
             .await
             .unwrap();
     assert_eq!(success, 100.0);
+}
+
+#[tokio::test]
+async fn a_stored_retention_past_the_date_range_keeps_metrics_and_cleanup_running() {
+    let dir = tempfile::tempdir().unwrap();
+    let pool = crate::infrastructure::database::init_database(dir.path().join("metrics.db"))
+        .await
+        .unwrap();
+    let service = MetricsService::new(
+        Arc::new(MetricsRepository::new_from_pool(DatabasePool::Sqlite(
+            pool.clone(),
+        ))),
+        Arc::new(NoOpEventBus),
+    );
+    service.update_global_config(true, 30).await.unwrap();
+    let pipeline_id = "stub__1__HelmRelease__apps__forever";
+    service
+        .repository()
+        .upsert_pipeline_config(pipeline_id, true, 999_999_999)
+        .await
+        .unwrap();
+    let run: PipelineRun = serde_json::from_value(json!({
+        "id": "forever", "pipeline_id": pipeline_id, "run_number": 1,
+        "status": "success", "started_at": Utc::now().to_rfc3339(), "logs_url": ""
+    }))
+    .unwrap();
+
+    service
+        .extract_and_store_metrics(pipeline_id, std::slice::from_ref(&run))
+        .await
+        .unwrap();
+    service.cleanup_old_metrics().await.unwrap();
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pipeline_metrics")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(count > 0);
+}
+
+#[tokio::test]
+async fn retention_past_a_century_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let pool = crate::infrastructure::database::init_database(dir.path().join("metrics.db"))
+        .await
+        .unwrap();
+    let service = MetricsService::new(
+        Arc::new(MetricsRepository::new_from_pool(DatabasePool::Sqlite(pool))),
+        Arc::new(NoOpEventBus),
+    );
+
+    let global = service
+        .update_global_config(true, 36_501)
+        .await
+        .unwrap_err();
+    let pipeline = service
+        .update_pipeline_config("stub__1__HelmRelease__apps__forever", true, 999_999_999)
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(global, DomainError::InvalidConfig(_)),
+        "{global:?}"
+    );
+    assert!(
+        matches!(pipeline, DomainError::InvalidConfig(_)),
+        "{pipeline:?}"
+    );
+    service.update_global_config(true, 36_500).await.unwrap();
 }
 
 #[tokio::test]

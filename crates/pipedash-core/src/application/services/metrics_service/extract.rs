@@ -7,11 +7,11 @@ use chrono::{
 
 use super::MetricsService;
 use crate::domain::{
-    DomainError,
     DomainResult,
     MetricEntry,
     MetricMetadata,
     MetricType,
+    MetricsConfig,
     PipelineRun,
     PipelineStatus,
 };
@@ -30,13 +30,8 @@ impl MetricsService {
         if !config.enabled {
             return Ok(0);
         }
-        let retention_cutoff = chrono::Duration::try_days(config.retention_days)
-            .and_then(|retention| Utc::now().checked_sub_signed(retention))
-            .ok_or_else(|| {
-                DomainError::InvalidConfig(
-                    "Metrics retention is outside the supported date range".to_string(),
-                )
-            })?;
+        let retention_cutoff = MetricsConfig::retention_cutoff(config.retention_days, Utc::now())
+            .unwrap_or(DateTime::<Utc>::MIN_UTC);
 
         let mut records = Vec::new();
         let mut has_regular_runs = false;
