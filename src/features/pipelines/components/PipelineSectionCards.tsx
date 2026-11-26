@@ -26,7 +26,14 @@ function PipelineSectionCard({ section, model, actions }: PipelineSectionCardPro
   if (section.kind !== 'none') {
     const Icon = section.kind === 'view' ? IconFolders : IconFolder
     const items = rowMenuItems(
-      { id: section.id, type: 'section', name, kind: section.kind, pipelines: section.pipelines },
+      {
+        id: section.id,
+        type: 'section',
+        name,
+        kind: section.kind,
+        pipelines: section.pipelines,
+        providerIds: new Set(section.provider_ids),
+      },
       actions
     )
 
