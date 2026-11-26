@@ -10,6 +10,7 @@ fn host_alert(kind: &str, created_at: &str) -> HostAlert {
         key: "pipeline:1".to_string(),
         kind: kind.to_string(),
         tone: "danger".to_string(),
+        label: "Pipeline failed".to_string(),
         title: "Failed".to_string(),
         body: "api".to_string(),
         pipeline_id: Some("stub__1__api".to_string()),

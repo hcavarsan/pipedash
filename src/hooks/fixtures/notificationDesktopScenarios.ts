@@ -41,6 +41,7 @@ const notice: CenterNotification = {
   at: Date.now(),
   read: false,
   tone: 'danger',
+  label: 'Pipeline failed',
   level: null,
   title: 'Watched run #42 failed',
   body: 'menu-01',

@@ -60,7 +60,8 @@ export const rowMenuItems = (row: WorkflowRow | SectionMenuTarget, actions: Pipe
   }
 
   const cancel = actions.cancelItem(row.name, row.pipelines)
-  const items: WorkflowMenuItem[] = []
+  const providerIds = Array.from(row.providerIds)
+  const items: WorkflowMenuItem[] = providerIds.length > 0 ? [refreshItem(providerIds, actions)] : []
 
   if (row.kind === 'repository') {
     items.push(actions.pinItem('repository', repositoryRef(row.id)))

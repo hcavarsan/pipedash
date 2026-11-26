@@ -56,6 +56,7 @@ fn notice(key: &str, tone: CenterTone, read: bool) -> CenterNotification {
         at: 1,
         read,
         tone,
+        label: String::new(),
         level: None,
         title: key.to_string(),
         body: String::new(),

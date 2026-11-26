@@ -2,6 +2,7 @@ use std::future::Future;
 
 use serde::Serialize;
 
+use crate::domain::notification_center::notice_label;
 use crate::domain::{
     DeviceAlert,
     DomainResult,
@@ -18,13 +19,15 @@ pub struct AlertView {
     #[serde(flatten)]
     pub alert: DeviceAlert,
     pub tone: &'static str,
+    pub label: &'static str,
 }
 
 impl From<DeviceAlert> for AlertView {
     fn from(alert: DeviceAlert) -> Self {
         let tone = alert.kind.tone();
+        let label = notice_label(alert.kind, alert.pipeline_id.as_deref(), None);
 
-        Self { alert, tone }
+        Self { alert, tone, label }
     }
 }
 

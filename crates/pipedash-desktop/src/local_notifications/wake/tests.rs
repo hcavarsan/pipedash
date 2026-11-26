@@ -7,6 +7,7 @@ fn alert(seq: i64, key: &str, kind: &str) -> HostAlert {
         key: key.to_owned(),
         kind: kind.to_owned(),
         tone: "danger".to_string(),
+        label: "Pipeline failed".to_string(),
         title: format!("{key} title"),
         body: "body".to_owned(),
         pipeline_id: Some("p1".to_owned()),

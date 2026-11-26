@@ -8,7 +8,7 @@ import { useNotificationCenterStore } from '../../../stores/notificationCenterSt
 import type { CenterNotification } from '../../../types/notifications'
 import { formatRelativeTime } from '../../../utils/formatRelativeTime'
 import { type NotificationDetailAction, useNotificationDetailActions } from '../hooks/useNotificationDetailActions'
-import { notificationIcon, notificationLabel, TONE_COLORS } from '../lib/labels'
+import { notificationIcon, TONE_COLORS } from '../lib/labels'
 import { useNotificationItems } from '../queries/useDesktopNotifications'
 
 interface DetailsViewProps {
@@ -25,7 +25,7 @@ function MobileDetails({ notification, actions, now }: DetailsViewProps): ReactN
       <IosGroup>
         <IosRow
           icon={<HeaderIcon size={16} color={TONE_COLORS[notification.tone]} aria-hidden />}
-          title={notificationLabel(notification)}
+          title={notification.label}
           value={formatRelativeTime(notification.at, now)}
         />
       </IosGroup>
@@ -64,7 +64,7 @@ function DesktopTitle({ notification, now }: Pick<DetailsViewProps, 'notificatio
       <Stack gap={0}>
         <Text fw={600}>{notification.title}</Text>
         <Text size="xs" c="dimmed">
-          {notificationLabel(notification)} · {formatRelativeTime(notification.at, now)}
+          {notification.label} · {formatRelativeTime(notification.at, now)}
         </Text>
       </Stack>
     </Group>

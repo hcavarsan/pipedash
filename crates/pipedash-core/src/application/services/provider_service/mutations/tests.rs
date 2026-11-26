@@ -205,3 +205,29 @@ async fn editing_with_invalid_credentials_saves_nothing() {
     let saved = h.repository.get_provider(id).await.unwrap();
     assert_eq!(saved.refresh_interval, 30);
 }
+
+#[tokio::test]
+async fn renaming_onto_a_taken_name_is_an_invalid_config() {
+    let h = Harness::new().await;
+    let (first, _) = h.add_stub(StubProvider::new).await;
+    let (second, _) = h.add_stub(StubProvider::new).await;
+    let taken = h.repository.get_provider(first).await.unwrap().name;
+    let mut edited = h.repository.get_provider(second).await.unwrap();
+    let original = edited.name.clone();
+    edited.name = taken.clone();
+
+    let error = h
+        .provider_service
+        .update_provider(second, edited)
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(&error, DomainError::InvalidConfig(text) if *text == format!("Provider '{taken}' already exists")),
+        "{error:?}"
+    );
+    assert_eq!(
+        h.repository.get_provider(second).await.unwrap().name,
+        original
+    );
+}

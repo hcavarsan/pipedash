@@ -124,7 +124,7 @@ impl TektonPlugin {
         let run = find_run(runs, run_number)?;
 
         client
-            .delete_pipelinerun(&namespace, &run.metadata.name)
+            .cancel_pipelinerun(&namespace, &run.metadata.name)
             .await?;
 
         Ok(())

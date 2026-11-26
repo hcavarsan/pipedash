@@ -9,6 +9,7 @@ fn notice(key: &str, title: &str) -> CenterNotification {
         at: 1,
         read: false,
         tone: CenterTone::Warning,
+        label: "Major outage".to_string(),
         level: Some(HealthLevel::MajorOutage),
         title: title.to_string(),
         body: "Investigating".to_string(),
@@ -68,6 +69,7 @@ fn shown(kind: AlertKind) -> ShownNotification {
         id: 3,
         at: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
         tone: kind.tone(),
+        label: notice_label(kind, None, Some(HealthLevel::MajorOutage)),
         notice: LocalNotification {
             key: "provider:1".to_string(),
             title: "Provider health".to_string(),
@@ -336,7 +338,8 @@ fn changes_and_snapshots_keep_their_wire_shape() {
     let change: NotificationCenterChange = serde_json::from_value(json!({
         "type": "insert_missed",
         "notice": {
-            "key": "k", "at": 7, "read": false, "tone": "danger", "level": null,
+            "key": "k", "at": 7, "read": false, "tone": "danger", "label": "Pipeline failed",
+            "level": null,
             "title": "t", "body": "b", "providerIds": [1], "pipelineId": "p",
             "link": { "url": "https://status.example.com", "kind": "status_page" },
         },
@@ -392,6 +395,36 @@ fn a_shown_notification_keeps_its_metadata_and_takes_its_tone_from_the_kind() {
 }
 
 #[test]
+fn each_pipeline_alert_kind_gets_its_own_label() {
+    for (kind, label) in [
+        (AlertKind::Failed, "Pipeline failed"),
+        (AlertKind::LongRun, "Running longer than usual"),
+        (AlertKind::StuckQueue, "Waiting in the queue"),
+        (AlertKind::Quiet, "Stopped running"),
+        (AlertKind::Recovered, "Pipeline finished"),
+    ] {
+        let mut source = shown(kind);
+        source.notice.pipeline_id = Some("stub__1__api".to_string());
+        source.notice.level = None;
+
+        assert_eq!(CenterNotification::from(&source).label, label);
+    }
+}
+
+#[test]
+fn a_provider_notice_is_labeled_by_its_health_level() {
+    assert_eq!(
+        CenterNotification::from(&shown(AlertKind::Outage)).label,
+        "Major outage"
+    );
+    assert_eq!(
+        CenterNotification::from(&shown(AlertKind::Recovered)).label,
+        "Resolved"
+    );
+    assert_eq!(notice_label(AlertKind::Outage, None, None), "Notice");
+}
+
+#[test]
 fn a_notification_frame_from_a_server_maps_like_the_local_one() {
     let source = shown(AlertKind::Degraded);
     let payload = serde_json::to_value(&source).unwrap();
@@ -410,21 +443,43 @@ fn a_notification_frame_from_a_server_maps_like_the_local_one() {
 
 #[test]
 fn a_watched_run_names_its_outcome_and_keeps_the_run_number() {
-    for (outcome, tone, result) in [
-        (WatchOutcome::Succeeded, CenterTone::Success, "succeeded"),
-        (WatchOutcome::Failed, CenterTone::Danger, "failed"),
+    for (outcome, tone, result, label) in [
+        (
+            WatchOutcome::Succeeded,
+            CenterTone::Success,
+            "succeeded",
+            "Pipeline finished",
+        ),
+        (
+            WatchOutcome::Failed,
+            CenterTone::Danger,
+            "failed",
+            "Pipeline failed",
+        ),
         (
             WatchOutcome::Cancelled,
             CenterTone::Warning,
             "was cancelled",
+            "Run cancelled",
         ),
-        (WatchOutcome::Skipped, CenterTone::Warning, "was skipped"),
-        (WatchOutcome::Finished, CenterTone::Warning, "finished"),
+        (
+            WatchOutcome::Skipped,
+            CenterTone::Warning,
+            "was skipped",
+            "Run skipped",
+        ),
+        (
+            WatchOutcome::Finished,
+            CenterTone::Warning,
+            "finished",
+            "Run finished",
+        ),
     ] {
         let notice = CenterNotification::watched("s1", 42, "stub__1__api", "api", "Stub", outcome);
 
         assert_eq!(notice.key, "watch:s1");
         assert_eq!(notice.tone, tone);
+        assert_eq!(notice.label, label);
         assert_eq!(notice.title, format!("api #42 {result}"));
         assert_eq!(notice.body, "Watched run · Stub");
         assert_eq!(notice.pipeline_id.as_deref(), Some("stub__1__api"));

@@ -38,6 +38,7 @@ export function useNotificationEvents(): void {
         key,
         at: Date.parse(notification.at),
         tone: notification.tone,
+        label: notification.label,
         level: notification.level ?? null,
         title,
         body,

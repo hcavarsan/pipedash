@@ -39,7 +39,7 @@ export interface WorkflowRow extends BaseTableRow {
 
 export type TableRow = SectionRow | WorkflowRow
 
-export type SectionMenuTarget = Pick<SectionRow, 'type' | 'id' | 'name' | 'kind' | 'pipelines'>
+export type SectionMenuTarget = Pick<SectionRow, 'type' | 'id' | 'name' | 'kind' | 'pipelines' | 'providerIds'>
 
 export interface PipelineActions {
   onTogglePin: (p: ViewPipeline) => void

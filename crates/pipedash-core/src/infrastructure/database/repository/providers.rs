@@ -7,6 +7,7 @@ use crate::domain::{
     ProviderConfig,
 };
 use crate::infrastructure::config_backend::StoredPermissions;
+use crate::infrastructure::database::provider_row::ensure_unique;
 use crate::infrastructure::database::retry::retry_on_busy;
 use crate::infrastructure::database::{
     DatabasePool,
@@ -100,6 +101,18 @@ impl Repository {
     ) -> DomainResult<bool> {
         let previous = self.get_provider(id).await?;
         let pool = &self.cache_pool;
+        let taken_sql = format!(
+            "SELECT id FROM providers WHERE name = {} AND id <> {}",
+            pool.placeholder(1),
+            pool.placeholder(2)
+        );
+        let taken_by = on_pool!(pool, p => sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(taken_sql))
+            .bind(&config.name)
+            .bind(id)
+            .fetch_optional(p)
+            .await
+            .map_err(|e| DomainError::DatabaseError(format!("Failed to check existing: {e}"))))?;
+        ensure_unique(taken_by, &config.name)?;
         let sql = format!(
             "UPDATE providers SET name = {}, provider_type = {}, config_json = {}, refresh_interval = {}, version = version + 1, updated_at = {} WHERE id = {} AND version = {}",
             pool.placeholder(1),

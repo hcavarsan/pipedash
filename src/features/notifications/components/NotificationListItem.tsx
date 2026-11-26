@@ -4,7 +4,7 @@ import { IosRow } from '../../../components/ios/IosList'
 import type { CenterSelection } from '../../../stores/notificationCenterStore'
 import type { CenterNotification } from '../../../types/notifications'
 import { formatRelativeTime } from '../../../utils/formatRelativeTime'
-import { notificationIcon, notificationLabel, TONE_COLORS } from '../lib/labels'
+import { notificationIcon, TONE_COLORS } from '../lib/labels'
 
 interface NotificationListItemProps {
   item: CenterNotification
@@ -42,7 +42,7 @@ export function NotificationListItem({ item, now, onOpen, onMarkRead }: Notifica
           {item.title}
         </Text>
       }
-      subtitle={`${notificationLabel(item)} · ${formatRelativeTime(item.at, now)}`}
+      subtitle={`${item.label} · ${formatRelativeTime(item.at, now)}`}
       accessory={unreadDot}
       chevron
       onClick={() => onOpen({ type: 'notification', key: item.key })}

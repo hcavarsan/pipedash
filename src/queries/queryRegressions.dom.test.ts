@@ -28,6 +28,8 @@ const { usePlugins } = await import('./usePluginsQueries')
 const { useMetricsDashboard } = await import('../features/metrics/queries/useMetricsQueries')
 const { useRunHistory } = await import('./useRunHistoryQueries')
 const { useSaveTablePreferences } = await import('../features/runs/queries/useTablePreferences')
+const { useSetAllowPrivateHttp } = await import('../features/connection/queries/useConnectionQueries')
+const { connectionService } = await import('../services/connection')
 const { useImportProviders, useSaveProviderDraft } = await import('./useProvidersQueries')
 const { useRefreshProviders } = await import('./useRefreshQueries')
 const { useFactoryReset } = await import('../features/settings/queries/usePlatformQueries')
@@ -135,7 +137,8 @@ test('aggregated metrics with a different limit are fetched separately', async (
   assert.equal(query.mock.callCount(), 2)
 })
 
-test('failed table preference save without a cached value leaves no optimistic entry', async (context) => {
+test('failed table preference save leaves no optimistic entry and no toast over the inline error', async (context) => {
+  const shown = context.mock.method(notifications, 'show', () => 'id')
   stub(context, 'saveTablePreferences', async () => {
     throw new Error('disk full')
   })
@@ -148,6 +151,22 @@ test('failed table preference save without a cached value leaves no optimistic e
   })
 
   assert.equal(client.getQueryData(queryKeys.tablePreferences.detail(1, 'runs')), undefined)
+  assert.equal(shown.mock.callCount(), 0)
+})
+
+test('a failed private http toggle leaves the error to the device card without a toast', async (context) => {
+  const shown = context.mock.method(notifications, 'show', () => 'id')
+  context.mock.method(connectionService, 'setAllowPrivateHttp', async () => {
+    throw new Error('keychain locked')
+  })
+  const { result } = renderHook(() => useSetAllowPrivateHttp(), { wrapper })
+
+  await act(async () => {
+    await result.current.mutateAsync(true).catch(() => undefined)
+  })
+
+  await waitFor(() => assert.equal(result.current.isError, true))
+  assert.equal(shown.mock.callCount(), 0)
 })
 
 test('saving a provider draft invalidates the provider list and cached pipelines', async (context) => {
@@ -287,6 +306,7 @@ test('factory reset also resets log preferences and the notification center', as
     key: 'k',
     at: 1,
     tone: 'danger',
+    label: 'Pipeline failed',
     level: null,
     title: 't',
     body: 'b',

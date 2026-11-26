@@ -26,6 +26,10 @@ fn each_plugin(mut check: impl FnMut(&PluginMetadata, &dyn Plugin)) {
 
 fn fixtures() -> Vec<(&'static str, Fixtures)> {
     vec![
+        (
+            "argo-workflows",
+            pipedash_plugin_argo_workflows::correlation_fixtures(),
+        ),
         ("argocd", pipedash_plugin_argocd::correlation_fixtures()),
         (
             "azure-devops",

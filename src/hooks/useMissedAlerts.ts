@@ -27,6 +27,7 @@ export function useMissedAlerts(): void {
               key: alert.key,
               at: Date.parse(alert.created_at),
               tone: alert.tone,
+              label: alert.label,
               level: null,
               title: alert.title,
               body: alert.body,

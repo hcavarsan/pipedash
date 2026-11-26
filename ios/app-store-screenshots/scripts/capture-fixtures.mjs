@@ -7,11 +7,11 @@ const iconFor = (type) => {
 }
 const allowed = { allowed: true, reason: null }
 const denied = { allowed: false, reason: null }
-const pipelineActions = {
+export const pipelineActions = {
   trigger: allowed, cancel: allowed, force_cancel: denied, enable: allowed,
   rerun_strategy: 'replay_inputs', trigger_icon: 'play', target: null,
 }
-const runActions = { cancel: allowed, force_cancel: denied, rerun: allowed, rerun_failed: allowed, review: denied, watch: true }
+export const runActions = { cancel: allowed, force_cancel: denied, rerun: allowed, rerun_failed: allowed, rerun_job: denied, review: denied, watch: true }
 const notice = { title: 'Nothing here', message: 'Nothing to show.' }
 const terminology = {
   item: 'pipeline', items: 'pipelines', group: 'repository', groups: 'repositories', group_title: 'Repository',
