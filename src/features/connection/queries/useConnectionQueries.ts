@@ -51,7 +51,6 @@ export function useDisconnectServer(): UseMutationResult<ConnectionInfo, unknown
 export function useSetAllowPrivateHttp(): UseMutationResult<void, unknown, boolean> {
   return useMutation<void, unknown, boolean>({
     mutationFn: (enabled) => connectionService.setAllowPrivateHttp(enabled),
-    onError: (error) => displayErrorNotification(error, "Couldn't change the connection setting"),
   })
 }
 

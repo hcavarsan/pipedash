@@ -9,7 +9,7 @@ import {
 import { GC_TIMES, STALE_TIMES } from '../../../lib/cacheConfig'
 import { queryKeys } from '../../../lib/queryKeys'
 import { service } from '../../../services/service'
-import { displayErrorNotification, displaySuccessNotification } from '../../../utils/errorDisplay'
+import { displaySuccessNotification } from '../../../utils/errorDisplay'
 
 export interface TablePreferences {
   columnOrder?: string[] | undefined
@@ -75,7 +75,7 @@ export function useSaveTablePreferences(): UseMutationResult<
       return { previousPreferences, providerId, tableId }
     },
 
-    onError: (error: Error, _variables, context) => {
+    onError: (_error: Error, _variables, context) => {
       if (context?.previousPreferences !== undefined) {
         queryClient.setQueryData(
           queryKeys.tablePreferences.detail(context.providerId, context.tableId),
@@ -87,8 +87,6 @@ export function useSaveTablePreferences(): UseMutationResult<
           exact: true,
         })
       }
-
-      displayErrorNotification(error, "Couldn't save preferences")
     },
 
     onSuccess: (_data, { providerId, tableId }) => {

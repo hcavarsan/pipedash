@@ -201,10 +201,6 @@ export function useRerunFailedJobs(): UseMutationResult<
 
       displaySuccessNotification(`Run #${runNumber} is re-running its failed jobs`, 'Re-running failed jobs')
     },
-
-    onError: (error: Error) => {
-      displayErrorNotification(error, "Couldn't re-run failed jobs")
-    },
   })
 }
 
@@ -288,10 +284,6 @@ export function useRerunRun(): UseMutationResult<
       } else {
         displaySuccessNotification(`Run #${result.run_number} started from run #${runNumber}`, 'Run started')
       }
-    },
-
-    onError: (error: Error) => {
-      displayErrorNotification(error, "Couldn't re-run workflow")
     },
   })
 }
