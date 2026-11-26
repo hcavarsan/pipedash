@@ -353,6 +353,30 @@ async fn get_json_decodes_success_and_maps_errors() {
 }
 
 #[tokio::test]
+async fn decode_json_treats_a_cut_off_body_as_a_transient_network_error() {
+    let url = serve_once("HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n{\"a\":42}");
+    let response = client().get(url).send().await.unwrap();
+    let error = decode_json::<serde_json::Value>(response, "thing")
+        .await
+        .unwrap_err();
+    assert!(matches!(error, PluginError::NetworkError(_)), "{error:?}");
+    assert!(error.is_transient());
+}
+
+#[tokio::test]
+async fn decode_json_keeps_invalid_json_as_a_serialization_error() {
+    let url = serve_once("HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\n{\"a\":4,}");
+    let response = client().get(url).send().await.unwrap();
+    let error = decode_json::<serde_json::Value>(response, "thing")
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error, PluginError::SerializationError(_)),
+        "{error:?}"
+    );
+}
+
+#[tokio::test]
 async fn send_checked_rejects_error_statuses() {
     let retry = RetryPolicy::new(1, Duration::from_millis(1), false);
     let url = serve_once("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n");

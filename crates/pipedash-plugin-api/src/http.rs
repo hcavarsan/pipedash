@@ -136,7 +136,11 @@ fn until(target: DateTime<Utc>, now: DateTime<Utc>) -> Duration {
 
 pub fn map_send_error(err: reqwest::Error, url: &Url) -> PluginError {
     let tls = is_tls_error(&err);
-    let network = err.is_timeout() || err.is_connect() || err.is_request();
+    let network = err.is_timeout()
+        || err.is_connect()
+        || err.is_request()
+        || err.is_body()
+        || err.is_decode();
     let message = format!("{} ({})", err.without_url(), redact_url(url));
 
     if tls {
@@ -210,11 +214,15 @@ pub fn parse_http_url(raw: &str, label: &str) -> PluginResult<Url> {
 pub async fn decode_json<T: serde::de::DeserializeOwned>(
     response: reqwest::Response, context: &str,
 ) -> PluginResult<T> {
-    let url = redact_url(response.url());
-    response.json().await.map_err(|e| {
+    let url = response.url().clone();
+    let body = response
+        .bytes()
+        .await
+        .map_err(|e| map_send_error(e, &url))?;
+    serde_json::from_slice(&body).map_err(|e| {
         PluginError::SerializationError(format!(
-            "Failed to parse {context} from {url}: {}",
-            e.without_url()
+            "Failed to parse {context} from {}: {e}",
+            redact_url(&url)
         ))
     })
 }
