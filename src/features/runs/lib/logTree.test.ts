@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import type { RunLogNode } from '../../../types/logs'
 
-import { type JobListRow, jobListRows, resolveLogGroups, toggleStage } from './logTree'
+import { type JobListRow, jobListRows, jobSelectData, resolveLogGroups, toggleStage } from './logTree'
 
 const node = (id: string, overrides: Partial<RunLogNode> = {}): RunLogNode => ({
   id,
@@ -95,4 +95,18 @@ test('a selected skipped job keeps its fold open', () => {
 
 test('a run with no skipped jobs lists every job as before', () => {
   assert.deepEqual(rowNames(jobListRows(tree, new Set(), null)), ['a', 'b', 'lone'])
+})
+
+test('the narrow job selector still offers skipped jobs after the ones that ran', () => {
+  assert.deepEqual(jobSelectData(staged), [
+    {
+      group: 'build',
+      items: [
+        { value: 'compile', label: 'compile' },
+        { value: 'lint', label: 'lint' },
+        { value: 'docs', label: 'docs' },
+      ],
+    },
+    { group: 'deploy', items: [{ value: 'ship', label: 'ship' }] },
+  ])
 })

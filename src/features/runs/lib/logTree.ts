@@ -37,6 +37,24 @@ export function resolveLogGroups(tree: LayoutTree, failedFirst = false): LogNode
   }))
 }
 
+interface JobOption {
+  value: string
+  label: string
+}
+
+export type JobSelectData = JobOption[] | { group: string; items: JobOption[] }[]
+
+export function jobSelectData(tree: LayoutTree): JobSelectData {
+  const groups = resolveLogGroups(tree)
+  const items = (group: LogNodeGroup) =>
+    [...group.nodes, ...group.skipped].map((node) => ({ value: node.id, label: node.name }))
+  const [first] = groups
+
+  return groups.length === 1 && first && first.stage === null
+    ? items(first)
+    : groups.map((group) => ({ group: group.stage ?? 'Jobs', items: items(group) }))
+}
+
 export function jobListRows(
   tree: LayoutTree,
   openStages: ReadonlySet<string>,
