@@ -70,7 +70,7 @@ export const ProviderRefreshIntervalForm = ({
             />
           )}
         </FieldRow>
-        <IosRow title="Cancel" disabled={pending} onClick={onCancel} />
+        <IosRow title="Cancel" disabled={pending} onMouseDown={(event) => event.preventDefault()} onClick={onCancel} />
       </form>
     )
   }
@@ -99,7 +99,15 @@ export const ProviderRefreshIntervalForm = ({
           w={80}
           suffix="s"
         />
-        <Button type="button" size="compact-xs" variant="subtle" color="gray" onClick={onCancel} disabled={pending}>
+        <Button
+          type="button"
+          size="compact-xs"
+          variant="subtle"
+          color="gray"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={onCancel}
+          disabled={pending}
+        >
           Cancel
         </Button>
       </Group>

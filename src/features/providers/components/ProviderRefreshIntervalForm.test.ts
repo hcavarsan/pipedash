@@ -100,3 +100,22 @@ test('the interval error disappears when the interval changes', async (context) 
   await waitFor(() => assert.equal(view().queryAllByText('Enter a number').length, 0))
   assert.deepEqual(saves, [])
 })
+
+for (const shell of ['phone', 'desktop'] as const) {
+  test(`cancel on the ${shell} discards the typed interval`, async (context) => {
+    if (shell === 'desktop') {
+      context.mock.getter(navigator, 'userAgent', () => 'Mozilla/5.0 (X11; Linux x86_64)')
+    }
+    const { user, saves, enabledField } = await openEditor(context)
+    const field = await enabledField()
+
+    await user.clear(field)
+    await user.type(field, '60')
+    await user.click(view().getByRole('button', { name: 'Cancel' }))
+
+    await waitFor(() =>
+      assert.equal(view().queryByRole('textbox', { name: field.getAttribute('aria-label') ?? '' }), null)
+    )
+    assert.deepEqual(saves, [])
+  })
+}

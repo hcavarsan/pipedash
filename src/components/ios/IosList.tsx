@@ -66,7 +66,12 @@ interface IosRowContentProps {
 
 type IosRowInteraction =
   | { to: string; onClick?: never; disabled?: never }
-  | { to?: never; onClick: MouseEventHandler<HTMLButtonElement>; disabled?: boolean }
+  | {
+      to?: never
+      onClick: MouseEventHandler<HTMLButtonElement>
+      onMouseDown?: MouseEventHandler<HTMLButtonElement>
+      disabled?: boolean
+    }
   | { to?: never; onClick?: never; disabled?: never }
 
 type IosRowProps = IosRowContentProps & IosRowInteraction
@@ -145,6 +150,7 @@ export function IosRow(props: IosRowProps): ReactNode {
         <button
           type="button"
           onClick={props.onClick}
+          onMouseDown={props.onMouseDown}
           disabled={props.disabled}
           {...shared}
           aria-pressed={selected}
