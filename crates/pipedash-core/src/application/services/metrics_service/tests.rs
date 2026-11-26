@@ -95,13 +95,17 @@ async fn a_stored_retention_past_the_date_range_keeps_metrics_and_cleanup_runnin
         .extract_and_store_metrics(pipeline_id, std::slice::from_ref(&run))
         .await
         .unwrap();
-    service.cleanup_old_metrics().await.unwrap();
-
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pipeline_metrics")
-        .fetch_one(&pool)
+    sqlx::query("INSERT INTO pipeline_metrics (pipeline_id, timestamp, metric_type, value) VALUES ('stub__1__HelmRelease__apps__short', '2000-01-01T00:00:00Z', 'run_duration', 1)")
+        .execute(&pool)
         .await
         .unwrap();
-    assert!(count > 0);
+    service.cleanup_old_metrics().await.unwrap();
+
+    let kept: Vec<String> = sqlx::query_scalar("SELECT DISTINCT pipeline_id FROM pipeline_metrics")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(kept, vec![pipeline_id.to_string()]);
 }
 
 #[tokio::test]
