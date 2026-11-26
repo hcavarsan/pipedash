@@ -28,6 +28,7 @@ pub(super) struct Sample {
     pub(super) at: DateTime<Utc>,
     pub(super) value: f64,
     pub(super) change_id: i64,
+    pub(super) repeat: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -111,7 +112,7 @@ fn sorted(mut values: Vec<f64>) -> Vec<f64> {
 pub(super) fn summarize(
     ctx: &Ctx, spec: Spec, samples: Vec<Sample>, reason: String,
 ) -> MetricResult {
-    let samples: Vec<Sample> = samples
+    let mut samples: Vec<Sample> = samples
         .into_iter()
         .filter(|sample| ctx.in_range(sample.at))
         .collect();
@@ -120,6 +121,7 @@ pub(super) fn summarize(
         .map(|sample| sample.change_id)
         .collect::<BTreeSet<_>>()
         .len();
+    samples.retain(|sample| !sample.repeat);
     let excluded = ctx.scope_total().saturating_sub(counted);
     let coverage = Coverage {
         counted,

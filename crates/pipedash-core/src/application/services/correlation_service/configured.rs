@@ -72,6 +72,7 @@ pub(super) fn plan(world: &World) -> Vec<ConfigApp> {
         }
         let deploys = app.members.iter().filter(|(id, stage)| {
             stage.unwrap_or_else(|| derived_stage(world, id)) == Stage::Deploy
+                || world.subjects.get(*id).is_some_and(|s| s.unit.is_some())
         });
         for (id, _) in deploys {
             claimed.entry(id.clone()).or_default().push(apps.len());

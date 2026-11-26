@@ -623,7 +623,10 @@ async fn run_metrics_count_a_run_shared_by_two_changes_once() {
     f.change("b", None, rows).await;
 
     let metrics = f.metrics().await;
-    assert_eq!(metric(&metrics, MetricId::DeployFrequency).value, Some(1.0));
+    let frequency = metric(&metrics, MetricId::DeployFrequency);
+    assert_eq!(frequency.value, Some(1.0));
+    assert_eq!(frequency.coverage.counted, 2);
+    assert_eq!(frequency.coverage.excluded, 0);
     assert_eq!(
         metric(&metrics, MetricId::BuildSuccessRate).value,
         Some(50.0)

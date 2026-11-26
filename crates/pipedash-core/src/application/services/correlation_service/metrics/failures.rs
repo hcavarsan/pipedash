@@ -216,6 +216,7 @@ pub(super) fn change_failure_rate(ctx: &Ctx) -> MetricResult {
             at: deployed.at,
             value: if deployed.failed { 100.0 } else { 0.0 },
             change_id: deployed.change_id,
+            repeat: false,
         })
         .collect();
     summarize(
@@ -245,6 +246,7 @@ pub(super) fn recovery_time(ctx: &Ctx) -> MetricResult {
                 at: failure.at,
                 value: recovered_after(ctx, failure)?.num_seconds() as f64,
                 change_id: deployed.change_id,
+                repeat: false,
             })
         })
         .collect();

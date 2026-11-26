@@ -24,21 +24,22 @@ fn percent(hit: bool) -> f64 {
     }
 }
 
-fn once_per_run<'a>(
+fn mark_repeats<'a>(
     runs: impl Iterator<Item = (i64, &'a StageRun)>,
-) -> impl Iterator<Item = (i64, &'a StageRun)> {
+) -> impl Iterator<Item = (i64, &'a StageRun, bool)> {
     let mut seen = HashSet::new();
-    runs.filter(move |(_, run)| {
-        seen.insert((
+    runs.map(move |(change_id, run)| {
+        let first = seen.insert((
             run.pipeline_id.as_str(),
             run.run_number,
             run.group_key.as_str(),
-        ))
+        ));
+        (change_id, run, !first)
     })
 }
 
-fn deploy_runs(ctx: &Ctx) -> impl Iterator<Item = (i64, &StageRun)> {
-    once_per_run(
+fn deploy_runs(ctx: &Ctx) -> impl Iterator<Item = (i64, &StageRun, bool)> {
+    mark_repeats(
         ctx.changes
             .iter()
             .flat_map(|change| ctx.deploys(change).map(move |run| (change.id, run))),
@@ -47,11 +48,12 @@ fn deploy_runs(ctx: &Ctx) -> impl Iterator<Item = (i64, &StageRun)> {
 
 pub(super) fn deploy_frequency(ctx: &Ctx) -> MetricResult {
     let samples = deploy_runs(ctx)
-        .filter_map(|(change_id, run)| {
+        .filter_map(|(change_id, run, repeat)| {
             Some(Sample {
                 at: run.succeeded_at()?,
                 value: 1.0,
                 change_id,
+                repeat,
             })
         })
         .collect();
@@ -70,13 +72,14 @@ pub(super) fn build_success_rate(ctx: &Ctx) -> MetricResult {
         .changes
         .iter()
         .flat_map(|change| change.builds.iter().map(move |run| (change.id, run)));
-    let samples = once_per_run(builds)
-        .filter(|(_, run)| run.outcome_recorded && run.is_concluded())
-        .filter_map(|(change_id, run)| {
+    let samples = mark_repeats(builds)
+        .filter(|(_, run, _)| run.outcome_recorded && run.is_concluded())
+        .filter_map(|(change_id, run, repeat)| {
             Some(Sample {
                 at: run.concluded_at?,
                 value: percent(run.is_success()),
                 change_id,
+                repeat,
             })
         })
         .collect();
@@ -89,7 +92,7 @@ pub(super) fn build_success_rate(ctx: &Ctx) -> MetricResult {
 }
 
 pub(super) fn deploy_failures(ctx: &Ctx) -> MetricResult {
-    let attempts: Vec<_> = deploy_runs(ctx).filter(|(_, run)| run.attempt).collect();
+    let attempts: Vec<_> = deploy_runs(ctx).filter(|(_, run, _)| run.attempt).collect();
     let reason = if attempts.is_empty() {
         copy::no_attempt_records()
     } else {
@@ -97,12 +100,13 @@ pub(super) fn deploy_failures(ctx: &Ctx) -> MetricResult {
     };
     let samples = attempts
         .into_iter()
-        .filter(|(_, run)| run.outcome_recorded && run.is_concluded())
-        .filter_map(|(change_id, run)| {
+        .filter(|(_, run, _)| run.outcome_recorded && run.is_concluded())
+        .filter_map(|(change_id, run, repeat)| {
             Some(Sample {
                 at: run.concluded_at?,
                 value: percent(run.is_failed()),
                 change_id,
+                repeat,
             })
         })
         .collect();

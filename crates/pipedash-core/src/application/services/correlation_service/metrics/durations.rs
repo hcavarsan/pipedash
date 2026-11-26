@@ -43,6 +43,7 @@ fn over_journeys(
                 at: journey.deployed_at,
                 value: value(journey)?,
                 change_id: journey.change.id,
+                repeat: false,
             })
         })
         .collect();
@@ -108,6 +109,7 @@ pub(super) fn build_time(ctx: &Ctx) -> MetricResult {
                 at: ended,
                 value: seconds(started, ended)?,
                 change_id: change.id,
+                repeat: false,
             })
         })
         .collect();

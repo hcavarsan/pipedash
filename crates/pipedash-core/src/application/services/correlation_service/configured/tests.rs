@@ -6,6 +6,7 @@ use crate::application::services::correlation_service::tests::{
     unit,
     Fx,
 };
+use crate::domain::application::Stage;
 use crate::infrastructure::config::schema::applications::{
     ApplicationFileConfig,
     CorrelationFileConfig,
@@ -111,6 +112,33 @@ async fn a_build_matching_two_config_applications_stays_in_both() {
 
     assert_eq!(fx.member_ids("First").await, [shared.id.as_str()]);
     assert_eq!(fx.member_ids("Second").await, [shared.id.as_str()]);
+}
+
+#[tokio::test]
+async fn a_unit_staged_as_build_in_two_config_applications_is_claimed_by_neither() {
+    let fx = Fx::new().await;
+    let mut first = config_app("First", "svc-*");
+    first.members[0].stage = Some(Stage::Build);
+    configure(
+        &fx,
+        &[("first", first), ("second", config_app("Second", "*-api"))],
+    )
+    .await;
+    let gitops = fx.provider("gitops").await;
+    let shared = unit(gitops, "svc-api");
+    fx.apply(gitops, vec![shared.clone()]).await;
+    fx.svc.resolve_all().await.unwrap();
+
+    let first = fx.app("First").await;
+    let second = fx.app("Second").await;
+    assert!(fx.members(first.id).await.is_empty());
+    assert!(fx.members(second.id).await.is_empty());
+    fx.settle().await;
+    for id in [first.id, second.id] {
+        let state = fx.svc.application_state(id).await.unwrap();
+        assert!(state.warnings.iter().any(|w| w.contains("svc-api")));
+    }
+    assert_eq!(fx.app("svc-api").await.identity_kind, "unit");
 }
 
 #[tokio::test]
