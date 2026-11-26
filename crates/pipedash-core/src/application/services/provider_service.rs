@@ -1,6 +1,11 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    Mutex as StdMutex,
+    OnceLock,
+};
 
+use async_trait::async_trait;
 use dashmap::DashMap;
 use pipedash_plugin_api::PluginRegistry;
 use plugin::plugin_provider;
@@ -22,7 +27,10 @@ use crate::domain::{
     ProviderConfig,
 };
 use crate::event::EventBus;
-use crate::infrastructure::config::ConfigState;
+use crate::infrastructure::config::{
+    ConfigState,
+    PipedashConfig,
+};
 use crate::infrastructure::database::Repository;
 use crate::infrastructure::run_logs::LogStore;
 use crate::infrastructure::HttpClientManager;
@@ -39,6 +47,7 @@ pub(crate) mod plugin;
 mod preferences;
 pub(crate) mod quota;
 mod reconnect;
+mod reloads;
 mod runtime;
 mod summary;
 #[cfg(test)]
@@ -71,6 +80,15 @@ impl ProviderSlot {
     }
 }
 
+#[async_trait]
+pub(crate) trait ApplicationsConfig: Send + Sync {
+    async fn check(&self, loaded: &PipedashConfig) -> DomainResult<()>;
+    async fn commit(&self, loaded: &PipedashConfig) -> DomainResult<()>;
+    async fn announce(&self);
+    async fn failed(&self, message: String);
+    async fn provider_removed(&self, provider_id: i64);
+}
+
 pub struct ProviderService {
     repository: Arc<Repository>,
     config_state: Arc<ConfigState>,
@@ -88,6 +106,8 @@ pub struct ProviderService {
     dispatcher: RefreshDispatcher,
     provider_factory: ProviderFactory,
     config_apply: Mutex<()>,
+    reloads: StdMutex<reloads::Reloads>,
+    applications: OnceLock<Arc<dyn ApplicationsConfig>>,
     log_store: Arc<LogStore>,
 }
 
@@ -134,6 +154,8 @@ impl ProviderService {
             dispatcher,
             provider_factory,
             config_apply: Mutex::new(()),
+            reloads: StdMutex::new(reloads::Reloads::default()),
+            applications: OnceLock::new(),
             log_store,
         }
     }
@@ -162,5 +184,15 @@ impl ProviderService {
 
     pub(crate) fn plugin_registry(&self) -> &Arc<PluginRegistry> {
         &self.plugin_registry
+    }
+
+    pub(crate) fn set_applications(&self, applications: Arc<dyn ApplicationsConfig>) {
+        let _ = self.applications.set(applications);
+    }
+
+    pub async fn config_failed(&self, message: String) {
+        if let Some(applications) = self.applications.get() {
+            applications.failed(message).await;
+        }
     }
 }

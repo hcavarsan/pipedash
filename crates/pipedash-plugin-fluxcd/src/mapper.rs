@@ -9,12 +9,15 @@ use chrono::{
 };
 use pipedash_plugin_api::{
     AvailablePipeline,
+    Correlation,
+    Observed,
     Pipeline,
     PipelineRun,
     PipelineStatus,
     PluginError,
     PluginResult,
     ResourceState,
+    RunEvidence,
 };
 use serde_json::Value;
 
@@ -53,6 +56,7 @@ use crate::{
     },
 };
 
+pub(crate) mod correlation;
 pub(crate) mod history;
 mod metadata;
 pub(crate) mod state;
@@ -172,6 +176,11 @@ fn snapshot_run(
     run.run_number = number;
     run.branch = branch.map(str::to_string);
     run.commit_sha = commit_sha.map(str::to_string);
+    run.evidence = RunEvidence {
+        outcome: Observed::Recorded,
+        timing: Observed::Absent,
+        attempt: false,
+    };
 
     Ok(run)
 }
@@ -311,6 +320,7 @@ pub(crate) fn map_pipeline(resource: &FluxResource, workload_issues: &[String]) 
     metadata.extend(state_metadata(resource, reason));
 
     Pipeline {
+        correlation: Correlation::default(),
         id: target_of(resource).selection_id(),
         name: display_name(resource),
         status,

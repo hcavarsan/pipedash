@@ -11,6 +11,7 @@ use chrono::{
 use pipedash_plugin_api::utils::duration_seconds;
 use pipedash_plugin_api::{
     AvailablePipeline,
+    Correlation,
     LogAvailability,
     LogNode,
     LogNodeKind,
@@ -28,6 +29,11 @@ use serde_json::{
     Value,
 };
 
+use self::correlation::{
+    pipeline_correlation,
+    run_correlation,
+    timing_evidence,
+};
 use crate::config::{
     self,
     Scope,
@@ -41,6 +47,8 @@ use crate::types::{
     run_number_of,
     ProwJob,
 };
+
+pub(crate) mod correlation;
 
 pub(crate) const LOG_NODE: &str = "build-log";
 
@@ -141,14 +149,18 @@ pub(crate) fn map_run(job: &ProwJob, pipeline_id: &str, deck: &Url) -> Option<Pi
         metadata.insert("status_label".to_string(), json!(label));
     }
 
+    let timed = job.status.start_time.is_some();
+
     Some(PipelineRun {
+        correlation: run_correlation(job),
+        evidence: timing_evidence(timed),
         id: job.status.build_id.clone(),
         pipeline_id: pipeline_id.to_string(),
         run_number,
         status: map_state(&job.status.state),
         started_at,
         concluded_at,
-        duration_seconds: duration(started_at, concluded_at),
+        duration_seconds: duration(started_at, concluded_at).filter(|_| timed),
         logs_url: non_empty(&job.status.url).unwrap_or_else(|| {
             format!("{}/prowjob?prowjob={}", deck_root(deck), job.metadata.name)
         }),
@@ -184,7 +196,9 @@ pub(crate) fn map_stored_run(
     build: &StoredBuild, pipeline_id: &str, scope: Option<&Scope>, deck: &Url,
 ) -> PipelineRun {
     let (status, label) = map_result(&build.finished.result, build.finished.passed);
-    let started_at = timestamp(build.started.timestamp).unwrap_or_else(Utc::now);
+    let started = timestamp(build.started.timestamp);
+    let timed = started.is_some();
+    let started_at = started.unwrap_or_else(Utc::now);
     let concluded_at = build.finished.timestamp.and_then(timestamp);
     let branch = scope
         .and_then(|scope| {
@@ -211,13 +225,15 @@ pub(crate) fn map_stored_run(
     }
 
     PipelineRun {
+        correlation: Correlation::default(),
+        evidence: timing_evidence(timed),
         id: build.number.to_string(),
         pipeline_id: pipeline_id.to_string(),
         run_number: run_number_of(build.number),
         status,
         started_at,
         concluded_at,
-        duration_seconds: duration(started_at, concluded_at),
+        duration_seconds: duration(started_at, concluded_at).filter(|_| timed),
         logs_url: build.artifacts.view_url(deck),
         commit_sha: non_empty(&build.started.repo_commit),
         commit_message: None,
@@ -259,6 +275,10 @@ pub(crate) fn map_pipeline(
     }
 
     Pipeline {
+        correlation: match &latest {
+            Latest::Deck(job) => pipeline_correlation(job),
+            _ => Correlation::default(),
+        },
         id: selection.token(),
         name: selection.job.clone(),
         status,
@@ -342,3 +362,6 @@ pub(crate) fn log_node(
         web_url,
     }
 }
+
+#[cfg(test)]
+mod tests;

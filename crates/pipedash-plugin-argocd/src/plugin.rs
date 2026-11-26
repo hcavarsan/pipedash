@@ -38,6 +38,7 @@ use crate::{
 
 mod actions;
 mod catalog;
+mod correlation;
 mod logs;
 
 const DEFAULT_PAGE_SIZE: usize = 1000;
@@ -59,13 +60,14 @@ impl ArgocdPlugin {
 
     async fn live_state(
         backend: &Backend, app: &types::Application, server_url: &str,
+        pods: Option<&[types::logs::Pod]>,
     ) -> (Pipeline, PluginResult<()>) {
         let mut pipeline = mapper::map_application_to_pipeline(app, server_url);
         if !mapper::needs_resource_tree(app) {
             return (pipeline, Ok(()));
         }
         let checked = backend
-            .health_tree(app)
+            .health_tree(app, pods)
             .await
             .map(|tree| mapper::degrade_from_tree(&mut pipeline, &tree));
 
@@ -73,9 +75,11 @@ impl ArgocdPlugin {
     }
 
     async fn listed_pipeline(
-        backend: &Backend, app: &types::Application, server_url: &str,
+        backend: &Backend, app: &types::Application, server_url: &str, cluster_uid: Option<&str>,
     ) -> PluginResult<Pipeline> {
-        let (pipeline, checked) = Self::live_state(backend, app, server_url).await;
+        let pods = correlation::destination_pods(backend, app).await?;
+        let (mut pipeline, checked) =
+            Self::live_state(backend, app, server_url, pods.as_deref()).await;
         match checked {
             Err(error @ PluginError::RateLimited { .. }) => return Err(error),
             Err(error) => warn!(
@@ -85,6 +89,7 @@ impl ArgocdPlugin {
             ),
             Ok(()) => {}
         }
+        pipeline.correlation = mapper::correlation::pipeline(app, cluster_uid, pods.as_deref());
 
         Ok(pipeline)
     }
@@ -95,7 +100,7 @@ impl ArgocdPlugin {
         if !mapper::runs::follows_live_state(app, run) {
             return Ok(());
         }
-        let (pipeline, checked) = Self::live_state(backend, app, server_url).await;
+        let (pipeline, checked) = Self::live_state(backend, app, server_url, None).await;
         let unhealthy = matches!(
             pipeline.status,
             PipelineStatus::Degraded | PipelineStatus::Failed
@@ -177,7 +182,10 @@ plugin_impl!(ArgocdPlugin [
         let (backend, server_url) = if config::uses_kubeconfig(&config) {
             let settings = config::ClusterSettings::from_config(&config)?;
             debug!(namespaces = ?settings.namespaces, "Configured Kubernetes connection");
-            (Backend::Cluster(ClusterClient::new(settings)), None)
+            (
+                Backend::Cluster(Box::new(ClusterClient::new(settings))),
+                None,
+            )
         } else {
             let server_url = config::get_server_url(&config)?;
             debug!(server_url, "Configured server URL");
@@ -260,9 +268,10 @@ plugin_impl!(ArgocdPlugin [
             "Applications after all filters"
         );
 
+        let uid = correlation::cluster_uid(client, &filtered_apps).await?;
         let live_states: Vec<_> = filtered_apps
             .iter()
-            .map(|app| Self::listed_pipeline(client, app, server_url))
+            .map(|app| Self::listed_pipeline(client, app, server_url, uid))
             .collect();
         let pipelines = join_buffered(live_states, RESOURCE_TREE_CONCURRENCY)
             .await

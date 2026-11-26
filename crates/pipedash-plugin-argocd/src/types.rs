@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::{
     DateTime,
     Utc,
@@ -7,6 +9,15 @@ use serde::{
     Deserializer,
     Serialize,
 };
+
+fn listed<'a>(
+    sources: &'a [ApplicationSource], single: Option<&'a ApplicationSource>,
+) -> &'a [ApplicationSource] {
+    match single {
+        Some(source) if sources.is_empty() => std::slice::from_ref(source),
+        _ => sources,
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApplicationList {
@@ -61,6 +72,10 @@ pub struct ApplicationMetadata {
     pub namespace: Option<String>,
     #[serde(rename = "creationTimestamp")]
     pub creation_timestamp: Option<DateTime<Utc>>,
+    #[serde(rename = "ownerReferences", default)]
+    pub owner_references: Vec<logs::OwnerReference>,
+    #[serde(default)]
+    pub labels: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +101,10 @@ impl ApplicationSpec {
             .first()
             .or(self.source.as_ref())
             .unwrap_or(&NO_SOURCE)
+    }
+
+    pub fn source_list(&self) -> &[ApplicationSource] {
+        listed(&self.sources, self.source.as_ref())
     }
 }
 
@@ -151,6 +170,13 @@ pub struct ApplicationStatus {
     pub operation_state: Option<OperationState>,
     pub history: Option<Vec<RevisionHistory>>,
     pub resources: Vec<ResourceStatus>,
+    pub summary: Option<Summary>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Summary {
+    pub images: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -158,6 +184,7 @@ pub struct ApplicationStatus {
 pub struct SyncStatus {
     pub status: String,
     pub revision: Option<String>,
+    pub revisions: Vec<String>,
     #[serde(rename = "comparedTo")]
     pub compared_to: Option<ComparedTo>,
 }
@@ -252,6 +279,8 @@ pub struct RevisionHistory {
     pub deploy_started_at: Option<DateTime<Utc>>,
     pub id: i64,
     pub source: Option<ApplicationSource>,
+    #[serde(default)]
+    pub sources: Vec<ApplicationSource>,
     #[serde(rename = "initiatedBy", default)]
     pub initiated_by: OperationInitiator,
 }
@@ -261,6 +290,10 @@ impl RevisionHistory {
         self.revision
             .as_deref()
             .or(self.revisions.first().map(String::as_str))
+    }
+
+    pub fn source_list(&self) -> &[ApplicationSource] {
+        listed(&self.sources, self.source.as_ref())
     }
 }
 

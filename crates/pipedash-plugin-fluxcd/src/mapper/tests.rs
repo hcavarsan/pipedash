@@ -227,6 +227,7 @@ fn kustomization_history_keeps_native_times_durations_and_labels() {
     assert_eq!(runs[0].started_at, at("2026-10-21T12:00:00Z"));
     assert_eq!(runs[0].concluded_at, Some(at("2026-10-21T12:00:45Z")));
     assert_eq!(runs[0].duration_seconds, Some(45));
+    assert_eq!(runs[0].evidence, RunEvidence::default());
     assert_eq!(runs[0].commit_sha.as_deref(), Some("6b7aab8a"));
     assert_eq!(runs[0].metadata["total_reconciliations"], json!(3));
     assert_eq!(
@@ -270,6 +271,14 @@ fn current_snapshot_is_added_only_when_history_does_not_cover_it() {
     assert_eq!(runs[0].started_at, at("2026-10-21T09:00:00Z"));
     assert_eq!(runs[0].concluded_at, None);
     assert_eq!(runs[0].duration_seconds, None);
+    assert_eq!(
+        runs[0].evidence,
+        RunEvidence {
+            outcome: Observed::Recorded,
+            timing: Observed::Absent,
+            attempt: false,
+        }
+    );
     assert_eq!(
         runs[0].run_number,
         runs[1].run_number / 1_000_000 * 1_000_000 + 999_999
@@ -548,6 +557,10 @@ fn helm_history_exposes_release_versions_and_deploy_times() {
     assert_eq!(runs[1].status, PipelineStatus::Success);
     assert_eq!(runs[1].metadata["status_label"], json!("Superseded"));
     assert_eq!(runs[1].duration_seconds, None);
+    assert_eq!(runs[0].evidence, RunEvidence::default());
+    assert_eq!(runs[1].evidence.timing, Observed::Absent);
+    assert_eq!(runs[1].evidence.outcome, Observed::Recorded);
+    assert!(runs[1].evidence.attempt);
 }
 
 #[test]
@@ -669,4 +682,43 @@ fn run_numbers_stay_within_javascript_safe_integers() {
     let runs = build_runs(&resource, &[]).unwrap();
 
     assert!(runs.iter().all(|run| run.run_number < (1 << 53)));
+}
+
+#[test]
+fn a_history_record_without_a_duration_has_no_recorded_timing() {
+    let timed = entry(
+        "sha256:b",
+        "2026-10-21T10:00:00Z",
+        "2026-10-21T12:00:45Z",
+        "45s",
+        "ReconciliationSucceeded",
+    );
+    let mut untimed = entry(
+        "sha256:a",
+        "2026-10-20T10:00:00Z",
+        "2026-10-20T10:00:10Z",
+        "10s",
+        "HealthCheckFailed",
+    );
+    untimed["lastReconciledDuration"] = Value::Null;
+    let resource = kustomization_with_history(
+        json!([timed, untimed]),
+        vec![cond(
+            "Ready",
+            "True",
+            "ReconciliationSucceeded",
+            2,
+            "2026-10-21T12:00:45Z",
+        )],
+    );
+
+    let runs = build_runs(&resource, &[]).unwrap();
+
+    assert_eq!(runs[0].evidence.timing, Observed::Recorded);
+    assert_eq!(runs[0].duration_seconds, Some(45));
+    assert_eq!(runs[1].evidence.timing, Observed::Absent);
+    assert_eq!(runs[1].duration_seconds, None);
+    assert_eq!(runs[1].status, PipelineStatus::Failed);
+    assert_eq!(runs[1].evidence.outcome, Observed::Recorded);
+    assert!(runs[1].evidence.attempt);
 }

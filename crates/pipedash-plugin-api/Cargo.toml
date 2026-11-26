@@ -12,6 +12,7 @@ kubernetes = ["dep:kube", "dep:http", "dep:dirs", "dep:shellexpand"]
 
 [dependencies]
 async-trait.workspace = true
+base64.workspace = true
 bytes.workspace = true
 chrono.workspace = true
 dirs = { workspace = true, optional = true }
@@ -22,6 +23,7 @@ reqwest = { workspace = true, features = ["json"] }
 rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 shellexpand = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["time", "sync"] }

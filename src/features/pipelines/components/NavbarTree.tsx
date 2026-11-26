@@ -1,5 +1,5 @@
 import { Box, Button, CloseButton, Divider, ScrollArea, Stack, TextInput } from '@mantine/core'
-import { IconFolder, IconFolders, IconPlus, IconSearch, IconStack2 } from '@tabler/icons-react'
+import { IconFolder, IconFolders, IconPlus, IconSearch, IconStack2, IconTopologyStar3 } from '@tabler/icons-react'
 import { type ReactNode, useState } from 'react'
 import { EmptyState } from '../../../components/common/EmptyState'
 import { ErrorState } from '../../../components/common/ErrorState'
@@ -18,6 +18,7 @@ import { activeRootOf, flattenNavbarViewRows, PINNED_ID, viewNodesOf, viewTo } f
 
 interface NavbarTreeProps {
   providers: ProviderSummary[]
+  applicationsActive: boolean
   views: PipelineView[] | undefined
   pins: PinnedItem[]
   viewId: string | null
@@ -61,6 +62,7 @@ export const NavbarTree = ({
   onRetry,
   providerMenu,
   viewMenu,
+  applicationsActive,
   pinMenu,
   onEditProvider,
   onCreateView,
@@ -145,6 +147,13 @@ export const NavbarTree = ({
       {visiblePins.map((pin) => (
         <PinRow key={`pin:${pin.kind}:${pin.ref}`} pin={pin} active={isPinActive(pin)} menu={pinMenu(pin)} />
       ))}
+      <NavbarTreeRow
+        depth={0}
+        label="Applications"
+        icon={<NavTile icon={IconTopologyStar3} size={ICON_TILE.list} />}
+        active={applicationsActive}
+        to="/applications"
+      />
       {providersSection}
 
       <Divider my="2xs" />

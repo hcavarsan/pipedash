@@ -10,6 +10,7 @@ use pipedash_plugin_api::{
     FeedFormat,
     PluginError,
     PluginResult,
+    RepoId,
     StatusSource,
 };
 
@@ -24,6 +25,21 @@ pub(crate) fn get_base_url(config: &HashMap<String, String>) -> String {
     base_url(config, "base_url")
         .unwrap_or("https://gitlab.com")
         .to_string()
+}
+
+pub(crate) fn source_host(config: &HashMap<String, String>) -> Option<String> {
+    RepoId::parse(&format!("{}/_", get_base_url(config))).map(|repo| repo.host().to_string())
+}
+
+pub(crate) fn source_hosts(config: &HashMap<String, String>) -> Vec<String> {
+    if config.is_empty() {
+        return Vec::new();
+    }
+    source_host(config).into_iter().collect()
+}
+
+pub(crate) fn registry_host(config: &HashMap<String, String>) -> Option<String> {
+    source_host(config).map(|host| format!("registry.{host}"))
 }
 
 pub(crate) fn build_api_url(base_url: &str) -> String {

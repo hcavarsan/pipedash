@@ -16,6 +16,9 @@ reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+[features]
+fixtures = []
+
 [dev-dependencies]
 rustls.workspace = true
 tokio.workspace = true

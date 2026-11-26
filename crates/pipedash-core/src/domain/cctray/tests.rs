@@ -26,6 +26,7 @@ fn pipeline(id: &str, name: &str, repository: &str, status: PipelineStatus) -> P
         typical_duration_seconds: None,
         cadence: None,
         actions: Default::default(),
+        correlation: Default::default(),
     }
 }
 

@@ -282,6 +282,7 @@ fn the_status_row_follows_the_device_preferences() {
                 typical_duration_seconds: None,
                 cadence: None,
                 actions: Default::default(),
+                correlation: Default::default(),
             }),
             provider_name: None,
         }],

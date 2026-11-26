@@ -687,7 +687,8 @@ async fn a_removal_during_a_blocked_fetch_leaves_nothing_behind() {
     assert!(h.cached_names(id).await.is_empty());
     assert!(h.scheduler.view(id, Instant::now()).is_none());
     assert!(h.bus.names()[removed_at..].is_empty());
-    assert_eq!(h.bus.names()[removed_at - 1], "provider-removed");
+    assert_eq!(h.bus.names()[removed_at - 2], "provider-removed");
+    assert_eq!(h.bus.names()[removed_at - 1], "applications-changed");
     assert!(matches!(
         inputs.as_slice(),
         [HealthInput::ProvidersChanged { changed }]
@@ -1811,7 +1812,7 @@ async fn execute(h: &Harness, sql: &'static str) {
 }
 
 #[tokio::test]
-async fn test_apply_config_file_retry_replaces_providers_saved_by_a_failed_apply() {
+async fn test_apply_config_file_failed_apply_changes_no_provider_and_retry_applies_all() {
     let h = Harness::new().await;
     config_file(&h, &[("ci-a", "CI A", 30), ("ci-b", "CI B", 30)]);
     h.provider_service
@@ -1838,9 +1839,15 @@ async fn test_apply_config_file_retry_replaces_providers_saved_by_a_failed_apply
         .is_err());
     assert_eq!(
         h.repository.get_provider(a).await.unwrap().display_name(),
-        "CI A2"
+        "CI A"
     );
-    assert_eq!(h.bus.count("providers-changed"), announced + 1);
+    assert_eq!(h.provider_service.generation_of(a).await, Some(loaded_a));
+    assert_eq!(h.provider_service.generation_of(b).await, Some(loaded_b));
+    assert_eq!(
+        h.config_state.get().await.providers["ci-a"].name.as_deref(),
+        Some("CI A")
+    );
+    assert_eq!(h.bus.count("providers-changed"), announced);
 
     execute(&h, "DROP TRIGGER fail_ci_b").await;
     h.provider_service
@@ -1852,7 +1859,7 @@ async fn test_apply_config_file_retry_replaces_providers_saved_by_a_failed_apply
         h.repository.get_provider(b).await.unwrap().display_name(),
         "CI B2"
     );
-    assert_eq!(h.bus.count("providers-changed"), announced + 2);
+    assert_eq!(h.bus.count("providers-changed"), announced + 1);
     assert_ne!(h.provider_service.generation_of(a).await, Some(loaded_a));
     assert_ne!(h.provider_service.generation_of(b).await, Some(loaded_b));
     assert_eq!(
@@ -1862,7 +1869,55 @@ async fn test_apply_config_file_retry_replaces_providers_saved_by_a_failed_apply
 }
 
 #[tokio::test]
-async fn test_provider_added_by_a_failed_apply_is_removed_with_its_block() {
+async fn a_failed_provider_removal_applies_nothing_else_from_the_file() {
+    let h = Harness::new().await;
+    config_file(&h, &[("ci-a", "CI A", 30), ("ci-b", "CI B", 30)]);
+    h.provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .unwrap();
+    let a = provider_id(&h, "ci-a").await.unwrap();
+    let loaded_a = h.provider_service.generation_of(a).await.unwrap();
+    execute(
+        &h,
+        "CREATE TRIGGER block_delete BEFORE DELETE ON providers \
+             BEGIN SELECT RAISE(ABORT, 'delete blocked'); END",
+    )
+    .await;
+    config_file(&h, &[("ci-a", "CI A2", 30)]);
+
+    assert!(h
+        .provider_service
+        .apply_config_file(&h.config_state)
+        .await
+        .is_err());
+
+    assert_eq!(
+        h.repository.get_provider(a).await.unwrap().display_name(),
+        "CI A"
+    );
+    assert_eq!(h.provider_service.generation_of(a).await, Some(loaded_a));
+    assert!(h.config_state.get().await.providers.contains_key("ci-b"));
+}
+
+#[tokio::test]
+async fn a_rejected_proxy_applies_nothing_else_from_the_file() {
+    let h = Harness::new().await;
+    config_file(&h, &[("ci-a", "CI A", 30)]);
+    let path = h.config_state.config_path();
+    let providers = std::fs::read_to_string(path).unwrap();
+    let content = format!("[general]\nproxy_url = \"socks5://localhost:1080\"\n\n{providers}");
+    std::fs::write(path, content).unwrap();
+
+    let applied = h.provider_service.apply_config_file(&h.config_state).await;
+
+    assert!(matches!(applied, Err(DomainError::InvalidConfig(_))));
+    assert_eq!(provider_id(&h, "ci-a").await, None);
+    assert!(h.config_state.get().await.providers.is_empty());
+}
+
+#[tokio::test]
+async fn test_block_deleted_after_a_failed_apply_leaves_no_provider() {
     let h = Harness::new().await;
     execute(
         &h,
@@ -1876,7 +1931,7 @@ async fn test_provider_added_by_a_failed_apply_is_removed_with_its_block() {
         .apply_config_file(&h.config_state)
         .await
         .is_err());
-    let a = provider_id(&h, "ci-a").await.unwrap();
+    assert_eq!(provider_id(&h, "ci-a").await, None);
 
     execute(&h, "DROP TRIGGER fail_ci_b").await;
     config_file(&h, &[]);
@@ -1886,8 +1941,8 @@ async fn test_provider_added_by_a_failed_apply_is_removed_with_its_block() {
         .await
         .unwrap();
 
-    assert_eq!(applied.removed, ["ci-a"]);
-    assert!(h.repository.get_provider(a).await.is_err());
+    assert!(applied.removed.is_empty());
+    assert_eq!(provider_id(&h, "ci-a").await, None);
 }
 
 #[tokio::test]

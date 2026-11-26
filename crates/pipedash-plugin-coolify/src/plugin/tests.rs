@@ -427,12 +427,14 @@ async fn pipelines_combine_the_latest_deployment_with_live_health() {
     );
     assert_eq!(pipelines[2].last_run, None);
     assert_eq!(pipelines[2].repository, "ghcr.io/acme/img:1.2");
+    let mut latest = calls(&stub.requests, "GET", "/api/v1/deployments/").await;
+    latest.sort();
     assert_eq!(
-        calls(&stub.requests, "GET", "/api/v1/deployments/").await,
+        latest,
         [
-            "/api/v1/deployments/applications/app-web?skip=0&take=1",
             "/api/v1/deployments/applications/app-api?skip=0&take=1",
             "/api/v1/deployments/applications/app-img?skip=0&take=1",
+            "/api/v1/deployments/applications/app-web?skip=0&take=1",
         ]
     );
 }

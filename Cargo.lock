@@ -4329,6 +4329,7 @@ name = "pipedash-plugin-api"
 version = "0.15.0"
 dependencies = [
  "async-trait",
+ "base64 0.23.1",
  "bytes",
  "chrono",
  "dirs 7.0.0",
@@ -4339,6 +4340,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "shellexpand",
  "thiserror 2.0.21",
  "tokio",
@@ -4390,6 +4392,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "urlencoding",
 ]
 
 [[package]]
@@ -4490,6 +4493,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "urlencoding",
 ]
 
 [[package]]
@@ -4497,6 +4501,7 @@ name = "pipedash-plugin-github"
 version = "0.15.0"
 dependencies = [
  "async-trait",
+ "base64 0.23.1",
  "chrono",
  "futures",
  "octocrab",
@@ -4506,6 +4511,7 @@ dependencies = [
  "rustls",
  "secrecy",
  "serde",
+ "serde-saphyr 2.2.0",
  "serde_json",
  "tokio",
  "tracing",
@@ -4524,6 +4530,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "urlencoding",
 ]
 
 [[package]]
@@ -4555,6 +4562,17 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "pipedash-plugin-ociregistry"
+version = "0.15.0"
+dependencies = [
+ "async-trait",
+ "pipedash-plugin-api",
+ "reqwest",
+ "rustls",
+ "tokio",
 ]
 
 [[package]]
@@ -4634,6 +4652,7 @@ dependencies = [
  "pipedash-plugin-gitlab",
  "pipedash-plugin-jenkins",
  "pipedash-plugin-komodo",
+ "pipedash-plugin-ociregistry",
  "pipedash-plugin-prow",
  "pipedash-plugin-tekton",
  "pipedash-plugin-woodpecker",

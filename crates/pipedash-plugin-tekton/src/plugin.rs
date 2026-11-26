@@ -27,6 +27,19 @@ plugin_struct!(
     config: HashMap<String, String> = HashMap::new()
 );
 
+fn optional_task_runs(
+    result: PluginResult<Vec<types::TektonTaskRun>>,
+) -> PluginResult<Vec<types::TektonTaskRun>> {
+    match result {
+        Err(error) if error.is_transient() => Err(error),
+        Err(error) => {
+            tracing::warn!(%error, "Failed to list Tekton TaskRuns");
+            Ok(Vec::new())
+        }
+        ok => ok,
+    }
+}
+
 impl TektonPlugin {
     async fn client(&self) -> PluginResult<&client::TektonClient> {
         self.client
@@ -54,6 +67,18 @@ impl TektonPlugin {
             .validate_namespaces_have_pipelines(&manual_namespaces)
             .await
     }
+}
+
+fn group_by_pipeline_run(
+    task_runs: Vec<types::TektonTaskRun>,
+) -> HashMap<String, Vec<types::TektonTaskRun>> {
+    let mut grouped: HashMap<String, Vec<types::TektonTaskRun>> = HashMap::new();
+    for task in task_runs {
+        if let Some(run) = task.metadata.labels.get("tekton.dev/pipelineRun").cloned() {
+            grouped.entry(run).or_default().push(task);
+        }
+    }
+    grouped
 }
 
 async fn accessible_namespaces(client: &client::TektonClient) -> PluginResult<Vec<String>> {
@@ -139,9 +164,16 @@ plugin_impl!(TektonPlugin [
 
         let limited_runs: Vec<types::TektonPipelineRun> = runs.into_iter().take(limit).collect();
 
+        let task_runs =
+            optional_task_runs(client.list_pipeline_taskruns(&namespace, &pipeline_name).await)?;
+        let mut by_run = group_by_pipeline_run(task_runs);
+
         Ok(limited_runs
             .iter()
-            .map(mapper::runs::map_pipeline_run)
+            .map(|run| {
+                let tasks = by_run.remove(&run.metadata.name).unwrap_or_default();
+                mapper::runs::map_pipeline_run(run, &tasks)
+            })
             .collect())
     }
 
@@ -156,8 +188,9 @@ plugin_impl!(TektonPlugin [
             .await?;
 
         let run = find_run(runs, run_number)?;
+        let tasks = optional_task_runs(client.list_taskruns(&namespace, &run.metadata.name).await)?;
 
-        Ok(mapper::runs::map_pipeline_run(&run))
+        Ok(mapper::runs::map_pipeline_run(&run, &tasks))
     }
 
     fn log_dialect(&self) -> &'static dyn LogDialect {

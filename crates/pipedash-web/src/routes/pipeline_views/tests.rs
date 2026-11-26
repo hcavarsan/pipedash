@@ -61,6 +61,7 @@ fn pipeline(provider_id: i64, name: &str) -> Pipeline {
         typical_duration_seconds: None,
         cadence: None,
         actions: Default::default(),
+        correlation: Default::default(),
     }
 }
 

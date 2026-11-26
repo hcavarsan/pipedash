@@ -1,5 +1,5 @@
 import { ActionIcon, Center, Divider, Loader, ScrollArea, Stack, Tooltip } from '@mantine/core'
-import { IconAlertTriangle, IconStack2 } from '@tabler/icons-react'
+import { IconAlertTriangle, IconStack2, IconTopologyStar3 } from '@tabler/icons-react'
 import type { MouseEvent, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { ProviderSummary } from '../../../types/providers'
@@ -16,6 +16,7 @@ import { PINNED_ID, viewTo } from './NavbarViewRows'
 interface NavbarRailProps {
   providers: ProviderSummary[]
   viewNodes: NavNode[]
+  applicationsActive: boolean
   activeRootId: string | null
   providerId: string | null
   allActive: boolean
@@ -121,6 +122,7 @@ export const NavbarRail = ({
   viewNodes,
   activeRootId,
   providerId,
+  applicationsActive,
   allActive,
   loading,
   error,
@@ -144,6 +146,12 @@ export const NavbarRail = ({
           to="/pipelines"
           active={allActive}
           icon={<NavTile icon={IconStack2} size={ICON_TILE.rail} />}
+        />
+        <RailItem
+          label="Applications"
+          to="/applications"
+          active={applicationsActive}
+          icon={<NavTile icon={IconTopologyStar3} size={ICON_TILE.rail} />}
         />
         {viewNodes.map((node) => (
           <RailItem

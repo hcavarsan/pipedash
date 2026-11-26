@@ -7,6 +7,9 @@ description = "Monitor and deploy Coolify applications"
 repository = "https://github.com/hcavarsan/pipedash"
 license = "GPL-3.0"
 
+[features]
+fixtures = []
+
 [dependencies]
 async-trait.workspace = true
 bytes.workspace = true

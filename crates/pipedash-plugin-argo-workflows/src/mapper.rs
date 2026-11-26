@@ -10,10 +10,13 @@ use pipedash_plugin_api::utils::{
 };
 use pipedash_plugin_api::{
     AvailablePipeline,
+    Correlation,
+    Observed,
     Pipeline,
     PipelineRun,
     PipelineStatus,
     ResourceState,
+    RunEvidence,
 };
 use serde_json::json;
 
@@ -72,8 +75,18 @@ pub(crate) fn map_run(pipeline: &PipelineRef, workflow: &Workflow) -> PipelineRu
     .into_iter()
     .filter_map(|(key, value)| Some((key.to_string(), json!(value?))))
     .collect();
+    let evidence = RunEvidence {
+        timing: if started.is_some() {
+            Observed::Recorded
+        } else {
+            Observed::Absent
+        },
+        ..RunEvidence::default()
+    };
 
     PipelineRun {
+        correlation: Correlation::default(),
+        evidence,
         id: format!("{}__{}", pipeline.namespace, workflow.metadata.name),
         pipeline_id: pipeline.id(),
         run_number: run_number(&workflow.metadata),
@@ -116,6 +129,7 @@ pub(crate) fn map_pipeline(
     }
 
     Pipeline {
+        correlation: Correlation::default(),
         id: pipeline.id(),
         name: pipeline.name.clone(),
         status: latest.map_or(PipelineStatus::Pending, map_status),

@@ -14,6 +14,7 @@ use pipedash_plugin_api::kubernetes::{
     KubeconfigSource,
 };
 use pipedash_plugin_api::{
+    ClusterId,
     PluginError,
     PluginResult,
 };
@@ -23,6 +24,7 @@ use serde_json::{
     json,
     Value,
 };
+use tokio::sync::OnceCell;
 
 use crate::{
     config::Target,
@@ -33,6 +35,7 @@ use crate::{
 };
 
 mod cluster;
+mod correlation;
 
 const PAGE_LIMIT: u32 = 500;
 const FIELD_MANAGER: &str = "pipedash";
@@ -54,6 +57,7 @@ struct ListMeta {
 
 pub(crate) struct FluxClient {
     client: kube::Client,
+    cluster: OnceCell<Option<ClusterId>>,
 }
 
 fn list_context(kind: Kind, namespace: Option<&str>) -> String {
@@ -67,7 +71,10 @@ impl FluxClient {
     pub async fn connect(source: KubeconfigSource, context: Option<String>) -> PluginResult<Self> {
         let client = kubernetes::connect(move || source.load(), context, true).await?;
 
-        Ok(Self { client })
+        Ok(Self {
+            client,
+            cluster: OnceCell::new(),
+        })
     }
 
     async fn list_page(

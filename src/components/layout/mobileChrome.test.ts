@@ -111,3 +111,13 @@ test('route keys separate the same path under different tabs', () => {
   assert.notEqual(routeKey('/pipelines', '?view=a'), routeKey('/pipelines', ''))
   assert.equal(routeKey('/pipelines', '?search=x'), routeKey('/pipelines', ''))
 })
+
+test('applications sit under Browse and an application under the applications list', () => {
+  assert.deepEqual(mobileChrome('/applications', ''), {
+    title: 'Applications',
+    back: { to: BROWSE_PATH, label: 'Browse' },
+    tab: 'pipelines',
+  })
+  assert.deepEqual(mobileChrome('/applications/4', '').back, { to: '/applications', label: 'Applications' })
+  assert.equal(mobileChrome('/applications/4', '').tab, 'pipelines')
+})

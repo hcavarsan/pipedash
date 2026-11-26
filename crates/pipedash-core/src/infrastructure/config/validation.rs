@@ -8,6 +8,8 @@ use super::schema::{
     ViewFileConfig,
 };
 
+mod applications;
+
 #[derive(Debug, Default)]
 pub struct ValidationResult {
     pub errors: Vec<ConfigError>,
@@ -119,6 +121,7 @@ impl ConfigValidator {
         Self::validate_storage(&config.storage, &mut result);
         Self::validate_providers(&config.providers, &mut result);
         Self::validate_views(&config.views, &mut result);
+        Self::validate_applications(config, &mut result);
 
         result
     }

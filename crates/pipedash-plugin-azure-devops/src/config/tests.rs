@@ -66,3 +66,41 @@ fn web_url_encodes_the_project_and_never_doubles_the_slash() {
         "https://dev.azure.com/acme/My%20Project/_build/results?buildId=9"
     );
 }
+
+fn repo(path: &str) -> RepoId {
+    RepoId::from_host_path("dev.azure.com", path).unwrap()
+}
+
+#[test]
+fn git_repo_decodes_the_project_and_repository_of_a_clone_url() {
+    let git = |name: &str, project: &str| GitRepo {
+        project: project.to_string(),
+        name: name.to_string(),
+    };
+    assert_eq!(
+        git_repo(&repo("acme/Web%20App/_git/shop"), "acme").unwrap(),
+        git("shop", "Web App")
+    );
+    assert_eq!(
+        git_repo(&repo("ACME/shop/_git/shop"), "acme").unwrap(),
+        git("shop", "shop")
+    );
+    assert_eq!(
+        git_repo(&repo("acme/_git/solo"), "acme").unwrap(),
+        git("solo", "solo")
+    );
+}
+
+#[test]
+fn git_repo_rejects_other_organizations_and_non_git_paths() {
+    for path in [
+        "other/App/_git/shop",
+        "acme/App/shop",
+        "acme/App/_git",
+        "acme",
+        "acme/App/_git/shop/extra",
+    ] {
+        let error = git_repo(&repo(path), "acme").unwrap_err();
+        assert!(matches!(error, PluginError::PipelineNotFound(_)), "{path}");
+    }
+}

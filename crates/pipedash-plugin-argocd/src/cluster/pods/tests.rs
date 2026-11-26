@@ -2,16 +2,6 @@ use serde_json::json;
 
 use super::*;
 
-fn resources(entries: &[(&str, &str, &str)]) -> Vec<ResourceStatus> {
-    entries
-        .iter()
-        .map(|(kind, namespace, name)| {
-            serde_json::from_value(json!({"kind": kind, "namespace": namespace, "name": name}))
-                .unwrap()
-        })
-        .collect()
-}
-
 fn pod(name: &str, owner: Option<(&str, &str)>) -> Pod {
     let owners: Vec<_> = owner
         .map(|(kind, name)| json!({"kind": kind, "name": name}))
@@ -21,92 +11,6 @@ fn pod(name: &str, owner: Option<(&str, &str)>) -> Pod {
         "metadata": {"name": name, "namespace": "web", "ownerReferences": owners},
     }))
     .unwrap()
-}
-
-fn owned(name: &str, owner: (&str, &str)) -> Owned {
-    serde_json::from_value(json!({
-        "metadata": {
-            "name": name,
-            "namespace": "web",
-            "ownerReferences": [{"kind": owner.0, "name": owner.1}],
-        },
-    }))
-    .unwrap()
-}
-
-fn names(pods: &[Pod]) -> Vec<&str> {
-    pods.iter().map(|pod| pod.metadata.name.as_str()).collect()
-}
-
-#[test]
-fn deployment_pods_are_found_through_their_replica_set() {
-    let managed = resources(&[("Deployment", "web", "api")]);
-    let replica_sets = [
-        owned("api-7f", ("Deployment", "api")),
-        owned("db-1", ("Deployment", "db")),
-    ];
-    let pods = vec![
-        pod("api-7f-a", Some(("ReplicaSet", "api-7f"))),
-        pod("db-1-a", Some(("ReplicaSet", "db-1"))),
-    ];
-
-    let found = owned_pods(&managed, pods, &replica_sets, &[]);
-
-    assert_eq!(names(&found), ["api-7f-a"]);
-}
-
-#[test]
-fn cron_job_pods_are_found_through_their_job() {
-    let managed = resources(&[("CronJob", "web", "nightly")]);
-    let jobs = [owned("nightly-28", ("CronJob", "nightly"))];
-    let pods = vec![
-        pod("nightly-28-x", Some(("Job", "nightly-28"))),
-        pod("other-1-x", Some(("Job", "other-1"))),
-    ];
-
-    let found = owned_pods(&managed, pods, &[], &jobs);
-
-    assert_eq!(names(&found), ["nightly-28-x"]);
-}
-
-#[test]
-fn stateful_set_and_bare_pods_are_owned_directly() {
-    let managed = resources(&[("StatefulSet", "web", "db"), ("Pod", "web", "lonely")]);
-    let pods = vec![
-        pod("db-0", Some(("StatefulSet", "db"))),
-        pod("lonely", None),
-        pod("stranger", None),
-    ];
-
-    let found = owned_pods(&managed, pods, &[], &[]);
-
-    assert_eq!(names(&found), ["db-0", "lonely"]);
-}
-
-#[test]
-fn unrelated_pods_in_the_same_namespace_are_excluded() {
-    let managed = resources(&[("Deployment", "web", "api")]);
-    let replica_sets = [owned("api-7f", ("Deployment", "api"))];
-    let pods = vec![
-        pod("stranger", None),
-        pod("elsewhere", Some(("ReplicaSet", "unknown"))),
-        pod("same-name", Some(("Deployment", "other"))),
-    ];
-
-    assert!(owned_pods(&managed, pods, &replica_sets, &[]).is_empty());
-}
-
-#[test]
-fn resources_in_another_namespace_do_not_own_pods() {
-    let managed = resources(&[("StatefulSet", "other", "db")]);
-
-    assert!(owned_pods(
-        &managed,
-        vec![pod("db-0", Some(("StatefulSet", "db")))],
-        &[],
-        &[]
-    )
-    .is_empty());
 }
 
 fn health_of(pod: serde_json::Value) -> (String, Option<String>) {

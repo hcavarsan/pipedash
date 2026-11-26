@@ -5,7 +5,11 @@ use pipedash_plugin_api::config::{
     required_value,
 };
 use pipedash_plugin_api::http::parse_http_url;
-use pipedash_plugin_api::PluginResult;
+use pipedash_plugin_api::{
+    PluginError,
+    PluginResult,
+    RepoId,
+};
 use reqwest::Url;
 
 pub(crate) fn get_server_url(config: &HashMap<String, String>) -> PluginResult<Url> {
@@ -59,6 +63,42 @@ pub(crate) fn build_web_url(server_url: &Url, project: &str, build_id: i64) -> S
     url.query_pairs_mut()
         .append_pair("buildId", &build_id.to_string());
     url.to_string()
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct GitRepo {
+    pub project: String,
+    pub name: String,
+}
+
+pub(crate) fn git_repo(repo: &RepoId, organization: &str) -> PluginResult<GitRepo> {
+    let foreign = || {
+        PluginError::PipelineNotFound(format!(
+            "{} is not a repository of the {organization} organization",
+            repo.as_str()
+        ))
+    };
+    let segments = repo
+        .path()
+        .split('/')
+        .map(|segment| urlencoding::decode(segment).map(|decoded| decoded.into_owned()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| foreign())?;
+    let (owner, rest) = segments.split_first().ok_or_else(foreign)?;
+    if !owner.eq_ignore_ascii_case(organization) {
+        return Err(foreign());
+    }
+    match rest {
+        [project, marker, name] if marker == "_git" => Ok(GitRepo {
+            project: project.clone(),
+            name: name.clone(),
+        }),
+        [marker, name] if marker == "_git" => Ok(GitRepo {
+            project: name.clone(),
+            name: name.clone(),
+        }),
+        _ => Err(foreign()),
+    }
 }
 
 #[cfg(test)]

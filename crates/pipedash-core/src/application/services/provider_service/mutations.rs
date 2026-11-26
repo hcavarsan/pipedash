@@ -212,6 +212,15 @@ impl ProviderService {
     }
 
     pub async fn remove_provider(&self, id: i64) -> DomainResult<()> {
+        self.remove_provider_keeping_applications(id).await?;
+        if let Some(applications) = self.applications.get() {
+            applications.provider_removed(id).await;
+        }
+
+        Ok(())
+    }
+
+    pub(crate) async fn remove_provider_keeping_applications(&self, id: i64) -> DomainResult<()> {
         let _apply = self.config_apply.lock().await;
         self.remove_provider_locked(id).await
     }

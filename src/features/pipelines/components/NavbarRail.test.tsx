@@ -33,6 +33,7 @@ function rail(loading: boolean, error: unknown) {
             viewNodes={[]}
             activeRootId={null}
             providerId={null}
+            applicationsActive={false}
             allActive={false}
             loading={loading}
             error={error}

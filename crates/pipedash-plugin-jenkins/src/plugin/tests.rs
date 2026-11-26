@@ -610,10 +610,14 @@ fn configured_repositories_should_prefix_root_jobs() {
 }
 
 fn jobs_with_last_builds(path: &str) -> Reply {
-    let asks_status = path.ends_with("?tree=name,lastBuild[number,result,building,timestamp]");
+    let asks_status = path.ends_with(
+        "?tree=name,lastBuild[number,result,building,timestamp,actions[_class,lastBuiltRevision[SHA1],remoteUrls]]",
+    );
     let body = match (path.split('?').next(), asks_status) {
         (Some("/job/deploy/api/json"), true) => {
-            r#"{"name":"deploy","lastBuild":{"number":12,"building":true,"result":null,"timestamp":1767225600000}}"#
+            r#"{"name":"deploy","lastBuild":{"number":12,"building":true,"result":null,"timestamp":1767225600000,
+                "actions":[{"_class":"hudson.plugins.git.util.BuildData","remoteUrls":["git@git.test:shop/api.git"],
+                "lastBuiltRevision":{"SHA1":"0123456789abcdef0123456789abcdef01234567"}}]}}"#
         }
         (Some("/job/tests/api/json"), true) => {
             r#"{"name":"tests","lastBuild":{"number":40,"building":false,"result":"FAILURE","timestamp":1767225600000}}"#
@@ -669,5 +673,7 @@ async fn refresh_reads_each_job_status_from_one_request() {
         ]
     );
     assert!(pipelines.iter().all(|pipeline| pipeline.last_run.is_some()));
+    assert_eq!(pipelines[0].correlation.sources.len(), 1);
+    assert!(pipelines[1].correlation.is_empty());
     assert_eq!(requests.load(Ordering::SeqCst), 2);
 }

@@ -7,6 +7,9 @@ description = "Monitor Flux Kustomizations and HelmReleases, inspect their statu
 repository = "https://github.com/hcavarsan/pipedash"
 license = "GPL-3.0"
 
+[features]
+fixtures = []
+
 [dependencies]
 async-trait.workspace = true
 chrono.workspace = true

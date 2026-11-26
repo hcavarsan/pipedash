@@ -52,6 +52,8 @@ fn run(status: PipelineStatus) -> PipelineRun {
         actions: Default::default(),
         display: Default::default(),
         pace: Default::default(),
+        correlation: Default::default(),
+        evidence: Default::default(),
     }
 }
 
@@ -74,6 +76,7 @@ fn watched_run(run: PipelineRun) -> WatchedRun {
         typical_duration_seconds: None,
         cadence: None,
         actions: Default::default(),
+        correlation: Default::default(),
     };
     WatchedRun {
         pipeline,

@@ -42,6 +42,7 @@ use crate::{
 };
 
 mod catalog;
+mod correlation;
 mod health;
 mod logs;
 
@@ -193,14 +194,18 @@ plugin_impl!(FluxcdPlugin [
     async fn fetch_pipelines(&self) -> PluginResult<Vec<Pipeline>> {
         let (found, missing) = self.monitored().await?;
         let mut workload_issues = self.workload_issues(&found).await;
+        let mut facts = self.pipeline_facts(&found).await;
 
         Ok(found
             .iter()
             .map(|resource| {
-                let issues = workload_issues
-                    .remove(&mapper::target_of(resource))
-                    .unwrap_or_default();
-                mapper::map_pipeline(resource, &issues)
+                let target = mapper::target_of(resource);
+                let issues = workload_issues.remove(&target).unwrap_or_default();
+                let facts = facts.remove(&target).unwrap_or_default();
+                let mut pipeline = mapper::map_pipeline(resource, &issues);
+                pipeline.correlation = mapper::correlation::pipeline(resource, &facts);
+
+                pipeline
             })
             .chain(missing.iter().map(missing_pipeline))
             .collect())
@@ -209,15 +214,22 @@ plugin_impl!(FluxcdPlugin [
     async fn fetch_run_history(
         &self, pipeline_id: &str, limit: usize,
     ) -> PluginResult<Vec<PipelineRun>> {
-        let (_, _, runs) = self.runs(pipeline_id).await?;
+        let (_, resource, runs) = self.runs(pipeline_id).await?;
+        let mut runs: Vec<PipelineRun> = runs.into_iter().take(limit).collect();
+        let facts = self.run_facts(&resource).await;
+        mapper::correlation::attach_runs(&mut runs, &resource, &facts);
 
-        Ok(runs.into_iter().take(limit).collect())
+        Ok(runs)
     }
 
     async fn fetch_run_details(
         &self, pipeline_id: &str, run_number: i64,
     ) -> PluginResult<PipelineRun> {
-        Ok(self.run(pipeline_id, run_number).await?.1)
+        let (resource, mut run) = self.run(pipeline_id, run_number).await?;
+        let facts = self.run_facts(&resource).await;
+        mapper::correlation::attach_runs(std::slice::from_mut(&mut run), &resource, &facts);
+
+        Ok(run)
     }
 
     fn log_dialect(&self) -> &'static dyn LogDialect {

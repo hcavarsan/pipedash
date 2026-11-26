@@ -1,9 +1,13 @@
 use std::collections::HashMap;
 
-use pipedash_plugin_api::config::required_base_url;
+use pipedash_plugin_api::config::{
+    base_url,
+    required_base_url,
+};
 use pipedash_plugin_api::{
     PluginError,
     PluginResult,
+    RepoId,
 };
 
 pub(crate) fn get_base_url(config: &HashMap<String, String>) -> PluginResult<String> {
@@ -18,6 +22,15 @@ pub(crate) fn get_base_url(config: &HashMap<String, String>) -> PluginResult<Str
         ));
     }
     Ok(url.to_string())
+}
+
+pub(crate) fn source_host(config: &HashMap<String, String>) -> Option<String> {
+    let url = base_url(config, "base_url")?;
+    RepoId::parse(&format!("{url}/_")).map(|repo| repo.host().to_string())
+}
+
+pub(crate) fn source_hosts(config: &HashMap<String, String>) -> Vec<String> {
+    source_host(config).into_iter().collect()
 }
 
 pub(crate) fn parse_repo(full_name: &str) -> PluginResult<(&str, &str)> {

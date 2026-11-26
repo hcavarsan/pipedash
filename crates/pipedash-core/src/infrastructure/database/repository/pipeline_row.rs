@@ -104,6 +104,7 @@ impl Repository {
             typical_duration_seconds: None,
             cadence: None,
             actions: Default::default(),
+            correlation: Default::default(),
         })
     }
 }

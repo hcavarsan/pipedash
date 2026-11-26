@@ -7,6 +7,7 @@ pub mod migration;
 pub(crate) mod oauth;
 pub mod providers;
 pub mod push_relay;
+pub(crate) mod reload_shadow;
 pub mod run_logs;
 pub mod secrets;
 pub mod status_feeds;

@@ -32,6 +32,7 @@ function Sidebar() {
   return (
     <NavbarTree
       providers={[]}
+      applicationsActive={false}
       views={views}
       pins={[]}
       viewId={null}

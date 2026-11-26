@@ -1562,3 +1562,49 @@ fn configured_repositories_should_show_namespaces_with_a_slash() {
         ["ci/build", "plain"]
     );
 }
+
+#[tokio::test]
+async fn run_reads_propagate_temporary_taskrun_errors_and_skip_missing_ones() {
+    let dir = tempfile::tempdir().unwrap();
+    let serve_taskruns_with = |code, reason| {
+        serve(move |_, target, _| {
+            if target.contains("/taskruns") {
+                status_json(code, reason, 0)
+            } else {
+                (
+                    200,
+                    format!(
+                        r#"{{"items":[{}]}}"#,
+                        run_json("lint-run-1", "lint", "0000000b-0000-4000-8000-000000000000")
+                    ),
+                )
+            }
+        })
+    };
+
+    let missing = plugin(&serve_taskruns_with(404, "NotFound"), &dir);
+    let history = missing.fetch_run_history("ci__lint", 10).await.unwrap();
+    assert_eq!(history.len(), 1);
+    missing
+        .fetch_run_details("ci__lint", history[0].run_number)
+        .await
+        .unwrap();
+
+    let throttled = plugin(&serve_taskruns_with(429, "TooManyRequests"), &dir);
+    let error = throttled
+        .fetch_run_history("ci__lint", 10)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error, PluginError::RateLimited { .. }),
+        "{error:?}"
+    );
+    let error = throttled
+        .fetch_run_details("ci__lint", history[0].run_number)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error, PluginError::RateLimited { .. }),
+        "{error:?}"
+    );
+}

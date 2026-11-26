@@ -4,15 +4,17 @@ use chrono::{
     DateTime,
     Utc,
 };
+use pipedash_plugin_api::{
+    Correlation,
+    PipelineActionState,
+    RunActionState,
+    RunDisplay,
+    RunEvidence,
+};
 pub use pipedash_plugin_api::{
     PaginatedAvailablePipelines,
     PaginationParams,
     ResourceState,
-};
-use pipedash_plugin_api::{
-    PipelineActionState,
-    RunActionState,
-    RunDisplay,
 };
 use serde::{
     Deserialize,
@@ -86,6 +88,8 @@ pub struct Pipeline {
     pub cadence: Option<PipelineCadence>,
     #[serde(default)]
     pub actions: PipelineActionState,
+    #[serde(skip)]
+    pub correlation: Correlation,
 }
 
 impl Pipeline {
@@ -138,6 +142,10 @@ pub struct PipelineRun {
     pub display: RunDisplay,
     #[serde(default)]
     pub pace: RunPace,
+    #[serde(skip)]
+    pub correlation: Correlation,
+    #[serde(skip)]
+    pub evidence: RunEvidence,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

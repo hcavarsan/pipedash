@@ -19,6 +19,9 @@ serde-saphyr.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 
+[features]
+fixtures = []
+
 [dev-dependencies]
 rustls.workspace = true
 tokio.workspace = true

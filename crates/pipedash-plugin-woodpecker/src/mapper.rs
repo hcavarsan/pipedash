@@ -6,12 +6,16 @@ use chrono::{
 };
 use pipedash_plugin_api::{
     AvailablePipeline,
+    CommitSha,
+    Correlation,
     LogAvailability,
     LogNode,
     LogNodeKind,
     Pipeline,
     PipelineRun,
     PipelineStatus,
+    RepoId,
+    RunEvidence,
 };
 
 use crate::types;
@@ -49,8 +53,16 @@ pub(crate) fn map_available_pipeline(repo: &types::Repo) -> AvailablePipeline {
     }
 }
 
+pub(crate) fn source_repo(repo: &types::Repo) -> Option<RepoId> {
+    [repo.forge_url.as_deref(), repo.clone_url.as_deref()]
+        .into_iter()
+        .flatten()
+        .find_map(RepoId::parse)
+}
+
 pub(crate) fn map_pipeline(repo: &types::Repo, latest: Option<&types::Pipeline>) -> Pipeline {
     Pipeline {
+        correlation: Correlation::single_source(source_repo(repo), None),
         id: repo.id.to_string(),
         name: repo.name.clone(),
         status: latest.map_or(PipelineStatus::Pending, |run| map_status(&run.status)),
@@ -64,10 +76,14 @@ pub(crate) fn map_pipeline(repo: &types::Repo, latest: Option<&types::Pipeline>)
     }
 }
 
-pub(crate) fn map_run(run: &types::Pipeline, pipeline_id: &str, logs_url: String) -> PipelineRun {
+pub(crate) fn map_run(
+    run: &types::Pipeline, pipeline_id: &str, logs_url: String, repo: Option<&RepoId>,
+) -> PipelineRun {
     let started = timestamp(run.started);
     let finished = timestamp(run.finished);
     PipelineRun {
+        correlation: Correlation::single_source(repo.cloned(), CommitSha::parse(&run.commit)),
+        evidence: RunEvidence::default(),
         id: format!("woodpecker-run-{}", run.id),
         pipeline_id: pipeline_id.to_string(),
         run_number: run.number,

@@ -10,12 +10,16 @@ use chrono::{
 use pipedash_plugin_api::utils::duration_seconds;
 use pipedash_plugin_api::{
     AvailablePipeline,
+    CommitSha,
+    Correlation,
     LogAvailability,
     LogNode,
     LogNodeKind,
     Pipeline,
     PipelineRun,
     PipelineStatus,
+    RepoId,
+    RunEvidence,
 };
 use reqwest::Url;
 use serde_json::{
@@ -81,12 +85,21 @@ pub(crate) fn map_available_pipeline(
     }
 }
 
+fn build_repo(build: &types::Build) -> Option<RepoId> {
+    build
+        .repository
+        .as_ref()
+        .and_then(|repository| repository.url.as_deref())
+        .and_then(RepoId::parse)
+}
+
 pub(crate) fn map_pipeline(
     organization: &str, project: &str, definition: &types::Definition,
 ) -> Pipeline {
     let latest_build = definition.latest_build.as_ref();
 
     Pipeline {
+        correlation: Correlation::single_source(latest_build.and_then(build_repo), None),
         id: config::build_pipeline_id(project, definition.id),
         name: definition.name.clone(),
         status: latest_build
@@ -126,6 +139,11 @@ pub(crate) fn map_run(
     let branch = branch_of(build);
 
     PipelineRun {
+        correlation: Correlation::single_source(
+            build_repo(build),
+            build.source_version.as_deref().and_then(CommitSha::parse),
+        ),
+        evidence: RunEvidence::default(),
         id: format!("azure-devops-run-{}", build.id),
         pipeline_id: pipeline_id.to_string(),
         run_number: build.id,
