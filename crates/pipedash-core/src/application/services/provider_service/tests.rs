@@ -2416,6 +2416,14 @@ async fn a_revoked_sign_in_is_not_refreshed_on_every_scheduler_tick() {
     }
 
     assert_eq!(idp.forms.lock().unwrap().len(), 1);
+
+    let expired_at = std::time::Instant::now()
+        .checked_sub(super::LOAD_RETRY_COOLDOWN)
+        .unwrap();
+    h.provider_service.failed_loads.insert(id, expired_at);
+    h.provider_service.load_missing_providers().await;
+
+    assert_eq!(idp.forms.lock().unwrap().len(), 2);
 }
 
 #[tokio::test]
