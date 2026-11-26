@@ -151,6 +151,26 @@ async fn dropping_a_target_on_an_environment_keeps_that_environment_and_its_arro
     assert_eq!(state.directions.len(), 1);
     assert_eq!(state.directions[0].from_group, stage);
     assert_eq!(state.directions[0].to_group, prod);
+
+    let original = joined
+        .targets
+        .iter()
+        .find(|t| t.card.item.key == prod)
+        .unwrap();
+    let stage_zone = environments
+        .iter()
+        .find(|e| e.zone.target.key.as_deref() == Some(stage.as_str()))
+        .unwrap();
+    drop_on(&fx, &original.card, &stage_zone.zone).await;
+
+    let moved = board(&fx, None).await;
+    let left = moved.applications[0]
+        .environments
+        .iter()
+        .find(|e| e.zone.target.key.as_deref() == Some(prod.as_str()))
+        .unwrap();
+    assert_eq!(left.targets.len(), 1);
+    assert_eq!(left.label, "prod");
 }
 
 #[tokio::test]

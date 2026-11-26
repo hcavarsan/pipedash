@@ -360,6 +360,8 @@ pub(super) fn group_labels(
             table.name.clone()
         } else if group == SHORT_LIVED_GROUP {
             copy::short_lived(targets.len())
+        } else if let Some(anchor) = rows.iter().find(|row| row.target_key == group) {
+            anchor.name.clone()
         } else if let [single] = targets.as_slice() {
             single.name.clone()
         } else if let Some(parent) = group.strip_prefix("parent:") {
@@ -368,11 +370,7 @@ pub(super) fn group_labels(
                 .map_or(parent, |(_, local)| local)
                 .to_string()
         } else {
-            targets
-                .iter()
-                .find(|target| target.target_key == group)
-                .map_or(group, |anchor| anchor.name.as_str())
-                .to_string()
+            group.to_string()
         };
         labels.insert(group.to_string(), label);
     }
