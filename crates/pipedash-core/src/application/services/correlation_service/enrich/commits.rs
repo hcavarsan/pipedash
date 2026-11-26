@@ -4,6 +4,7 @@ use std::collections::{
 };
 use std::future::Future;
 
+use futures::future::BoxFuture;
 use pipedash_plugin_api::{
     ChangedFile,
     CommitComparison,
@@ -138,7 +139,7 @@ impl CorrelationService {
             .map(|(info, _)| info)
     }
 
-    async fn commit_info_leased(
+    pub(in crate::application::services::correlation_service) async fn commit_info_leased(
         &self, repo: &RepoId, rev: &str,
     ) -> Option<(CommitInfo, ProviderLease)> {
         let (lease, key) = self.keyed(repo, "commit", rev).await?;
@@ -204,6 +205,20 @@ impl CorrelationService {
             .commit(first, || self.provider_service.commit(second, write))
             .await
             .flatten()
+    }
+
+    pub(in crate::application::services::correlation_service) fn commit_all<'a, T: Send + 'a>(
+        &'a self, leases: &'a [ProviderLease], write: BoxFuture<'a, T>,
+    ) -> BoxFuture<'a, Option<T>> {
+        Box::pin(async move {
+            let Some((first, rest)) = leases.split_first() else {
+                return Some(write.await);
+            };
+            self.provider_service
+                .commit(first, || self.commit_all(rest, write))
+                .await
+                .flatten()
+        })
     }
 
     pub(super) async fn fill_authored_at(&self) -> DomainResult<()> {

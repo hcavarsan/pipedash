@@ -15,6 +15,7 @@ use super::world::{
     World,
 };
 use super::CorrelationService;
+use crate::application::services::provider_service::ProviderLease;
 
 #[cfg(test)]
 mod tests;
@@ -47,17 +48,20 @@ fn candidate_repos(world: &World, digest: &str, subject: &Subject) -> BTreeSet<S
 }
 
 impl CorrelationService {
-    pub(super) async fn resolve_unique_commit(
+    async fn resolve_unique_commit(
         &self, repo: &RepoId, prefix: &str,
-    ) -> Option<CommitSha> {
-        let info = self.commit_info(repo, prefix).await?;
-        info.sha.as_str().starts_with(prefix).then_some(info.sha)
+    ) -> Option<(CommitSha, ProviderLease)> {
+        let (info, lease) = self.commit_info_leased(repo, prefix).await?;
+        info.sha
+            .as_str()
+            .starts_with(prefix)
+            .then_some((info.sha, lease))
     }
 
     async fn unique_in_repos(
         &self, repos: &BTreeSet<String>, prefix: &str,
-    ) -> Option<(String, String)> {
-        let mut found = BTreeSet::new();
+    ) -> Option<((String, String), ProviderLease)> {
+        let mut found = BTreeMap::new();
         for repo in repos {
             let Some((host, path)) = repo.split_once('/') else {
                 continue;
@@ -65,8 +69,8 @@ impl CorrelationService {
             let Some(id) = RepoId::from_host_path(host, path) else {
                 continue;
             };
-            if let Some(sha) = self.resolve_unique_commit(&id, prefix).await {
-                found.insert((repo.clone(), sha.as_str().to_string()));
+            if let Some((sha, lease)) = self.resolve_unique_commit(&id, prefix).await {
+                found.insert((repo.clone(), sha.as_str().to_string()), lease);
             }
         }
         let mut all = found.into_iter();
@@ -74,11 +78,12 @@ impl CorrelationService {
         all.next().is_none().then_some(first)
     }
 
-    pub(super) async fn tag_edges(&self, world: &World, affected: &Affected) -> TagEdges {
+    pub(super) async fn tag_edges(
+        &self, world: &World, affected: &Affected,
+    ) -> Option<(TagEdges, Vec<ProviderLease>)> {
         let mut edges = TagEdges::new();
-        let Ok(pattern) = Regex::new(TAG_PATTERN) else {
-            return edges;
-        };
+        let mut leases: BTreeMap<i64, ProviderLease> = BTreeMap::new();
+        let pattern = Regex::new(TAG_PATTERN).ok()?;
         for subject in world.subjects.values().filter(|s| affected.has(&s.id)) {
             for artifact in subject.consumed.iter().chain(&subject.produced) {
                 let (Some(digest), Some(tag)) = (&artifact.digest, &artifact.tag) else {
@@ -96,9 +101,15 @@ impl CorrelationService {
                 };
                 let repos = candidate_repos(world, digest, subject);
                 let found = self.unique_in_repos(&repos, &prefix).await;
-                edges.insert(digest.clone(), found);
+                if let Some((_, lease)) = &found {
+                    let known = leases.entry(lease.id).or_insert_with(|| lease.clone());
+                    if known.generation != lease.generation {
+                        return None;
+                    }
+                }
+                edges.insert(digest.clone(), found.map(|(commit, _)| commit));
             }
         }
-        edges
+        Some((edges, leases.into_values().collect()))
     }
 }

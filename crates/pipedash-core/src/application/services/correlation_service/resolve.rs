@@ -78,18 +78,27 @@ impl CorrelationService {
     }
 
     async fn resolve_tags(&self, changed: &HashSet<String>) -> DomainResult<()> {
-        let tags = {
+        let found = {
             let mut read = self.store.conn();
             let world = self.load_world(&mut read).await?;
             let affected = self.affected(&mut read, &world, changed).await?;
             self.tag_edges(&world, &affected).await
         };
+        let Some((tags, leases)) = found else {
+            return Ok(());
+        };
+        self.commit_all(&leases, Box::pin(self.write_tags(changed, &tags)))
+            .await
+            .unwrap_or(Ok(()))
+    }
+
+    async fn write_tags(&self, changed: &HashSet<String>, tags: &TagEdges) -> DomainResult<()> {
         let _guard = self.write_lock.lock().await;
         let mut tx = self.store.begin().await?;
         let result = async {
             let world = self.load_world(&mut tx).await?;
             let affected = self.affected(&mut tx, &world, changed).await?;
-            self.resolve_in(&mut tx, &world, &affected, Some(&tags))
+            self.resolve_in(&mut tx, &world, &affected, Some(tags))
                 .await
         }
         .await;

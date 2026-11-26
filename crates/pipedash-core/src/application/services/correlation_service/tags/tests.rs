@@ -15,7 +15,10 @@ use crate::application::services::correlation_service::vocab::{
     TAG_SHA,
     USER_CONFIRMED,
 };
-use crate::application::test_support::StubProvider;
+use crate::application::test_support::{
+    Gate,
+    StubProvider,
+};
 use crate::domain::application::overrides::ApplicationEdit;
 use crate::domain::Pipeline;
 
@@ -115,4 +118,35 @@ async fn a_reverted_tag_suggestion_is_rebuilt_without_a_provider_refresh() {
     let reopened = fx.open().await;
     assert_eq!(reopened.len(), 1);
     assert_eq!(reopened[0].dto.id, suggestion);
+}
+
+#[tokio::test]
+async fn a_lookup_answered_by_an_edited_provider_stores_no_suggestion() {
+    let fx = Fx::new().await;
+    let gate = Gate::new();
+    let (source_host, _) =
+        fx.h.add_stub(|id| {
+            StubProvider::new(id)
+                .with_source_hosts(&["git.test"])
+                .with_commit(info())
+                .source_gated(&gate)
+        })
+        .await;
+    let gitops = fx.provider("gitops").await;
+    fx.apply(gitops, vec![tagged(gitops)]).await;
+    gate.arrived().await;
+
+    fx.h.stubs
+        .queue(StubProvider::new(source_host).with_source_hosts(&["git.test"]));
+    let mut config = fx.h.config("replacement", 30);
+    config.id = Some(source_host);
+    config.token = "new-token".to_string();
+    fx.h.provider_service
+        .update_provider(source_host, config)
+        .await
+        .unwrap();
+    gate.open();
+    fx.settle().await;
+
+    assert!(fx.edges(TAG_SHA).await.is_empty());
 }
