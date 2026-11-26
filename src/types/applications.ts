@@ -298,7 +298,7 @@ export type ApplicationEdit =
   | { type: 'hide'; hidden: boolean }
   | { type: 'stage'; pipeline_id: string; stage: Stage }
   | { type: 'target_name'; group_key: string; name: string }
-  | { type: 'target_group'; target_keys: string[]; group_name?: string | null }
+  | { type: 'target_group'; target_keys: string[]; group_name?: string | null; group_key?: string | null }
   | { type: 'direction'; from_group: string; to_group: string; present: boolean }
 
 export interface CreateApplicationMember {

@@ -20,6 +20,8 @@ use chrono::{
 use pipedash_core::domain::application::board::{
     ApplicationBoard,
     ApplicationBoardQuery,
+    BoardDrop,
+    BoardDropOutcome,
 };
 use pipedash_core::domain::application::dto::{
     ApplicationDetail,
@@ -136,6 +138,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_applications).post(create_application))
         .route("/board", get(board))
+        .route("/board/drops", post(board_drop))
         .route("/suggestions", get(suggestions))
         .route("/suggestions/accept", post(accept_suggestions))
         .route("/commit-locations", get(commit_locations))
@@ -240,6 +243,18 @@ async fn board(
     State(state): State<AppState>, Query(query): Query<ApplicationBoardQuery>,
 ) -> ApiResult<Json<ApplicationBoard>> {
     Ok(Json(state.correlation_service().await?.board(query).await?))
+}
+
+async fn board_drop(
+    State(state): State<AppState>, Json(drop): Json<BoardDrop>,
+) -> ApiResult<Json<BoardDropOutcome>> {
+    Ok(Json(
+        state
+            .correlation_service()
+            .await?
+            .board_drop(drop, None)
+            .await?,
+    ))
 }
 
 async fn suggestions(State(state): State<AppState>) -> ApiResult<Json<Vec<Suggestion>>> {

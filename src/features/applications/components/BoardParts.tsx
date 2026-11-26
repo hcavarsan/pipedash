@@ -4,40 +4,41 @@ import { IconGripVertical } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
 import { StatusGlyph } from '../../../components/atoms/StatusBadge'
-import type { BoardPipeline, BoardTarget } from '../../../types/applicationBoard'
-import type { Stage } from '../../../types/applications'
-import { type DragItem, type DropZone, dropAction, zoneId } from '../lib/boardDrop'
+import type { BoardCard, BoardLane, BoardPipeline, BoardTarget, BoardZone } from '../../../types/applicationBoard'
 
-const DRAG_KINDS = ['pipeline', 'target']
-const ZONE_KINDS = ['unassigned', 'new_application', 'lane', 'environment', 'new_environment']
-
-const hasKind = (data: unknown, kinds: string[]): boolean =>
-  typeof data === 'object' &&
-  data !== null &&
-  'kind' in data &&
-  typeof data.kind === 'string' &&
-  kinds.includes(data.kind)
-
-const isDragItem = (data: unknown): data is DragItem => hasKind(data, DRAG_KINDS)
-const isDropZone = (data: unknown): data is DropZone => hasKind(data, ZONE_KINDS)
-
-export function dragItemOf(data: unknown): DragItem | null {
-  return isDragItem(data) ? data : null
+export interface DraggedCard {
+  card: BoardCard
+  label: string
 }
 
-export function dropZoneOf(data: unknown): DropZone | null {
-  return isDropZone(data) ? data : null
+const hasField = (data: unknown, field: string): boolean => typeof data === 'object' && data !== null && field in data
+
+const isDraggedCard = (data: unknown): data is DraggedCard => hasField(data, 'card')
+const isBoardZone = (data: unknown): data is BoardZone => hasField(data, 'target')
+
+export function draggedCardOf(data: unknown): DraggedCard | null {
+  return isDraggedCard(data) ? data : null
+}
+
+export function boardZoneOf(data: unknown): BoardZone | null {
+  return isBoardZone(data) ? data : null
 }
 
 interface DraggableCardProps {
-  id: string
-  item: DragItem
-  disabled: boolean
+  card: BoardCard
+  label: string
+  busy: boolean
   children: ReactNode
 }
 
-function DraggableCard({ id, item, disabled, children }: DraggableCardProps): ReactNode {
-  const { setNodeRef, attributes, listeners, isDragging } = useDraggable({ id, data: item, disabled })
+function DraggableCard({ card, label, busy, children }: DraggableCardProps): ReactNode {
+  const disabled = busy || !card.draggable
+  const dragged: DraggedCard = { card, label }
+  const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
+    id: JSON.stringify(card.item),
+    data: dragged,
+    disabled,
+  })
 
   return (
     <Paper
@@ -53,31 +54,16 @@ function DraggableCard({ id, item, disabled, children }: DraggableCardProps): Re
       {...listeners}
     >
       <Group gap="xs" wrap="nowrap">
-        {!disabled && <IconGripVertical size={14} aria-hidden color="var(--mantine-color-dimmed)" />}
+        {card.draggable && <IconGripVertical size={14} aria-hidden color="var(--mantine-color-dimmed)" />}
         {children}
       </Group>
     </Paper>
   )
 }
 
-interface PipelineCardProps {
-  pipeline: BoardPipeline
-  applicationId: number | null
-  stage: Stage | null
-  disabled: boolean
-}
-
-export function PipelineCard({ pipeline, applicationId, stage, disabled }: PipelineCardProps): ReactNode {
-  const item: DragItem = {
-    kind: 'pipeline',
-    label: pipeline.name,
-    pipelineId: pipeline.pipeline_id,
-    applicationId,
-    stage,
-  }
-
+export function PipelineCard({ pipeline, busy }: { pipeline: BoardPipeline; busy: boolean }): ReactNode {
   return (
-    <DraggableCard id={`pipeline:${applicationId ?? 'none'}:${pipeline.pipeline_id}`} item={item} disabled={disabled}>
+    <DraggableCard card={pipeline.card} label={pipeline.name} busy={busy}>
       <StatusGlyph status={pipeline.status} />
       <Stack gap={0} miw={0} flex={1}>
         <Text size="sm" truncate>
@@ -91,18 +77,9 @@ export function PipelineCard({ pipeline, applicationId, stage, disabled }: Pipel
   )
 }
 
-interface TargetCardProps {
-  target: BoardTarget
-  applicationId: number
-  groupKey: string
-  disabled: boolean
-}
-
-export function TargetCard({ target, applicationId, groupKey, disabled }: TargetCardProps): ReactNode {
-  const item: DragItem = { kind: 'target', label: target.name, targetKey: target.target_key, applicationId, groupKey }
-
+export function TargetCard({ target, busy }: { target: BoardTarget; busy: boolean }): ReactNode {
   return (
-    <DraggableCard id={`target:${applicationId}:${target.target_key}`} item={item} disabled={disabled}>
+    <DraggableCard card={target.card} label={target.name} busy={busy}>
       <Text size="sm" truncate>
         {target.name}
       </Text>
@@ -111,19 +88,21 @@ export function TargetCard({ target, applicationId, groupKey, disabled }: Target
 }
 
 interface DropAreaProps {
-  zone: DropZone
-  label: string
-  disabled?: boolean
-  hint?: string | undefined
+  zone: BoardZone
+  busy: boolean
   children?: ReactNode
 }
 
-export function DropArea({ zone, label, disabled = false, hint, children }: DropAreaProps): ReactNode {
-  const id = zoneId(zone)
+export function DropArea({ zone, busy, children }: DropAreaProps): ReactNode {
   const { active } = useDndContext()
-  const dragged = dragItemOf(active?.data.current)
-  const accepts = !disabled && dragged !== null && dropAction(dragged, zone) !== null
-  const { setNodeRef, isOver } = useDroppable({ id, data: zone, disabled: !accepts })
+  const dragged = draggedCardOf(active?.data.current)?.card
+  const accepts =
+    !busy &&
+    zone.enabled &&
+    dragged !== undefined &&
+    dragged.drop_class === zone.drop_class &&
+    dragged.zone_id !== zone.id
+  const { setNodeRef, isOver } = useDroppable({ id: zone.id, data: zone, disabled: !accepts })
   let background = 'transparent'
 
   if (accepts) {
@@ -134,8 +113,8 @@ export function DropArea({ zone, label, disabled = false, hint, children }: Drop
     <Box
       ref={setNodeRef}
       role="group"
-      aria-label={label}
-      data-drop-zone={id}
+      aria-label={zone.label}
+      data-drop-zone={zone.id}
       data-accepts={accepts || undefined}
       p="xs"
       mih={56}
@@ -147,12 +126,22 @@ export function DropArea({ zone, label, disabled = false, hint, children }: Drop
     >
       <Stack gap="2xs">
         {children}
-        {hint && (
+        {zone.hint && (
           <Text size="xs" c="dimmed">
-            {hint}
+            {zone.hint}
           </Text>
         )}
       </Stack>
     </Box>
+  )
+}
+
+export function LaneArea({ lane, busy }: { lane: BoardLane; busy: boolean }): ReactNode {
+  return (
+    <DropArea zone={lane.zone} busy={busy}>
+      {lane.pipelines.map((pipeline) => (
+        <PipelineCard key={pipeline.card.item.key} pipeline={pipeline} busy={busy} />
+      ))}
+    </DropArea>
   )
 }

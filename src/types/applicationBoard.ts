@@ -4,20 +4,54 @@ export interface ApplicationBoardQuery {
   search: string | null
 }
 
+export interface BoardCardRef {
+  kind: 'pipeline' | 'target'
+  key: string
+  application_id: number | null
+}
+
+export interface BoardCard {
+  item: BoardCardRef
+  zone_id: string
+  drop_class: string
+  draggable: boolean
+}
+
+export interface BoardZoneRef {
+  kind: 'unassigned' | 'new_application' | 'lane' | 'environment' | 'new_environment'
+  application_id: number | null
+  key: string | null
+}
+
+export interface BoardZone {
+  id: string
+  target: BoardZoneRef
+  drop_class: string
+  enabled: boolean
+  label: string
+  hint: string | null
+}
+
 export interface BoardPipeline {
-  pipeline_id: string
+  card: BoardCard
   name: string
   repository: string
   status: PipelineStatus
 }
 
 export interface BoardTarget {
-  target_key: string
+  card: BoardCard
   name: string
 }
 
+export interface BoardLane {
+  zone: BoardZone
+  title: string
+  pipelines: BoardPipeline[]
+}
+
 export interface BoardEnvironment {
-  group_key: string
+  zone: BoardZone
   label: string
   targets: BoardTarget[]
 }
@@ -25,11 +59,11 @@ export interface BoardEnvironment {
 export interface BoardApplication {
   id: number
   name: string
-  editable: boolean
   notice: string | null
-  build: BoardPipeline[]
-  deploy: BoardPipeline[]
+  build: BoardLane
+  deploy: BoardLane
   environments: BoardEnvironment[]
+  new_environment: BoardZone | null
 }
 
 export interface BoardCopy {
@@ -37,19 +71,11 @@ export interface BoardCopy {
   help: string
   search_placeholder: string
   back: string
-  unassigned: string
-  unassigned_empty: string
-  unassigned_drop: string
   applications: string
   applications_empty: string
-  new_application_drop: string
   open_application: string
-  build: string
-  deploy: string
-  lane_empty: string
   environments: string
   environments_empty: string
-  new_environment_drop: string
   new_environment: string
   environment_name: string
   create_environment: string
@@ -57,7 +83,18 @@ export interface BoardCopy {
 }
 
 export interface ApplicationBoard {
-  unassigned: BoardPipeline[]
+  unassigned: BoardLane
+  new_application: BoardZone
   applications: BoardApplication[]
   copy: BoardCopy
 }
+
+export interface BoardDrop {
+  card: BoardCardRef
+  zone: BoardZoneRef
+}
+
+export type BoardDropOutcome =
+  | { type: 'applied' }
+  | { type: 'name_application'; pipeline_id: string }
+  | { type: 'name_environment'; application_id: number; target_key: string }

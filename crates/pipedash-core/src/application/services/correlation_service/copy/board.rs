@@ -4,6 +4,50 @@ pub(in crate::application::services::correlation_service) fn config_notice() -> 
     "Defined in config.toml".into()
 }
 
+pub(in crate::application::services::correlation_service) fn unassigned() -> String {
+    "Not in an application".into()
+}
+
+pub(in crate::application::services::correlation_service) fn unassigned_hint(
+    empty: bool,
+) -> String {
+    if empty {
+        "Every pipeline is in an application".into()
+    } else {
+        "Drop a pipeline here to unlink it".into()
+    }
+}
+
+pub(in crate::application::services::correlation_service) fn new_application() -> String {
+    "New application".into()
+}
+
+pub(in crate::application::services::correlation_service) fn new_application_hint() -> String {
+    "Drop a pipeline here to create an application".into()
+}
+
+pub(in crate::application::services::correlation_service) fn lane_hint() -> String {
+    "Drop a pipeline here".into()
+}
+
+pub(in crate::application::services::correlation_service) fn new_environment() -> String {
+    "New environment".into()
+}
+
+pub(in crate::application::services::correlation_service) fn new_environment_hint() -> String {
+    "Drop a target here to create an environment".into()
+}
+
+pub(in crate::application::services::correlation_service) fn zone_label(
+    application: &str, zone: &str,
+) -> String {
+    format!("{application} {zone}")
+}
+
+pub(in crate::application::services::correlation_service) fn drop_not_allowed() -> String {
+    "This item cannot be dropped there".into()
+}
+
 pub(in crate::application::services::correlation_service) fn board_copy() -> BoardCopy {
     BoardCopy {
         title: "Manage applications".into(),
@@ -11,20 +55,12 @@ pub(in crate::application::services::correlation_service) fn board_copy() -> Boa
             .into(),
         search_placeholder: "Search pipelines and applications".into(),
         back: "Applications".into(),
-        unassigned: "Not in an application".into(),
-        unassigned_empty: "Every pipeline is in an application".into(),
-        unassigned_drop: "Drop a pipeline here to unlink it".into(),
         applications: "Applications".into(),
         applications_empty: "No applications match".into(),
-        new_application_drop: "Drop a pipeline here to create an application".into(),
         open_application: "Open application".into(),
-        build: "Build".into(),
-        deploy: "Deploy".into(),
-        lane_empty: "Drop a pipeline here".into(),
         environments: "Environments".into(),
         environments_empty: "No targets observed yet".into(),
-        new_environment_drop: "Drop a target here to create an environment".into(),
-        new_environment: "New environment".into(),
+        new_environment: new_environment(),
         environment_name: "Name".into(),
         create_environment: "Create environment".into(),
         cancel: "Cancel".into(),

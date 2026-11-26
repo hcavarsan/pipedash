@@ -121,6 +121,7 @@ async fn a_group_that_is_not_a_product_survives_copy_as_toml_and_a_config_reload
         ApplicationEdit::TargetGroup {
             target_keys: vec!["uid:1|a".into(), "uid:2|b".into()],
             group_name: Some("Pair".into()),
+            group_key: None,
         },
         ApplicationEdit::Direction {
             from_group: "uid:1|b".into(),

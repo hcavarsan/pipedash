@@ -117,6 +117,8 @@ pub(super) enum Op {
         application: String,
         target_keys: Vec<String>,
         group_name: Option<String>,
+        #[serde(default)]
+        group_key: Option<String>,
     },
     Direction {
         application: String,

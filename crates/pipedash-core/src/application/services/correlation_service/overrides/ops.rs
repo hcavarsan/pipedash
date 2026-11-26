@@ -150,7 +150,11 @@ async fn target_edit(
         ApplicationEdit::TargetGroup {
             target_keys,
             group_name,
+            group_key,
         } => {
+            if let Some(key) = group_key.as_ref().filter(|key| !groups.contains(*key)) {
+                return Err(invalid(copy::unknown_group(key)));
+            }
             if target_keys.is_empty() {
                 return Err(invalid(copy::no_targets_selected()));
             }
@@ -165,6 +169,7 @@ async fn target_edit(
                 application,
                 target_keys,
                 group_name,
+                group_key,
             })
         }
         ApplicationEdit::Direction {

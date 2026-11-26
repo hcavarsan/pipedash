@@ -15,12 +15,11 @@ import { type ReactNode, useState } from 'react'
 
 import { PageHeader } from '../../../components/common/PageHeader'
 import { SearchInput } from '../../../components/common/SearchInput'
-import type { ApplicationBoard } from '../../../types/applicationBoard'
+import type { ApplicationBoard, BoardDropOutcome } from '../../../types/applicationBoard'
 import type { ApplicationCopy } from '../../../types/applications'
-import { type DragItem, type DropAction, dropAction } from '../lib/boardDrop'
-import { useEditApplication } from '../queries/useApplicationQueries'
+import { useBoardDrop } from '../queries/useApplicationQueries'
 import { ApplicationsColumn, UnassignedColumn } from './BoardColumns'
-import { dragItemOf, dropZoneOf } from './BoardParts'
+import { boardZoneOf, draggedCardOf } from './BoardParts'
 import { CreateApplicationModal } from './CreateApplicationModal'
 import { NewEnvironmentModal } from './NewEnvironmentModal'
 
@@ -32,7 +31,7 @@ interface ApplicationBoardPageProps {
   onBack: () => void
 }
 
-type Prompt = Exclude<DropAction, { kind: 'edit' }>
+type Prompt = Exclude<BoardDropOutcome, { type: 'applied' }>
 
 const UNASSIGNED_WIDTH = 300
 
@@ -49,37 +48,29 @@ export function ApplicationBoardPage({
   onSearchChange,
   onBack,
 }: ApplicationBoardPageProps): ReactNode {
-  const { copy, unassigned, applications } = board
-  const edit = useEditApplication()
-  const [dragged, setDragged] = useState<DragItem | null>(null)
+  const { copy } = board
+  const drop = useBoardDrop()
+  const [dragged, setDragged] = useState<string | null>(null)
   const [prompt, setPrompt] = useState<Prompt | null>(null)
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor)
   )
-  const busy = edit.isPending
+  const busy = drop.isPending
 
   const onDragEnd = ({ active, over }: DragEndEvent): void => {
     setDragged(null)
-    const item = dragItemOf(active.data.current)
-    const zone = dropZoneOf(over?.data.current)
+    const card = draggedCardOf(active.data.current)?.card
+    const zone = boardZoneOf(over?.data.current)
 
-    if (busy || item === null || zone === null) {
+    if (busy || card === undefined || zone === null) {
       return
     }
 
-    const action = dropAction(item, zone)
-
-    if (action === null) {
-      return
-    }
-    if (action.kind === 'edit') {
-      edit.mutate({ id: action.applicationId, edit: action.edit })
-
-      return
-    }
-
-    setPrompt(action)
+    drop.mutate(
+      { card: card.item, zone: zone.target },
+      { onSuccess: (outcome) => setPrompt(outcome.type === 'applied' ? null : outcome) }
+    )
   }
 
   return (
@@ -97,40 +88,35 @@ export function ApplicationBoardPage({
       <DndContext
         sensors={sensors}
         collisionDetection={collisions}
-        onDragStart={({ active }) => setDragged(dragItemOf(active.data.current))}
+        onDragStart={({ active }) => setDragged(draggedCardOf(active.data.current)?.label ?? null)}
         onDragCancel={() => setDragged(null)}
         onDragEnd={onDragEnd}
       >
         <Group gap="md" align="flex-start" wrap="nowrap">
-          <UnassignedColumn pipelines={unassigned} copy={copy} busy={busy} width={UNASSIGNED_WIDTH} />
-          <ApplicationsColumn
-            applications={applications}
-            copy={copy}
-            busy={busy}
-            newApplicationLabel={applicationCopy.new_application}
-          />
+          <UnassignedColumn lane={board.unassigned} busy={busy} width={UNASSIGNED_WIDTH} />
+          <ApplicationsColumn board={board} busy={busy} />
         </Group>
         <DragOverlay dropAnimation={null}>
-          {dragged && (
+          {dragged !== null && (
             <Paper withBorder radius="sm" px="xs" py="2xs" shadow="md">
-              <Text size="sm">{dragged.label}</Text>
+              <Text size="sm">{dragged}</Text>
             </Paper>
           )}
         </DragOverlay>
       </DndContext>
-      {prompt?.kind === 'create_application' && (
+      {prompt?.type === 'name_application' && (
         <CreateApplicationModal
           opened
           copy={applicationCopy}
-          initialMembers={[prompt.pipelineId]}
+          initialMembers={[prompt.pipeline_id]}
           onCreated={() => undefined}
           onClose={() => setPrompt(null)}
         />
       )}
-      {prompt?.kind === 'create_environment' && (
+      {prompt?.type === 'name_environment' && (
         <NewEnvironmentModal
-          applicationId={prompt.applicationId}
-          targetKey={prompt.targetKey}
+          applicationId={prompt.application_id}
+          targetKey={prompt.target_key}
           copy={copy}
           onClose={() => setPrompt(null)}
         />

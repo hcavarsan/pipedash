@@ -253,14 +253,31 @@ async fn board_lists_unassigned_pipelines_and_filters_by_search() {
 
     let (status, board) = call(&h.app, Method::GET, "/applications/board", None).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(board["unassigned"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        board["unassigned"]["pipelines"].as_array().unwrap().len(),
+        2
+    );
     assert!(board["applications"].is_array());
     assert!(board["copy"]["title"].is_string());
 
     let (status, board) = call(&h.app, Method::GET, "/applications/board?search=web", None).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(board["unassigned"][0]["name"], "web");
-    assert_eq!(board["unassigned"].as_array().unwrap().len(), 1);
+    let pipelines = board["unassigned"]["pipelines"].as_array().unwrap();
+    assert_eq!(pipelines.len(), 1);
+    assert_eq!(pipelines[0]["name"], "web");
+
+    let drop =
+        json!({ "card": pipelines[0]["card"]["item"], "zone": board["new_application"]["target"] });
+    let (status, outcome) = call(
+        &h.app,
+        Method::POST,
+        "/applications/board/drops",
+        Some(drop),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(outcome["type"], "name_application");
+    assert_eq!(outcome["pipeline_id"], h.pipeline_ids[1]);
 }
 
 #[tokio::test]

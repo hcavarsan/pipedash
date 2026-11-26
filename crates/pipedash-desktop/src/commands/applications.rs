@@ -4,6 +4,8 @@ use pipedash_core::application::CorrelationService;
 use pipedash_core::domain::application::board::{
     ApplicationBoard,
     ApplicationBoardQuery,
+    BoardDrop,
+    BoardDropOutcome,
 };
 use pipedash_core::domain::application::dto::{
     ApplicationDetail,
@@ -118,6 +120,16 @@ pub async fn get_application_board(
     maybe_core: State<'_, MaybeCoreContext>, query: ApplicationBoardQuery,
 ) -> Result<ApplicationBoard, ErrorResponse> {
     Ok(correlation_service(&maybe_core).await?.board(query).await?)
+}
+
+#[tauri::command]
+pub async fn drop_on_application_board(
+    maybe_core: State<'_, MaybeCoreContext>, drop: BoardDrop,
+) -> Result<BoardDropOutcome, ErrorResponse> {
+    Ok(correlation_service(&maybe_core)
+        .await?
+        .board_drop(drop, None)
+        .await?)
 }
 
 #[tauri::command]

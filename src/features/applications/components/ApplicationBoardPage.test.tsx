@@ -3,7 +3,7 @@ import { after, afterEach, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 
-import type { ApplicationBoard, BoardCopy } from '../../../types/applicationBoard'
+import type { ApplicationBoard, BoardCopy, BoardLane, BoardPipeline, BoardZone } from '../../../types/applicationBoard'
 import { copyFixture } from './applicationFixtures'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
@@ -31,45 +31,76 @@ const boardCopy = (): BoardCopy => ({
   help: 'help',
   search_placeholder: 'search_placeholder',
   back: 'back',
-  unassigned: 'unassigned',
-  unassigned_empty: 'unassigned_empty',
-  unassigned_drop: 'unassigned_drop',
   applications: 'applications',
   applications_empty: 'applications_empty',
-  new_application_drop: 'new_application_drop',
   open_application: 'open_application',
-  build: 'build',
-  deploy: 'deploy',
-  lane_empty: 'lane_empty',
   environments: 'environments',
   environments_empty: 'environments_empty',
-  new_environment_drop: 'new_environment_drop',
   new_environment: 'new_environment',
   environment_name: 'environment_name',
   create_environment: 'create_environment',
   cancel: 'cancel',
 })
 
+const zone = (id: string, drop_class: string, enabled: boolean, hint: string | null): BoardZone => ({
+  id,
+  target: { kind: 'lane', application_id: null, key: null },
+  drop_class,
+  enabled,
+  label: id,
+  hint,
+})
+
+const pipeline = (key: string, name: string, zone_id: string, draggable: boolean): BoardPipeline => ({
+  card: { item: { kind: 'pipeline', key, application_id: null }, zone_id, drop_class: 'pipeline', draggable },
+  name,
+  repository: 'acme/api',
+  status: 'success',
+})
+
+const lane = (id: string, enabled: boolean, hint: string | null, pipelines: BoardPipeline[]): BoardLane => ({
+  zone: zone(id, 'pipeline', enabled, hint),
+  title: id,
+  pipelines,
+})
+
 const board = (): ApplicationBoard => ({
-  unassigned: [{ pipeline_id: 'p-build', name: 'build-api', repository: 'acme/api', status: 'success' }],
+  unassigned: lane('unassigned', true, 'unassigned_hint', [pipeline('p-build', 'build-api', 'unassigned', true)]),
+  new_application: zone('new_application', 'pipeline', true, 'new_application_hint'),
   applications: [
     {
       id: 7,
       name: 'storefront',
-      editable: true,
       notice: null,
-      build: [],
-      deploy: [{ pipeline_id: 'p-deploy', name: 'deploy-api', repository: 'acme/api', status: 'success' }],
-      environments: [{ group_key: 't1', label: 'prod', targets: [{ target_key: 't1', name: 'prod' }] }],
+      build: lane('storefront build', true, 'lane_hint', []),
+      deploy: lane('storefront deploy', true, null, [pipeline('p-deploy', 'deploy-api', 'storefront deploy', true)]),
+      environments: [
+        {
+          zone: zone('storefront prod', 'target:7', true, null),
+          label: 'prod',
+          targets: [
+            {
+              card: {
+                item: { kind: 'target', key: 't1', application_id: 7 },
+                zone_id: 'storefront prod',
+                drop_class: 'target:7',
+                draggable: true,
+              },
+              name: 'prod-target',
+            },
+          ],
+        },
+      ],
+      new_environment: zone('storefront new', 'target:7', true, 'new_environment_hint'),
     },
     {
       id: 8,
       name: 'from-config',
-      editable: false,
       notice: 'config_notice',
-      build: [],
-      deploy: [],
+      build: lane('from-config build', false, null, []),
+      deploy: lane('from-config deploy', false, null, []),
       environments: [],
+      new_environment: null,
     },
   ],
   copy: boardCopy(),
@@ -101,7 +132,7 @@ test('The board lists unassigned pipelines, each application lane and its enviro
   const storefront = within(view().getByRole('region', { name: 'storefront' }))
   assert.ok(storefront.getByText('deploy-api'))
   assert.ok(storefront.getByRole('group', { name: 'storefront prod' }))
-  assert.ok(storefront.getByText('lane_empty'))
+  assert.ok(storefront.getByText('lane_hint'))
   assert.equal(storefront.getByRole('link', { name: 'storefront' }).getAttribute('href'), '/applications/7')
 })
 
@@ -110,8 +141,8 @@ test('An application defined in config shows its notice and offers no drop hints
 
   const config = within(view().getByRole('region', { name: 'from-config' }))
   assert.ok(config.getByText('config_notice'))
-  assert.equal(config.queryByText('lane_empty'), null)
-  assert.equal(config.queryByText('new_environment_drop'), null)
+  assert.equal(config.queryByText('lane_hint'), null)
+  assert.equal(config.queryByText('new_environment_hint'), null)
 })
 
 test('Picking a pipeline up with the keyboard marks the lanes that accept it', async () => {

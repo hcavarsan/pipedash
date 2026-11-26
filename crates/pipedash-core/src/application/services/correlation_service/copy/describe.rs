@@ -59,6 +59,10 @@ pub(in super::super) fn target_group(name: Option<&str>) -> String {
     }
 }
 
+pub(in super::super) fn target_joined() -> String {
+    "Moved a target into another environment".into()
+}
+
 pub(in super::super) fn direction(from: &str, to: &str, present: bool) -> String {
     if present {
         format!("Set a direction from {from} to {to}")

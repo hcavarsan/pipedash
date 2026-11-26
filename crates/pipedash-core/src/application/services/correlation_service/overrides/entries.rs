@@ -67,6 +67,9 @@ fn describe(world: &World, op: &Op) -> String {
             pipeline_id, stage, ..
         } => describe::stage(&world.name_of(pipeline_id), *stage),
         Op::TargetName { name, .. } => describe::target_name(name),
+        Op::TargetGroup {
+            group_key: Some(_), ..
+        } => describe::target_joined(),
         Op::TargetGroup { group_name, .. } => describe::target_group(group_name.as_deref()),
         Op::Direction {
             from_group,

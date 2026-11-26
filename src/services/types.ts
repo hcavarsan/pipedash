@@ -1,4 +1,4 @@
-import type { ApplicationBoard, ApplicationBoardQuery } from '../types/applicationBoard'
+import type { ApplicationBoard, ApplicationBoardQuery, BoardDrop, BoardDropOutcome } from '../types/applicationBoard'
 import type { CommitLocations, DeployChanges } from '../types/applicationCommits'
 import type {
   ApplicationDetail,
@@ -230,6 +230,7 @@ export interface ApplicationsService {
   listApplicationSuggestions(): Promise<Suggestion[]>
   acceptApplicationSuggestions(ids: string[]): Promise<void>
   getApplicationBoard(query: ApplicationBoardQuery): Promise<ApplicationBoard>
+  dropOnApplicationBoard(drop: BoardDrop): Promise<BoardDropOutcome>
   getPipelineApplications(pipelineId: string): Promise<ApplicationRef[]>
   getCommitLocations(pipelineId: string, runNumber: number): Promise<CommitLocations>
   getDeployChanges(pipelineId: string, runNumber: number): Promise<DeployChanges>

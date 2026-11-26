@@ -2,20 +2,13 @@ import { Anchor, Badge, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/c
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
-import type { BoardApplication, BoardCopy, BoardPipeline } from '../../../types/applicationBoard'
-import type { Stage } from '../../../types/applications'
-import { DropArea, PipelineCard, TargetCard } from './BoardParts'
+import type { BoardApplication, BoardCopy, BoardLane } from '../../../types/applicationBoard'
+import { DropArea, LaneArea, TargetCard } from './BoardParts'
 
 interface BoardApplicationCardProps {
   application: BoardApplication
   copy: BoardCopy
   busy: boolean
-}
-
-interface LaneProps extends BoardApplicationCardProps {
-  stage: Stage
-  title: string
-  pipelines: BoardPipeline[]
 }
 
 function ColumnTitle({ children }: { children: string }): ReactNode {
@@ -26,35 +19,16 @@ function ColumnTitle({ children }: { children: string }): ReactNode {
   )
 }
 
-function Lane({ application, copy, busy, stage, title, pipelines }: LaneProps): ReactNode {
-  const locked = busy || !application.editable
-
+function Lane({ lane, busy }: { lane: BoardLane; busy: boolean }): ReactNode {
   return (
     <Stack gap="2xs">
-      <ColumnTitle>{title}</ColumnTitle>
-      <DropArea
-        zone={{ kind: 'lane', applicationId: application.id, stage }}
-        label={`${application.name} ${title}`}
-        disabled={locked}
-        hint={pipelines.length === 0 && application.editable ? copy.lane_empty : undefined}
-      >
-        {pipelines.map((pipeline) => (
-          <PipelineCard
-            key={pipeline.pipeline_id}
-            pipeline={pipeline}
-            applicationId={application.id}
-            stage={stage}
-            disabled={locked}
-          />
-        ))}
-      </DropArea>
+      <ColumnTitle>{lane.title}</ColumnTitle>
+      <LaneArea lane={lane} busy={busy} />
     </Stack>
   )
 }
 
 function Environments({ application, copy, busy }: BoardApplicationCardProps): ReactNode {
-  const locked = busy || !application.editable
-
   return (
     <Stack gap="2xs">
       <ColumnTitle>{copy.environments}</ColumnTitle>
@@ -64,40 +38,16 @@ function Environments({ application, copy, busy }: BoardApplicationCardProps): R
         </Text>
       )}
       {application.environments.map((environment) => (
-        <DropArea
-          key={environment.group_key}
-          zone={{
-            kind: 'environment',
-            applicationId: application.id,
-            groupKey: environment.group_key,
-            label: environment.label,
-            targetKeys: environment.targets.map((target) => target.target_key),
-          }}
-          label={`${application.name} ${environment.label}`}
-          disabled={locked}
-        >
+        <DropArea key={environment.zone.id} zone={environment.zone} busy={busy}>
           <Text size="sm" fw={500}>
             {environment.label}
           </Text>
           {environment.targets.map((target) => (
-            <TargetCard
-              key={target.target_key}
-              target={target}
-              applicationId={application.id}
-              groupKey={environment.group_key}
-              disabled={locked}
-            />
+            <TargetCard key={target.card.item.key} target={target} busy={busy} />
           ))}
         </DropArea>
       ))}
-      {application.editable && application.environments.length > 0 && (
-        <DropArea
-          zone={{ kind: 'new_environment', applicationId: application.id }}
-          label={`${application.name} ${copy.new_environment}`}
-          disabled={busy}
-          hint={copy.new_environment_drop}
-        />
-      )}
+      {application.new_environment && <DropArea zone={application.new_environment} busy={busy} />}
     </Stack>
   )
 }
@@ -124,22 +74,8 @@ export function BoardApplicationCard({ application, copy, busy }: BoardApplicati
           )}
         </Group>
         <SimpleGrid cols={3} spacing="sm">
-          <Lane
-            application={application}
-            copy={copy}
-            busy={busy}
-            stage="build"
-            title={copy.build}
-            pipelines={application.build}
-          />
-          <Lane
-            application={application}
-            copy={copy}
-            busy={busy}
-            stage="deploy"
-            title={copy.deploy}
-            pipelines={application.deploy}
-          />
+          <Lane lane={application.build} busy={busy} />
+          <Lane lane={application.deploy} busy={busy} />
           <Environments application={application} copy={copy} busy={busy} />
         </SimpleGrid>
       </Stack>

@@ -134,6 +134,7 @@ fn ipc() -> Ipc {
             crate::commands::applications::revert_application_override,
             crate::commands::applications::list_application_suggestions,
             crate::commands::applications::get_application_board,
+            crate::commands::applications::drop_on_application_board,
             crate::commands::applications::accept_application_suggestions,
             crate::commands::applications::get_pipeline_applications,
             crate::commands::applications::get_commit_locations,
@@ -296,7 +297,13 @@ fn suggestion_and_pipeline_commands_decode_typescript_payload_keys() {
         "get_application_board",
         json!({ "query": { "search": "web" } }),
     );
-    assert_eq!(board["unassigned"][0]["name"], "web");
+    let card = &board["unassigned"]["pipelines"][0]["card"];
+    assert_eq!(card["item"]["key"], ipc.pipeline_ids[1]);
+    let outcome = ipc.ok(
+        "drop_on_application_board",
+        json!({ "drop": { "card": card["item"], "zone": board["new_application"]["target"] } }),
+    );
+    assert_eq!(outcome["type"], "name_application");
     ipc.ok("accept_application_suggestions", json!({ "ids": [] }));
 
     let known = ipc.pipeline_ids[0].clone();

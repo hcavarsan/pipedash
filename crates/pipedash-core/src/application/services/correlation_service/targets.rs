@@ -198,6 +198,7 @@ fn apply_user_groups(
             application,
             target_keys,
             group_name,
+            group_key,
         } = &stored.op
         else {
             continue;
@@ -209,9 +210,10 @@ fn apply_user_groups(
             let Some(row) = rows.get_mut(key) else {
                 continue;
             };
-            row.group_key = match group_name {
-                Some(name) => user_group(name),
-                None => key.clone(),
+            row.group_key = match (group_key, group_name) {
+                (Some(existing), _) => existing.clone(),
+                (None, Some(name)) => user_group(name),
+                (None, None) => key.clone(),
             };
         }
     }
@@ -366,7 +368,11 @@ pub(super) fn group_labels(
                 .map_or(parent, |(_, local)| local)
                 .to_string()
         } else {
-            group.to_string()
+            targets
+                .iter()
+                .find(|target| target.target_key == group)
+                .map_or(group, |anchor| anchor.name.as_str())
+                .to_string()
         };
         labels.insert(group.to_string(), label);
     }

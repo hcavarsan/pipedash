@@ -113,6 +113,8 @@ pub enum ApplicationEdit {
         target_keys: Vec<String>,
         #[serde(default)]
         group_name: Option<String>,
+        #[serde(default)]
+        group_key: Option<String>,
     },
     Direction {
         from_group: String,

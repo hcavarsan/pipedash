@@ -13,7 +13,12 @@ import {
 import { GC_TIMES, STALE_TIMES } from '../../../lib/cacheConfig'
 import { queryKeys } from '../../../lib/queryKeys'
 import { service } from '../../../services/service'
-import type { ApplicationBoard, ApplicationBoardQuery } from '../../../types/applicationBoard'
+import type {
+  ApplicationBoard,
+  ApplicationBoardQuery,
+  BoardDrop,
+  BoardDropOutcome,
+} from '../../../types/applicationBoard'
 import type { CommitLocations, DeployChanges } from '../../../types/applicationCommits'
 import type {
   ApplicationDetail,
@@ -177,5 +182,15 @@ export function useAcceptSuggestions(): UseMutationResult<void, Error, string[],
     mutationFn: (ids: string[]) => service.acceptApplicationSuggestions(ids),
     onSuccess: () => invalidateApplications(queryClient),
     onError: (error: Error) => displayErrorNotification(error, "Couldn't accept suggestions"),
+  })
+}
+
+export function useBoardDrop(): UseMutationResult<BoardDropOutcome, Error, BoardDrop, unknown> {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (drop: BoardDrop) => service.dropOnApplicationBoard(drop),
+    onSuccess: () => invalidateApplications(queryClient),
+    onError: (error: Error) => displayErrorNotification(error, "Couldn't update application"),
   })
 }

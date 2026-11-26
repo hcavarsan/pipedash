@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 
-import type { ApplicationBoard } from '../../types/applicationBoard'
+import type { ApplicationBoard, BoardDropOutcome } from '../../types/applicationBoard'
 import type { CommitLocations, DeployChanges } from '../../types/applicationCommits'
 import type {
   ApplicationDetail,
@@ -36,6 +36,8 @@ export const applicationsTauriService: ApplicationsService = {
   acceptApplicationSuggestions: async (ids) => invoke<void>('accept_application_suggestions', { ids }),
 
   getApplicationBoard: async (query) => invoke<ApplicationBoard>('get_application_board', { query }),
+
+  dropOnApplicationBoard: async (drop) => invoke<BoardDropOutcome>('drop_on_application_board', { drop }),
 
   getPipelineApplications: async (pipelineId) => invoke<ApplicationRef[]>('get_pipeline_applications', { pipelineId }),
 

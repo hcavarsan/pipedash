@@ -1,4 +1,4 @@
-import type { ApplicationBoard } from '../../types/applicationBoard'
+import type { ApplicationBoard, BoardDropOutcome } from '../../types/applicationBoard'
 import type { CommitLocations, DeployChanges } from '../../types/applicationCommits'
 import type {
   ApplicationDetail,
@@ -57,6 +57,8 @@ export function createApplicationsApi(client: HttpClient): ApplicationsService {
     },
 
     getApplicationBoard: async (query) => client.get<ApplicationBoard>(`/applications/board?${encodeQuery(query)}`),
+
+    dropOnApplicationBoard: async (drop) => client.post<BoardDropOutcome>('/applications/board/drops', drop),
 
     getPipelineApplications: async (pipelineId) =>
       client.get<ApplicationRef[]>(`/applications/by-pipeline/${encodeURIComponent(pipelineId)}`),
