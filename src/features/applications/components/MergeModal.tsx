@@ -1,9 +1,9 @@
 import { Select } from '@mantine/core'
 import { type ReactNode, useState } from 'react'
 
-import { StandardModal } from '../../../components/common/StandardModal'
 import { ALL_APPLICATIONS_QUERY } from '../lib/allApplicationsQuery'
 import { useApplications, useEditApplication } from '../queries/useApplicationQueries'
+import { ActionModal } from './ActionModal'
 import type { ApplicationModalProps } from './applicationModalProps'
 
 export function MergeModal({ detail, copy, onClose }: ApplicationModalProps): ReactNode {
@@ -23,15 +23,14 @@ export function MergeModal({ detail, copy, onClose }: ApplicationModalProps): Re
   }
 
   return (
-    <StandardModal
-      opened
+    <ActionModal
       onClose={onClose}
-      size="md"
       title={copy.merge}
+      cancel={copy.cancel}
       loading={applications.isPending}
-      primaryAction={{ label: copy.merge, loading: edit.isPending, disabled: other === null, onClick: save }}
+      action={{ label: copy.merge, loading: edit.isPending, disabled: other === null, onClick: save }}
     >
       <Select label={copy.merge} data={options} value={other} onChange={setOther} searchable />
-    </StandardModal>
+    </ActionModal>
   )
 }

@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
 use pipedash_core::application::CorrelationService;
+use pipedash_core::domain::application::board::{
+    ApplicationBoard,
+    ApplicationBoardQuery,
+};
 use pipedash_core::domain::application::dto::{
     ApplicationDetail,
     ApplicationList,
@@ -107,6 +111,13 @@ pub async fn revert_application_override(
         .await?
         .revert_override(id, override_id)
         .await?)
+}
+
+#[tauri::command]
+pub async fn get_application_board(
+    maybe_core: State<'_, MaybeCoreContext>, query: ApplicationBoardQuery,
+) -> Result<ApplicationBoard, ErrorResponse> {
+    Ok(correlation_service(&maybe_core).await?.board(query).await?)
 }
 
 #[tauri::command]

@@ -194,6 +194,7 @@ pub fn run() {
             commands::applications::delete_application,
             commands::applications::revert_application_override,
             commands::applications::list_application_suggestions,
+            commands::applications::get_application_board,
             commands::applications::accept_application_suggestions,
             commands::applications::get_pipeline_applications,
             commands::applications::get_commit_locations,

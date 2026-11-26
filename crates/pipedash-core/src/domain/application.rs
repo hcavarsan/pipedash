@@ -3,6 +3,7 @@ use serde::{
     Serialize,
 };
 
+pub mod board;
 pub mod dto;
 pub mod metrics;
 pub mod overrides;

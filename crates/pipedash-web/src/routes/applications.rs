@@ -17,6 +17,10 @@ use chrono::{
     DateTime,
     Utc,
 };
+use pipedash_core::domain::application::board::{
+    ApplicationBoard,
+    ApplicationBoardQuery,
+};
 use pipedash_core::domain::application::dto::{
     ApplicationDetail,
     ApplicationList,
@@ -131,6 +135,7 @@ pub struct RunQuery {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_applications).post(create_application))
+        .route("/board", get(board))
         .route("/suggestions", get(suggestions))
         .route("/suggestions/accept", post(accept_suggestions))
         .route("/commit-locations", get(commit_locations))
@@ -229,6 +234,12 @@ async fn revert_override(
             .revert_override(id, override_id)
             .await?,
     ))
+}
+
+async fn board(
+    State(state): State<AppState>, Query(query): Query<ApplicationBoardQuery>,
+) -> ApiResult<Json<ApplicationBoard>> {
+    Ok(Json(state.correlation_service().await?.board(query).await?))
 }
 
 async fn suggestions(State(state): State<AppState>) -> ApiResult<Json<Vec<Suggestion>>> {

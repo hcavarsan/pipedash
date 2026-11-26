@@ -1,3 +1,4 @@
+import type { ApplicationBoardQuery } from '../types/applicationBoard'
 import type { ApplicationListQuery, ApplicationMetricsQuery } from '../types/applications'
 import type { LogSearchQuery } from '../types/logs'
 import type { MetricsDashboardQuery } from '../types/metrics'
@@ -160,6 +161,7 @@ export const queryKeys = {
   applicationChanges: (id: number) => [...queryKeys.applicationsAll, 'changes', id] as const,
   applicationMetrics: (query: ApplicationMetricsQuery) => [...queryKeys.applicationsAll, 'metrics', query] as const,
   applicationSuggestions: () => [...queryKeys.applicationsAll, 'suggestions'] as const,
+  applicationBoard: (query: ApplicationBoardQuery) => [...queryKeys.applicationsAll, 'board', query] as const,
   pipelineApplications: (pipelineId: string) => [...queryKeys.applicationsAll, 'forPipeline', pipelineId] as const,
   commitLocations: (pipelineId: string, runNumber: number) =>
     [...queryKeys.applicationsAll, 'commitLocations', pipelineId, runNumber] as const,

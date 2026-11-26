@@ -1,8 +1,8 @@
 import { MultiSelect, Stack, TextInput } from '@mantine/core'
 import { type ReactNode, useState } from 'react'
 
-import { StandardModal } from '../../../components/common/StandardModal'
 import { useEditApplication } from '../queries/useApplicationQueries'
+import { ActionModal } from './ActionModal'
 import type { ApplicationModalProps } from './applicationModalProps'
 
 export function SplitModal({ detail, copy, onClose }: ApplicationModalProps): ReactNode {
@@ -19,12 +19,11 @@ export function SplitModal({ detail, copy, onClose }: ApplicationModalProps): Re
   }
 
   return (
-    <StandardModal
-      opened
+    <ActionModal
       onClose={onClose}
-      size="md"
       title={copy.split}
-      primaryAction={{
+      cancel={copy.cancel}
+      action={{
         label: copy.split,
         loading: edit.isPending,
         disabled: trimmed.length === 0 || pipelineIds.length === 0,
@@ -40,6 +39,6 @@ export function SplitModal({ detail, copy, onClose }: ApplicationModalProps): Re
         />
         <MultiSelect label={copy.members} data={options} value={pipelineIds} onChange={setPipelineIds} searchable />
       </Stack>
-    </StandardModal>
+    </ActionModal>
   )
 }

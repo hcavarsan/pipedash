@@ -248,6 +248,22 @@ async fn application_create_edit_and_delete_over_http() {
 }
 
 #[tokio::test]
+async fn board_lists_unassigned_pipelines_and_filters_by_search() {
+    let h = harness("board").await;
+
+    let (status, board) = call(&h.app, Method::GET, "/applications/board", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(board["unassigned"].as_array().unwrap().len(), 2);
+    assert!(board["applications"].is_array());
+    assert!(board["copy"]["title"].is_string());
+
+    let (status, board) = call(&h.app, Method::GET, "/applications/board?search=web", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(board["unassigned"][0]["name"], "web");
+    assert_eq!(board["unassigned"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn literal_application_routes_are_not_captured_by_the_id_route() {
     let h = harness("literal").await;
 

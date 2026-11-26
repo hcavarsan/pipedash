@@ -1,11 +1,11 @@
+import type { ApplicationBoard } from '../../types/applicationBoard'
+import type { CommitLocations, DeployChanges } from '../../types/applicationCommits'
 import type {
   ApplicationDetail,
   ApplicationList,
   ApplicationMetrics,
   ApplicationRef,
   ChangesPage,
-  CommitLocations,
-  DeployChanges,
   Suggestion,
 } from '../../types/applications'
 import type { HttpClient } from '../http'
@@ -55,6 +55,8 @@ export function createApplicationsApi(client: HttpClient): ApplicationsService {
     acceptApplicationSuggestions: async (ids) => {
       await client.requestVoid('POST', '/applications/suggestions/accept', { ids })
     },
+
+    getApplicationBoard: async (query) => client.get<ApplicationBoard>(`/applications/board?${encodeQuery(query)}`),
 
     getPipelineApplications: async (pipelineId) =>
       client.get<ApplicationRef[]>(`/applications/by-pipeline/${encodeURIComponent(pipelineId)}`),

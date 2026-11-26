@@ -63,6 +63,7 @@ export interface ApplicationCopy {
   empty_title: string
   empty_description: string
   new_application: string
+  manage: string
   suggestions: string
   suggestions_empty: string
   health_filter: string
@@ -284,34 +285,6 @@ export interface ChangesPage {
   rows: ChangeRow[]
   has_more: boolean
   next_cursor: string | null
-}
-
-export type LocationState = 'live' | 'behind' | 'not_deployed'
-
-export interface CommitLocation {
-  application_id: number
-  application_name: string
-  target_label: string
-  state: LocationState
-  label: string
-}
-
-export interface CommitLocations {
-  title: string
-  entries: CommitLocation[]
-}
-
-export interface DeployCommit {
-  sha: string
-  short: string
-  message: string | null
-  authored_at: string | null
-}
-
-export interface DeployChanges {
-  title: string
-  commits: DeployCommit[]
-  unavailable_reason: string | null
 }
 
 export type ApplicationEdit =

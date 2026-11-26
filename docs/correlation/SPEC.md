@@ -487,6 +487,10 @@ The detail page has three tabs in the URL as `?tab=`.
 
 - An Edit action on the application page offers rename, hide, merge, split, member changes, stage, and target name, group and direction.
 - Every adjustment is a menu action. None needs a drag, so each works on a phone.
+- On desktop and web, "Manage" on the index opens `/applications/manage`: the pipelines in no application on the left, each application with its build lane, deploy lane and environments on the right.
+- Dragging a pipeline onto a lane links it with that stage, onto the other lane of its own application changes its stage, onto "Not in an application" unlinks it, and onto the first drop area opens "New application" with it selected.
+- Dragging a target onto another environment groups it there. Dragging it onto the last drop area asks for a name and creates an environment.
+- Each drop is one of the edits above, so it shows in the Overrides panel and can be reverted. A drop area that would not accept the dragged card stays unmarked.
 - An Overrides panel lists each override with its author, its time and a revert action.
 - "Copy as TOML" puts the application's `config.toml` tables on the clipboard.
 - A config-defined application shows "Defined in config.toml" and no edit action.

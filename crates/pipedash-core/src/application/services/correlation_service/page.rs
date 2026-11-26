@@ -1,3 +1,4 @@
+mod board;
 mod changes;
 mod detail;
 mod flow;

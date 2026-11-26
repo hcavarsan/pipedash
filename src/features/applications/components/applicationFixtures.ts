@@ -12,6 +12,7 @@ export const copyFixture = (): ApplicationCopy => ({
   empty_title: 'empty_title',
   empty_description: 'empty_description',
   new_application: 'new_application',
+  manage: 'manage',
   suggestions: 'suggestions',
   suggestions_empty: 'suggestions_empty',
   health_filter: 'health_filter',

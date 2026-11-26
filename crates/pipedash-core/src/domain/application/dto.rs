@@ -315,6 +315,7 @@ pub struct ApplicationCopy {
     pub empty_title: String,
     pub empty_description: String,
     pub new_application: String,
+    pub manage: String,
     pub suggestions: String,
     pub suggestions_empty: String,
     pub health_filter: String,

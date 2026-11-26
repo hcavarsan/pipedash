@@ -1,7 +1,8 @@
 import { Alert, Badge, Button, Group, Stack, Text } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
-import { IconAlertTriangle, IconBulb, IconPlus } from '@tabler/icons-react'
+import { IconAlertTriangle, IconBulb, IconLayoutKanban, IconPlus } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { EmptyState } from '../../../components/common/EmptyState'
 import { PageHeader } from '../../../components/common/PageHeader'
 import { VirtualList } from '../../../components/common/VirtualList'
@@ -33,6 +34,17 @@ export function ApplicationsPage({ list, query, onQueryChange }: ApplicationsPag
   const newApplication = (
     <Button size="sm" leftSection={<IconPlus size={16} aria-hidden />} onClick={create.open}>
       {copy.new_application}
+    </Button>
+  )
+  const manage = !isMobile && (
+    <Button
+      component={Link}
+      to="/applications/manage"
+      size="sm"
+      variant="default"
+      leftSection={<IconLayoutKanban size={16} aria-hidden />}
+    >
+      {copy.manage}
     </Button>
   )
 
@@ -68,6 +80,7 @@ export function ApplicationsPage({ list, query, onQueryChange }: ApplicationsPag
             >
               {copy.suggestions}
             </Button>
+            {manage}
             {newApplication}
           </Group>
         }

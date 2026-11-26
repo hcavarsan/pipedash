@@ -1,8 +1,8 @@
 import { TextInput } from '@mantine/core'
 import { type ReactNode, useState } from 'react'
 
-import { StandardModal } from '../../../components/common/StandardModal'
 import { useEditApplication } from '../queries/useApplicationQueries'
+import { ActionModal } from './ActionModal'
 import type { ApplicationModalProps } from './applicationModalProps'
 
 export function RenameModal({ detail, copy, onClose }: ApplicationModalProps): ReactNode {
@@ -14,19 +14,20 @@ export function RenameModal({ detail, copy, onClose }: ApplicationModalProps): R
   }
 
   return (
-    <StandardModal
-      opened
+    <ActionModal
       onClose={onClose}
-      size="md"
       title={copy.rename}
-      primaryAction={{ label: copy.save, loading: edit.isPending, disabled: trimmed.length === 0, onClick: save }}
+      cancel={copy.cancel}
+      dirty={trimmed !== detail.summary.name}
+      action={{ label: copy.save, loading: edit.isPending, disabled: trimmed.length === 0, onClick: save }}
     >
       <TextInput
         label={copy.name}
         value={name}
+        disabled={edit.isPending}
         onChange={(event) => setName(event.currentTarget.value)}
         data-autofocus
       />
-    </StandardModal>
+    </ActionModal>
   )
 }

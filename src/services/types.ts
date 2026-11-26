@@ -1,3 +1,5 @@
+import type { ApplicationBoard, ApplicationBoardQuery } from '../types/applicationBoard'
+import type { CommitLocations, DeployChanges } from '../types/applicationCommits'
 import type {
   ApplicationDetail,
   ApplicationEdit,
@@ -7,9 +9,7 @@ import type {
   ApplicationMetricsQuery,
   ApplicationRef,
   ChangesPage,
-  CommitLocations,
   CreateApplicationInput,
-  DeployChanges,
   Suggestion,
 } from '../types/applications'
 import type { RefreshResult } from '../types/health'
@@ -229,6 +229,7 @@ export interface ApplicationsService {
   revertApplicationOverride(id: number, overrideId: number): Promise<ApplicationDetail>
   listApplicationSuggestions(): Promise<Suggestion[]>
   acceptApplicationSuggestions(ids: string[]): Promise<void>
+  getApplicationBoard(query: ApplicationBoardQuery): Promise<ApplicationBoard>
   getPipelineApplications(pipelineId: string): Promise<ApplicationRef[]>
   getCommitLocations(pipelineId: string, runNumber: number): Promise<CommitLocations>
   getDeployChanges(pipelineId: string, runNumber: number): Promise<DeployChanges>

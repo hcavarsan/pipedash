@@ -31,6 +31,12 @@ const ApplicationDetailRoute = lazy(() =>
   }))
 )
 
+const ApplicationBoardRoute = lazy(() =>
+  import('./features/applications/routes/ApplicationBoardRoute').then((m) => ({
+    default: m.ApplicationBoardRoute,
+  }))
+)
+
 const SettingsRoute = lazy(() =>
   import('./features/settings/routes/SettingsRoute').then((m) => ({
     default: m.SettingsRoute,
@@ -129,6 +135,15 @@ export function AppRoutes({
         element={
           <LazyRoute>
             <ApplicationsRoute />
+          </LazyRoute>
+        }
+      />
+
+      <Route
+        path="/applications/manage"
+        element={
+          <LazyRoute>
+            <ApplicationBoardRoute />
           </LazyRoute>
         }
       />

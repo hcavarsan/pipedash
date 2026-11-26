@@ -1,3 +1,4 @@
+pub(super) mod board;
 pub(super) mod describe;
 pub(super) mod views;
 
@@ -24,6 +25,7 @@ pub(super) fn application_copy() -> ApplicationCopy {
             "Applications appear when a provider reports a deployment. Nothing needs to change in your pipelines."
                 .into(),
         new_application: "New application".into(),
+        manage: "Manage".into(),
         suggestions: "Suggestions".into(),
         suggestions_empty: "No open suggestions".into(),
         health_filter: "Health".into(),
@@ -46,7 +48,7 @@ pub(super) fn application_copy() -> ApplicationCopy {
             option("pending", "Pending"),
         ],
         config_error_title: "config.toml was rejected. The last valid config stays active.".into(),
-        config_notice: "Defined in config.toml".into(),
+        config_notice: board::config_notice(),
         tab_flow: "Flow".into(),
         tab_changes: "Changes".into(),
         tab_metrics: "Metrics".into(),

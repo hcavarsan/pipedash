@@ -13,6 +13,8 @@ import {
 import { GC_TIMES, STALE_TIMES } from '../../../lib/cacheConfig'
 import { queryKeys } from '../../../lib/queryKeys'
 import { service } from '../../../services/service'
+import type { ApplicationBoard, ApplicationBoardQuery } from '../../../types/applicationBoard'
+import type { CommitLocations, DeployChanges } from '../../../types/applicationCommits'
 import type {
   ApplicationDetail,
   ApplicationEdit,
@@ -22,9 +24,7 @@ import type {
   ApplicationMetricsQuery,
   ApplicationRef,
   ChangesPage,
-  CommitLocations,
   CreateApplicationInput,
-  DeployChanges,
   Suggestion,
 } from '../../../types/applications'
 import { displayErrorNotification } from '../../../utils/errorDisplay'
@@ -82,6 +82,16 @@ export function useApplicationSuggestions(): UseQueryResult<Suggestion[], Error>
     queryKey: queryKeys.applicationSuggestions(),
     queryFn: () => service.listApplicationSuggestions(),
     staleTime: STALE_TIMES.FAST_CHANGING,
+  })
+}
+
+export function useApplicationBoard(query: ApplicationBoardQuery): UseQueryResult<ApplicationBoard, Error> {
+  return useQuery({
+    queryKey: queryKeys.applicationBoard(query),
+    queryFn: () => service.getApplicationBoard(query),
+    placeholderData: (previous) => previous,
+    staleTime: STALE_TIMES.FAST_CHANGING,
+    gcTime: GC_TIMES.SHORT,
   })
 }
 

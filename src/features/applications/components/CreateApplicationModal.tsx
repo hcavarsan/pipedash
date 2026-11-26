@@ -3,24 +3,32 @@ import { type ReactNode, useId, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { usePipelines } from '../../../queries/usePipelinesQueries'
-import type { ApplicationCopy, Stage } from '../../../types/applications'
+import type { ApplicationCopy, ApplicationDetail, Stage } from '../../../types/applications'
 import { useCreateApplication } from '../queries/useApplicationQueries'
 
 interface CreateApplicationModalProps {
   opened: boolean
   onClose: () => void
   copy: ApplicationCopy
+  initialMembers?: string[]
+  onCreated?: (detail: ApplicationDetail) => void
 }
 
 const stageOf = (value: string | null): Stage | null => (value === 'build' || value === 'deploy' ? value : null)
 
-export function CreateApplicationModal({ opened, onClose, copy }: CreateApplicationModalProps): ReactNode {
+export function CreateApplicationModal({
+  opened,
+  onClose,
+  copy,
+  initialMembers = [],
+  onCreated,
+}: CreateApplicationModalProps): ReactNode {
   const formId = useId()
   const navigate = useNavigate()
   const create = useCreateApplication()
   const { data: pipelines = [] } = usePipelines()
   const [name, setName] = useState('')
-  const [selected, setSelected] = useState<string[]>([])
+  const [selected, setSelected] = useState<string[]>(initialMembers)
   const [stages, setStages] = useState<Record<string, Stage | null>>({})
   const stageOptions = [
     { value: 'build', label: copy.stage_build },
@@ -45,7 +53,11 @@ export function CreateApplicationModal({ opened, onClose, copy }: CreateApplicat
       {
         onSuccess: (detail) => {
           close()
-          void navigate(`/applications/${detail.summary.id}`)
+          if (onCreated) {
+            onCreated(detail)
+          } else {
+            void navigate(`/applications/${detail.summary.id}`)
+          }
         },
       }
     )
