@@ -111,6 +111,24 @@ for (const [hookName, method, useRerun] of rerunHooks) {
     assert.equal(trees.mock.callCount(), 2)
     reopened.unmount()
   })
+
+  test(`a rejected ${hookName} leaves the error to the confirm dialog without a toast`, async (context) => {
+    const shown = context.mock.method(notifications, 'show', () => 'id')
+    const failing = async () => {
+      throw new Error('provider rejected rerun')
+    }
+    context.mock.method(apiService, method, failing)
+    context.mock.method(tauriService, method, failing)
+    notifyManager.setNotifyFunction((callback) => act(callback))
+    const rerun = renderHook(() => useRerun(), { wrapper })
+
+    await act(async () => {
+      await assert.rejects(rerun.result.current.mutateAsync({ pipelineId: 'github__1__o/r/toast', runNumber: 7 }))
+    })
+
+    await waitFor(() => assert.equal(rerun.result.current.isError, true))
+    assert.equal(shown.mock.callCount(), 0)
+  })
 }
 
 test('a rejected rerun keeps the previous log tree and exposes the error', async (context) => {
