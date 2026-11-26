@@ -70,7 +70,7 @@ const tree: RunLogTree = {
   nodes: [compile],
   default_node_id: '111',
   complete: true,
-  groups: [{ stage: null, node_ids: ['111'], failed_first_node_ids: ['111'] }],
+  groups: [{ stage: null, node_ids: ['111'], failed_first_node_ids: ['111'], skipped_node_ids: [] }],
   step_ids_by_node: {},
 }
 const view = () => within(document.body)

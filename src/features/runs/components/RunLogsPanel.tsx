@@ -102,7 +102,7 @@ export const RunLogsPanel = ({
     </Box>
   ) : (
     <Box display="flex" flex={1} mih={0}>
-      <LogJobList nodes={tree.nodes} selectedId={node.id} onSelect={setSelectedId} />
+      <LogJobList tree={tree} selectedId={node.id} onSelect={setSelectedId} />
       <Box flex={1} miw={0} mih={0} display="flex" style={{ flexDirection: 'column' }}>
         {rerunBar}
         {viewer}

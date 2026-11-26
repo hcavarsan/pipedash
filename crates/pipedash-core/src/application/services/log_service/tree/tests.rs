@@ -79,6 +79,35 @@ fn jobs_group_under_their_nearest_stage_and_failed_jobs_lead_the_failed_first_or
 }
 
 #[test]
+fn skipped_jobs_leave_both_orders_and_are_listed_apart_per_stage() {
+    let skipped = |id: &str, parent: Option<&str>| LogNode {
+        status: PipelineStatus::Skipped,
+        ..node(id, parent, LogNodeKind::Job)
+    };
+    let tree = tree_of(vec![
+        stage("build"),
+        skipped("lint", Some("build")),
+        node("a", Some("build"), LogNodeKind::Job),
+        skipped("docs", Some("build")),
+        node("lone", None, LogNodeKind::Job),
+    ]);
+
+    assert_eq!(
+        groups(&tree),
+        vec![
+            (Some("build"), vec!["a"], vec!["a"]),
+            (None, vec!["lone"], vec!["lone"]),
+        ]
+    );
+    let skipped_ids: Vec<Vec<&str>> = tree
+        .groups
+        .iter()
+        .map(|group| group.skipped_node_ids.iter().map(String::as_str).collect())
+        .collect();
+    assert_eq!(skipped_ids, vec![vec!["lint", "docs"], vec![]]);
+}
+
+#[test]
 fn step_ids_are_listed_per_parent_in_tree_order() {
     let tree = tree_of(vec![
         node("job", None, LogNodeKind::Job),
