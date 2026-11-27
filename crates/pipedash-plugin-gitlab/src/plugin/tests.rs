@@ -15,9 +15,16 @@ fn stub_pipeline(id: i64) -> serde_json::Value {
 }
 
 async fn stub_gitlab() -> (GitLabPlugin, tokio::task::JoinHandle<()>) {
+    let (plugin, _, server) = recorded_gitlab().await;
+    (plugin, server)
+}
+
+async fn recorded_gitlab() -> (GitLabPlugin, Requests, tokio::task::JoinHandle<()>) {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
+    let requests = Requests::default();
+    let seen = requests.clone();
     let server = tokio::spawn(async move {
         loop {
             let (mut stream, _) = listener.accept().await.unwrap();
@@ -31,6 +38,7 @@ async fn stub_gitlab() -> (GitLabPlugin, tokio::task::JoinHandle<()>) {
                 request.extend_from_slice(&buffer[..count]);
             }
             let request = String::from_utf8(request).unwrap();
+            seen.lock().await.push(request.clone());
             let target = request.split_whitespace().nth(1).unwrap();
             let url = reqwest::Url::parse(&format!("http://{addr}{target}")).unwrap();
             let query: HashMap<_, _> = url.query_pairs().into_owned().collect();
@@ -58,6 +66,22 @@ async fn stub_gitlab() -> (GitLabPlugin, tokio::task::JoinHandle<()>) {
                 | "/api/v4/projects/103/repository/files/.gitlab-ci.yml" => {
                     status = "404 Not Found";
                     serde_json::json!({"message": "404 File Not Found"})
+                }
+                "/api/v4/projects/team%2Fbackend%2Fapi" => serde_json::json!({
+                    "id": 102, "name": "api", "name_with_namespace": "team / backend / api",
+                    "web_url": format!("http://{addr}/team/backend/api")
+                }),
+                "/api/v4/projects/team%2Ffrontend%2Fapi" => serde_json::json!({
+                    "id": 101, "name": "root", "name_with_namespace": "team / root",
+                    "web_url": format!("http://{addr}/team/root")
+                }),
+                "/api/v4/projects/team%2Fbusy" => {
+                    status = "503 Service Unavailable";
+                    serde_json::json!({"message": "503 Service Unavailable"})
+                }
+                path if path.starts_with("/api/v4/projects/") && path.contains("%2F") => {
+                    status = "404 Not Found";
+                    serde_json::json!({"message": "404 Project Not Found"})
                 }
                 "/api/v4/projects/200" => serde_json::json!({
                     "id": 200, "name": "app", "name_with_namespace": "team / app",
@@ -172,7 +196,7 @@ async fn stub_gitlab() -> (GitLabPlugin, tokio::task::JoinHandle<()>) {
             Some(std::sync::Arc::new(reqwest::Client::new())),
         )
         .unwrap();
-    (plugin, server)
+    (plugin, requests, server)
 }
 
 #[tokio::test]
@@ -258,6 +282,70 @@ async fn saved_subgroup_selection_still_matches_during_refresh() {
     );
     assert_eq!(pipelines[0].repository, "team/backend/api");
     server.abort();
+}
+
+async fn selected_refresh(selection: &str) -> (Vec<String>, bool) {
+    let (mut plugin, requests, server) = recorded_gitlab().await;
+    plugin
+        .config
+        .insert("selected_items".to_string(), selection.to_string());
+    let pipelines = plugin.fetch_pipelines().await.unwrap();
+    server.abort();
+    let listed_members = targets(&requests)
+        .await
+        .iter()
+        .any(|target| target.starts_with("/api/v4/projects?membership=true"));
+    (
+        pipelines.into_iter().map(|pipeline| pipeline.id).collect(),
+        listed_members,
+    )
+}
+
+#[tokio::test]
+async fn selected_projects_refresh_without_listing_every_member_project() {
+    assert_eq!(
+        selected_refresh("team/backend/api").await,
+        (vec!["102".to_string()], false)
+    );
+}
+
+#[tokio::test]
+async fn selected_project_whose_name_differs_from_its_path_is_still_found() {
+    assert_eq!(
+        selected_refresh("team/backend/api,team/backend/nested/worker").await,
+        (vec!["102".to_string(), "104".to_string()], true)
+    );
+}
+
+#[tokio::test]
+async fn a_path_lookup_that_returns_another_project_falls_back_to_the_member_list() {
+    let (mut plugin, server) = stub_gitlab().await;
+    plugin.config.insert(
+        "selected_items".to_string(),
+        "team/frontend/api".to_string(),
+    );
+    let projects = plugin.fetch_all_projects().await.unwrap();
+    server.abort();
+
+    assert_eq!(
+        projects
+            .iter()
+            .map(|project| project.id)
+            .collect::<Vec<_>>(),
+        [103]
+    );
+}
+
+#[tokio::test]
+async fn a_failed_path_lookup_fails_the_refresh_instead_of_falling_back() {
+    let (mut plugin, server) = stub_gitlab().await;
+    plugin
+        .config
+        .insert("selected_items".to_string(), "team/busy".to_string());
+    let result = plugin.fetch_all_projects().await;
+    server.abort();
+
+    assert!(result.is_err());
 }
 
 #[tokio::test]
