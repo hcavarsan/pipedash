@@ -2400,6 +2400,33 @@ async fn renew_with_a_revoked_sign_in_asks_to_sign_in_again() {
 }
 
 #[tokio::test]
+async fn a_revoked_sign_in_is_not_refreshed_on_every_scheduler_tick() {
+    let h = Harness::new().await;
+    let idp = Idp::start().await;
+    idp.reply(400, serde_json::json!({"error": "invalid_grant"}));
+    let (id, _) = h.add_stub(StubProvider::new).await;
+    let expired = sign_in(idp.token_endpoint(), chrono::Duration::minutes(-1));
+    h.repository
+        .store_token(id, &expired.encode().unwrap())
+        .await
+        .unwrap();
+
+    for _ in 0..3 {
+        h.provider_service.load_missing_providers().await;
+    }
+
+    assert_eq!(idp.forms.lock().unwrap().len(), 1);
+
+    let expired_at = std::time::Instant::now()
+        .checked_sub(super::LOAD_RETRY_COOLDOWN)
+        .unwrap();
+    h.provider_service.failed_loads.insert(id, expired_at);
+    h.provider_service.load_missing_providers().await;
+
+    assert_eq!(idp.forms.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
 async fn stored_refresh_rejections_ask_to_sign_in_again() {
     let h = Harness::new().await;
     let idp = Idp::start().await;

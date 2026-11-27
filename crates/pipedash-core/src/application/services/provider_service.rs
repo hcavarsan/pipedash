@@ -1,5 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{
+    Duration,
+    Instant,
+};
 
 use dashmap::DashMap;
 use pipedash_plugin_api::PluginRegistry;
@@ -45,6 +49,7 @@ mod summary;
 mod tests;
 
 const ACQUIRE_ATTEMPTS: usize = 3;
+const LOAD_RETRY_COOLDOWN: Duration = Duration::from_secs(300);
 
 pub(crate) type ProviderFactory =
     Arc<dyn Fn(&ProviderConfig) -> DomainResult<Arc<dyn Provider>> + Send + Sync>;
@@ -78,6 +83,7 @@ pub struct ProviderService {
     providers: RwLock<HashMap<i64, ProviderSlot>>,
     commit_locks: DashMap<i64, Arc<Mutex<()>>>,
     renewal_locks: DashMap<i64, Arc<Mutex<()>>>,
+    failed_loads: DashMap<i64, Instant>,
     sign_ins: Arc<SignInService>,
     plugin_registry: Arc<PluginRegistry>,
     parameter_fetches: DashMap<String, Arc<Mutex<()>>>,
@@ -124,6 +130,7 @@ impl ProviderService {
             providers: RwLock::new(HashMap::new()),
             commit_locks: DashMap::new(),
             renewal_locks: DashMap::new(),
+            failed_loads: DashMap::new(),
             sign_ins: Arc::new(SignInService::default()),
             plugin_registry,
             parameter_fetches: DashMap::new(),

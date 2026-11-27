@@ -1,6 +1,9 @@
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{
+    Duration,
+    Instant,
+};
 
 use chrono::Utc;
 use tokio::sync::Mutex;
@@ -10,6 +13,7 @@ use super::{
     ProviderService,
     ProviderSlot,
     ACQUIRE_ATTEMPTS,
+    LOAD_RETRY_COOLDOWN,
 };
 use crate::application::fetch_scheduler::Generation;
 use crate::application::services::health_service::{
@@ -177,9 +181,23 @@ impl ProviderService {
             }
         };
         let loaded: Vec<i64> = self.providers.read().await.keys().copied().collect();
-        for id in ids.into_iter().filter(|id| !loaded.contains(id)) {
-            if let Err(e) = self.acquire(id).await {
-                tracing::debug!(provider_id = id, error = %e, "Provider not loaded yet");
+        let cooling = |id: &i64| {
+            self.failed_loads
+                .get(id)
+                .is_some_and(|at| at.elapsed() < LOAD_RETRY_COOLDOWN)
+        };
+        for id in ids
+            .into_iter()
+            .filter(|id| !loaded.contains(id) && !cooling(id))
+        {
+            match self.acquire(id).await {
+                Ok(_) => {
+                    self.failed_loads.remove(&id);
+                }
+                Err(e) => {
+                    self.failed_loads.insert(id, Instant::now());
+                    tracing::debug!(provider_id = id, error = %e, "Provider not loaded yet");
+                }
             }
         }
     }
