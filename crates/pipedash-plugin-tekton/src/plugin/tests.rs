@@ -28,6 +28,12 @@ fn run_json(name: &str, pipeline: &str, uid: &str) -> String {
 }
 
 fn serve(handler: impl Fn(&str, &str, &str) -> (u16, String) + Send + 'static) -> String {
+    serve_with_accept(move |method, target, _, body| handler(method, target, body))
+}
+
+fn serve_with_accept(
+    handler: impl Fn(&str, &str, &str, &str) -> (u16, String) + Send + 'static,
+) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     std::thread::spawn(move || {
@@ -52,8 +58,19 @@ fn serve(handler: impl Fn(&str, &str, &str) -> (u16, String) + Send + 'static) -
             let mut parts = head.split_whitespace();
             let method = parts.next().unwrap_or_default();
             let target = parts.next().unwrap_or_default();
+            let accept = head
+                .lines()
+                .filter_map(|line| line.split_once(':'))
+                .find(|(name, _)| name.eq_ignore_ascii_case("accept"))
+                .map(|(_, value)| value.trim())
+                .unwrap_or_default();
 
-            let (status, body) = handler(method, target, &String::from_utf8_lossy(&request_body));
+            let (status, body) = handler(
+                method,
+                target,
+                accept,
+                &String::from_utf8_lossy(&request_body),
+            );
             let response = format!(
                 "HTTP/1.1 {status} Stub\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
@@ -80,6 +97,14 @@ fn stub_apiserver(
             names.dedup();
             let items: Vec<String> = names.iter().map(|name| pipeline_json(name)).collect();
             format!(r#"{{"items":[{}]}}"#, items.join(","))
+        } else if let Some((_, name)) = target
+            .rsplit_once("/pipelineruns/")
+            .filter(|_| method == "GET")
+        {
+            runs.iter()
+                .find(|(run_name, _, _)| *run_name == name)
+                .map(|(name, pipeline, uid)| run_json(name, pipeline, uid))
+                .unwrap_or_default()
         } else if method == "GET" {
             let selector = target.split("labelSelector=tekton.dev/pipeline=").nth(1);
             let items: Vec<String> = runs
@@ -604,6 +629,54 @@ async fn fetch_pipelines_propagates_latest_run_errors_except_not_found() {
     assert!(
         matches!(error, PluginError::PermissionDenied(_)),
         "{error:?}"
+    );
+}
+
+fn run_metadata_json(name: &str, created: &str) -> String {
+    format!(
+        r#"{{"kind":"PartialObjectMetadata","apiVersion":"meta.k8s.io/v1","metadata":{{"name":"{name}","namespace":"ci","creationTimestamp":"{created}"}}}}"#
+    )
+}
+
+#[tokio::test]
+async fn fetch_pipelines_lists_run_metadata_and_gets_only_the_newest_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let (log, requests) = mpsc::channel();
+    let server = serve_with_accept(move |method, target, accept, _| {
+        let _ = log.send(format!("{method} {target}"));
+        if target.ends_with("/pipelines") {
+            return (200, format!(r#"{{"items":[{}]}}"#, pipeline_json("build")));
+        }
+        if target.ends_with("/pipelineruns/build-run-2") {
+            return (200, run_json("build-run-2", "build", "uid-2"));
+        }
+        if !accept.contains("as=PartialObjectMetadataList") {
+            return status_json(406, "NotAcceptable", 0);
+        }
+        let items = [
+            run_metadata_json("build-run-1", "2026-10-20T10:00:00Z"),
+            run_metadata_json("build-run-2", "2026-10-20T12:00:00Z"),
+            run_metadata_json("build-run-3", "2026-10-20T11:00:00Z"),
+        ];
+        (
+            200,
+            format!(
+                r#"{{"kind":"PartialObjectMetadataList","items":[{}]}}"#,
+                items.join(",")
+            ),
+        )
+    });
+
+    let pipelines = plugin(&server, &dir).fetch_pipelines().await.unwrap();
+
+    assert!(pipelines[0].last_run.is_some());
+    assert_eq!(
+        requests.try_iter().collect::<Vec<_>>(),
+        [
+            "GET /apis/tekton.dev/v1/namespaces/ci/pipelines",
+            "GET /apis/tekton.dev/v1/namespaces/ci/pipelineruns?labelSelector=tekton.dev/pipeline=build",
+            "GET /apis/tekton.dev/v1/namespaces/ci/pipelineruns/build-run-2",
+        ]
     );
 }
 

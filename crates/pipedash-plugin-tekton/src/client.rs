@@ -14,6 +14,8 @@ use serde::Deserialize;
 
 use self::config::load_kubeconfig;
 use crate::types::{
+    MetadataItem,
+    MetadataList,
     PipelineList,
     PipelineRunList,
     TaskRunList,
@@ -70,12 +72,19 @@ impl TektonClient {
     }
 
     async fn request_json<T: serde::de::DeserializeOwned>(&self, url: &str) -> PluginResult<T> {
-        let url = url.to_string();
+        self.request_json_accepting(url, "application/json").await
+    }
 
+    async fn request_json_accepting<T: serde::de::DeserializeOwned>(
+        &self, url: &str, accept: &str,
+    ) -> PluginResult<T> {
         self.retry_policy
             .retry(|| async {
                 let request = build_request(
-                    http::Request::builder().uri(&url).method(http::Method::GET),
+                    http::Request::builder()
+                        .uri(url)
+                        .method(http::Method::GET)
+                        .header("Accept", accept),
                     Vec::new(),
                 )?;
                 self.send_json(request).await
@@ -142,6 +151,20 @@ impl TektonClient {
 
         let pipelinerun_list: PipelineRunList = self.request_json(&url).await?;
         Ok(pipelinerun_list.items)
+    }
+
+    pub async fn list_pipelinerun_metadata(
+        &self, namespace: &str, pipeline_name: &str,
+    ) -> PluginResult<Vec<MetadataItem>> {
+        let list: MetadataList = self
+            .request_json_accepting(
+                &format!(
+                    "/apis/tekton.dev/v1/namespaces/{namespace}/pipelineruns?labelSelector=tekton.dev/pipeline={pipeline_name}"
+                ),
+                "application/json;as=PartialObjectMetadataList;g=meta.k8s.io;v=v1,application/json",
+            )
+            .await?;
+        Ok(list.items)
     }
 
     pub async fn get_pipelinerun(
