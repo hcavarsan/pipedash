@@ -123,18 +123,22 @@ impl GitHubPlugin {
             );
         }
 
-        let run_number = match new_run {
-            Some(run) => run.run_number,
-            None => client
-                .fetch_run_history(owner, repo, workflow_id_u64, 1)
-                .await?
-                .first()
-                .map_or(0, |run| run.run_number),
-        };
+        if let Some(run) = new_run {
+            return Ok(TriggerResult {
+                run_id: Some(crate::mapper::run_local_id(&run)),
+                run_number: Some(run.run_number),
+            });
+        }
+
+        let latest = client
+            .fetch_run_history(owner, repo, workflow_id_u64, 1)
+            .await?
+            .first()
+            .map_or(0, |run| run.run_number);
 
         Ok(TriggerResult {
             run_id: None,
-            run_number: (run_number > 0).then_some(run_number),
+            run_number: (latest > 0).then_some(latest),
         })
     }
 

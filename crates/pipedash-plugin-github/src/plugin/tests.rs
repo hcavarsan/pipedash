@@ -222,7 +222,7 @@ async fn trigger_accepts_204_no_content_from_dispatch() {
     assert_eq!(
         result.unwrap(),
         TriggerResult {
-            run_id: None,
+            run_id: Some("github-run-9001".to_string()),
             run_number: Some(8),
         }
     );

@@ -339,3 +339,90 @@ async fn a_failed_token_write_on_edit_restores_the_stored_row() {
         summary(&edited)
     );
 }
+
+async fn exercise_run_inputs(repository: &Repository, pipeline_id: &str) {
+    repository
+        .record_run_inputs(pipeline_id, 4, &json!({ "env": "dev" }))
+        .await
+        .unwrap();
+    repository
+        .record_run_inputs(pipeline_id, 4, &json!({ "env": "prod" }))
+        .await
+        .unwrap();
+    repository
+        .record_run_inputs(pipeline_id, 5, &json!({ "dry_run": true }))
+        .await
+        .unwrap();
+
+    let kept = repository.get_run_inputs(pipeline_id).await.unwrap();
+
+    assert_eq!(
+        kept,
+        HashMap::from([
+            (4, json!({ "env": "prod" })),
+            (5, json!({ "dry_run": true }))
+        ])
+    );
+    assert!(repository.list_run_inputs().await.unwrap().contains(&(
+        pipeline_id.to_string(),
+        5,
+        json!({ "dry_run": true })
+    )));
+}
+
+#[tokio::test]
+async fn run_inputs_migration_upgrades_an_existing_cache() {
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    let migrator = sqlx::migrate!("./migrations/sqlite");
+    let run_inputs_table = 20261127000001;
+    for migration in migrator.iter().filter(|m| m.version < run_inputs_table) {
+        sqlx::raw_sql(migration.sql.clone())
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    let added = migrator
+        .iter()
+        .find(|m| m.version == run_inputs_table)
+        .unwrap();
+    sqlx::raw_sql(added.sql.clone())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let repository = Repository::new(
+        Arc::new(crate::infrastructure::database::SqliteConfigBackend::new(
+            pool.clone(),
+        )),
+        crate::infrastructure::database::DatabasePool::Sqlite(pool),
+        Arc::new(MemoryTokenStore::new()),
+    );
+
+    exercise_run_inputs(&repository, "stub__1__build").await;
+}
+
+#[cfg(feature = "postgres")]
+#[tokio::test]
+#[ignore = "requires TEST_DATABASE_URL"]
+async fn postgres_run_inputs_upsert_and_read_back() {
+    let url = std::env::var("TEST_DATABASE_URL")
+        .expect("TEST_DATABASE_URL must be set to run the PostgreSQL tests");
+    let pool = crate::infrastructure::database::init_postgres_database(&url)
+        .await
+        .unwrap();
+    let repository = Repository::new(
+        Arc::new(
+            crate::infrastructure::database::PostgresConfigBackend::new(&url)
+                .await
+                .unwrap(),
+        ),
+        crate::infrastructure::database::DatabasePool::Postgres(pool),
+        Arc::new(MemoryTokenStore::new()),
+    );
+    let pipeline_id = format!("stub__{}__build", std::process::id());
+
+    exercise_run_inputs(&repository, &pipeline_id).await;
+}

@@ -1,5 +1,6 @@
 use pipedash_plugin_api::{
     DisplayField,
+    TriggerResult,
     WorkflowParameter,
 };
 use serde_json::{
@@ -24,6 +25,7 @@ use crate::application::test_support::{
 use crate::domain::{
     DomainError,
     PipelineStatus,
+    TriggerParams,
 };
 
 fn required(name: &str, label: Option<&str>) -> WorkflowParameter {
@@ -162,6 +164,46 @@ async fn read_only_provider_blocks_trigger_and_rerun() {
         Some(READ_ONLY_PROVIDER)
     );
     assert!(matches!(rerun, Err(DomainError::NotSupported(m)) if m == READ_ONLY_PROVIDER));
+}
+
+#[tokio::test]
+async fn inputs_sent_from_pipedash_show_on_the_run_the_provider_matched() {
+    let h = Harness::new().await;
+    let (provider_id, stub) = h
+        .add_stub(|id| {
+            let pipeline_id = format!("stub__{id}__build");
+            StubProvider::new(id).with_runs(vec![
+                stub_run(&pipeline_id, 4, 60),
+                stub_run(&pipeline_id, 5, 60),
+            ])
+        })
+        .await;
+    let target = pipeline(provider_id, "build", PipelineStatus::Success);
+    let id = target.id.clone();
+    h.repository
+        .update_pipelines_cache(provider_id, &[target])
+        .await
+        .unwrap();
+    let trigger = |run_id: Option<&str>, run_number: i64, env: &str| {
+        *stub.trigger_result.lock().unwrap() = Ok(TriggerResult {
+            run_id: run_id.map(str::to_string),
+            run_number: Some(run_number),
+        });
+        h.pipeline_service.trigger_pipeline(TriggerParams {
+            workflow_id: id.clone(),
+            inputs: Some(json!({ "env": env })),
+        })
+    };
+
+    trigger(Some("run-4"), 4, "prod").await.unwrap();
+    trigger(None, 5, "dev").await.unwrap();
+
+    let matched = h.pipeline_service.fetch_run_details(&id, 4).await.unwrap();
+    let guessed = h.pipeline_service.fetch_run_details(&id, 5).await.unwrap();
+    assert_eq!(matched.inputs, Some(json!({ "env": "prod" })));
+    assert_eq!(matched.display.inputs, vec![field("env", "prod")]);
+    assert_eq!(guessed.inputs, None);
+    assert!(guessed.display.inputs.is_empty());
 }
 
 #[test]

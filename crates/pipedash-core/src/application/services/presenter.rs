@@ -66,6 +66,7 @@ impl Presenter {
         self.note_read_only(&mut read_only, pipeline.provider_id)
             .await?;
         let read_only = read_only[&pipeline.provider_id];
+        self.fill_kept_inputs(pipeline, runs).await?;
 
         let typical = typical_duration(runs).or(pipeline.typical_duration_seconds);
         let queue_limit = self.provider_service.queue_limit_seconds().await;
@@ -86,6 +87,25 @@ impl Presenter {
             }
             run.actions = actions;
             run.display = display;
+        }
+        Ok(())
+    }
+
+    async fn fill_kept_inputs(
+        &self, pipeline: &Pipeline, runs: &mut [PipelineRun],
+    ) -> DomainResult<()> {
+        if runs.iter().all(has_inputs) {
+            return Ok(());
+        }
+        let kept = self
+            .provider_service
+            .repository()
+            .get_run_inputs(&pipeline.id)
+            .await?;
+        for run in runs.iter_mut().filter(|run| !has_inputs(run)) {
+            if let Some(inputs) = kept.get(&run.run_number) {
+                run.inputs = Some(inputs.clone());
+            }
         }
         Ok(())
     }
@@ -133,6 +153,13 @@ impl Presenter {
 
 fn read_only_block() -> ActionAvailability {
     ActionAvailability::blocked(READ_ONLY_PROVIDER)
+}
+
+fn has_inputs(run: &PipelineRun) -> bool {
+    run.inputs
+        .as_ref()
+        .and_then(serde_json::Value::as_object)
+        .is_some_and(|inputs| !inputs.is_empty())
 }
 
 fn block_run_actions(actions: &mut RunActionState) {

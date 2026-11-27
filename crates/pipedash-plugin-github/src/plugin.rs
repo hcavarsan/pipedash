@@ -58,6 +58,10 @@ plugin_impl!(GitHubPlugin [
         state
     }
 
+    fn run_display(&self, _pipeline: &PipelineFacts<'_>, run: &RunFacts<'_>) -> RunDisplay {
+        pipedash_plugin_actions::run_display(run)
+    }
+
     fn initialize(
         &mut self, provider_id: i64, config: HashMap<String, String>,
         http_client: Option<std::sync::Arc<reqwest::Client>>,

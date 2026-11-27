@@ -235,20 +235,24 @@ impl Repository {
     }
 
     async fn clear_removed_caches(&self, provider_id: i64, pipeline_ids: &[String]) {
-        let history_sql = format!(
-            "DELETE FROM run_history_cache WHERE pipeline_id = {}",
-            self.cache_pool.placeholder(1)
-        );
+        let history_sqls = ["run_history_cache", "run_inputs"].map(|table| {
+            format!(
+                "DELETE FROM {table} WHERE pipeline_id = {}",
+                self.cache_pool.placeholder(1)
+            )
+        });
         let workflow_params_sql = format!(
             "DELETE FROM workflow_parameters_cache WHERE workflow_id LIKE {}",
             self.cache_pool.placeholder(1)
         );
         for pipeline_id in pipeline_ids {
-            let _ = on_pool!(&self.cache_pool, p => sqlx::query(sqlx::AssertSqlSafe(history_sql.clone()))
-                .bind(pipeline_id)
-                .execute(p)
-                .await
-                .map(|_| ()));
+            for history_sql in &history_sqls {
+                let _ = on_pool!(&self.cache_pool, p => sqlx::query(sqlx::AssertSqlSafe(history_sql.clone()))
+                    .bind(pipeline_id)
+                    .execute(p)
+                    .await
+                    .map(|_| ()));
+            }
             let _ = on_pool!(&self.cache_pool, p => sqlx::query(sqlx::AssertSqlSafe(workflow_params_sql.clone()))
                 .bind(format!("{pipeline_id}%"))
                 .execute(p)

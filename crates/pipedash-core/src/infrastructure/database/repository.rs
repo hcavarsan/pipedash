@@ -3,6 +3,7 @@ pub(super) mod fetch_status;
 mod pipeline_row;
 mod pipelines;
 mod providers;
+mod run_inputs;
 mod run_reads;
 mod run_writes;
 #[cfg(test)]

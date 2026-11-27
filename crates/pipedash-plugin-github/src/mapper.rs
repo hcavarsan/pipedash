@@ -92,6 +92,10 @@ pub(crate) fn jobs_to_log_nodes(jobs: &[Job]) -> Vec<LogNode> {
     nodes
 }
 
+pub(crate) fn run_local_id(run: &types::Run) -> String {
+    format!("github-run-{}", run.id)
+}
+
 pub(crate) fn run_to_pipeline_run(run: types::Run, pipeline_id: &str) -> PipelineRun {
     let status = map_status(run.status.as_str(), run.conclusion.as_deref());
     let started_at = run.created_at.with_timezone(&Utc);
@@ -134,7 +138,7 @@ pub(crate) fn run_to_pipeline_run(run: types::Run, pipeline_id: &str) -> Pipelin
     }
 
     PipelineRun {
-        id: format!("github-run-{}", run.id),
+        id: run_local_id(&run),
         pipeline_id: pipeline_id.to_string(),
         run_number: run.run_number,
         status,
