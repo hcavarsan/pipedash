@@ -39,6 +39,7 @@ updates:
       - dependency-name: "tui-logger"
       - dependency-name: "ratatui-explorer"
       - dependency-name: "crossterm"
+      - dependency-name: "sqlx*"
 
   - package-ecosystem: bun
     directories:
