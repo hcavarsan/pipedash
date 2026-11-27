@@ -4,7 +4,7 @@ import { after, afterEach, type TestContext, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 
 import { pipelineViewFixture } from '../../../testing/fixtures'
-import type { PipelineView, ViewEditorOptions, ViewMember } from '../../../types/views'
+import type { PipelineView, ViewEditorOptions, ViewMember, ViewPatch } from '../../../types/views'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
@@ -50,7 +50,7 @@ after(async () => {
 
 interface Reads {
   views: () => Promise<PipelineView[]>
-  members: () => Promise<ViewMember[]>
+  members: (id: string) => Promise<ViewMember[]>
   options: () => Promise<ViewEditorOptions>
 }
 
@@ -62,7 +62,7 @@ async function openEditor(context: TestContext, overrides: Partial<Reads>) {
     ...overrides,
   }
   context.mock.method(apiService, 'listPipelineViews', () => reads.views())
-  context.mock.method(apiService, 'listPipelineViewMembers', () => reads.members())
+  context.mock.method(apiService, 'listPipelineViewMembers', (id: string) => reads.members(id))
   context.mock.method(apiService, 'getViewEditorOptions', () => reads.options())
   context.mock.method(apiService, 'listProviders', async () => [])
   render(
@@ -176,4 +176,27 @@ test('a failed save shows its error until the draft changes', async (context) =>
   fireEvent.change(await nameInput(), { target: { value: 'Renamed again' } })
 
   assert.equal(body().queryByText('Name already used'), null)
+})
+
+test('reopening the editor on another view drops the member edits of the cancelled one', async (context) => {
+  const nightly = pipelineViewFixture({ ...view, id: 'nightly', name: 'Nightly' })
+  const nightlyMember: ViewMember = { ...member, pipeline_id: 'p2', name: 'Nightly build' }
+  const patches: ViewPatch[] = []
+  context.mock.method(apiService, 'updatePipelineView', async (_id: string, patch: ViewPatch) => {
+    patches.push(patch)
+    return nightly
+  })
+  await openEditor(context, {
+    views: async () => [view, nightly],
+    members: async (id) => (id === 'nightly' ? [nightlyMember] : [member]),
+  })
+
+  fireEvent.click(await body().findByRole('button', { name: /Remove Deploy/ }))
+  await act(async () => usePipelineViewStore.getState().closeEditor())
+  await act(async () => usePipelineViewStore.getState().openEditor('nightly'))
+  await body().findByText('Nightly build')
+  fireEvent.change(await nameInput(), { target: { value: 'Nightly 2' } })
+  await act(async () => fireEvent.click(body().getByRole('button', { name: 'Save' })))
+
+  assert.deepEqual(patches, [{ name: 'Nightly 2' }])
 })
