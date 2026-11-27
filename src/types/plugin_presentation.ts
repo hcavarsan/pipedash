@@ -15,6 +15,7 @@ export interface PluginPresentation {
   rerun: ActionCopy
   empty_history_description: string
   run_details_title: string
+  run_inputs_title: string
   progress_title: string
   archived_notice: Notice | null
   force_cancel_confirmation: string

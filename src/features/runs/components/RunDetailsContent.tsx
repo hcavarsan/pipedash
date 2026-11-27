@@ -11,6 +11,7 @@ import type { PipelineRun } from '../../../types/pipelines'
 import type { PluginPresentation } from '../../../types/plugin_presentation'
 import { isLiveRun } from '../../../utils/runTiming'
 import { RunDetailFields, useDetailRows } from './RunDetailFields'
+import { RunInputs } from './RunInputs'
 
 interface RunDetailsContentProps {
   pipelineId: string
@@ -116,6 +117,14 @@ function LoadedRunDetails({
       {failure}
       {notices}
       <RunDetailFields rows={rows} run={run} mobileShell={mobileShell} isMobile={isMobile} />
+      {presentation && (
+        <RunInputs
+          inputs={run.display.inputs}
+          title={presentation.run_inputs_title}
+          mobileShell={mobileShell}
+          isMobile={isMobile}
+        />
+      )}
       {children}
     </Stack>
   )

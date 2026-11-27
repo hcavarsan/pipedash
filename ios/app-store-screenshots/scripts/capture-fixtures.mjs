@@ -39,6 +39,7 @@ const presentation = {
   history_note: null,
   empty_history_description: 'No runs yet',
   run_details_title: 'Run details',
+  run_inputs_title: 'Inputs',
   progress_title: 'Run in progress',
   archived_notice: null,
   force_cancel_confirmation: "You can't undo this.",
@@ -118,7 +119,7 @@ function runsFor(pipeline) {
       branch: 'main', actor,
       inputs: { environment: 'Production', version: '2.8.0', ref: 'main', run_tests: true }, metadata: {},
       actions: runActions,
-      display: { title: `#${248 - index}`, context: [{ label: 'Branch', value: 'main' }, { label: 'Actor', value: actor }], started_label: 'Started' },
+      display: { title: `#${248 - index}`, context: [{ label: 'Branch', value: 'main' }, { label: 'Actor', value: actor }], started_label: 'Started', inputs: [{ label: 'environment', value: 'Production' }, { label: 'version', value: '2.8.0' }, { label: 'run_tests', value: 'true' }] },
       pace: { live: index === 0 && pipeline.status === 'running', typical_duration_seconds: 250, past_usual: false },
     }
   })

@@ -54,7 +54,7 @@
   </tr>
   <tr>
     <td align="center" width="120"><img src="./.github/icons/act.svg" width="32" height="32" alt="" /><br><b>Act</b></td>
-    <td width="420">Start a workflow with inputs or cancel active runs in batches.</td>
+    <td width="420">Start a workflow with inputs, see the inputs a past run started with, or cancel active runs in batches.</td>
     <td width="264"><a href="https://pipedash.app/docs/features/trigger-and-cancel">Trigger and cancel</a></td>
   </tr>
   <tr>
