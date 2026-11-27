@@ -1,3 +1,5 @@
+use std::cmp::Reverse;
+
 use pipedash_plugin_api::pagination::paginate;
 use pipedash_plugin_api::support::{
     retain_matching,
@@ -81,7 +83,7 @@ impl TektonPlugin {
         };
         let Some(latest) = runs
             .into_iter()
-            .max_by_key(|run| types::parse_timestamp(&run.metadata.creation_timestamp))
+            .min_by_key(|run| Reverse(types::parse_timestamp(&run.metadata.creation_timestamp)))
         else {
             return Ok(None);
         };

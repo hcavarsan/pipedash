@@ -656,7 +656,8 @@ async fn fetch_pipelines_lists_run_metadata_and_gets_only_the_newest_run() {
         let items = [
             run_metadata_json("build-run-1", "2026-10-20T10:00:00Z"),
             run_metadata_json("build-run-2", "2026-10-20T12:00:00Z"),
-            run_metadata_json("build-run-3", "2026-10-20T11:00:00Z"),
+            run_metadata_json("build-run-3", "2026-10-20T12:00:00Z"),
+            run_metadata_json("build-run-4", "2026-10-20T11:00:00Z"),
         ];
         (
             200,
