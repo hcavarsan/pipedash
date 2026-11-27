@@ -52,6 +52,8 @@ pub struct RunLogGroup {
     pub stage: Option<String>,
     pub node_ids: Vec<String>,
     pub failed_first_node_ids: Vec<String>,
+    #[serde(default)]
+    pub skipped_node_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

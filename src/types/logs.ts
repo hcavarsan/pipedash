@@ -23,6 +23,7 @@ export interface RunLogGroup {
   stage: string | null
   node_ids: string[]
   failed_first_node_ids: string[]
+  skipped_node_ids: string[]
 }
 
 export interface RunLogTree {

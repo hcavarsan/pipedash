@@ -295,18 +295,20 @@ fn layout(nodes: &[RunLogNode]) -> (Vec<RunLogGroup>, BTreeMap<String, Vec<Strin
     let groups = members
         .into_iter()
         .map(|(stage, group)| {
-            let (failed, others): (Vec<&RunLogNode>, Vec<&RunLogNode>) = group
+            let ids =
+                |nodes: Vec<&RunLogNode>| nodes.into_iter().map(|node| node.id.clone()).collect();
+            let (skipped, shown): (Vec<&RunLogNode>, Vec<&RunLogNode>) = group
+                .into_iter()
+                .partition(|node| node.status == PipelineStatus::Skipped);
+            let (failed, others): (Vec<&RunLogNode>, Vec<&RunLogNode>) = shown
                 .iter()
                 .copied()
                 .partition(|node| node.status == PipelineStatus::Failed);
             RunLogGroup {
                 stage: stage.map(str::to_string),
-                node_ids: group.iter().map(|node| node.id.clone()).collect(),
-                failed_first_node_ids: failed
-                    .into_iter()
-                    .chain(others)
-                    .map(|node| node.id.clone())
-                    .collect(),
+                node_ids: ids(shown),
+                failed_first_node_ids: ids(failed.into_iter().chain(others).collect()),
+                skipped_node_ids: ids(skipped),
             }
         })
         .collect();

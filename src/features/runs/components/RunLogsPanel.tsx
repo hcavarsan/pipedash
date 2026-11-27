@@ -4,10 +4,9 @@ import { EmptyState } from '../../../components/common/EmptyState'
 import { ErrorState } from '../../../components/common/ErrorState'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { useRunLogTree } from '../../../queries/useRunLogQueries'
-import type { RunLogNode } from '../../../types/logs'
 import { LogViewer } from '../../logs/components/LogViewer'
 import type { LogViewerHandle } from '../../logs/lib/logViewerTypes'
-import { resolveLogGroups } from '../lib/logTree'
+import { jobSelectData } from '../lib/logTree'
 import { LogJobList } from './LogJobList'
 import { RerunJobBar } from './RerunJobBar'
 
@@ -33,15 +32,7 @@ export const RunLogsPanel = ({
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const { data: tree, isLoading, error, refetch, isFetching } = useRunLogTree(pipelineId, runNumber, true)
 
-  const selectData = useMemo(() => {
-    const groups = tree ? resolveLogGroups(tree) : []
-    const items = (nodes: RunLogNode[]) => nodes.map((n) => ({ value: n.id, label: n.name }))
-    const [first] = groups
-
-    return groups.length === 1 && first && first.stage === null
-      ? items(first.nodes)
-      : groups.map((group) => ({ group: group.stage ?? 'Jobs', items: items(group.nodes) }))
-  }, [tree])
+  const selectData = useMemo(() => (tree ? jobSelectData(tree) : []), [tree])
 
   if (isLoading) {
     return <LoadingState message="Loading jobs…" />
@@ -102,7 +93,7 @@ export const RunLogsPanel = ({
     </Box>
   ) : (
     <Box display="flex" flex={1} mih={0}>
-      <LogJobList nodes={tree.nodes} selectedId={node.id} onSelect={setSelectedId} />
+      <LogJobList tree={tree} selectedId={node.id} onSelect={setSelectedId} />
       <Box flex={1} miw={0} mih={0} display="flex" style={{ flexDirection: 'column' }}>
         {rerunBar}
         {viewer}
