@@ -51,7 +51,7 @@ pipedash-plugin-actions = { version = "0.15.0", path = "crates/pipedash-plugin-a
 pipedash-plugin-api = { version = "0.15.0", path = "crates/pipedash-plugin-api" }
 pipedash-plugins = { version = "0.15.0", path = "crates/pipedash-plugins" }
 pipedash-web = { version = "0.15.0", path = "crates/pipedash-web", default-features = false }
-qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+qrcode = { version = "0.15", default-features = false, features = ["svg"] }
 rand = "0.10"
 rcgen = { version = "0.14", default-features = false, features = ["ring"] }
 regex = "1.13"
