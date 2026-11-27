@@ -207,8 +207,15 @@ impl ConfigState {
         config.push.relay_url = relay_url.trim().trim_end_matches('/').to_string();
 
         self.persist_edit(&config, |doc| {
-            if config.push.relay_url.is_empty() {
+            if config.push.is_unset() {
                 doc.remove("push");
+            } else if config.push.relay_url.is_empty() {
+                if let Some(push) = doc
+                    .get_mut("push")
+                    .and_then(|item| item.as_table_like_mut())
+                {
+                    push.remove("relay_url");
+                }
             } else {
                 doc.entry("push").or_insert_with(toml_edit::table)["relay_url"] =
                     toml_edit::value(config.push.relay_url.as_str());
@@ -252,6 +259,7 @@ impl ConfigState {
                 config.storage.postgres.connection_string.clone()
             }
             ConfigKey::PushRelayUrl => config.push.relay_url.clone(),
+            ConfigKey::FailureWebhookUrl => config.push.failure_webhook_url.clone(),
         }
     }
 

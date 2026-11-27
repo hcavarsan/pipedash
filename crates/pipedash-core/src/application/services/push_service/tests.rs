@@ -138,3 +138,94 @@ async fn a_device_push_test_needs_a_relay_and_a_registration() {
         })
     ));
 }
+
+async fn webhook_stub() -> (String, tokio::task::JoinHandle<String>) {
+    use tokio::io::{
+        AsyncReadExt,
+        AsyncWriteExt,
+    };
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/hooks/team", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0; 4096];
+        loop {
+            let count = stream.read(&mut buffer).await.unwrap();
+            request.extend_from_slice(&buffer[..count]);
+            let text = String::from_utf8_lossy(&request).to_string();
+            let Some((head, body)) = text.split_once("\r\n\r\n") else {
+                continue;
+            };
+            let length: usize = head
+                .lines()
+                .find_map(|line| {
+                    line.to_ascii_lowercase()
+                        .strip_prefix("content-length: ")
+                        .map(str::to_owned)
+                })
+                .unwrap()
+                .parse()
+                .unwrap();
+            if count == 0 || body.len() >= length {
+                stream
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+                    )
+                    .await
+                    .unwrap();
+                return format!("{}\n{body}", head.lines().next().unwrap());
+            }
+        }
+    });
+    (url, server)
+}
+
+fn failed_pipeline() -> crate::domain::Pipeline {
+    serde_json::from_value(serde_json::json!({
+        "id": "stub__1__acme/app/ci.yml",
+        "provider_id": 1,
+        "provider_type": "stub",
+        "name": "CI",
+        "status": "failed",
+        "last_run": null,
+        "last_updated": chrono::Utc::now(),
+        "repository": "acme/app",
+        "branch": "main",
+        "workflow_file": null,
+    }))
+    .unwrap()
+}
+
+#[tokio::test]
+async fn a_failure_is_posted_to_the_team_webhook_without_a_push_relay() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = context(dir.path(), Arc::new(MemoryTokenStore::new())).await;
+    let (url, server) = webhook_stub().await;
+    std::fs::write(
+        core.config_state.config_path(),
+        format!("[push]\nfailure_webhook_url = \"{url}\"\n"),
+    )
+    .unwrap();
+    core.config_state.reload().await.unwrap();
+    core.config_state.set_push_relay_url("").await.unwrap();
+    core.config_state.reload().await.unwrap();
+
+    core.push_service()
+        .notify_failures(&[failed_pipeline()])
+        .await
+        .unwrap();
+    let request = tokio::time::timeout(std::time::Duration::from_secs(15), server)
+        .await
+        .unwrap()
+        .unwrap();
+    let (head, body) = request.split_once('\n').unwrap();
+    let message: serde_json::Value = serde_json::from_str(body).unwrap();
+
+    assert!(head.starts_with("POST /hooks/team "));
+    assert_eq!(message["pipeline"], "CI");
+    assert_eq!(message["provider"], "stub");
+    assert_eq!(message["branch"], "main");
+    assert!(message["text"].as_str().unwrap().starts_with("CI failed"));
+}

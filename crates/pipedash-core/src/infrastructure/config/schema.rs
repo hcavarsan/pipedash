@@ -273,11 +273,13 @@ pub const OFFICIAL_PUSH_RELAY_URL: &str = "https://relay.pipedash.app";
 pub struct PushConfig {
     #[serde(default)]
     pub relay_url: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub failure_webhook_url: String,
 }
 
 impl PushConfig {
-    fn is_unset(&self) -> bool {
-        self.relay_url.is_empty()
+    pub(super) fn is_unset(&self) -> bool {
+        self.relay_url.is_empty() && self.failure_webhook_url.is_empty()
     }
 }
 
@@ -332,6 +334,7 @@ pub enum ConfigKey {
     StorageBackend,
     PostgresConnectionString,
     PushRelayUrl,
+    FailureWebhookUrl,
 }
 
 impl ConfigKey {
@@ -346,6 +349,7 @@ impl ConfigKey {
             Self::StorageBackend => "PIPEDASH_STORAGE_BACKEND",
             Self::PostgresConnectionString => "PIPEDASH_POSTGRES_URL",
             Self::PushRelayUrl => "PIPEDASH_PUSH_RELAY_URL",
+            Self::FailureWebhookUrl => "PIPEDASH_FAILURE_WEBHOOK_URL",
         }
     }
 }
