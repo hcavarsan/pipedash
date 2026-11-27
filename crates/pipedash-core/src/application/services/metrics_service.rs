@@ -17,6 +17,22 @@ use crate::event::{
 };
 use crate::infrastructure::database::MetricsRepository;
 
+const MAX_RETENTION_DAYS: i64 = 36_500;
+
+fn check_retention_days(retention_days: i64) -> DomainResult<()> {
+    if retention_days < 1 {
+        return Err(DomainError::InvalidConfig(
+            "Retention days must be at least 1".to_string(),
+        ));
+    }
+    if retention_days > MAX_RETENTION_DAYS {
+        return Err(DomainError::InvalidConfig(format!(
+            "Retention days must be at most {MAX_RETENTION_DAYS}"
+        )));
+    }
+    Ok(())
+}
+
 mod dashboard;
 mod extract;
 #[cfg(test)]
@@ -46,11 +62,7 @@ impl MetricsService {
     pub async fn update_global_config(
         &self, enabled: bool, default_retention_days: i64,
     ) -> DomainResult<()> {
-        if default_retention_days < 1 {
-            return Err(DomainError::InvalidConfig(
-                "Retention days must be at least 1".to_string(),
-            ));
-        }
+        check_retention_days(default_retention_days)?;
 
         let previous_config = self.repository.get_global_config().await?;
 
@@ -89,11 +101,7 @@ impl MetricsService {
     pub async fn update_pipeline_config(
         &self, pipeline_id: &str, enabled: bool, retention_days: i64,
     ) -> DomainResult<()> {
-        if retention_days < 1 {
-            return Err(DomainError::InvalidConfig(
-                "Retention days must be at least 1".to_string(),
-            ));
-        }
+        check_retention_days(retention_days)?;
 
         let previous_config = self.get_effective_pipeline_config(pipeline_id).await?;
 
