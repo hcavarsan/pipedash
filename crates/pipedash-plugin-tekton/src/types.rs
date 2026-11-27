@@ -280,6 +280,16 @@ pub struct PipelineRunList {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct MetadataItem {
+    pub metadata: ObjectMeta,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MetadataList {
+    pub items: Vec<MetadataItem>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct TaskRunList {
     pub items: Vec<TektonTaskRun>,
 }

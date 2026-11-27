@@ -1,3 +1,5 @@
+use std::cmp::Reverse;
+
 use pipedash_plugin_api::pagination::paginate;
 use pipedash_plugin_api::support::{
     retain_matching,
@@ -73,25 +75,23 @@ impl TektonPlugin {
         &self, namespace: &str, pipeline_name: &str,
     ) -> PluginResult<Option<types::TektonPipelineRun>> {
         let client = self.client().await?;
-        let mut runs = match client
-            .list_pipelineruns(namespace, Some(pipeline_name))
-            .await
-        {
-            Ok(runs) => runs,
-            Err(PluginError::PipelineNotFound(message)) => {
-                tracing::warn!(namespace, pipeline_name, %message, "PipelineRuns not found for pipeline");
-                return Ok(None);
-            }
-            Err(error) => return Err(error),
+        let runs = client
+            .list_pipelinerun_metadata(namespace, pipeline_name)
+            .await;
+        let Some(runs) = found_or_none(runs, namespace, pipeline_name)? else {
+            return Ok(None);
+        };
+        let Some(latest) = runs
+            .into_iter()
+            .min_by_key(|run| Reverse(types::parse_timestamp(&run.metadata.creation_timestamp)))
+        else {
+            return Ok(None);
         };
 
-        runs.sort_by(|a, b| {
-            let a_time = types::parse_timestamp(&a.metadata.creation_timestamp);
-            let b_time = types::parse_timestamp(&b.metadata.creation_timestamp);
-            b_time.cmp(&a_time)
-        });
-
-        Ok(runs.into_iter().next())
+        let run = client
+            .get_pipelinerun(namespace, &latest.metadata.name)
+            .await;
+        found_or_none(run, namespace, pipeline_name)
     }
 
     pub(super) async fn fetch_pipelines_impl(&self) -> PluginResult<Vec<Pipeline>> {
@@ -126,5 +126,18 @@ impl TektonPlugin {
         }
 
         paginate(all_pipelines, params.unwrap_or_default())
+    }
+}
+
+fn found_or_none<T>(
+    result: PluginResult<T>, namespace: &str, pipeline_name: &str,
+) -> PluginResult<Option<T>> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(PluginError::PipelineNotFound(message)) => {
+            tracing::warn!(namespace, pipeline_name, %message, "PipelineRuns not found for pipeline");
+            Ok(None)
+        }
+        Err(error) => Err(error),
     }
 }
