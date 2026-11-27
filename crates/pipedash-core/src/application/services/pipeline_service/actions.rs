@@ -10,6 +10,7 @@ use pipedash_plugin_api::{
 
 use super::PipelineService;
 use super::READ_ONLY_PROVIDER;
+use crate::application::services::provider_service::ProviderLease;
 use crate::domain::{
     DomainError,
     DomainResult,
@@ -75,10 +76,12 @@ impl PipelineService {
     }
 
     pub async fn trigger_pipeline(&self, params: TriggerParams) -> DomainResult<TriggerResult> {
-        let (pipeline, provider) = self.writable(&params.workflow_id).await?;
+        let pipeline = self.presented_pipeline(&params.workflow_id).await?;
+        self.refuse_read_only(pipeline.provider_id).await?;
         require(&pipeline.actions.trigger, "Trigger")?;
-        let result = provider.trigger_pipeline(params.clone()).await?;
-        self.remember_inputs(&pipeline.id, &result, params.inputs.as_ref())
+        let lease = self.provider_service.acquire(pipeline.provider_id).await?;
+        let result = lease.provider.trigger_pipeline(params.clone()).await?;
+        self.remember_inputs(&lease, &pipeline.id, &result, params.inputs.as_ref())
             .await;
         self.invalidate_run_cache(&params.workflow_id).await;
 
@@ -92,7 +95,8 @@ impl PipelineService {
     }
 
     async fn remember_inputs(
-        &self, pipeline_id: &str, result: &TriggerResult, inputs: Option<&serde_json::Value>,
+        &self, lease: &ProviderLease, pipeline_id: &str, result: &TriggerResult,
+        inputs: Option<&serde_json::Value>,
     ) {
         let (Some(_), Some(run_number)) = (&result.run_id, result.run_number) else {
             return;
@@ -102,11 +106,14 @@ impl PipelineService {
         else {
             return;
         };
-        if let Err(error) = self
-            .repository
-            .record_run_inputs(pipeline_id, run_number, inputs)
-            .await
-        {
+        let saved = self
+            .provider_service
+            .commit(lease, || {
+                self.repository
+                    .record_run_inputs(pipeline_id, run_number, inputs)
+            })
+            .await;
+        if let Some(Err(error)) = saved {
             tracing::warn!(
                 "Failed to keep the inputs of run {run_number} of {pipeline_id}: {error}"
             );

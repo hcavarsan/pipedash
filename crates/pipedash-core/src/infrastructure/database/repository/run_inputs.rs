@@ -69,4 +69,19 @@ impl Repository {
             })
             .collect()
     }
+
+    pub(super) async fn delete_run_inputs_with_prefix(&self, prefix: &str) -> DomainResult<()> {
+        let sql = format!(
+            "DELETE FROM run_inputs WHERE substr(pipeline_id, 1, {}) = {}",
+            self.cache_pool.placeholder(1),
+            self.cache_pool.placeholder(2)
+        );
+        on_pool!(&self.cache_pool, p => sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(prefix.chars().count() as i64)
+            .bind(prefix)
+            .execute(p)
+            .await
+            .map(|_| ())
+            .map_err(db_err))
+    }
 }

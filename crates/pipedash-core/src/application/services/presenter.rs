@@ -94,7 +94,7 @@ impl Presenter {
     async fn fill_kept_inputs(
         &self, pipeline: &Pipeline, runs: &mut [PipelineRun],
     ) -> DomainResult<()> {
-        if runs.iter().all(has_inputs) {
+        if runs.is_empty() {
             return Ok(());
         }
         let kept = self
@@ -102,9 +102,18 @@ impl Presenter {
             .repository()
             .get_run_inputs(&pipeline.id)
             .await?;
-        for run in runs.iter_mut().filter(|run| !has_inputs(run)) {
-            if let Some(inputs) = kept.get(&run.run_number) {
-                run.inputs = Some(inputs.clone());
+        for run in runs.iter_mut() {
+            let Some(serde_json::Value::Object(kept)) = kept.get(&run.run_number) else {
+                continue;
+            };
+            let inputs = run
+                .inputs
+                .get_or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+            let Some(inputs) = inputs.as_object_mut() else {
+                continue;
+            };
+            for (name, value) in kept {
+                inputs.entry(name.clone()).or_insert_with(|| value.clone());
             }
         }
         Ok(())
@@ -153,13 +162,6 @@ impl Presenter {
 
 fn read_only_block() -> ActionAvailability {
     ActionAvailability::blocked(READ_ONLY_PROVIDER)
-}
-
-fn has_inputs(run: &PipelineRun) -> bool {
-    run.inputs
-        .as_ref()
-        .and_then(serde_json::Value::as_object)
-        .is_some_and(|inputs| !inputs.is_empty())
 }
 
 fn block_run_actions(actions: &mut RunActionState) {

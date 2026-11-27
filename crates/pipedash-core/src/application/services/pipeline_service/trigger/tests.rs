@@ -172,10 +172,13 @@ async fn inputs_sent_from_pipedash_show_on_the_run_the_provider_matched() {
     let (provider_id, stub) = h
         .add_stub(|id| {
             let pipeline_id = format!("stub__{id}__build");
-            StubProvider::new(id).with_runs(vec![
-                stub_run(&pipeline_id, 4, 60),
-                stub_run(&pipeline_id, 5, 60),
-            ])
+            let runs = [4, 5].map(|number| {
+                let mut run = stub_run(&pipeline_id, number, 60);
+                run.branch = Some("main".to_string());
+                run.inputs = Some(json!({ "ref": "main" }));
+                run
+            });
+            StubProvider::new(id).with_runs(runs.to_vec())
         })
         .await;
     let target = pipeline(provider_id, "build", PipelineStatus::Success);
@@ -191,7 +194,7 @@ async fn inputs_sent_from_pipedash_show_on_the_run_the_provider_matched() {
         });
         h.pipeline_service.trigger_pipeline(TriggerParams {
             workflow_id: id.clone(),
-            inputs: Some(json!({ "env": env })),
+            inputs: Some(json!({ "ref": "main", "env": env })),
         })
     };
 
@@ -200,9 +203,12 @@ async fn inputs_sent_from_pipedash_show_on_the_run_the_provider_matched() {
 
     let matched = h.pipeline_service.fetch_run_details(&id, 4).await.unwrap();
     let guessed = h.pipeline_service.fetch_run_details(&id, 5).await.unwrap();
-    assert_eq!(matched.inputs, Some(json!({ "env": "prod" })));
+    assert_eq!(
+        matched.inputs,
+        Some(json!({ "ref": "main", "env": "prod" }))
+    );
     assert_eq!(matched.display.inputs, vec![field("env", "prod")]);
-    assert_eq!(guessed.inputs, None);
+    assert_eq!(guessed.inputs, Some(json!({ "ref": "main" })));
     assert!(guessed.display.inputs.is_empty());
 }
 

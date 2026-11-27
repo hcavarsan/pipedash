@@ -371,6 +371,34 @@ async fn exercise_run_inputs(repository: &Repository, pipeline_id: &str) {
 }
 
 #[tokio::test]
+async fn removing_a_provider_drops_its_kept_run_inputs_without_cached_pipelines() {
+    let h = Harness::new().await;
+    let removed = h.add_provider("ci-a").await;
+    let kept = h.add_provider("ci-b").await;
+    for id in [removed, kept] {
+        h.repository
+            .record_run_inputs(&format!("stub__{id}__build"), 4, &json!({ "env": "prod" }))
+            .await
+            .unwrap();
+    }
+
+    h.repository
+        .remove_provider(removed, &h.config_state)
+        .await
+        .unwrap();
+
+    let left: Vec<String> = h
+        .repository
+        .list_run_inputs()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|(pipeline_id, ..)| pipeline_id)
+        .collect();
+    assert_eq!(left, [format!("stub__{kept}__build")]);
+}
+
+#[tokio::test]
 async fn run_inputs_migration_upgrades_an_existing_cache() {
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(1)

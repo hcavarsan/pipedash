@@ -152,22 +152,42 @@ async fn posts(recorded: &Recorded) -> Vec<serde_json::Value> {
 fn trigger_run_matching_uses_second_precision() {
     let trigger_time = "2026-10-20T10:00:00.500Z".parse().unwrap();
     let cases = [
-        ("2026-10-20T10:00:00Z", 8, "main", true),
-        ("2026-10-20T09:59:59Z", 8, "main", false),
-        ("2026-10-20T10:00:01Z", 8, "main", true),
-        ("2026-10-20T10:00:00Z", 7, "main", false),
-        ("2026-10-20T10:00:00Z", 8, "other", false),
+        ("2026-10-20T10:00:00Z", 8, "main", "workflow_dispatch", true),
+        (
+            "2026-10-20T09:59:59Z",
+            8,
+            "main",
+            "workflow_dispatch",
+            false,
+        ),
+        ("2026-10-20T10:00:01Z", 8, "main", "workflow_dispatch", true),
+        (
+            "2026-10-20T10:00:00Z",
+            7,
+            "main",
+            "workflow_dispatch",
+            false,
+        ),
+        (
+            "2026-10-20T10:00:00Z",
+            8,
+            "other",
+            "workflow_dispatch",
+            false,
+        ),
+        ("2026-10-20T10:00:00Z", 8, "main", "push", false),
     ];
-    for (created_at, run_number, head_branch, expected) in cases {
+    for (created_at, run_number, head_branch, event, expected) in cases {
         let mut run: crate::types::Run = serde_json::from_value(waiting_run()).unwrap();
         run.created_at = created_at.parse().unwrap();
         run.run_number = run_number;
         run.head_branch = head_branch.to_string();
+        run.event = event.to_string();
 
         assert_eq!(
             GitHubPlugin::matches_trigger(&run, 7, "main", trigger_time),
             expected,
-            "created_at={created_at}, run_number={run_number}, head_branch={head_branch}"
+            "created_at={created_at}, run_number={run_number}, head_branch={head_branch}, event={event}"
         );
     }
 }
@@ -199,6 +219,7 @@ async fn trigger_accepts_204_no_content_from_dispatch() {
                 run["head_branch"] =
                     serde_json::json!(if first_read { "release" } else { "other" });
                 run["created_at"] = serde_json::json!(created_at);
+                run["event"] = serde_json::json!("workflow_dispatch");
             }
             ok(serde_json::json!({"total_count": 1, "workflow_runs": [run]}))
         }
