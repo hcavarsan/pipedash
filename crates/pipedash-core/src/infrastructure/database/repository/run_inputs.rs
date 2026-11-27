@@ -77,7 +77,7 @@ impl Repository {
             self.cache_pool.placeholder(2)
         );
         on_pool!(&self.cache_pool, p => sqlx::query(sqlx::AssertSqlSafe(sql))
-            .bind(prefix.chars().count() as i64)
+            .bind(prefix.chars().count() as i32)
             .bind(prefix)
             .execute(p)
             .await

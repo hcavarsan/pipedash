@@ -435,7 +435,7 @@ async fn run_inputs_migration_upgrades_an_existing_cache() {
 #[cfg(feature = "postgres")]
 #[tokio::test]
 #[ignore = "requires TEST_DATABASE_URL"]
-async fn postgres_run_inputs_upsert_and_read_back() {
+async fn postgres_run_inputs_upsert_read_back_and_drop_by_provider() {
     let url = std::env::var("TEST_DATABASE_URL")
         .expect("TEST_DATABASE_URL must be set to run the PostgreSQL tests");
     let pool = crate::infrastructure::database::init_postgres_database(&url)
@@ -450,7 +450,18 @@ async fn postgres_run_inputs_upsert_and_read_back() {
         crate::infrastructure::database::DatabasePool::Postgres(pool),
         Arc::new(MemoryTokenStore::new()),
     );
-    let pipeline_id = format!("stub__{}__build", std::process::id());
+    let provider_prefix = format!("stub__{}__", std::process::id());
+    let pipeline_id = format!("{provider_prefix}build");
 
     exercise_run_inputs(&repository, &pipeline_id).await;
+    repository
+        .delete_run_inputs_with_prefix(&provider_prefix)
+        .await
+        .unwrap();
+
+    assert!(repository
+        .get_run_inputs(&pipeline_id)
+        .await
+        .unwrap()
+        .is_empty());
 }
