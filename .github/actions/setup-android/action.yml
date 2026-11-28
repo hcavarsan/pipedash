@@ -19,7 +19,7 @@ runs:
   using: composite
   steps:
     - name: Install mise tools
-      uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
+      uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
       with:
         cache: ${{ inputs.cache }}
         cache_key_prefix: mise-all-v1
@@ -36,7 +36,7 @@ runs:
         java-version: "21"
 
     - name: Install Ruby
-      uses: ruby/setup-ruby@b3aaceaef7e0ee231b499e7b5f49c03fc1d32199 # v1.338.0
+      uses: ruby/setup-ruby@be3c7df29b3349ec6bcfc6b4792f1cf9f5237d18 # v1.343.0
       with:
         ruby-version: "3.4"
         working-directory: android
