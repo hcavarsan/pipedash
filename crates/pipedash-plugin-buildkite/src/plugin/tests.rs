@@ -497,3 +497,46 @@ async fn refresh_reads_a_pipeline_without_builds_from_the_pipeline_endpoint() {
     );
     assert_eq!(requests.load(Ordering::SeqCst), 2);
 }
+
+fn named_pipeline(path: &str) -> Reply {
+    let json = |body| Reply {
+        status: "200 OK",
+        headers: "Content-Type: application/json\r\n",
+        body,
+    };
+    if path.starts_with("/organizations/acme/pipelines?") {
+        return json(
+            r#"[{"slug":"my-api","name":"My API","repository":"git@github.com:acme/api.git"}]"#,
+        );
+    }
+    if path.starts_with("/organizations/acme/pipelines/my-api/builds") {
+        return json(
+            r#"[{"id":"b-7","number":7,"state":"passed","web_url":"w","created_at":"2026-10-27T10:00:00.000Z",
+                "pipeline":{"slug":"my-api","name":"My API","repository":"git@github.com:acme/api.git"}}]"#,
+        );
+    }
+    Reply {
+        status: "404 Not Found",
+        headers: "",
+        body: "{}",
+    }
+}
+
+#[tokio::test]
+async fn a_picked_pipeline_with_a_display_name_shows_up_on_refresh() {
+    let (picker, _) = plugin_answering(named_pipeline, "").await;
+    let picked = picker
+        .fetch_available_pipelines_filtered(Some("acme".into()), None, None)
+        .await
+        .unwrap();
+    let id = picked.items[0].id.clone();
+    let (plugin, _) = plugin_answering(named_pipeline, &id).await;
+
+    let pipelines = plugin.fetch_pipelines().await.unwrap();
+
+    assert_eq!(
+        (id.as_str(), picked.items[0].name.as_str()),
+        ("acme/my-api", "My API")
+    );
+    assert_eq!((pipelines.len(), pipelines[0].name.as_str()), (1, "My API"));
+}
