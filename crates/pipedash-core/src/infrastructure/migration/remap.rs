@@ -39,6 +39,7 @@ pub fn remap_preferences(
     };
     preferences.muted_pipelines = pipelines(&preferences.muted_pipelines);
     preferences.watched_pipelines = pipelines(&preferences.watched_pipelines);
+    preferences.quiet_pipelines = pipelines(&preferences.quiet_pipelines);
     preferences.watch_once = preferences
         .watch_once
         .into_iter()

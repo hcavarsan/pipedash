@@ -31,6 +31,11 @@ fn a_storage_migration_moves_mutes_and_watches_to_the_new_provider_ids_and_drops
             watch("other__5__group/app"),
             watch("broken"),
         ],
+        quiet_pipelines: vec![
+            "stub__2__acme/nightly__ci.yml".into(),
+            "other__5__group/app".into(),
+            "broken".into(),
+        ],
         ..NotificationPreferences::default()
     };
     let mapping = HashMap::from([(2, 1), (3, 2)]);
@@ -42,6 +47,7 @@ fn a_storage_migration_moves_mutes_and_watches_to_the_new_provider_ids_and_drops
             muted_pipelines: vec!["stub__1__acme/api__ci.yml".into()],
             watched_pipelines: vec!["stub__1__acme/web__ci.yml".into()],
             watch_once: vec![watch("stub__2__acme/api__ci.yml")],
+            quiet_pipelines: vec!["stub__1__acme/nightly__ci.yml".into()],
             ..preferences
         }
     );
