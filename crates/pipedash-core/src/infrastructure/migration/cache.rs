@@ -90,6 +90,14 @@ impl MigrationOrchestrator {
             target_repo.cache_run_history(&target_id, &runs).await?;
             result.stats.cache_entries_migrated += runs.len();
         }
+        for (source_id, run_number, inputs) in source_repo.list_run_inputs().await? {
+            let Some(target_id) = remap_pipeline_id(&source_id, &result.provider_id_mapping) else {
+                continue;
+            };
+            target_repo
+                .record_run_inputs(&target_id, run_number, &inputs)
+                .await?;
+        }
         Ok(())
     }
 }

@@ -213,6 +213,7 @@ pub(crate) struct StubProvider {
     pub(crate) log_epoch: AtomicU64,
     pub(crate) log_requests: Mutex<Vec<Option<LogCursor>>>,
     pub(crate) history_policy: pipedash_plugin_api::RunHistoryPolicy,
+    pub(crate) trigger_result: Mutex<DomainResult<TriggerResult>>,
 }
 
 impl StubProvider {
@@ -265,6 +266,7 @@ impl StubProvider {
             log_epoch: AtomicU64::new(0),
             log_requests: Mutex::new(Vec::new()),
             history_policy: pipedash_plugin_api::RunHistoryPolicy::default(),
+            trigger_result: Mutex::new(Err(DomainError::NotSupported("stub".to_string()))),
         }
     }
 
@@ -493,7 +495,7 @@ impl Provider for StubProvider {
     }
 
     async fn trigger_pipeline(&self, _params: TriggerParams) -> DomainResult<TriggerResult> {
-        Err(DomainError::NotSupported("stub".to_string()))
+        self.trigger_result.lock().unwrap().clone()
     }
 
     async fn cancel_run(&self, _pipeline_id: &str, run_number: i64) -> DomainResult<()> {

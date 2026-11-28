@@ -4,6 +4,8 @@ pub use log_dialect::ActionsLogDialect;
 use pipedash_plugin_api::{
     PluginError,
     PluginResult,
+    RunDisplay,
+    RunFacts,
     WorkflowParameter,
     WorkflowParameterType,
 };
@@ -120,6 +122,16 @@ pub fn dispatch_body(inputs: Option<Value>) -> Value {
         body["inputs"] = Value::Object(inputs);
     }
     body
+}
+
+pub fn run_display(run: &RunFacts<'_>) -> RunDisplay {
+    let mut display = pipedash_plugin_api::plugin::defaults::run_display(run);
+    for field in &mut display.inputs {
+        if let Some(name) = field.label.strip_prefix(INPUT_PREFIX) {
+            field.label = name.to_string();
+        }
+    }
+    display
 }
 
 fn input_type(input: &Value) -> WorkflowParameterType {

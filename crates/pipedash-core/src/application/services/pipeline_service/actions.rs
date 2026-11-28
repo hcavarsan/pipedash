@@ -10,6 +10,7 @@ use pipedash_plugin_api::{
 
 use super::PipelineService;
 use super::READ_ONLY_PROVIDER;
+use crate::application::services::provider_service::ProviderLease;
 use crate::domain::{
     DomainError,
     DomainResult,
@@ -75,9 +76,13 @@ impl PipelineService {
     }
 
     pub async fn trigger_pipeline(&self, params: TriggerParams) -> DomainResult<TriggerResult> {
-        let (pipeline, provider) = self.writable(&params.workflow_id).await?;
+        let pipeline = self.presented_pipeline(&params.workflow_id).await?;
+        self.refuse_read_only(pipeline.provider_id).await?;
         require(&pipeline.actions.trigger, "Trigger")?;
-        let result = provider.trigger_pipeline(params.clone()).await?;
+        let lease = self.provider_service.acquire(pipeline.provider_id).await?;
+        let result = lease.provider.trigger_pipeline(params.clone()).await?;
+        self.remember_inputs(&lease, &pipeline.id, &result, params.inputs.as_ref())
+            .await;
         self.invalidate_run_cache(&params.workflow_id).await;
 
         self.event_bus
@@ -87,6 +92,32 @@ impl PipelineService {
             .await;
 
         Ok(result)
+    }
+
+    async fn remember_inputs(
+        &self, lease: &ProviderLease, pipeline_id: &str, result: &TriggerResult,
+        inputs: Option<&serde_json::Value>,
+    ) {
+        let (Some(_), Some(run_number)) = (&result.run_id, result.run_number) else {
+            return;
+        };
+        let Some(inputs) =
+            inputs.filter(|inputs| inputs.as_object().is_some_and(|map| !map.is_empty()))
+        else {
+            return;
+        };
+        let saved = self
+            .provider_service
+            .commit(lease, || {
+                self.repository
+                    .record_run_inputs(pipeline_id, run_number, inputs)
+            })
+            .await;
+        if let Some(Err(error)) = saved {
+            tracing::warn!(
+                "Failed to keep the inputs of run {run_number} of {pipeline_id}: {error}"
+            );
+        }
     }
 
     pub async fn cancel_run(&self, pipeline_id: &str, run_number: i64) -> DomainResult<()> {

@@ -224,6 +224,12 @@ impl Repository {
 
         let ids: Vec<String> = pipelines.into_iter().map(|pipeline| pipeline.id).collect();
         self.clear_removed_caches(id, &ids).await;
+        if let Some(config) = &config {
+            let prefix = crate::domain::pipeline_id::compose(&config.provider_type, id, "");
+            if let Err(e) = self.delete_run_inputs_with_prefix(&prefix).await {
+                tracing::warn!("Failed to remove the kept run inputs of provider {id}: {e}");
+            }
+        }
         if let Err(e) = PipelineViewRepository::new(self.cache_pool.clone())
             .remove_provider(id)
             .await

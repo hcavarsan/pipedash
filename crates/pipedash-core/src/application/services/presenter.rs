@@ -66,6 +66,7 @@ impl Presenter {
         self.note_read_only(&mut read_only, pipeline.provider_id)
             .await?;
         let read_only = read_only[&pipeline.provider_id];
+        self.fill_kept_inputs(pipeline, runs).await?;
 
         let typical = typical_duration(runs).or(pipeline.typical_duration_seconds);
         let queue_limit = self.provider_service.queue_limit_seconds().await;
@@ -86,6 +87,34 @@ impl Presenter {
             }
             run.actions = actions;
             run.display = display;
+        }
+        Ok(())
+    }
+
+    async fn fill_kept_inputs(
+        &self, pipeline: &Pipeline, runs: &mut [PipelineRun],
+    ) -> DomainResult<()> {
+        if runs.is_empty() {
+            return Ok(());
+        }
+        let kept = self
+            .provider_service
+            .repository()
+            .get_run_inputs(&pipeline.id)
+            .await?;
+        for run in runs.iter_mut() {
+            let Some(serde_json::Value::Object(kept)) = kept.get(&run.run_number) else {
+                continue;
+            };
+            let inputs = run
+                .inputs
+                .get_or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+            let Some(inputs) = inputs.as_object_mut() else {
+                continue;
+            };
+            for (name, value) in kept {
+                inputs.entry(name.clone()).or_insert_with(|| value.clone());
+            }
         }
         Ok(())
     }

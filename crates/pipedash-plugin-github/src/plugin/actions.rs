@@ -36,6 +36,7 @@ impl GitHubPlugin {
         trigger_time: chrono::DateTime<chrono::Utc>,
     ) -> bool {
         run.run_number > previous_run_number
+            && run.event == "workflow_dispatch"
             && run.head_branch == ref_value
             && run.created_at.timestamp() >= trigger_time.timestamp()
     }
@@ -96,6 +97,7 @@ impl GitHubPlugin {
             .map_err(|e| client::map_octocrab_error("Failed to trigger workflow", e))?;
 
         let mut new_run = None;
+        let mut only_match = false;
         for attempt in 1..=10 {
             tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
@@ -103,9 +105,11 @@ impl GitHubPlugin {
                 .fetch_run_history(owner, repo, workflow_id_u64, 5)
                 .await?;
 
-            new_run = runs.into_iter().find(|run| {
+            let mut matches = runs.into_iter().filter(|run| {
                 Self::matches_trigger(run, previous_latest_run_number, &ref_value, trigger_time)
             });
+            new_run = matches.next();
+            only_match = matches.next().is_none();
 
             if let Some(run) = &new_run {
                 tracing::debug!(
@@ -123,18 +127,22 @@ impl GitHubPlugin {
             );
         }
 
-        let run_number = match new_run {
-            Some(run) => run.run_number,
-            None => client
-                .fetch_run_history(owner, repo, workflow_id_u64, 1)
-                .await?
-                .first()
-                .map_or(0, |run| run.run_number),
-        };
+        if let Some(run) = new_run {
+            return Ok(TriggerResult {
+                run_id: only_match.then(|| crate::mapper::run_local_id(&run)),
+                run_number: Some(run.run_number),
+            });
+        }
+
+        let latest = client
+            .fetch_run_history(owner, repo, workflow_id_u64, 1)
+            .await?
+            .first()
+            .map_or(0, |run| run.run_number);
 
         Ok(TriggerResult {
             run_id: None,
-            run_number: (run_number > 0).then_some(run_number),
+            run_number: (latest > 0).then_some(latest),
         })
     }
 

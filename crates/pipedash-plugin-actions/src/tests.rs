@@ -56,6 +56,31 @@ fn dispatch_body_keeps_a_workflow_input_named_ref_separate_from_the_branch() {
 }
 
 #[test]
+fn run_display_labels_kept_dispatch_inputs_by_their_workflow_name() {
+    let inputs = serde_json::json!({
+        "ref": "release",
+        "inputs.ref": "abc123",
+        "inputs.environment": "production"
+    });
+    let metadata = std::collections::HashMap::new();
+    let display = run_display(&RunFacts {
+        run_number: 8,
+        status: pipedash_plugin_api::PipelineStatus::Running,
+        branch: Some("release"),
+        actor: None,
+        inputs: Some(&inputs),
+        metadata: &metadata,
+    });
+
+    let fields: Vec<_> = display
+        .inputs
+        .iter()
+        .map(|field| (field.label.as_str(), field.value.as_str()))
+        .collect();
+    assert_eq!(fields, [("environment", "production"), ("ref", "abc123")]);
+}
+
+#[test]
 fn workflows_without_dispatch_inputs_have_no_parameters() {
     assert!(dispatch_inputs("on: push\njobs: {}\n").unwrap().is_empty());
     assert!(dispatch_inputs("on: [push, workflow_dispatch]\n")
