@@ -2,6 +2,7 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct Pipeline {
+    pub slug: String,
     pub name: String,
     pub repository: String,
 }

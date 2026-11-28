@@ -109,7 +109,7 @@ impl BuildkiteClient {
             .map(|pipeline| {
                 let repo_name = repository_name(&pipeline.repository);
                 AvailablePipeline {
-                    id: format!("{org_slug}/{}", pipeline.name),
+                    id: format!("{org_slug}/{}", pipeline.slug),
                     name: pipeline.name,
                     description: Some(repo_name.clone()),
                     organization: Some(org_slug.clone()),
