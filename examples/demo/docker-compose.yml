@@ -129,7 +129,7 @@ services:
     restart: "no"
 
   komodo-mongo:
-    image: mongo:9.0@sha256:452bdaf2127b8ff851e31410a267809b9829eded219979f2210e7c7efb85a058
+    image: mongo:9.0@sha256:b0c835c26e5997413e985000f1013c275377cd9607761c1784d486f6dd620b7f
     command: --quiet --wiredTigerCacheSizeGB 0.25
     environment:
       MONGO_INITDB_ROOT_USERNAME: komodo
@@ -272,7 +272,7 @@ services:
     restart: unless-stopped
 
   relay-egress:
-    image: nginx:1.31.8-alpine@sha256:fed7e14be83cbd2661a75cdc5b872d936cf155d46c327084d30b8df19ae88d72
+    image: nginx:1.31.9-alpine@sha256:fb4658584bd9a916ffb6f6e365f97c25cfdb2923801f551ea08356e695f14ff7
     entrypoint: ["nginx", "-e", "stderr", "-c", "/etc/nginx/egress.conf", "-g", "daemon off;"]
     user: "101:101"
     read_only: true
@@ -294,7 +294,7 @@ services:
     restart: unless-stopped
 
   gateway:
-    image: nginx:1.31.8-alpine@sha256:fed7e14be83cbd2661a75cdc5b872d936cf155d46c327084d30b8df19ae88d72
+    image: nginx:1.31.9-alpine@sha256:fb4658584bd9a916ffb6f6e365f97c25cfdb2923801f551ea08356e695f14ff7
     user: "101:101"
     read_only: true
     cap_drop: [ALL]
@@ -318,7 +318,7 @@ services:
     restart: unless-stopped
 
   tunnel:
-    image: cloudflare/cloudflared:2026.11.0@sha256:b94b96edf2c9c4360f8879c8580cfaa99077f19c849ec595ca2f711b27d4f344
+    image: cloudflare/cloudflared:2026.11.1@sha256:e613aadbc2d9511785d2e67a86b0c8ac18dd63a3f9af0d06faf04cbfdcb35f2d
     command: tunnel --no-autoupdate run
     profiles: [public]
     environment:
